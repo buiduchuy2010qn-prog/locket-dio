@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="theme-color" content="#000000">
+  <title>Locket Dio</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>tailwind.config = { theme: { extend: { colors: { gold: '#FFD700' } } } };</script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="bg-black text-white">
+
+  <!-- ═══ AUTH ═══ -->
+  <div id="auth-gate" class="auth-gate">
+    <div class="auth-glow"></div>
+    <div class="auth-wrap">
+
+      <div id="panel-login">
+        <div class="text-center mb-8">
+          <div class="auth-logo-icon">L</div>
+          <h1 class="text-2xl font-bold">Locket Dio</h1>
+          <p class="text-zinc-500 text-sm mt-1">Chia sẻ khoảnh khắc · Kết bạn · Nhắn tin</p>
+        </div>
+        <form id="form-login" class="space-y-4">
+          <div class="auth-field"><label>Email</label><input type="email" id="login-email" class="auth-input" placeholder="email@example.com" required autocomplete="username"></div>
+          <div class="auth-field"><label>Mật khẩu</label><input type="password" id="login-password" class="auth-input" placeholder="••••••••" required autocomplete="current-password"></div>
+          <p id="login-error" class="auth-error hidden"></p>
+          <button type="submit" class="auth-btn">Đăng nhập</button>
+        </form>
+        <p class="auth-switch">Chưa có tài khoản? <button type="button" id="btn-show-register" class="auth-link">Đăng ký</button></p>
+      </div>
+
+      <div id="panel-register" class="hidden">
+        <div class="text-center mb-8">
+          <div class="auth-logo-icon">✦</div>
+          <h1 class="text-2xl font-bold">Tạo tài khoản</h1>
+          <p class="text-zinc-500 text-sm mt-1">Miễn phí · Lưu trữ trên trình duyệt</p>
+        </div>
+        <form id="form-register" class="space-y-3">
+          <div class="auth-field"><label>Tên hiển thị</label><input type="text" id="register-name" class="auth-input" placeholder="Tên của bạn" required></div>
+          <div class="auth-field"><label>Email</label><input type="email" id="register-email" class="auth-input" placeholder="email@example.com" required></div>
+          <div class="auth-field"><label>Mật khẩu</label><input type="password" id="register-password" class="auth-input" placeholder="Tối thiểu 6 ký tự" required></div>
+          <div class="auth-field"><label>Xác nhận mật khẩu</label><input type="password" id="register-confirm" class="auth-input" placeholder="Nhập lại" required></div>
+          <p id="register-error" class="auth-error hidden"></p>
+          <button type="submit" class="auth-btn">Đăng ký</button>
+        </form>
+        <p class="auth-switch">Đã có tài khoản? <button type="button" id="btn-show-login" class="auth-link">Đăng nhập</button></p>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ═══ MAIN APP ═══ -->
+  <div id="main-app" class="hidden">
+
+    <div id="system-banner" class="system-banner hidden"></div>
+
+    <header class="desktop-topbar">
+      <div class="flex items-center gap-3 flex-1">
+        <div class="w-9 h-9 bg-gold rounded-xl flex items-center justify-center text-black font-bold">L</div>
+        <span class="text-lg font-semibold">Locket Dio</span>
+      </div>
+      <nav class="hidden lg:flex gap-1">
+        <button type="button" class="sidebar-tab active" data-tab="camera"><i class="fa-solid fa-camera"></i><span>Camera</span></button>
+        <button type="button" class="sidebar-tab" data-tab="friends"><i class="fa-solid fa-user-group"></i><span>Friends</span></button>
+        <button type="button" class="sidebar-tab" data-tab="chat"><i class="fa-solid fa-comment"></i><span>Chat</span></button>
+        <button type="button" class="sidebar-tab" data-tab="history"><i class="fa-solid fa-clock-rotate-left"></i><span>History</span></button>
+        <button type="button" class="sidebar-tab" data-tab="profile"><i class="fa-solid fa-circle-user"></i><span>Profile</span></button>
+      </nav>
+      <a href="/admin/" class="text-gold text-sm border border-gold/30 px-3 py-1.5 rounded-lg hidden lg:inline-flex items-center gap-2"><i class="fa-solid fa-shield-halved"></i> Admin</a>
+    </header>
+
+    <div class="app-layout">
+      <aside class="desktop-sidebar">
+        <div class="flex items-center gap-2 px-2 pb-4 mb-4 border-b border-white/5">
+          <div class="w-10 h-10 bg-gold rounded-xl flex items-center justify-center text-black font-bold">L</div>
+          <div><p class="font-bold text-sm">Locket Dio</p><p class="text-[10px] text-gold">Real · localStorage</p></div>
+        </div>
+        <nav class="flex flex-col gap-1 flex-1">
+          <button type="button" class="sidebar-tab active" data-tab="camera"><i class="fa-solid fa-camera"></i><span>Camera</span></button>
+          <button type="button" class="sidebar-tab" data-tab="friends"><i class="fa-solid fa-user-group"></i><span>Friends</span></button>
+          <button type="button" class="sidebar-tab" data-tab="chat"><i class="fa-solid fa-comment"></i><span>Chat</span></button>
+          <button type="button" class="sidebar-tab" data-tab="history"><i class="fa-solid fa-clock-rotate-left"></i><span>History</span></button>
+          <button type="button" class="sidebar-tab" data-tab="profile"><i class="fa-solid fa-circle-user"></i><span>Profile</span></button>
+        </nav>
+        <a href="/admin/" class="sidebar-tab"><i class="fa-solid fa-shield-halved"></i><span>Admin</span></a>
+      </aside>
+
+      <div class="app-shell">
+        <main id="screens" class="flex-1 relative min-h-0">
+
+          <!-- CAMERA -->
+          <section id="screen-camera" class="screen active" data-screen="camera">
+            <header class="safe-top px-4 pt-3 pb-2 lg:hidden">
+              <h2 class="text-xl font-bold">Locket Dio</h2>
+              <div id="camera-friends-strip" class="flex gap-3 overflow-x-auto no-scrollbar mt-3 py-1"></div>
+            </header>
+            <div class="camera-layout flex-1 flex flex-col min-h-0">
+              <div class="flex-1 flex flex-col min-h-0">
+                <div id="camera-friends-strip-desktop" class="hidden lg:flex gap-3 overflow-x-auto no-scrollbar px-8 pt-4"></div>
+                <div class="viewfinder">
+                  <video id="camera-video" class="feed-layer" playsinline muted autoplay></video>
+                  <img id="camera-sample" class="feed-layer" src="https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=800&q=80" alt="">
+                  <div id="flash-overlay"></div>
+                  <div id="rec-overlay" class="hidden absolute top-4 left-4 z-20 flex items-center gap-2 bg-black/50 backdrop-blur rounded-full px-3 py-1.5">
+                    <span class="rec-dot w-2 h-2 rounded-full bg-red-500"></span>
+                    <span class="text-xs font-bold text-red-400">REC</span>
+                    <span id="rec-timer" class="text-xs font-mono">00:00 / 01:00</span>
+                  </div>
+                  <div id="capture-preview" class="hidden absolute inset-0 z-30 bg-black/95 flex flex-col p-4">
+                    <div class="flex-1 relative rounded-2xl overflow-hidden min-h-0">
+                      <img id="preview-img" class="hidden absolute inset-0 w-full h-full object-cover" alt="">
+                      <video id="preview-video" class="hidden absolute inset-0 w-full h-full object-cover" playsinline muted loop></video>
+                    </div>
+                    <div class="shrink-0 mt-3 space-y-2">
+                      <div class="relative">
+                        <textarea id="caption-input" maxlength="300" rows="2" placeholder="Caption..." class="w-full bg-zinc-800 rounded-2xl px-4 py-3 text-sm resize-none outline-none border border-white/5 focus:border-gold/40"></textarea>
+                        <span id="caption-count" class="absolute right-3 bottom-2 text-[10px] text-zinc-500">0/300</span>
+                      </div>
+                      <div class="flex gap-2">
+                        <button id="btn-retake" type="button" class="flex-1 py-3 rounded-2xl bg-zinc-800 text-sm">Chụp lại</button>
+                        <button id="btn-send" type="button" class="flex-1 py-3 rounded-2xl bg-gold text-black font-bold text-sm">Gửi ✦</button>
+                      </div>
+                      <button id="btn-recipients" type="button" class="w-full text-xs text-gold py-1">Gửi cho: Tất cả bạn bè ▾</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="camera-side shrink-0 px-4 pb-6 pt-2 z-10">
+                <div class="flex justify-center mb-4">
+                  <div class="mode-switch">
+                    <button type="button" data-mode="photo" class="mode-btn active">Photo</button>
+                    <button type="button" data-mode="video" class="mode-btn text-gold">Video 60s</button>
+                  </div>
+                </div>
+                <div class="flex items-center justify-center gap-6">
+                  <button id="btn-flash" type="button" class="w-11 h-11 rounded-full flex items-center justify-center text-xl"><i class="fa-solid fa-bolt"></i></button>
+                  <label class="w-11 h-11 rounded-full flex items-center justify-center text-gold cursor-pointer">
+                    <i class="fa-solid fa-images text-xl"></i>
+                    <input type="file" id="library-input" accept="image/*,video/*" class="hidden">
+                  </label>
+                  <button id="btn-shutter" type="button" class="shutter-btn"><span class="shutter-ring"></span><span class="shutter-inner"></span></button>
+                  <button id="btn-flip" type="button" class="w-11 h-11 rounded-full flex items-center justify-center text-xl"><i class="fa-solid fa-camera-rotate"></i></button>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- FRIENDS -->
+          <section id="screen-friends" class="screen" data-screen="friends">
+            <header class="safe-top px-4 lg:px-8 pt-6 pb-2">
+              <h2 class="text-2xl font-bold">Friends</h2>
+              <p id="friends-count" class="text-sm text-zinc-500 mt-1">0 bạn bè</p>
+            </header>
+            <div class="px-4 lg:px-8 mb-3">
+              <input id="friends-search" type="search" placeholder="Lọc bạn bè..." class="w-full bg-zinc-900 rounded-2xl px-4 py-3 text-sm outline-none border border-zinc-800">
+            </div>
+            <div class="flex-1 overflow-y-auto px-4 lg:px-8 pb-28 lg:pb-8">
+              <div id="friend-requests"></div>
+              <div id="friends-list"></div>
+            </div>
+            <div class="fixed bottom-20 left-0 right-0 max-w-[430px] mx-auto px-4 lg:static lg:px-8 lg:pb-8 lg:max-w-2xl">
+              <button id="btn-add-friend" type="button" class="w-full py-3.5 rounded-2xl bg-gold text-black font-bold text-sm"><i class="fa-solid fa-user-plus mr-2"></i>Tìm &amp; kết bạn</button>
+            </div>
+          </section>
+
+          <!-- CHAT -->
+          <section id="screen-chat" class="screen" data-screen="chat">
+            <div id="chat-list-view" class="flex flex-col h-full">
+              <header class="safe-top px-4 lg:px-8 pt-6 pb-3">
+                <h2 class="text-2xl font-bold">Chat</h2>
+                <p class="text-xs text-zinc-500">Nhắn tin thật với bạn bè</p>
+              </header>
+              <div id="chat-conversations" class="flex-1 overflow-y-auto px-4 lg:px-8 pb-28 lg:pb-8"></div>
+            </div>
+            <div id="chat-room-view" class="hidden flex flex-col h-full">
+              <header class="safe-top flex items-center gap-3 px-4 py-3 border-b border-white/5">
+                <button id="btn-back-chat-list" type="button" class="w-10 h-10 flex items-center justify-center"><i class="fa-solid fa-chevron-left"></i></button>
+                <div id="chat-friend-avatar" class="avatar-circle sm"></div>
+                <h3 id="chat-friend-name" class="font-semibold flex-1 truncate"></h3>
+              </header>
+              <div id="chat-messages"></div>
+              <form id="chat-form" class="chat-input-bar">
+                <input id="chat-input" type="text" placeholder="Nhắn tin..." autocomplete="off">
+                <button type="submit" class="chat-send-btn"><i class="fa-solid fa-paper-plane"></i></button>
+              </form>
+            </div>
+          </section>
+
+          <!-- HISTORY -->
+          <section id="screen-history" class="screen" data-screen="history">
+            <header class="safe-top px-4 lg:px-8 pt-6 pb-3">
+              <h2 class="text-2xl font-bold">History</h2>
+              <div class="flex gap-2 mt-3">
+                <button type="button" data-filter="all" class="filter-chip active">Tất cả</button>
+                <button type="button" data-filter="sent" class="filter-chip">Đã gửi</button>
+                <button type="button" data-filter="received" class="filter-chip">Đã nhận</button>
+              </div>
+            </header>
+            <div class="flex-1 overflow-y-auto px-4 lg:px-8 pb-28 lg:pb-8">
+              <div id="history-grid" class="history-grid"></div>
+            </div>
+          </section>
+
+          <!-- PROFILE -->
+          <section id="screen-profile" class="screen overflow-y-auto pb-28 lg:pb-8" data-screen="profile">
+            <div class="px-4 lg:px-8 pt-10 max-w-lg mx-auto text-center lg:text-left lg:max-w-2xl">
+              <div id="profile-avatar" class="profile-avatar-lg mx-auto lg:mx-0 mb-4"></div>
+              <h2 id="profile-name" class="text-2xl font-bold"></h2>
+              <p id="profile-email" class="text-zinc-500 text-sm mt-1"></p>
+              <p id="profile-stats" class="text-zinc-500 text-sm mt-2"></p>
+              <div class="settings-card mt-8 text-left">
+                <button type="button" id="btn-admin-link" class="settings-row"><span><i class="fa-solid fa-shield-halved text-gold w-5"></i> Admin Panel</span><span class="text-zinc-500">→</span></button>
+                <button type="button" id="btn-logout" class="settings-row text-red-400"><span><i class="fa-solid fa-right-from-bracket w-5"></i> Đăng xuất</span><span class="text-zinc-500">→</span></button>
+              </div>
+              <p class="text-xs text-zinc-600 mt-6">Locket Dio · Dữ liệu lưu trên localStorage trình duyệt</p>
+            </div>
+          </section>
+
+        </main>
+
+        <nav class="tab-bar lg:hidden">
+          <button type="button" class="tab-btn active" data-tab="camera"><i class="fa-solid fa-camera"></i><span>Camera</span></button>
+          <button type="button" class="tab-btn" data-tab="friends"><i class="fa-solid fa-user-group"></i><span>Friends</span><span id="badge-friends" class="nav-badge hidden"></span></button>
+          <button type="button" class="tab-btn" data-tab="chat"><i class="fa-solid fa-comment"></i><span>Chat</span><span id="badge-chat" class="nav-badge hidden"></span></button>
+          <button type="button" class="tab-btn" data-tab="history"><i class="fa-solid fa-clock-rotate-left"></i><span>History</span></button>
+          <button type="button" class="tab-btn" data-tab="profile"><i class="fa-solid fa-circle-user"></i><span>Profile</span></button>
+        </nav>
+      </div>
+    </div>
+
+    <!-- Modals -->
+    <div id="modal-detail" class="modal hidden">
+      <div class="modal-backdrop"></div>
+      <div class="modal-sheet">
+        <button type="button" class="modal-close absolute top-3 right-4 z-10">&times;</button>
+        <img id="detail-img" class="hidden w-full max-h-[55vh] object-contain bg-black" alt="">
+        <video id="detail-video" class="hidden w-full max-h-[55vh] object-contain bg-black" playsinline muted loop></video>
+        <p id="detail-caption" class="px-4 py-3 text-sm"></p>
+        <p id="detail-meta" class="px-4 pb-6 text-xs text-zinc-500"></p>
+      </div>
+    </div>
+
+    <div id="modal-add-friend" class="modal hidden">
+      <div class="modal-backdrop"></div>
+      <div class="modal-sheet">
+        <div class="modal-head"><h3 class="font-bold">Tìm người dùng</h3><button type="button" class="modal-close">&times;</button></div>
+        <div class="p-4">
+          <input id="add-friend-search" type="search" placeholder="Email hoặc tên..." class="w-full bg-zinc-900 rounded-2xl px-4 py-3 text-sm outline-none border border-zinc-800 mb-3">
+          <div id="add-friend-results"></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="modal-recipients" class="modal hidden">
+      <div class="modal-backdrop"></div>
+      <div class="modal-sheet">
+        <div class="modal-head"><h3 class="font-bold">Gửi Locket cho</h3><button type="button" class="modal-close">&times;</button></div>
+        <div id="recipient-list" class="max-h-[50vh] overflow-y-auto"></div>
+        <button type="button" id="btn-confirm-recipients" class="btn-gold-full">Xác nhận</button>
+      </div>
+    </div>
+
+    <div id="modal-admin-login" class="modal hidden">
+      <div class="modal-backdrop"></div>
+      <div class="modal-sheet">
+        <div class="modal-head"><h3 class="font-bold">Admin Login</h3><button type="button" class="modal-close">&times;</button></div>
+        <form id="admin-login-form" class="p-4 space-y-3">
+          <input type="email" id="admin-email" class="auth-input" placeholder="Email Admin" required>
+          <input type="password" id="admin-password" class="auth-input" placeholder="Mật khẩu" required>
+          <p id="admin-login-error" class="auth-error hidden"></p>
+          <button type="submit" class="auth-btn">Vào Admin Panel</button>
+        </form>
+      </div>
+    </div>
+
+    <div id="emoji-rain" class="fixed inset-0 pointer-events-none z-[400] overflow-hidden"></div>
+    <div id="toast" class="toast hidden"></div>
+  </div>
+
+  <script src="js/db.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/account.js"></script>
+  <script src="js/camera.js"></script>
+  <script src="js/friends.js"></script>
+  <script src="js/chat.js"></script>
+  <script src="js/history.js"></script>
+  <script src="js/profile.js"></script>
+  <script src="js/app.js"></script>
+  <script>document.addEventListener('DOMContentLoaded', () => DioAccount.init());</script>
+</body>
+</html>
