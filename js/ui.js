@@ -19,6 +19,10 @@ const DioUI = (() => {
   }
 
   function switchTab(tab, onChange) {
+    if (tab === 'admin' && !DioDB.isCurrentUserAdmin()) {
+      toast('Tài khoản không có quyền Admin');
+      return;
+    }
     if (activeTab === tab) return;
     activeTab = tab;
     setActiveNav(tab);

@@ -69,8 +69,8 @@
         <button type="button" class="sidebar-tab" data-tab="chat"><i class="fa-solid fa-comment"></i><span>Chat</span></button>
         <button type="button" class="sidebar-tab" data-tab="history"><i class="fa-solid fa-clock-rotate-left"></i><span>History</span></button>
         <button type="button" class="sidebar-tab" data-tab="profile"><i class="fa-solid fa-circle-user"></i><span>Profile</span></button>
+        <button type="button" class="sidebar-tab admin-only hidden" data-tab="admin"><i class="fa-solid fa-shield-halved"></i><span>Admin</span></button>
       </nav>
-      <a href="/admin/" class="text-gold text-sm border border-gold/30 px-3 py-1.5 rounded-lg hidden lg:inline-flex items-center gap-2"><i class="fa-solid fa-shield-halved"></i> Admin</a>
     </header>
 
     <div class="app-layout">
@@ -85,8 +85,8 @@
           <button type="button" class="sidebar-tab" data-tab="chat"><i class="fa-solid fa-comment"></i><span>Chat</span></button>
           <button type="button" class="sidebar-tab" data-tab="history"><i class="fa-solid fa-clock-rotate-left"></i><span>History</span></button>
           <button type="button" class="sidebar-tab" data-tab="profile"><i class="fa-solid fa-circle-user"></i><span>Profile</span></button>
+          <button type="button" class="sidebar-tab admin-only hidden" data-tab="admin"><i class="fa-solid fa-shield-halved"></i><span>Admin</span></button>
         </nav>
-        <a href="/admin/" class="sidebar-tab"><i class="fa-solid fa-shield-halved"></i><span>Admin</span></a>
       </aside>
 
       <div class="app-shell">
@@ -212,11 +212,43 @@
               <h2 id="profile-name" class="text-2xl font-bold"></h2>
               <p id="profile-email" class="text-zinc-500 text-sm mt-1"></p>
               <p id="profile-stats" class="text-zinc-500 text-sm mt-2"></p>
+              <div id="profile-admin-badge" class="hidden inline-flex items-center gap-2 mt-3 px-4 py-1.5 rounded-full border border-gold/40 text-gold text-xs font-semibold">
+                <i class="fa-solid fa-shield-halved"></i> Tài khoản Admin
+              </div>
               <div class="settings-card mt-8 text-left">
-                <button type="button" id="btn-admin-link" class="settings-row"><span><i class="fa-solid fa-shield-halved text-gold w-5"></i> Admin Panel</span><span class="text-zinc-500">→</span></button>
+                <button type="button" id="btn-admin-link" class="settings-row admin-only hidden"><span><i class="fa-solid fa-shield-halved text-gold w-5"></i> Quản trị hệ thống</span><span class="text-zinc-500">→</span></button>
                 <button type="button" id="btn-logout" class="settings-row text-red-400"><span><i class="fa-solid fa-right-from-bracket w-5"></i> Đăng xuất</span><span class="text-zinc-500">→</span></button>
               </div>
               <p class="text-xs text-zinc-600 mt-6">Locket Dio · Dữ liệu lưu trên localStorage trình duyệt</p>
+            </div>
+          </section>
+
+          <!-- ADMIN (chỉ tài khoản ủy quyền) -->
+          <section id="screen-admin" class="screen overflow-y-auto pb-28 lg:pb-8" data-screen="admin">
+            <header class="safe-top px-4 lg:px-8 pt-6 pb-4 border-b border-white/5">
+              <div class="flex items-center gap-2">
+                <i class="fa-solid fa-shield-halved text-gold"></i>
+                <div>
+                  <h2 id="admin-screen-title" class="text-2xl font-bold">Dashboard</h2>
+                  <p class="text-xs text-zinc-500">Admin · Cùng web với User</p>
+                </div>
+              </div>
+            </header>
+            <div class="admin-layout-inline px-4 lg:px-8 py-4 max-w-5xl mx-auto w-full">
+              <nav class="admin-subnav flex gap-2 overflow-x-auto no-scrollbar mb-6">
+                <button type="button" class="admin-subnav-btn active" data-admin-panel="dashboard">Dashboard</button>
+                <button type="button" class="admin-subnav-btn" data-admin-panel="users">Users</button>
+                <button type="button" class="admin-subnav-btn" data-admin-panel="lockets">Lockets</button>
+              </nav>
+              <div id="admin-panel-dashboard" class="admin-subpanel active">
+                <div id="admin-stats-grid" class="admin-stats-grid"></div>
+              </div>
+              <div id="admin-panel-users" class="admin-subpanel">
+                <div id="admin-users-table" class="admin-table-wrap"></div>
+              </div>
+              <div id="admin-panel-lockets" class="admin-subpanel">
+                <div id="admin-lockets-table" class="admin-table-wrap"></div>
+              </div>
             </div>
           </section>
 
@@ -228,6 +260,7 @@
           <button type="button" class="tab-btn" data-tab="chat"><i class="fa-solid fa-comment"></i><span>Chat</span><span id="badge-chat" class="nav-badge hidden"></span></button>
           <button type="button" class="tab-btn" data-tab="history"><i class="fa-solid fa-clock-rotate-left"></i><span>History</span></button>
           <button type="button" class="tab-btn" data-tab="profile"><i class="fa-solid fa-circle-user"></i><span>Profile</span></button>
+          <button type="button" class="tab-btn admin-only hidden" data-tab="admin"><i class="fa-solid fa-shield-halved"></i><span>Admin</span></button>
         </nav>
       </div>
     </div>
@@ -264,19 +297,6 @@
       </div>
     </div>
 
-    <div id="modal-admin-login" class="modal hidden">
-      <div class="modal-backdrop"></div>
-      <div class="modal-sheet">
-        <div class="modal-head"><h3 class="font-bold">Admin Login</h3><button type="button" class="modal-close">&times;</button></div>
-        <form id="admin-login-form" class="p-4 space-y-3">
-          <input type="email" id="admin-email" class="auth-input" placeholder="Email Admin" required>
-          <input type="password" id="admin-password" class="auth-input" placeholder="Mật khẩu" required>
-          <p id="admin-login-error" class="auth-error hidden"></p>
-          <button type="submit" class="auth-btn">Vào Admin Panel</button>
-        </form>
-      </div>
-    </div>
-
     <div id="emoji-rain" class="fixed inset-0 pointer-events-none z-[400] overflow-hidden"></div>
     <div id="toast" class="toast hidden"></div>
   </div>
@@ -290,6 +310,7 @@
   <script src="js/chat.js"></script>
   <script src="js/history.js"></script>
   <script src="js/profile.js"></script>
+  <script src="js/admin-panel.js"></script>
   <script src="js/app.js"></script>
   <script>document.addEventListener('DOMContentLoaded', () => DioAccount.init());</script>
 </body>

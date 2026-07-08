@@ -300,5 +300,30 @@ body {
 }
 .system-banner.hidden { display: none; }
 
+/* Admin tích hợp (cùng web) */
+.admin-only.hidden { display: none !important; }
+.admin-subnav-btn {
+  flex-shrink: 0; padding: 8px 16px; border-radius: 999px; font-size: 13px; font-weight: 600;
+  background: var(--card); color: #8E8E93; border: 1px solid transparent; cursor: pointer;
+}
+.admin-subnav-btn.active { background: rgba(255,215,0,0.12); color: var(--gold); border-color: rgba(255,215,0,0.3); }
+.admin-subpanel { display: none; }
+.admin-subpanel.active { display: block; animation: authFadeIn 0.3s var(--ease); }
+.admin-stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; }
+.admin-stat { background: var(--card); border: 0.5px solid rgba(255,255,255,0.06); border-radius: 16px; padding: 18px; }
+.admin-stat-num { font-size: 1.75rem; font-weight: 800; color: var(--gold); line-height: 1; }
+.admin-stat-label { font-size: 10px; color: #8E8E93; text-transform: uppercase; margin-top: 6px; letter-spacing: 0.04em; }
+.admin-table-wrap { background: var(--card); border-radius: 16px; overflow-x: auto; border: 0.5px solid rgba(255,255,255,0.06); }
+.admin-table { width: 100%; border-collapse: collapse; font-size: 14px; min-width: 520px; }
+.admin-table th { text-align: left; padding: 12px 14px; font-size: 10px; color: #8E8E93; text-transform: uppercase; background: #111; border-bottom: 0.5px solid rgba(255,255,255,0.06); }
+.admin-table td { padding: 12px 14px; border-bottom: 0.5px solid rgba(255,255,255,0.06); vertical-align: middle; }
+.admin-thumb { width: 44px; height: 56px; object-fit: cover; border-radius: 6px; }
+.admin-badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 10px; font-weight: 600; margin-right: 4px; }
+.admin-badge.gold { background: rgba(255,215,0,0.15); color: var(--gold); }
+.admin-badge.ban { background: rgba(239,68,68,0.15); color: #ef4444; }
+.admin-badge.ok { background: rgba(255,255,255,0.06); color: #8E8E93; }
+.admin-btn-sm { padding: 5px 10px; border-radius: 8px; font-size: 11px; border: 1px solid rgba(255,255,255,0.1); background: var(--elevated); color: #fff; cursor: pointer; margin-right: 4px; }
+.admin-btn-sm.danger:hover { border-color: #ef4444; color: #ef4444; }
+
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { scrollbar-width: none; }
