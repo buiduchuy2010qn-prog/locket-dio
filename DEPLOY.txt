@@ -1,0 +1,12 @@
+Locket Dio — Deploy Render (1 click)
+
+1. Mở link:
+   https://render.com/deploy?repo=https://github.com/buiduchuy2010qn-prog/locket-dio
+
+2. Đăng nhập Render → Connect GitHub → Deploy Blueprint
+
+3. URL sau deploy:
+   https://locket-dio.onrender.com
+
+GitHub: https://github.com/buiduchuy2010qn-prog/locket-dio
+Admin: /admin/ — buiduchuy2010qn@gmail.com / duchuy2010
