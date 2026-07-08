@@ -40,16 +40,5 @@ const DioAuth = (() => {
 
   function restore() { return DioDB.getCurrentUser(); }
 
-  function adminLogin(email, password) {
-    const admin = DioDB.ADMIN_DEFAULT;
-    if (email.trim().toLowerCase() === admin.email.toLowerCase() && password === admin.password) {
-      DioDB.setAdminSession();
-      return { ok: true };
-    }
-    return { ok: false, error: 'Thông tin Admin không đúng' };
-  }
-
-  function adminLogout() { DioDB.clearAdminSession(); }
-
-  return { register, login, logout, isLoggedIn, restore, adminLogin, adminLogout };
+  return { register, login, logout, isLoggedIn, restore };
 })();

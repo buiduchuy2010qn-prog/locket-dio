@@ -2,67 +2,11 @@
 <html lang="vi">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="robots" content="noindex">
-  <title>Admin — Locket Dio</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
-  <link rel="stylesheet" href="admin.css">
+  <meta http-equiv="refresh" content="0;url=/">
+  <title>Redirect — Locket Dio</title>
+  <script>location.replace('/');</script>
 </head>
 <body>
-
-  <div id="login-screen" class="admin-login-wrap">
-    <div class="admin-card">
-      <div class="text-center mb-6">
-        <div class="w-14 h-14 rounded-2xl flex items-center justify-center text-black text-2xl font-bold mx-auto mb-3" style="background:#FFD700">L</div>
-        <h1 class="text-xl font-bold">Locket Dio Admin</h1>
-        <p class="text-sm text-zinc-500 mt-1">Quản lý Users &amp; Lockets</p>
-      </div>
-      <form id="login-form" class="space-y-4">
-        <input type="email" id="login-email" class="admin-input" placeholder="Email Admin" autocomplete="username">
-        <input type="password" id="login-password" class="admin-input" placeholder="Mật khẩu" autocomplete="current-password">
-        <p id="login-error" class="admin-error hidden"></p>
-        <button type="submit" class="admin-btn">Đăng nhập</button>
-      </form>
-      <a href="/" class="block text-center text-xs text-zinc-600 mt-4 hover:text-zinc-400">← Về Locket Dio</a>
-    </div>
-  </div>
-
-  <div id="admin-app" class="admin-layout hidden">
-    <aside class="admin-sidebar">
-      <div class="px-5 pb-4 mb-3 border-b border-zinc-800">
-        <h2 class="font-bold">Locket Dio</h2>
-        <span class="text-xs text-yellow-400">Admin Panel</span>
-      </div>
-      <button type="button" class="admin-nav-btn active" data-panel="dashboard"><i class="fa-solid fa-chart-pie"></i> Dashboard</button>
-      <button type="button" class="admin-nav-btn" data-panel="users"><i class="fa-solid fa-users"></i> Users</button>
-      <button type="button" class="admin-nav-btn" data-panel="lockets"><i class="fa-solid fa-images"></i> Lockets</button>
-      <div class="mt-auto px-5 pt-4 border-t border-zinc-800">
-        <a href="/" class="admin-nav-btn"><i class="fa-solid fa-arrow-left"></i> Về App</a>
-        <button type="button" id="btn-logout" class="admin-nav-btn text-red-400"><i class="fa-solid fa-right-from-bracket"></i> Logout</button>
-      </div>
-    </aside>
-    <div class="admin-main">
-      <header class="admin-topbar flex justify-between items-center">
-        <h1 id="panel-title" class="text-lg font-bold">Dashboard</h1>
-        <span id="admin-email-display" class="text-sm text-zinc-500"></span>
-      </header>
-      <div class="admin-content">
-        <div id="panel-dashboard" class="admin-panel active">
-          <div id="stats-grid" class="stats-grid"></div>
-        </div>
-        <div id="panel-users" class="admin-panel">
-          <div id="users-table" class="admin-table-wrap"></div>
-        </div>
-        <div id="panel-lockets" class="admin-panel">
-          <div id="lockets-table" class="admin-table-wrap"></div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <script src="../js/db.js"></script>
-  <script src="../js/auth.js"></script>
-  <script src="admin.js"></script>
+  <p>Đang chuyển về <a href="/">Locket Dio</a>...</p>
 </body>
 </html>

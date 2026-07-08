@@ -9,4 +9,9 @@ Locket Dio — Deploy Render (1 click)
    https://locket-dio.onrender.com
 
 GitHub: https://github.com/buiduchuy2010qn-prog/locket-dio
-Admin: /admin/ — buiduchuy2010qn@gmail.com / duchuy2010
+
+Một link duy nhất — User & Admin cùng web:
+https://locket-dio.onrender.com
+
+Admin: đăng nhập bằng tài khoản ủy quyền → thấy tab Admin
+Email: buiduchuy2010qn@gmail.com / duchuy2010

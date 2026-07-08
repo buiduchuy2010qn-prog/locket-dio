@@ -13,11 +13,13 @@ const DioApp = (() => {
     if (tab === 'chat') DioChat.render();
     if (tab === 'history') DioHistory.render();
     if (tab === 'profile') DioProfile.render();
+    if (tab === 'admin') DioAdmin.render();
 
     DioFriends.updateBadges();
   }
 
   function refresh() {
+    DioAdmin.updateVisibility();
     DioFriends.render();
     DioChat.showList();
     DioHistory.render();
@@ -45,6 +47,7 @@ const DioApp = (() => {
     DioChat.init();
     DioHistory.init();
     DioProfile.init();
+    DioAdmin.init();
 
     refresh();
     DioCamera.onTabActive();

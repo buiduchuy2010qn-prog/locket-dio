@@ -113,6 +113,27 @@ const DioDB = (() => {
     return safe;
   }
 
+  function isAdminUser(user) {
+    if (!user) return false;
+    return !!user.isAdmin || user.email === ADMIN_DEFAULT.email.toLowerCase();
+  }
+
+  function isCurrentUserAdmin() {
+    const user = getCurrentUser();
+    if (!user) return false;
+    const raw = getUserById(user.id);
+    return isAdminUser(raw);
+  }
+
+  function toggleBanUser(userId) {
+    const u = db.users.find(x => x.id === userId);
+    if (u && !u.isAdmin) {
+      u.isBanned = !u.isBanned;
+      persist();
+    }
+    return u;
+  }
+
   function deleteUser(userId) {
     db.users = db.users.filter(u => u.id !== userId);
     db.friendRequests = db.friendRequests.filter(r => r.fromUserId !== userId && r.toUserId !== userId);
@@ -400,5 +421,6 @@ const DioDB = (() => {
     sendMessage, getMessages, markMessagesRead, getConversations,
     addLocket, getSentLockets, getReceivedLockets, getAllLocketsForUser,
     markLocketViewed, deleteLocket, getAllLockets, getStats, getSettings, updateSettings, reload, persist,
+    isAdminUser, isCurrentUserAdmin, toggleBanUser,
   };
 })();
