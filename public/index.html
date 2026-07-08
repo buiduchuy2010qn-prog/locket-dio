@@ -13,39 +13,87 @@
 </head>
 <body class="bg-black text-white">
 
-  <!-- AUTH -->
+  <!-- AUTH (ảnh 2: card trắng, logo hồng/tím) -->
   <div id="auth-gate" class="auth-gate">
-    <div class="auth-glow"></div>
-    <div class="auth-wrap">
+    <div class="auth-bg-gradient"></div>
+    <div class="auth-card">
       <div id="panel-login">
-        <div class="text-center mb-8">
-          <div class="auth-logo-icon">L</div>
-          <h1 class="text-2xl font-bold text-gold">Locket Dio</h1>
-          <p class="text-zinc-500 text-sm mt-1">Chia sẻ khoảnh khắc · Kết bạn · Nhắn tin</p>
+        <div class="auth-card-head">
+          <h1 class="auth-brand">LOCKET DIO</h1>
+          <p class="auth-tagline">Chia sẻ khoảnh khắc cùng bạn bè</p>
         </div>
-        <form id="form-login" class="space-y-4">
-          <div class="auth-field"><label>Email</label><input type="email" id="login-email" class="auth-input" placeholder="email@example.com" required autocomplete="username"></div>
-          <div class="auth-field"><label>Mật khẩu</label><input type="password" id="login-password" class="auth-input" placeholder="••••••••" required autocomplete="current-password"></div>
-          <p id="login-error" class="auth-error hidden"></p>
-          <button type="submit" class="auth-btn">Đăng nhập</button>
+        <form id="form-login" class="auth-form">
+          <div class="auth-field">
+            <label for="login-email">Email</label>
+            <input type="email" id="login-email" class="auth-input-light" placeholder="Nhập email của bạn" required autocomplete="username">
+          </div>
+          <div class="auth-field">
+            <label for="login-password">Mật khẩu</label>
+            <input type="password" id="login-password" class="auth-input-light" placeholder="Nhập mật khẩu" required autocomplete="current-password">
+          </div>
+          <div class="auth-row-between">
+            <label class="auth-check">
+              <input type="checkbox" id="login-remember">
+              <span>Ghi nhớ đăng nhập</span>
+            </label>
+            <button type="button" id="btn-forgot-password" class="auth-text-link">Quên mật khẩu?</button>
+          </div>
+          <p id="login-error" class="auth-error-light hidden"></p>
+          <button type="submit" class="auth-btn-primary">Đăng nhập</button>
         </form>
-        <p class="auth-switch">Chưa có tài khoản? <button type="button" id="btn-show-register" class="auth-link">Đăng ký</button></p>
+        <button type="button" id="btn-phone-login" class="auth-btn-outline">Đăng nhập bằng số điện thoại</button>
+        <p class="auth-switch-light">Chưa có tài khoản? <button type="button" id="btn-show-register" class="auth-link-pink">Đăng ký</button></p>
       </div>
-      <div id="panel-register" class="hidden">
-        <div class="text-center mb-8">
-          <div class="auth-logo-icon">✦</div>
-          <h1 class="text-2xl font-bold">Tạo tài khoản</h1>
-          <p class="text-zinc-500 text-sm mt-1">Miễn phí · Lưu trữ trên trình duyệt</p>
+
+      <div id="panel-phone" class="hidden">
+        <button type="button" id="btn-back-login" class="auth-back"><i class="fa-solid fa-arrow-left"></i> Quay lại</button>
+        <div class="auth-card-head">
+          <h1 class="auth-brand">Đăng nhập SĐT</h1>
+          <p class="auth-tagline">Nhập số điện thoại đã đăng ký</p>
         </div>
-        <form id="form-register" class="space-y-3">
-          <div class="auth-field"><label>Tên hiển thị</label><input type="text" id="register-name" class="auth-input" placeholder="Tên của bạn" required></div>
-          <div class="auth-field"><label>Email</label><input type="email" id="register-email" class="auth-input" placeholder="email@example.com" required></div>
-          <div class="auth-field"><label>Mật khẩu</label><input type="password" id="register-password" class="auth-input" placeholder="Tối thiểu 6 ký tự" required></div>
-          <div class="auth-field"><label>Xác nhận mật khẩu</label><input type="password" id="register-confirm" class="auth-input" placeholder="Nhập lại" required></div>
-          <p id="register-error" class="auth-error hidden"></p>
-          <button type="submit" class="auth-btn">Đăng ký</button>
+        <form id="form-phone" class="auth-form">
+          <div class="auth-field">
+            <label for="login-phone">Số điện thoại</label>
+            <input type="tel" id="login-phone" class="auth-input-light" placeholder="09xx xxx xxx" autocomplete="tel">
+          </div>
+          <div class="auth-field">
+            <label for="login-phone-password">Mật khẩu</label>
+            <input type="password" id="login-phone-password" class="auth-input-light" placeholder="Nhập mật khẩu">
+          </div>
+          <p id="phone-error" class="auth-error-light hidden"></p>
+          <button type="submit" class="auth-btn-primary">Đăng nhập</button>
         </form>
-        <p class="auth-switch">Đã có tài khoản? <button type="button" id="btn-show-login" class="auth-link">Đăng nhập</button></p>
+      </div>
+
+      <div id="panel-register" class="hidden">
+        <button type="button" id="btn-back-login-from-reg" class="auth-back"><i class="fa-solid fa-arrow-left"></i> Quay lại</button>
+        <div class="auth-card-head">
+          <h1 class="auth-brand">Tạo tài khoản</h1>
+          <p class="auth-tagline">Miễn phí · Lưu trữ trên trình duyệt</p>
+        </div>
+        <form id="form-register" class="auth-form">
+          <div class="auth-field"><label>Tên hiển thị</label><input type="text" id="register-name" class="auth-input-light" placeholder="Tên của bạn" required></div>
+          <div class="auth-field"><label>Email</label><input type="email" id="register-email" class="auth-input-light" placeholder="email@example.com" required></div>
+          <div class="auth-field"><label>Số điện thoại</label><input type="tel" id="register-phone" class="auth-input-light" placeholder="09xx xxx xxx (tuỳ chọn)"></div>
+          <div class="auth-field"><label>Mật khẩu</label><input type="password" id="register-password" class="auth-input-light" placeholder="Tối thiểu 6 ký tự" required></div>
+          <div class="auth-field"><label>Xác nhận mật khẩu</label><input type="password" id="register-confirm" class="auth-input-light" placeholder="Nhập lại" required></div>
+          <p id="register-error" class="auth-error-light hidden"></p>
+          <button type="submit" class="auth-btn-primary">Đăng ký</button>
+        </form>
+        <p class="auth-switch-light">Đã có tài khoản? <button type="button" id="btn-show-login" class="auth-link-pink">Đăng nhập</button></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal quên mật khẩu -->
+  <div id="modal-forgot" class="modal auth-modal hidden">
+    <div class="modal-backdrop"></div>
+    <div class="modal-sheet auth-modal-sheet">
+      <div class="modal-head"><h3>Quên mật khẩu</h3><button type="button" class="modal-close">&times;</button></div>
+      <div class="p-5">
+        <p class="text-sm text-zinc-500 mb-4">Nhập email đăng ký. Vì dữ liệu lưu local, bạn cần đăng ký lại nếu quên mật khẩu.</p>
+        <input type="email" id="forgot-email" class="auth-input-light w-full" placeholder="Email của bạn">
+        <button type="button" id="btn-forgot-submit" class="auth-btn-primary mt-4">Gửi yêu cầu</button>
       </div>
     </div>
   </div>
@@ -64,7 +112,7 @@
         <button type="button" class="nav-tab active" data-tab="camera"><i class="fa-solid fa-camera"></i><span>Camera</span></button>
         <button type="button" class="nav-tab" data-tab="friends"><i class="fa-solid fa-user-group"></i><span>Friends</span></button>
         <button type="button" class="nav-tab" data-tab="chat"><i class="fa-solid fa-comment"></i><span>Chat</span></button>
-        <button type="button" class="nav-tab" data-tab="history"><i class="fa-solid fa-clock-rotate-left"></i><span>History</span></button>
+        <button type="button" class="nav-tab" data-tab="history"><i class="fa-solid fa-table-cells"></i><span>History</span></button>
         <button type="button" class="nav-tab" data-tab="profile"><i class="fa-solid fa-circle-user"></i><span>Profile</span></button>
         <button type="button" class="nav-tab admin-only hidden" data-tab="admin"><i class="fa-solid fa-shield-halved"></i><span>Admin</span></button>
       </nav>
@@ -84,7 +132,7 @@
           <button type="button" class="nav-tab active" data-tab="camera"><i class="fa-solid fa-camera"></i><span>Camera</span></button>
           <button type="button" class="nav-tab" data-tab="friends"><i class="fa-solid fa-user-group"></i><span>Friends</span></button>
           <button type="button" class="nav-tab" data-tab="chat"><i class="fa-solid fa-comment"></i><span>Chat</span></button>
-          <button type="button" class="nav-tab" data-tab="history"><i class="fa-solid fa-clock-rotate-left"></i><span>History</span></button>
+          <button type="button" class="nav-tab" data-tab="history"><i class="fa-solid fa-table-cells"></i><span>History</span></button>
           <button type="button" class="nav-tab" data-tab="profile"><i class="fa-solid fa-circle-user"></i><span>Profile</span></button>
           <button type="button" class="nav-tab admin-only hidden" data-tab="admin"><i class="fa-solid fa-shield-halved"></i><span>Admin</span></button>
         </nav>
@@ -179,16 +227,16 @@
             </div>
           </section>
 
-          <!-- HISTORY -->
+          <!-- HISTORY / FEED (ảnh 3: Mọi người · Làm mới) -->
           <section id="screen-history" class="screen" data-screen="history">
-            <div class="page-wrap">
-              <header class="page-head"><h2>History</h2></header>
-              <div class="flex gap-2 mb-4">
-                <button type="button" data-filter="all" class="filter-chip active">Tất cả</button>
-                <button type="button" data-filter="sent" class="filter-chip">Đã gửi</button>
-                <button type="button" data-filter="received" class="filter-chip">Đã nhận</button>
+            <div class="feed-page">
+              <div class="feed-tabs">
+                <button type="button" data-feed="everyone" class="feed-tab active">Mọi người</button>
+                <button type="button" data-feed="refresh" class="feed-tab">Làm mới</button>
               </div>
-              <div class="page-scroll"><div id="history-grid" class="history-grid"></div></div>
+              <div class="feed-scroll">
+                <div id="history-grid" class="feed-grid"></div>
+              </div>
             </div>
           </section>
 
@@ -232,7 +280,7 @@
           <button type="button" class="nav-tab active" data-tab="camera"><i class="fa-solid fa-camera"></i><span>Camera</span></button>
           <button type="button" class="nav-tab" data-tab="friends"><i class="fa-solid fa-user-group"></i><span>Friends</span><span id="badge-friends" class="nav-badge hidden"></span></button>
           <button type="button" class="nav-tab" data-tab="chat"><i class="fa-solid fa-comment"></i><span>Chat</span><span id="badge-chat" class="nav-badge hidden"></span></button>
-          <button type="button" class="nav-tab" data-tab="history"><i class="fa-solid fa-clock-rotate-left"></i><span>History</span></button>
+          <button type="button" class="nav-tab" data-tab="history"><i class="fa-solid fa-table-cells"></i><span>History</span></button>
           <button type="button" class="nav-tab" data-tab="profile"><i class="fa-solid fa-circle-user"></i><span>Profile</span></button>
           <button type="button" class="nav-tab admin-only hidden" data-tab="admin"><i class="fa-solid fa-shield-halved"></i><span>Admin</span></button>
         </nav>

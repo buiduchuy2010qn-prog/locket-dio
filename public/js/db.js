@@ -87,15 +87,26 @@ const DioDB = (() => {
     return db.users.find(u => u.email === e) || null;
   }
 
-  function registerUser({ name, email, password }) {
+  function getUserByPhone(phone) {
+    const p = phone.replace(/\D/g, '').replace(/^84/, '0');
+    if (!p) return null;
+    return db.users.find(u => u.phone === p) || null;
+  }
+
+  function registerUser({ name, email, password, phone = '' }) {
     const normalized = email.trim().toLowerCase();
     if (getUserByEmail(normalized)) {
       return { ok: false, error: 'Email đã được đăng ký' };
+    }
+    const normalizedPhone = phone ? phone.replace(/\D/g, '').replace(/^84/, '0') : '';
+    if (normalizedPhone && getUserByPhone(normalizedPhone)) {
+      return { ok: false, error: 'Số điện thoại đã được đăng ký' };
     }
     const user = {
       id: uid('u'),
       name: name.trim(),
       email: normalized,
+      phone: normalizedPhone || null,
       password: hashPassword(password),
       avatar: name.trim().charAt(0).toUpperCase(),
       isAdmin: false,
@@ -412,7 +423,7 @@ const DioDB = (() => {
 
   return {
     DB_KEY, SESSION_KEY, ADMIN_DEFAULT, hashPassword,
-    getUsers, getUserById, getUserByEmail, registerUser, deleteUser, sanitizeUser,
+    getUsers, getUserById, getUserByEmail, getUserByPhone, registerUser, deleteUser, sanitizeUser,
     setSession, getSession, clearSession, getCurrentUser,
     setAdminSession, isAdminSession, clearAdminSession,
     getFriends, searchUsers, sendFriendRequest,
