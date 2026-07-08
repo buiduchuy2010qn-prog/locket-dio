@@ -7,13 +7,13 @@ const DioUI = (() => {
   let toastTimer;
 
   function initTabs(onChange) {
-    document.querySelectorAll('[data-tab]').forEach(btn => {
+    document.querySelectorAll('.nav-tab[data-tab]').forEach(btn => {
       btn.addEventListener('click', () => switchTab(btn.dataset.tab, onChange));
     });
   }
 
   function setActiveNav(tab) {
-    document.querySelectorAll('[data-tab]').forEach(b => {
+    document.querySelectorAll('.nav-tab[data-tab]').forEach(b => {
       b.classList.toggle('active', b.dataset.tab === tab);
     });
   }

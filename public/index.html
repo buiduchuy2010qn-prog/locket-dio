@@ -13,15 +13,14 @@
 </head>
 <body class="bg-black text-white">
 
-  <!-- ═══ AUTH ═══ -->
+  <!-- AUTH -->
   <div id="auth-gate" class="auth-gate">
     <div class="auth-glow"></div>
     <div class="auth-wrap">
-
       <div id="panel-login">
         <div class="text-center mb-8">
           <div class="auth-logo-icon">L</div>
-          <h1 class="text-2xl font-bold">Locket Dio</h1>
+          <h1 class="text-2xl font-bold text-gold">Locket Dio</h1>
           <p class="text-zinc-500 text-sm mt-1">Chia sẻ khoảnh khắc · Kết bạn · Nhắn tin</p>
         </div>
         <form id="form-login" class="space-y-4">
@@ -32,7 +31,6 @@
         </form>
         <p class="auth-switch">Chưa có tài khoản? <button type="button" id="btn-show-register" class="auth-link">Đăng ký</button></p>
       </div>
-
       <div id="panel-register" class="hidden">
         <div class="text-center mb-8">
           <div class="auth-logo-icon">✦</div>
@@ -49,140 +47,131 @@
         </form>
         <p class="auth-switch">Đã có tài khoản? <button type="button" id="btn-show-login" class="auth-link">Đăng nhập</button></p>
       </div>
-
     </div>
   </div>
 
-  <!-- ═══ MAIN APP ═══ -->
-  <div id="main-app" class="hidden">
-
+  <!-- MAIN APP -->
+  <div id="main-app" class="hidden dio-app">
     <div id="system-banner" class="system-banner hidden"></div>
 
-    <header class="desktop-topbar">
-      <div class="flex items-center gap-3 flex-1">
-        <div class="w-9 h-9 bg-gold rounded-xl flex items-center justify-center text-black font-bold">L</div>
-        <span class="text-lg font-semibold">Locket Dio</span>
+    <!-- Top Bar (desktop) -->
+    <header class="dio-topbar">
+      <div class="dio-topbar-brand">
+        <span class="dio-mark">L</span>
+        <span class="dio-brand-text">Locket Dio</span>
       </div>
-      <nav class="hidden lg:flex gap-1">
-        <button type="button" class="sidebar-tab active" data-tab="camera"><i class="fa-solid fa-camera"></i><span>Camera</span></button>
-        <button type="button" class="sidebar-tab" data-tab="friends"><i class="fa-solid fa-user-group"></i><span>Friends</span></button>
-        <button type="button" class="sidebar-tab" data-tab="chat"><i class="fa-solid fa-comment"></i><span>Chat</span></button>
-        <button type="button" class="sidebar-tab" data-tab="history"><i class="fa-solid fa-clock-rotate-left"></i><span>History</span></button>
-        <button type="button" class="sidebar-tab" data-tab="profile"><i class="fa-solid fa-circle-user"></i><span>Profile</span></button>
-        <button type="button" class="sidebar-tab admin-only hidden" data-tab="admin"><i class="fa-solid fa-shield-halved"></i><span>Admin</span></button>
+      <nav class="dio-topnav">
+        <button type="button" class="nav-tab active" data-tab="camera"><i class="fa-solid fa-camera"></i><span>Camera</span></button>
+        <button type="button" class="nav-tab" data-tab="friends"><i class="fa-solid fa-user-group"></i><span>Friends</span></button>
+        <button type="button" class="nav-tab" data-tab="chat"><i class="fa-solid fa-comment"></i><span>Chat</span></button>
+        <button type="button" class="nav-tab" data-tab="history"><i class="fa-solid fa-clock-rotate-left"></i><span>History</span></button>
+        <button type="button" class="nav-tab" data-tab="profile"><i class="fa-solid fa-circle-user"></i><span>Profile</span></button>
+        <button type="button" class="nav-tab admin-only hidden" data-tab="admin"><i class="fa-solid fa-shield-halved"></i><span>Admin</span></button>
       </nav>
+      <div class="dio-topbar-end"></div>
     </header>
 
-    <div class="app-layout">
-      <aside class="desktop-sidebar">
-        <div class="flex items-center gap-2 px-2 pb-4 mb-4 border-b border-white/5">
-          <div class="w-10 h-10 bg-gold rounded-xl flex items-center justify-center text-black font-bold">L</div>
-          <div><p class="font-bold text-sm">Locket Dio</p><p class="text-[10px] text-gold">Real · localStorage</p></div>
-        </div>
-        <nav class="flex flex-col gap-1 flex-1">
-          <button type="button" class="sidebar-tab active" data-tab="camera"><i class="fa-solid fa-camera"></i><span>Camera</span></button>
-          <button type="button" class="sidebar-tab" data-tab="friends"><i class="fa-solid fa-user-group"></i><span>Friends</span></button>
-          <button type="button" class="sidebar-tab" data-tab="chat"><i class="fa-solid fa-comment"></i><span>Chat</span></button>
-          <button type="button" class="sidebar-tab" data-tab="history"><i class="fa-solid fa-clock-rotate-left"></i><span>History</span></button>
-          <button type="button" class="sidebar-tab" data-tab="profile"><i class="fa-solid fa-circle-user"></i><span>Profile</span></button>
-          <button type="button" class="sidebar-tab admin-only hidden" data-tab="admin"><i class="fa-solid fa-shield-halved"></i><span>Admin</span></button>
+    <!-- Mobile header -->
+    <header class="dio-mobile-header">
+      <span class="dio-brand-text text-gold font-bold text-lg">Locket Dio</span>
+    </header>
+
+    <div class="dio-body">
+      <!-- Sidebar -->
+      <aside class="dio-sidebar">
+        <h1 class="dio-sidebar-logo">Locket Dio</h1>
+        <nav class="dio-sidebar-nav">
+          <button type="button" class="nav-tab active" data-tab="camera"><i class="fa-solid fa-camera"></i><span>Camera</span></button>
+          <button type="button" class="nav-tab" data-tab="friends"><i class="fa-solid fa-user-group"></i><span>Friends</span></button>
+          <button type="button" class="nav-tab" data-tab="chat"><i class="fa-solid fa-comment"></i><span>Chat</span></button>
+          <button type="button" class="nav-tab" data-tab="history"><i class="fa-solid fa-clock-rotate-left"></i><span>History</span></button>
+          <button type="button" class="nav-tab" data-tab="profile"><i class="fa-solid fa-circle-user"></i><span>Profile</span></button>
+          <button type="button" class="nav-tab admin-only hidden" data-tab="admin"><i class="fa-solid fa-shield-halved"></i><span>Admin</span></button>
         </nav>
       </aside>
 
-      <div class="app-shell">
-        <main id="screens" class="flex-1 relative min-h-0">
+      <!-- Content -->
+      <div class="dio-content">
+        <main id="screens">
 
           <!-- CAMERA -->
           <section id="screen-camera" class="screen active" data-screen="camera">
-            <header class="safe-top px-4 pt-3 pb-2 lg:hidden">
-              <h2 class="text-xl font-bold">Locket Dio</h2>
-              <div id="camera-friends-strip" class="flex gap-3 overflow-x-auto no-scrollbar mt-3 py-1"></div>
-            </header>
-            <div class="camera-layout flex-1 flex flex-col min-h-0">
-              <div class="flex-1 flex flex-col min-h-0">
-                <div id="camera-friends-strip-desktop" class="hidden lg:flex gap-3 overflow-x-auto no-scrollbar px-8 pt-4"></div>
-                <div class="viewfinder">
-                  <video id="camera-video" class="feed-layer" playsinline muted autoplay></video>
-                  <img id="camera-sample" class="feed-layer" src="https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=800&q=80" alt="">
-                  <div id="flash-overlay"></div>
-                  <div id="rec-overlay" class="hidden absolute top-4 left-4 z-20 flex items-center gap-2 bg-black/50 backdrop-blur rounded-full px-3 py-1.5">
-                    <span class="rec-dot w-2 h-2 rounded-full bg-red-500"></span>
-                    <span class="text-xs font-bold text-red-400">REC</span>
-                    <span id="rec-timer" class="text-xs font-mono">00:00 / 01:00</span>
+            <div class="camera-page">
+              <div id="camera-friends-strip" class="camera-friends-row no-scrollbar"></div>
+              <div class="viewfinder">
+                <div id="camera-placeholder" class="camera-placeholder">
+                  <i class="fa-solid fa-camera"></i>
+                </div>
+                <video id="camera-video" class="feed-layer hidden" playsinline muted autoplay></video>
+                <img id="camera-sample" class="feed-layer hidden" src="https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=800&q=80" alt="">
+                <div id="flash-overlay"></div>
+                <div id="rec-overlay" class="hidden absolute top-4 left-4 z-20 flex items-center gap-2 bg-black/60 backdrop-blur rounded-full px-3 py-1.5">
+                  <span class="rec-dot w-2 h-2 rounded-full bg-red-500"></span>
+                  <span class="text-xs font-bold text-red-400">REC</span>
+                  <span id="rec-timer" class="text-xs font-mono text-white">00:00 / 01:00</span>
+                </div>
+                <div id="capture-preview" class="hidden absolute inset-0 z-30 bg-black/95 flex flex-col p-4 md:p-6">
+                  <div class="flex-1 relative rounded-2xl overflow-hidden min-h-0">
+                    <img id="preview-img" class="hidden absolute inset-0 w-full h-full object-cover" alt="">
+                    <video id="preview-video" class="hidden absolute inset-0 w-full h-full object-cover" playsinline muted loop></video>
                   </div>
-                  <div id="capture-preview" class="hidden absolute inset-0 z-30 bg-black/95 flex flex-col p-4">
-                    <div class="flex-1 relative rounded-2xl overflow-hidden min-h-0">
-                      <img id="preview-img" class="hidden absolute inset-0 w-full h-full object-cover" alt="">
-                      <video id="preview-video" class="hidden absolute inset-0 w-full h-full object-cover" playsinline muted loop></video>
+                  <div class="shrink-0 mt-4 space-y-2 max-w-lg mx-auto w-full">
+                    <div class="relative">
+                      <textarea id="caption-input" maxlength="300" rows="2" placeholder="Caption..." class="w-full bg-zinc-900 rounded-2xl px-4 py-3 text-sm resize-none outline-none border border-white/10 focus:border-gold/40"></textarea>
+                      <span id="caption-count" class="absolute right-3 bottom-2 text-[10px] text-zinc-500">0/300</span>
                     </div>
-                    <div class="shrink-0 mt-3 space-y-2">
-                      <div class="relative">
-                        <textarea id="caption-input" maxlength="300" rows="2" placeholder="Caption..." class="w-full bg-zinc-800 rounded-2xl px-4 py-3 text-sm resize-none outline-none border border-white/5 focus:border-gold/40"></textarea>
-                        <span id="caption-count" class="absolute right-3 bottom-2 text-[10px] text-zinc-500">0/300</span>
-                      </div>
-                      <div class="flex gap-2">
-                        <button id="btn-retake" type="button" class="flex-1 py-3 rounded-2xl bg-zinc-800 text-sm">Chụp lại</button>
-                        <button id="btn-send" type="button" class="flex-1 py-3 rounded-2xl bg-gold text-black font-bold text-sm">Gửi ✦</button>
-                      </div>
-                      <button id="btn-recipients" type="button" class="w-full text-xs text-gold py-1">Gửi cho: Tất cả bạn bè ▾</button>
+                    <div class="flex gap-2">
+                      <button id="btn-retake" type="button" class="flex-1 py-3 rounded-2xl bg-zinc-800 text-sm font-medium">Chụp lại</button>
+                      <button id="btn-send" type="button" class="flex-1 py-3 rounded-2xl bg-gold text-black font-bold text-sm">Gửi ✦</button>
                     </div>
+                    <button id="btn-recipients" type="button" class="w-full text-xs text-gold py-1">Gửi cho: Tất cả bạn bè ▾</button>
                   </div>
                 </div>
               </div>
-              <div class="camera-side shrink-0 px-4 pb-6 pt-2 z-10">
-                <div class="flex justify-center mb-4">
-                  <div class="mode-switch">
-                    <button type="button" data-mode="photo" class="mode-btn active">Photo</button>
-                    <button type="button" data-mode="video" class="mode-btn text-gold">Video 60s</button>
-                  </div>
+              <div class="camera-mode-bar">
+                <div class="mode-switch">
+                  <button type="button" data-mode="photo" class="mode-btn">Photo</button>
+                  <button type="button" data-mode="video" class="mode-btn active">Video 60s</button>
                 </div>
-                <div class="flex items-center justify-center gap-6">
-                  <button id="btn-flash" type="button" class="w-11 h-11 rounded-full flex items-center justify-center text-xl"><i class="fa-solid fa-bolt"></i></button>
-                  <label class="w-11 h-11 rounded-full flex items-center justify-center text-gold cursor-pointer">
-                    <i class="fa-solid fa-images text-xl"></i>
-                    <input type="file" id="library-input" accept="image/*,video/*" class="hidden">
-                  </label>
-                  <button id="btn-shutter" type="button" class="shutter-btn"><span class="shutter-ring"></span><span class="shutter-inner"></span></button>
-                  <button id="btn-flip" type="button" class="w-11 h-11 rounded-full flex items-center justify-center text-xl"><i class="fa-solid fa-camera-rotate"></i></button>
-                </div>
+              </div>
+              <div class="camera-controls-bar">
+                <button id="btn-flash" type="button" class="ctrl-btn" title="Flash"><i class="fa-solid fa-bolt"></i></button>
+                <label class="ctrl-btn ctrl-upload" title="Upload">
+                  <i class="fa-solid fa-images"></i>
+                  <input type="file" id="library-input" accept="image/*,video/*" class="hidden">
+                </label>
+                <button id="btn-shutter" type="button" class="shutter-btn video-mode"><span class="shutter-ring"></span><span class="shutter-inner"></span></button>
+                <button id="btn-flip" type="button" class="ctrl-btn" title="Flip"><i class="fa-solid fa-camera-rotate"></i></button>
               </div>
             </div>
           </section>
 
           <!-- FRIENDS -->
           <section id="screen-friends" class="screen" data-screen="friends">
-            <header class="safe-top px-4 lg:px-8 pt-6 pb-2">
-              <h2 class="text-2xl font-bold">Friends</h2>
-              <p id="friends-count" class="text-sm text-zinc-500 mt-1">0 bạn bè</p>
-            </header>
-            <div class="px-4 lg:px-8 mb-3">
-              <input id="friends-search" type="search" placeholder="Lọc bạn bè..." class="w-full bg-zinc-900 rounded-2xl px-4 py-3 text-sm outline-none border border-zinc-800">
-            </div>
-            <div class="flex-1 overflow-y-auto px-4 lg:px-8 pb-28 lg:pb-8">
-              <div id="friend-requests"></div>
-              <div id="friends-list"></div>
-            </div>
-            <div class="fixed bottom-20 left-0 right-0 max-w-[430px] mx-auto px-4 lg:static lg:px-8 lg:pb-8 lg:max-w-2xl">
-              <button id="btn-add-friend" type="button" class="w-full py-3.5 rounded-2xl bg-gold text-black font-bold text-sm"><i class="fa-solid fa-user-plus mr-2"></i>Tìm &amp; kết bạn</button>
+            <div class="page-wrap">
+              <header class="page-head"><h2>Friends</h2><p id="friends-count" class="page-sub">0 bạn bè</p></header>
+              <input id="friends-search" type="search" placeholder="Lọc bạn bè..." class="dio-input">
+              <div class="page-scroll">
+                <div id="friend-requests"></div>
+                <div id="friends-list"></div>
+              </div>
+              <button id="btn-add-friend" type="button" class="dio-btn-gold"><i class="fa-solid fa-user-plus mr-2"></i>Tìm &amp; kết bạn</button>
             </div>
           </section>
 
           <!-- CHAT -->
           <section id="screen-chat" class="screen" data-screen="chat">
-            <div id="chat-list-view" class="flex flex-col h-full">
-              <header class="safe-top px-4 lg:px-8 pt-6 pb-3">
-                <h2 class="text-2xl font-bold">Chat</h2>
-                <p class="text-xs text-zinc-500">Nhắn tin thật với bạn bè</p>
-              </header>
-              <div id="chat-conversations" class="flex-1 overflow-y-auto px-4 lg:px-8 pb-28 lg:pb-8"></div>
+            <div id="chat-list-view" class="page-wrap h-full">
+              <header class="page-head"><h2>Chat</h2><p class="page-sub">Nhắn tin với bạn bè</p></header>
+              <div id="chat-conversations" class="page-scroll flex-1"></div>
             </div>
-            <div id="chat-room-view" class="hidden flex flex-col h-full">
-              <header class="safe-top flex items-center gap-3 px-4 py-3 border-b border-white/5">
-                <button id="btn-back-chat-list" type="button" class="w-10 h-10 flex items-center justify-center"><i class="fa-solid fa-chevron-left"></i></button>
+            <div id="chat-room-view" class="hidden h-full flex flex-col">
+              <header class="chat-room-head">
+                <button id="btn-back-chat-list" type="button" class="ctrl-btn"><i class="fa-solid fa-chevron-left"></i></button>
                 <div id="chat-friend-avatar" class="avatar-circle sm"></div>
                 <h3 id="chat-friend-name" class="font-semibold flex-1 truncate"></h3>
               </header>
-              <div id="chat-messages"></div>
+              <div id="chat-messages" class="flex-1"></div>
               <form id="chat-form" class="chat-input-bar">
                 <input id="chat-input" type="text" placeholder="Nhắn tin..." autocomplete="off">
                 <button type="submit" class="chat-send-btn"><i class="fa-solid fa-paper-plane"></i></button>
@@ -192,111 +181,68 @@
 
           <!-- HISTORY -->
           <section id="screen-history" class="screen" data-screen="history">
-            <header class="safe-top px-4 lg:px-8 pt-6 pb-3">
-              <h2 class="text-2xl font-bold">History</h2>
-              <div class="flex gap-2 mt-3">
+            <div class="page-wrap">
+              <header class="page-head"><h2>History</h2></header>
+              <div class="flex gap-2 mb-4">
                 <button type="button" data-filter="all" class="filter-chip active">Tất cả</button>
                 <button type="button" data-filter="sent" class="filter-chip">Đã gửi</button>
                 <button type="button" data-filter="received" class="filter-chip">Đã nhận</button>
               </div>
-            </header>
-            <div class="flex-1 overflow-y-auto px-4 lg:px-8 pb-28 lg:pb-8">
-              <div id="history-grid" class="history-grid"></div>
+              <div class="page-scroll"><div id="history-grid" class="history-grid"></div></div>
             </div>
           </section>
 
           <!-- PROFILE -->
-          <section id="screen-profile" class="screen overflow-y-auto pb-28 lg:pb-8" data-screen="profile">
-            <div class="px-4 lg:px-8 pt-10 max-w-lg mx-auto text-center lg:text-left lg:max-w-2xl">
-              <div id="profile-avatar" class="profile-avatar-lg mx-auto lg:mx-0 mb-4"></div>
-              <h2 id="profile-name" class="text-2xl font-bold"></h2>
-              <p id="profile-email" class="text-zinc-500 text-sm mt-1"></p>
-              <p id="profile-stats" class="text-zinc-500 text-sm mt-2"></p>
-              <div id="profile-admin-badge" class="hidden inline-flex items-center gap-2 mt-3 px-4 py-1.5 rounded-full border border-gold/40 text-gold text-xs font-semibold">
-                <i class="fa-solid fa-shield-halved"></i> Tài khoản Admin
-              </div>
-              <div class="settings-card mt-8 text-left">
+          <section id="screen-profile" class="screen" data-screen="profile">
+            <div class="page-wrap profile-page">
+              <div id="profile-avatar" class="profile-avatar-lg"></div>
+              <h2 id="profile-name" class="text-2xl font-bold mt-4"></h2>
+              <p id="profile-email" class="text-zinc-500 text-sm"></p>
+              <p id="profile-stats" class="text-zinc-500 text-sm mt-1"></p>
+              <div id="profile-admin-badge" class="hidden admin-badge-pill mt-3"><i class="fa-solid fa-shield-halved"></i> Tài khoản Admin</div>
+              <div class="settings-card mt-8 w-full max-w-md">
                 <button type="button" id="btn-admin-link" class="settings-row admin-only hidden"><span><i class="fa-solid fa-shield-halved text-gold w-5"></i> Quản trị hệ thống</span><span class="text-zinc-500">→</span></button>
                 <button type="button" id="btn-logout" class="settings-row text-red-400"><span><i class="fa-solid fa-right-from-bracket w-5"></i> Đăng xuất</span><span class="text-zinc-500">→</span></button>
               </div>
-              <p class="text-xs text-zinc-600 mt-6">Locket Dio · Dữ liệu lưu trên localStorage trình duyệt</p>
             </div>
           </section>
 
-          <!-- ADMIN (chỉ tài khoản ủy quyền) -->
-          <section id="screen-admin" class="screen overflow-y-auto pb-28 lg:pb-8" data-screen="admin">
-            <header class="safe-top px-4 lg:px-8 pt-6 pb-4 border-b border-white/5">
-              <div class="flex items-center gap-2">
-                <i class="fa-solid fa-shield-halved text-gold"></i>
-                <div>
-                  <h2 id="admin-screen-title" class="text-2xl font-bold">Dashboard</h2>
-                  <p class="text-xs text-zinc-500">Admin · Cùng web với User</p>
-                </div>
-              </div>
-            </header>
-            <div class="admin-layout-inline px-4 lg:px-8 py-4 max-w-5xl mx-auto w-full">
-              <nav class="admin-subnav flex gap-2 overflow-x-auto no-scrollbar mb-6">
+          <!-- ADMIN -->
+          <section id="screen-admin" class="screen" data-screen="admin">
+            <div class="page-wrap">
+              <header class="page-head">
+                <h2 id="admin-screen-title">Dashboard</h2>
+                <p class="page-sub"><i class="fa-solid fa-shield-halved text-gold"></i> Admin Panel</p>
+              </header>
+              <nav class="admin-subnav flex gap-2 mb-6">
                 <button type="button" class="admin-subnav-btn active" data-admin-panel="dashboard">Dashboard</button>
                 <button type="button" class="admin-subnav-btn" data-admin-panel="users">Users</button>
                 <button type="button" class="admin-subnav-btn" data-admin-panel="lockets">Lockets</button>
               </nav>
-              <div id="admin-panel-dashboard" class="admin-subpanel active">
-                <div id="admin-stats-grid" class="admin-stats-grid"></div>
-              </div>
-              <div id="admin-panel-users" class="admin-subpanel">
-                <div id="admin-users-table" class="admin-table-wrap"></div>
-              </div>
-              <div id="admin-panel-lockets" class="admin-subpanel">
-                <div id="admin-lockets-table" class="admin-table-wrap"></div>
-              </div>
+              <div id="admin-panel-dashboard" class="admin-subpanel active"><div id="admin-stats-grid" class="admin-stats-grid"></div></div>
+              <div id="admin-panel-users" class="admin-subpanel"><div id="admin-users-table" class="admin-table-wrap"></div></div>
+              <div id="admin-panel-lockets" class="admin-subpanel"><div id="admin-lockets-table" class="admin-table-wrap"></div></div>
             </div>
           </section>
 
         </main>
 
-        <nav class="tab-bar lg:hidden">
-          <button type="button" class="tab-btn active" data-tab="camera"><i class="fa-solid fa-camera"></i><span>Camera</span></button>
-          <button type="button" class="tab-btn" data-tab="friends"><i class="fa-solid fa-user-group"></i><span>Friends</span><span id="badge-friends" class="nav-badge hidden"></span></button>
-          <button type="button" class="tab-btn" data-tab="chat"><i class="fa-solid fa-comment"></i><span>Chat</span><span id="badge-chat" class="nav-badge hidden"></span></button>
-          <button type="button" class="tab-btn" data-tab="history"><i class="fa-solid fa-clock-rotate-left"></i><span>History</span></button>
-          <button type="button" class="tab-btn" data-tab="profile"><i class="fa-solid fa-circle-user"></i><span>Profile</span></button>
-          <button type="button" class="tab-btn admin-only hidden" data-tab="admin"><i class="fa-solid fa-shield-halved"></i><span>Admin</span></button>
+        <!-- Mobile bottom nav -->
+        <nav class="dio-mobile-nav">
+          <button type="button" class="nav-tab active" data-tab="camera"><i class="fa-solid fa-camera"></i><span>Camera</span></button>
+          <button type="button" class="nav-tab" data-tab="friends"><i class="fa-solid fa-user-group"></i><span>Friends</span><span id="badge-friends" class="nav-badge hidden"></span></button>
+          <button type="button" class="nav-tab" data-tab="chat"><i class="fa-solid fa-comment"></i><span>Chat</span><span id="badge-chat" class="nav-badge hidden"></span></button>
+          <button type="button" class="nav-tab" data-tab="history"><i class="fa-solid fa-clock-rotate-left"></i><span>History</span></button>
+          <button type="button" class="nav-tab" data-tab="profile"><i class="fa-solid fa-circle-user"></i><span>Profile</span></button>
+          <button type="button" class="nav-tab admin-only hidden" data-tab="admin"><i class="fa-solid fa-shield-halved"></i><span>Admin</span></button>
         </nav>
       </div>
     </div>
 
     <!-- Modals -->
-    <div id="modal-detail" class="modal hidden">
-      <div class="modal-backdrop"></div>
-      <div class="modal-sheet">
-        <button type="button" class="modal-close absolute top-3 right-4 z-10">&times;</button>
-        <img id="detail-img" class="hidden w-full max-h-[55vh] object-contain bg-black" alt="">
-        <video id="detail-video" class="hidden w-full max-h-[55vh] object-contain bg-black" playsinline muted loop></video>
-        <p id="detail-caption" class="px-4 py-3 text-sm"></p>
-        <p id="detail-meta" class="px-4 pb-6 text-xs text-zinc-500"></p>
-      </div>
-    </div>
-
-    <div id="modal-add-friend" class="modal hidden">
-      <div class="modal-backdrop"></div>
-      <div class="modal-sheet">
-        <div class="modal-head"><h3 class="font-bold">Tìm người dùng</h3><button type="button" class="modal-close">&times;</button></div>
-        <div class="p-4">
-          <input id="add-friend-search" type="search" placeholder="Email hoặc tên..." class="w-full bg-zinc-900 rounded-2xl px-4 py-3 text-sm outline-none border border-zinc-800 mb-3">
-          <div id="add-friend-results"></div>
-        </div>
-      </div>
-    </div>
-
-    <div id="modal-recipients" class="modal hidden">
-      <div class="modal-backdrop"></div>
-      <div class="modal-sheet">
-        <div class="modal-head"><h3 class="font-bold">Gửi Locket cho</h3><button type="button" class="modal-close">&times;</button></div>
-        <div id="recipient-list" class="max-h-[50vh] overflow-y-auto"></div>
-        <button type="button" id="btn-confirm-recipients" class="btn-gold-full">Xác nhận</button>
-      </div>
-    </div>
-
+    <div id="modal-detail" class="modal hidden"><div class="modal-backdrop"></div><div class="modal-sheet"><button type="button" class="modal-close absolute top-3 right-4 z-10">&times;</button><img id="detail-img" class="hidden w-full max-h-[55vh] object-contain bg-black" alt=""><video id="detail-video" class="hidden w-full max-h-[55vh] object-contain bg-black" playsinline muted loop></video><p id="detail-caption" class="px-4 py-3 text-sm"></p><p id="detail-meta" class="px-4 pb-6 text-xs text-zinc-500"></p></div></div>
+    <div id="modal-add-friend" class="modal hidden"><div class="modal-backdrop"></div><div class="modal-sheet"><div class="modal-head"><h3>Tìm người dùng</h3><button type="button" class="modal-close">&times;</button></div><div class="p-4"><input id="add-friend-search" type="search" placeholder="Email hoặc tên..." class="dio-input mb-3"><div id="add-friend-results"></div></div></div></div>
+    <div id="modal-recipients" class="modal hidden"><div class="modal-backdrop"></div><div class="modal-sheet"><div class="modal-head"><h3>Gửi Locket cho</h3><button type="button" class="modal-close">&times;</button></div><div id="recipient-list" class="max-h-[50vh] overflow-y-auto"></div><button type="button" id="btn-confirm-recipients" class="btn-gold-full">Xác nhận</button></div></div>
     <div id="emoji-rain" class="fixed inset-0 pointer-events-none z-[400] overflow-hidden"></div>
     <div id="toast" class="toast hidden"></div>
   </div>

@@ -5,7 +5,7 @@
 const DioCamera = (() => {
   const MAX_VIDEO_SEC = 60;
   let stream = null;
-  let mode = 'photo';
+  let mode = 'video';
   let facingMode = 'user';
   let usingSample = false;
   let mediaRecorder = null;
@@ -14,12 +14,13 @@ const DioCamera = (() => {
   let recordSeconds = 0;
   let captureData = null;
   let selectedRecipients = [];
+  let flashOn = false;
 
   const els = {};
   const $ = id => document.getElementById(id);
 
   function cacheEls() {
-    ['camera-video', 'camera-sample', 'capture-preview', 'preview-img', 'preview-video',
+    ['camera-video', 'camera-sample', 'camera-placeholder', 'capture-preview', 'preview-img', 'preview-video',
      'caption-input', 'caption-count', 'btn-shutter', 'btn-flash', 'btn-flip',
      'btn-retake', 'btn-send', 'btn-recipients', 'library-input', 'flash-overlay',
      'rec-overlay', 'rec-timer', 'camera-friends-strip'
@@ -42,12 +43,20 @@ const DioCamera = (() => {
       els['camera-video'].srcObject = stream;
       els['camera-video'].classList.remove('hidden');
       els['camera-sample'].classList.add('hidden');
+      els['camera-placeholder']?.classList.add('hidden');
       usingSample = false;
     } catch (_) {
       usingSample = true;
       els['camera-video'].classList.add('hidden');
       els['camera-sample'].classList.remove('hidden');
+      els['camera-placeholder']?.classList.add('hidden');
     }
+  }
+
+  function showPlaceholder() {
+    els['camera-placeholder']?.classList.remove('hidden');
+    els['camera-video']?.classList.add('hidden');
+    els['camera-sample']?.classList.add('hidden');
   }
 
   function stopCamera() {
@@ -230,9 +239,8 @@ const DioCamera = (() => {
         </button>`;
     }).join('') || '<span class="text-xs text-zinc-500">Chưa có bạn bè</span>';
 
-    ['camera-friends-strip', 'camera-friends-strip-desktop'].forEach(id => {
-      const container = document.getElementById(id);
-      if (!container) return;
+    const container = document.getElementById('camera-friends-strip');
+    if (container) {
       container.innerHTML = html;
       container.querySelectorAll('[data-friend]').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -244,7 +252,7 @@ const DioCamera = (() => {
           }
         });
       });
-    });
+    }
   }
 
   function populateRecipients() {
@@ -285,6 +293,7 @@ const DioCamera = (() => {
         els['btn-shutter']?.classList.toggle('video-mode', mode === 'video');
       });
     });
+    els['btn-shutter']?.classList.add('video-mode');
 
     els['btn-shutter']?.addEventListener('click', () => {
       if (mode === 'photo') takePhoto();
@@ -299,6 +308,13 @@ const DioCamera = (() => {
     els['btn-flip']?.addEventListener('click', () => {
       facingMode = facingMode === 'user' ? 'environment' : 'user';
       startCamera();
+    });
+
+    els['btn-flash']?.addEventListener('click', () => {
+      flashOn = !flashOn;
+      els['btn-flash'].classList.toggle('flash-on', flashOn);
+      DioUI.toast(flashOn ? 'Flash bật' : 'Flash tắt');
+      DioUI.haptic();
     });
 
     els['library-input']?.addEventListener('change', e => {
@@ -332,8 +348,12 @@ const DioCamera = (() => {
     renderFriendStrip();
   }
 
-  function onTabActive() { startCamera(); renderFriendStrip(); }
-  function onTabLeave() { stopRecording(); stopCamera(); }
+  function onTabActive() {
+    showPlaceholder();
+    startCamera();
+    renderFriendStrip();
+  }
+  function onTabLeave() { stopRecording(); stopCamera(); showPlaceholder(); }
 
   return { init, onTabActive, onTabLeave, renderFriendStrip };
 })();
