@@ -5,7 +5,9 @@
 const DioCamera = (() => {
   const MAX_VIDEO_SEC = 60;
   let stream = null;
-  let mode = 'video';
+  let mode = 'photo';
+  let longPressTriggered = false;
+  let holdTimer = null;
   let facingMode = 'user';
   let usingSample = false;
   let mediaRecorder = null;
@@ -81,7 +83,7 @@ const DioCamera = (() => {
   function takePhoto() {
     const btn = els['btn-shutter'];
     btn?.classList.add('snap');
-    setTimeout(() => btn?.classList.remove('snap'), 350);
+    setTimeout(() => btn?.classList.remove('snap'), 320);
 
     if (usingSample) {
       captureData = { type: 'photo', dataUrl: els['camera-sample'].src };
@@ -134,7 +136,9 @@ const DioCamera = (() => {
     };
 
     mediaRecorder.start(200);
+    mode = 'video';
     els['btn-shutter']?.classList.add('recording');
+    document.getElementById('vf-mode-label')?.textContent = '60s';
     els['rec-overlay']?.classList.remove('hidden');
     updateRecTimer();
 
@@ -150,6 +154,8 @@ const DioCamera = (() => {
     recordTick = null;
     els['btn-shutter']?.classList.remove('recording');
     els['rec-overlay']?.classList.add('hidden');
+    document.getElementById('vf-mode-label')?.textContent = 'Tx';
+    mode = 'photo';
     if (mediaRecorder?.state === 'recording') mediaRecorder.stop();
     mediaRecorder = null;
   }
@@ -282,24 +288,47 @@ const DioCamera = (() => {
     }
   }
 
+  function updateHeader() {
+    const user = DioDB.getCurrentUser();
+    if (!user) return;
+    const friends = DioDB.getFriends(user.id);
+    const countEl = document.getElementById('camera-friends-count');
+    if (countEl) countEl.textContent = `${friends.length} người bạn`;
+    const avatarEl = document.getElementById('camera-user-avatar');
+    if (avatarEl) avatarEl.textContent = user.avatar || user.name.charAt(0).toUpperCase();
+  }
+
+  function bindShutter() {
+    const btn = els['btn-shutter'];
+    if (!btn) return;
+
+    const onDown = () => {
+      longPressTriggered = false;
+      holdTimer = setTimeout(() => {
+        longPressTriggered = true;
+        if (mediaRecorder?.state !== 'recording') startRecording();
+      }, 550);
+    };
+
+    const onUp = () => {
+      clearTimeout(holdTimer);
+      if (longPressTriggered) return;
+      if (mediaRecorder?.state === 'recording') {
+        stopRecording();
+        return;
+      }
+      takePhoto();
+    };
+
+    btn.addEventListener('pointerdown', onDown);
+    btn.addEventListener('pointerup', onUp);
+    btn.addEventListener('pointerleave', () => clearTimeout(holdTimer));
+  }
+
   function init() {
     cacheEls();
     selectedRecipients = [];
-
-    document.querySelectorAll('[data-mode]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        mode = btn.dataset.mode;
-        document.querySelectorAll('[data-mode]').forEach(b => b.classList.toggle('active', b === btn));
-        els['btn-shutter']?.classList.toggle('video-mode', mode === 'video');
-      });
-    });
-    els['btn-shutter']?.classList.add('video-mode');
-
-    els['btn-shutter']?.addEventListener('click', () => {
-      if (mode === 'photo') takePhoto();
-      else if (mediaRecorder?.state === 'recording') stopRecording();
-      else startRecording();
-    });
+    bindShutter();
 
     els['btn-retake']?.addEventListener('click', hidePreview);
     els['btn-send']?.addEventListener('click', sendLocket);
@@ -345,15 +374,15 @@ const DioCamera = (() => {
       DioUI.closeModal('modal-recipients');
     });
 
-    renderFriendStrip();
+    updateHeader();
   }
 
   function onTabActive() {
     showPlaceholder();
     startCamera();
-    renderFriendStrip();
+    updateHeader();
   }
   function onTabLeave() { stopRecording(); stopCamera(); showPlaceholder(); }
 
-  return { init, onTabActive, onTabLeave, renderFriendStrip };
+  return { init, onTabActive, onTabLeave, renderFriendStrip, updateHeader };
 })();
