@@ -46,7 +46,10 @@ const DioUI = (() => {
     }
   }
 
+  let modalsInited = false;
   function initModals() {
+    if (modalsInited) return;
+    modalsInited = true;
     document.querySelectorAll('.modal').forEach(modal => {
       modal.querySelector('.modal-backdrop')?.addEventListener('click', () => closeModal(modal.id));
       modal.querySelectorAll('.modal-close').forEach(btn => {
