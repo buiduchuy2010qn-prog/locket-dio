@@ -1,19 +1,58 @@
 /**
- * ui.js — Navigation, modals, toast
+ * ui.js — Navigation, modals, toast (light minimal UI)
  */
 
 const DioUI = (() => {
   let activeTab = 'camera';
   let toastTimer;
+  let onChangeCb = null;
 
   function initTabs(onChange) {
-    document.querySelectorAll('.nav-tab[data-tab]').forEach(btn => {
-      btn.addEventListener('click', () => switchTab(btn.dataset.tab, onChange));
+    onChangeCb = onChange;
+    document.querySelectorAll('[data-tab]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        closeNavMenu();
+        switchTab(btn.dataset.tab, onChange);
+      });
+    });
+    initCameraNav();
+    initBackButtons();
+    initNavMenu();
+  }
+
+  function initCameraNav() {
+    document.getElementById('btn-nav-friends')?.addEventListener('click', () => switchTab('friends', onChangeCb));
+    document.getElementById('btn-nav-history')?.addEventListener('click', () => switchTab('history', onChangeCb));
+    document.getElementById('btn-nav-profile')?.addEventListener('click', () => switchTab('profile', onChangeCb));
+    document.getElementById('btn-nav-menu')?.addEventListener('click', e => {
+      e.stopPropagation();
+      toggleNavMenu();
+    });
+    document.addEventListener('click', () => closeNavMenu());
+    document.getElementById('nav-menu')?.addEventListener('click', e => e.stopPropagation());
+  }
+
+  function initBackButtons() {
+    document.querySelectorAll('[data-back]').forEach(btn => {
+      btn.addEventListener('click', () => switchTab(btn.dataset.back, onChangeCb));
     });
   }
 
+  function initNavMenu() {
+    /* handled by [data-tab] listeners */
+  }
+
+  function toggleNavMenu() {
+    document.getElementById('nav-menu')?.classList.toggle('hidden');
+  }
+
+  function closeNavMenu() {
+    document.getElementById('nav-menu')?.classList.add('hidden');
+  }
+
   function setActiveNav(tab) {
-    document.querySelectorAll('.nav-tab[data-tab]').forEach(b => {
+    document.querySelectorAll('[data-tab]').forEach(b => {
+      if (b.closest('.nav-menu') || b.id?.startsWith('btn-nav')) return;
       b.classList.toggle('active', b.dataset.tab === tab);
     });
   }
@@ -29,6 +68,7 @@ const DioUI = (() => {
     document.querySelectorAll('.screen').forEach(s => {
       s.classList.toggle('active', s.dataset.screen === tab);
     });
+    closeNavMenu();
     onChange?.(tab);
   }
 

@@ -179,6 +179,7 @@ const DioFriends = (() => {
       badgeChat.textContent = unread || '';
       badgeChat.classList.toggle('hidden', !unread);
     }
+    DioCamera.updateHeader?.();
   }
 
   return { init, render, updateBadges };

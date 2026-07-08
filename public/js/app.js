@@ -24,7 +24,7 @@ const DioApp = (() => {
     DioChat.showList();
     DioHistory.render();
     DioProfile.render();
-    DioCamera.renderFriendStrip();
+    DioCamera.updateHeader?.();
     DioFriends.updateBadges();
   }
 
