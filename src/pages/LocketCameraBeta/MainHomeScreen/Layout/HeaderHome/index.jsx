@@ -1,17 +1,13 @@
 import { useContext, useState } from "react";
-import { Link } from "react-router-dom";
 import {
   ChevronDown,
   Download,
-  HardDrive,
   Menu,
   MessageCircle,
 } from "lucide-react";
 import HistorySelectFriend from "@/pages/LocketCameraBeta/ModalViews/HistorySelectFriend";
 import { AuthContext } from "@/context/AuthLocket";
 import { useFriendStore } from "@/stores/useFriendStore";
-import { isAdminUser } from "@/utils/googleDrive";
-import { getMyLocalId } from "@/utils/auth/getMyLocalId";
 import { useAutoDriveBackup } from "@/hooks/useAutoDriveBackup";
 import { SonnerSuccess } from "@/components/ui/SonnerToast";
 
@@ -25,15 +21,8 @@ const HeaderHome = ({
   isFriendHistoryOpen,
   selectedFile,
 }) => {
-  const { user, authTokens } = useContext(AuthContext);
+  const { user } = useContext(AuthContext);
   const { friendDetails } = useFriendStore();
-  const myId = getMyLocalId(user, authTokens);
-  const email =
-    user?.email ||
-    localStorage.getItem("email") ||
-    sessionStorage.getItem("email") ||
-    "";
-  const isAdmin = isAdminUser(myId, { ...user, email, localId: myId });
 
   const [isImageLoaded, setIsImageLoaded] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
@@ -161,15 +150,6 @@ const HeaderHome = ({
           </button>
 
           <div className="flex items-center gap-2 sm:gap-3">
-            {isAdmin && (
-              <Link
-                to="/admin/google-drive"
-                title="Cấu hình Google Drive (Admin)"
-                className="w-11 h-11 flex items-center justify-center rounded-full transition active:scale-105 bg-amber-400 text-amber-950 shadow-md ring-2 ring-amber-300"
-              >
-                <HardDrive size={22} strokeWidth={2.25} />
-              </Link>
-            )}
             <button
               onClick={() => setIsHomeOpen(true)}
               className="w-11 h-11 flex items-center justify-center bg-base-300/70 backdrop-blur-[4px] rounded-full hover:bg-base-300 transition active:scale-105"

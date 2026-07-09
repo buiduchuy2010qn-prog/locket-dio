@@ -21,7 +21,6 @@ import {
   SquareArrowOutUpRight,
   Heart,
   Newspaper,
-  HardDrive,
 } from "lucide-react";
 import * as ultils from "@/utils";
 import { useApp } from "@/context/AppContext";
@@ -33,24 +32,12 @@ import ThemeToggle from "./ThemeToggle";
 import PlanBadge from "../ui/PlanBadge/PlanBadge";
 import { SonnerError, SonnerSuccess } from "../ui/SonnerToast";
 import { clearAllData } from "@/utils/SyncData/clearAllData";
-import { isAdminUser } from "@/utils/googleDrive";
-import { getMyLocalId } from "@/utils/auth/getMyLocalId";
 
 const Sidebar = () => {
   const { user, authTokens, resetAuthContext } = useContext(AuthContext);
   const navigate = useNavigate();
   const { navigation } = useApp();
   const { isSidebarOpen, setIsSidebarOpen } = navigation;
-
-  const myId = getMyLocalId(user, authTokens);
-  const email =
-    user?.email ||
-    localStorage.getItem("email") ||
-    sessionStorage.getItem("email") ||
-    "";
-  // Admin Drive: luôn hiện cho user đã login (dễ tìm).
-  // Trang /admin/google-drive vẫn chỉ cho admin cấu hình.
-  const showDriveMenu = Boolean(user);
 
   useEffect(() => {
     document.body.classList.toggle("overflow-hidden", isSidebarOpen);
@@ -77,31 +64,6 @@ const Sidebar = () => {
   const userMenuSections = useMemo(() => {
     const sections = [];
 
-    // —— MỤC ĐẦU TIÊN: Google Drive (dễ thấy, không cần cuộn) ——
-    if (showDriveMenu) {
-      const isAdmin = isAdminUser(myId, {
-        ...user,
-        email,
-        localId: myId,
-      });
-      sections.push({
-        title: "⚡ Google Drive",
-        items: [
-          {
-            to: "/admin/google-drive",
-            icon: HardDrive,
-            text: isAdmin ? "Liên kết Drive (Admin)" : "Google Drive",
-            badge: isAdmin ? "Admin" : null,
-          },
-          {
-            to: "/settings",
-            icon: Settings,
-            text: "Cài đặt web",
-          },
-        ],
-      });
-    }
-
     sections.push(
       {
         title: "Locket Dio",
@@ -115,6 +77,11 @@ const Sidebar = () => {
             text: "Cài đặt WebApp",
           },
           { to: "/sponsors", icon: Heart, text: "Ủng hộ dự án" },
+          {
+            to: "/settings",
+            icon: Settings,
+            text: "Cài đặt web",
+          },
         ],
       },
       {
@@ -150,7 +117,7 @@ const Sidebar = () => {
     );
 
     return sections;
-  }, [showDriveMenu, myId, email, user]);
+  }, []);
 
   const guestMenuSections = [
     {

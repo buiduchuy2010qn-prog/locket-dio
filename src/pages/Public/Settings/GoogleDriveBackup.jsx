@@ -29,8 +29,8 @@ function pickUserEmail(user, authTokens) {
 }
 
 /**
- * Admin: liên kết Drive bằng OAuth (Drive cá nhân Gmail).
- * Service Account không ghi được My Drive (quota 0) — không dùng nữa cho backup.
+ * Backup Drive — tuỳ chọn. Không bắt buộc liên kết lại.
+ * Bật chỉ khi đã có env Render / OAuth sẵn; form nâng cao ẩn mặc định.
  */
 export default function GoogleDriveBackup({ forceShow = false }) {
   const { user, authTokens } = useContext(AuthContext);
@@ -41,6 +41,7 @@ export default function GoogleDriveBackup({ forceShow = false }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [oauthStarting, setOauthStarting] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [isAdmin, setIsAdmin] = useState(() =>
     isAdminUser(localId, { ...user, email, localId })
   );
@@ -69,34 +70,14 @@ export default function GoogleDriveBackup({ forceShow = false }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [localId, email]);
 
+  // User thường: không hiện gì — Drive không liên quan
   if (!isAdmin && !forceShow) {
-    return (
-      <div
-        id="google-drive-admin"
-        className="w-full rounded-2xl border-2 border-dashed border-base-300 bg-base-200 p-4 text-sm text-base-content/70"
-      >
-        <p className="font-semibold text-base-content flex items-center gap-2">
-          <HardDrive className="w-5 h-5" /> Google Drive (dùng chung web)
-        </p>
-        <p className="mt-2 text-xs">
-          Chỉ admin{" "}
-          <code className="bg-base-300 px-1 rounded">
-            buiduchuy2010qn@gmail.com
-          </code>{" "}
-          cấu hình được. Login:{" "}
-          <code className="bg-base-300 px-1 rounded">
-            {email || "chưa có email"}
-          </code>
-        </p>
-        <a className="link link-primary text-xs" href="/admin/google-drive">
-          /admin/google-drive
-        </a>
-      </div>
-    );
+    return null;
   }
 
   const configured = Boolean(status?.configured);
   const enabled = status?.enabled !== false && configured;
+  const permanent = enabled && String(status?.source || "").includes("env");
   const adminHeaders = {
     "Content-Type": "application/json",
     "X-Local-Id": localId || "",
@@ -105,11 +86,10 @@ export default function GoogleDriveBackup({ forceShow = false }) {
 
   const saveAndLogin = async () => {
     if (!folderId.trim()) {
-      SonnerError("Cần Folder ID (từ URL folder Drive)");
+      SonnerError("Cần Folder ID");
       return;
     }
     if (!clientId.trim() || !clientSecret.trim()) {
-      // Cho phép chỉ login nếu server đã có client
       if (!status?.hasOauthClient) {
         SonnerError("Cần OAuth Client ID + Secret");
         return;
@@ -119,7 +99,6 @@ export default function GoogleDriveBackup({ forceShow = false }) {
     setSaving(true);
     setOauthStarting(true);
     try {
-      // 1) Lưu client + folder
       const saveRes = await fetch("/api/drive-config", {
         method: "POST",
         headers: adminHeaders,
@@ -134,7 +113,6 @@ export default function GoogleDriveBackup({ forceShow = false }) {
         throw new Error(saveData?.error || `Lưu lỗi ${saveRes.status}`);
       }
 
-      // 2) Lấy URL Google OAuth
       const oRes = await fetch("/api/drive-oauth-start", {
         method: "POST",
         headers: adminHeaders,
@@ -146,10 +124,10 @@ export default function GoogleDriveBackup({ forceShow = false }) {
       });
       const oData = await oRes.json().catch(() => ({}));
       if (!oRes.ok || !oData?.url) {
-        throw new Error(oData?.error || "Không tạo được link đăng nhập Google");
+        throw new Error(oData?.error || "Không tạo được link Google");
       }
 
-      SonnerSuccess("Chuyển sang Google…", "Cấp quyền Drive rồi quay lại");
+      SonnerSuccess("Mở Google…", "Cấp quyền nếu muốn bật backup");
       window.location.href = oData.url;
     } catch (e) {
       SonnerError(e?.message || "Thất bại");
@@ -161,213 +139,114 @@ export default function GoogleDriveBackup({ forceShow = false }) {
   return (
     <div
       id="google-drive-admin"
-      className="w-full rounded-3xl border-4 border-amber-400 bg-gradient-to-br from-amber-50 to-orange-100 dark:from-amber-950/40 dark:to-base-300 shadow-xl overflow-hidden"
+      className="w-full rounded-2xl border border-base-300 bg-base-100 p-4 space-y-3"
     >
-      <div className="bg-amber-400 text-amber-950 px-4 py-3 flex items-center gap-2 flex-wrap">
-        <HardDrive className="w-6 h-6 shrink-0" />
+      <div className="flex items-center gap-2 flex-wrap">
+        <HardDrive className="w-5 h-5 shrink-0 opacity-70" />
         <div className="flex-1 min-w-0">
-          <p className="font-black text-base sm:text-lg leading-tight">
-            🔗 LIÊN KẾT GOOGLE DRIVE (ADMIN)
-          </p>
-          <p className="text-xs font-semibold opacity-90">
-            Đăng nhập Google (OAuth) · 1 folder cho cả web
-          </p>
+          <p className="font-semibold text-sm">Google Drive backup</p>
+          <p className="text-xs opacity-60">Tuỳ chọn — không bắt buộc</p>
         </div>
-        <span className="badge badge-neutral gap-1 text-xs">
+        <span className="badge badge-ghost badge-sm gap-1">
           <Shield className="w-3 h-3" /> Admin
         </span>
       </div>
 
-      <div className="p-4 sm:p-5 space-y-4 text-base-content">
-        <div className="flex items-center gap-2 text-sm font-semibold">
-          {loading ? (
-            <Loader2 className="w-5 h-5 animate-spin" />
-          ) : enabled ? (
-            <Cloud className="w-5 h-5 text-success" />
-          ) : (
-            <CloudOff className="w-5 h-5 text-warning" />
-          )}
-          <span>
-            {loading
-              ? "Đang kiểm tra…"
-              : enabled
-                ? status?.source?.includes("env")
-                  ? "✅ Backup Drive: BẬT VĨNH VIỄN (env Render)"
-                  : "✅ Backup Drive: ĐANG BẬT (tạm — nên set env Render)"
-                : "⚠️ CHƯA SẴN SÀNG — đăng nhập Google bên dưới"}
-          </span>
-        </div>
-
-        {enabled && status?.source?.includes("env") ? (
-          <div className="alert alert-success text-xs py-2">
-            <span>
-              <b>Đã liên kết vĩnh viễn.</b> Cấu hình nằm trong Environment
-              Render — deploy code bao nhiêu lần cũng không mất.
-            </span>
-          </div>
+      <div className="flex items-center gap-2 text-sm">
+        {loading ? (
+          <Loader2 className="w-4 h-4 animate-spin" />
+        ) : enabled ? (
+          <Cloud className="w-4 h-4 text-success" />
         ) : (
-          <div className="alert alert-error text-xs py-2 space-y-2">
-            <p>
-              <b>Liên kết vĩnh viễn được</b> — làm đúng 2 bước:
-            </p>
-            <ol className="list-decimal pl-4 space-y-1">
-              <li>
-                Dán Client ID + Secret + Folder ID →{" "}
-                <b>Lưu &amp; Đăng nhập Google</b>
-              </li>
-              <li>
-                Trang thành công hiện <b>4 dòng env</b> → copy → vào{" "}
-                <a
-                  className="link link-primary font-bold"
-                  href="https://dashboard.render.com"
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  Render Dashboard
-                </a>{" "}
-                → service <b>huy-locket</b> → <b>Environment</b> → dán 4 biến →{" "}
-                <b>Save</b>
-              </li>
-            </ol>
-            <p className="opacity-90">
-              4 biến:{" "}
-              <code className="bg-base-300 px-1">GOOGLE_OAUTH_CLIENT_ID</code>{" "}
-              <code className="bg-base-300 px-1">
-                GOOGLE_OAUTH_CLIENT_SECRET
-              </code>{" "}
-              <code className="bg-base-300 px-1">
-                GOOGLE_OAUTH_REFRESH_TOKEN
-              </code>{" "}
-              <code className="bg-base-300 px-1">GOOGLE_DRIVE_FOLDER_ID</code>
-            </p>
-            <p>
-              Chỉ dán form mà <b>không</b> set env → lần deploy sau bị{" "}
-              <b>CHƯA SẴN SÀNG</b> lại (Render free xóa file tạm).
-            </p>
-          </div>
+          <CloudOff className="w-4 h-4 opacity-50" />
         )}
+        <span className={enabled ? "text-success font-medium" : "opacity-70"}>
+          {loading
+            ? "Đang kiểm tra…"
+            : enabled
+              ? permanent
+                ? "Đang bật (lưu trên Render env)"
+                : "Đang bật"
+              : "Đang tắt — web vẫn dùng bình thường"}
+        </span>
+      </div>
 
-        {status?.warning && (
-          <div className="alert alert-warning text-xs py-2">
-            <span>{status.warning}</span>
-          </div>
-        )}
+      {enabled && status?.folderUrl && (
+        <a
+          href={status.folderUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="btn btn-ghost btn-sm gap-2"
+        >
+          <ExternalLink className="w-4 h-4" />
+          Mở folder Drive
+        </a>
+      )}
 
-        {enabled && status?.folderUrl && (
-          <a
-            href={status.folderUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="btn btn-warning btn-sm gap-2"
-          >
-            <ExternalLink className="w-4 h-4" />
-            Mở folder Google Drive
-          </a>
-        )}
+      {status?.oauthEmail && (
+        <p className="text-xs opacity-60 break-all">
+          {status.oauthEmail}
+          {status.authMode ? ` · ${status.authMode}` : ""}
+        </p>
+      )}
 
-        {status?.oauthEmail && (
-          <p className="text-xs text-success break-all">
-            Google: {status.oauthEmail}
-            {status.authMode ? ` · mode: ${status.authMode}` : ""}
+      {/* Form cấu hình: ẩn — chỉ mở khi admin chủ động */}
+      {!enabled && (
+        <button
+          type="button"
+          className="btn btn-ghost btn-xs"
+          onClick={() => setShowAdvanced((v) => !v)}
+        >
+          {showAdvanced ? "Ẩn cấu hình" : "Cấu hình backup (tuỳ chọn)…"}
+        </button>
+      )}
+
+      {enabled && !permanent && (
+        <p className="text-[11px] opacity-50">
+          Muốn giữ sau deploy: set 4 biến env trên Render (không cần đăng nhập
+          lại nếu đã có refresh token trong env).
+        </p>
+      )}
+
+      {showAdvanced && !enabled && (
+        <div className="rounded-xl bg-base-200 p-3 space-y-3 text-xs">
+          <p className="opacity-70">
+            Chỉ cần nếu muốn backup Drive. Không làm cũng được — chụp/đăng vẫn
+            OK.
           </p>
-        )}
-
-        <div className="rounded-2xl bg-base-100 border-2 border-amber-300 p-4 space-y-3">
-          <p className="font-bold text-amber-800 dark:text-amber-200">
-            📝 Liên kết bằng tài khoản Google của bạn
-          </p>
-
-          <div className="text-xs space-y-1 opacity-90 bg-base-200 rounded-xl p-3">
-            <p className="font-semibold text-error">
-              Vì sao folder trống? Service Account không ghi được Drive Gmail
-              cá nhân (Google chặn quota). Cần OAuth 1 lần.
-            </p>
-            <p className="font-semibold mt-2">Làm trên Google Cloud (~2 phút):</p>
-            <ol className="list-decimal pl-4 space-y-1">
-              <li>
-                Mở{" "}
-                <a
-                  className="link link-primary"
-                  href="https://console.cloud.google.com/apis/credentials?project=phrasal-fire-465215-n5"
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  APIs &amp; Services → Credentials
-                </a>
-              </li>
-              <li>
-                <strong>Create Credentials</strong> →{" "}
-                <strong>OAuth client ID</strong> → Application type:{" "}
-                <strong>Web application</strong>
-              </li>
-              <li>
-                Name: <code>locket-dio-web</code>
-              </li>
-              <li>
-                <strong>Authorized redirect URIs</strong> → Add:{" "}
-                <code className="bg-base-300 px-1 break-all">
-                  https://huy-locket.onrender.com/api/drive-oauth-callback
-                </code>
-              </li>
-              <li>
-                Create → copy <strong>Client ID</strong> +{" "}
-                <strong>Client Secret</strong>
-              </li>
-              <li>
-                (Lần đầu) OAuth consent screen: External → thêm test user{" "}
-                <code>buiduchuy2010qn@gmail.com</code>
-              </li>
-              <li>
-                Folder ID từ URL folder <em>Locket Dio Web</em>: phần sau{" "}
-                <code>/folders/</code>
-              </li>
-            </ol>
-          </div>
-
           <label className="form-control w-full">
-            <span className="label-text text-xs font-semibold mb-1">
-              1) OAuth Client ID
-            </span>
+            <span className="label-text text-xs mb-1">OAuth Client ID</span>
             <input
               type="text"
-              className="input input-bordered w-full font-mono text-xs"
-              placeholder="xxxx.apps.googleusercontent.com"
+              className="input input-bordered input-sm w-full font-mono"
               value={clientId}
               onChange={(e) => setClientId(e.target.value)}
               autoComplete="off"
             />
           </label>
-
           <label className="form-control w-full">
-            <span className="label-text text-xs font-semibold mb-1">
-              2) OAuth Client Secret
-            </span>
+            <span className="label-text text-xs mb-1">OAuth Client Secret</span>
             <input
               type="password"
-              className="input input-bordered w-full font-mono text-xs"
-              placeholder="GOCSPX-..."
+              className="input input-bordered input-sm w-full font-mono"
               value={clientSecret}
               onChange={(e) => setClientSecret(e.target.value)}
               autoComplete="off"
             />
           </label>
-
           <label className="form-control w-full">
-            <span className="label-text text-xs font-semibold mb-1">
-              3) Folder ID (hoặc dán cả link folder)
-            </span>
+            <span className="label-text text-xs mb-1">Folder ID</span>
             <input
               type="text"
-              className="input input-bordered w-full font-mono text-sm"
+              className="input input-bordered input-sm w-full font-mono"
               placeholder="15u_rammosTOF7msvt0D1SoHklcCiZzt"
               value={folderId}
               onChange={(e) => setFolderId(e.target.value)}
             />
           </label>
-
           <button
             type="button"
-            className="btn btn-primary w-full gap-2"
+            className="btn btn-sm btn-primary w-full gap-2"
             disabled={saving || oauthStarting || !folderId.trim()}
             onClick={saveAndLogin}
           >
@@ -376,29 +255,18 @@ export default function GoogleDriveBackup({ forceShow = false }) {
             ) : (
               <LogIn className="w-4 h-4" />
             )}
-            {oauthStarting
-              ? "Đang mở Google…"
-              : "Lưu & Đăng nhập Google (bật backup)"}
-          </button>
-
-          <button
-            type="button"
-            className="btn btn-ghost btn-sm w-full"
-            onClick={load}
-          >
-            Kiểm tra lại trạng thái
+            {oauthStarting ? "Đang mở Google…" : "Bật backup (OAuth)"}
           </button>
         </div>
+      )}
 
-        <p className="text-[11px] opacity-60">
-          Gmail admin: {email || "buiduchuy2010qn@gmail.com"} · Sau khi OAuth
-          xong, mỗi bài đăng web sẽ có file trong folder Drive. Folder ID của
-          bạn:{" "}
-          <code className="bg-base-300 px-1">
-            15u_rammosTOF7msvt0D1SoHklcCiZzt
-          </code>
-        </p>
-      </div>
+      <button
+        type="button"
+        className="btn btn-ghost btn-xs w-full"
+        onClick={load}
+      >
+        Làm mới trạng thái
+      </button>
     </div>
   );
 }
