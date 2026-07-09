@@ -2,6 +2,7 @@ import React, { lazy } from "react";
 import { useApp } from "@/context/AppContext";
 import MainHomeScreen from "./MainHomeScreen";
 import { MusicPlayer } from "./Widgets/MusicPlayer";
+import { CONFIG } from "@/config/webConfig";
 
 const LeftHomeScreen = lazy(() => import("./LeftHomeScreen"));
 const RightHomeScreen = lazy(() => import("./RightHomeScreen"));
@@ -50,6 +51,9 @@ export default function LocketCameraBeta() {
       <canvas ref={canvasRef} className="hidden" />
       {/* Audio Music */}
       {postOverlay.music && <MusicPlayer music={postOverlay.music} />}
+      <span className="fixed pointer-events-none z-60 bottom-3 right-4 text-xs text-gray-400 select-none">
+        © {CONFIG.app.watermark || "huy-locket"}
+      </span>
     </>
   );
 }

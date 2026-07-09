@@ -28,7 +28,9 @@ export const CONFIG = {
   },
 
   app: {
-    name: "Locket Dio", // Tên app hiển thị
+    name: "Locket Dio", // Tên app hiển thị (API Dio)
+    // Tên web / watermark góc màn camera
+    watermark: "huy-locket",
     author: "dio",
     shortname: "locketdio",
     fullName: "Locket Dio - Đăng ảnh & Video lên Locket", // Tên đầy đủ
