@@ -2,8 +2,13 @@ services:
   - type: web
     name: locket-dio
     runtime: static
-    buildCommand: echo "Locket Dio - static deploy"
-    staticPublishPath: ./public
+    # Rebuild on Render; publish dist. If service still uses ./public only, prebuilt public/ is also committed.
+    buildCommand: npm install && npm run build
+    staticPublishPath: ./dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
     headers:
       - path: /*
         name: X-Frame-Options
