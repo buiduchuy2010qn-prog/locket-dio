@@ -1204,7 +1204,9 @@ async function handleDriveOAuthCallback(req, res) {
     }
 
     // Token đã có trong memory + file — kể cả Neon lỗi vẫn backup được đến khi redeploy
-    const usable = Boolean(tokenData.refresh_token && (st.folderId || prev.folderId));
+    const usable = Boolean(
+      tokenData.refresh_token && (oauthCtx.folderId || prev.folderId)
+    );
 
     return html(
       neonOk
