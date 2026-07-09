@@ -21,7 +21,12 @@ export default function Upload() {
 
   const [screen, setScreen] = useState('camera')
   const [captureKind, setCaptureKind] = useState('photo')
-  const [facing, setFacing] = useState('environment')
+  // Desktop webcams usually only have "user" face camera — environment often fails
+  const [facing, setFacing] = useState(() =>
+    typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches
+      ? 'user'
+      : 'environment',
+  )
   const [flash, setFlash] = useState(false)
   const [friendsLabel, setFriendsLabel] = useState('Tất cả bạn bè')
 
@@ -43,6 +48,7 @@ export default function Upload() {
   const [recSec, setRecSec] = useState(0)
   const [camReady, setCamReady] = useState(false)
   const [camError, setCamError] = useState('')
+  const [camBusy, setCamBusy] = useState(false)
 
   const liveRef = useRef(null)
   const streamRef = useRef(null)
@@ -51,11 +57,16 @@ export default function Upload() {
   const chunksRef = useRef([])
   const recTimerRef = useRef(null)
   const recordingRef = useRef(false)
+  const startGenRef = useRef(0)
   const maxVideo = GOLD_VIDEO_MAX_SEC
 
   useEffect(() => {
     const mq = window.matchMedia('(min-width: 1024px)')
-    const fn = () => setIsDesktop(mq.matches)
+    const fn = () => {
+      setIsDesktop(mq.matches)
+      // Prefer front cam on desktop
+      if (mq.matches) setFacing((f) => (f === 'environment' ? 'user' : f))
+    }
     mq.addEventListener('change', fn)
     return () => mq.removeEventListener('change', fn)
   }, [])
@@ -101,59 +112,173 @@ export default function Upload() {
 
   useEffect(() => () => stopLive(), [stopLive])
 
+  const explainCamError = (err) => {
+    const name = err?.name || ''
+    const msg = String(err?.message || '')
+    if (!window.isSecureContext && !/localhost|127\.0\.0\.1/i.test(window.location.hostname)) {
+      return 'Camera cần HTTPS (hoặc localhost). Hãy dùng https:// hoặc Thư viện.'
+    }
+    if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
+      return 'Bạn đã chặn quyền camera. Bấm biểu tượng 🔒 trên thanh địa chỉ → Cho phép Camera → Thử lại.'
+    }
+    if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
+      return 'Không tìm thấy webcam. Cắm camera hoặc dùng Thư viện.'
+    }
+    if (name === 'NotReadableError' || name === 'TrackStartError') {
+      return 'Camera đang bị app khác dùng (Zoom/Meet…). Đóng app đó rồi Thử lại.'
+    }
+    if (name === 'OverconstrainedError') {
+      return 'Webcam không hỗ trợ chế độ này. Đang thử lại…'
+    }
+    if (name === 'SecurityError') {
+      return 'Trình duyệt chặn camera (cần HTTPS). Dùng Thư viện hoặc mở bằng https.'
+    }
+    return msg || 'Không mở được camera — thử Thư viện'
+  }
+
+  const requestStream = async (withAudio, facingMode) => {
+    const attempts = []
+    // 1) preferred facing
+    if (facingMode) {
+      attempts.push({
+        video: {
+          facingMode: { ideal: facingMode },
+          width: { ideal: 1280 },
+          height: { ideal: 1280 },
+        },
+        audio: withAudio,
+      })
+      attempts.push({
+        video: { facingMode },
+        audio: withAudio,
+      })
+    }
+    // 2) any camera (desktop)
+    attempts.push({
+      video: { width: { ideal: 1280 }, height: { ideal: 1280 } },
+      audio: withAudio,
+    })
+    attempts.push({ video: true, audio: withAudio })
+    // 3) video only if mic fails
+    if (withAudio) {
+      attempts.push({ video: true, audio: false })
+    }
+
+    let lastErr
+    for (const constraints of attempts) {
+      try {
+        return await navigator.mediaDevices.getUserMedia(constraints)
+      } catch (e) {
+        lastErr = e
+      }
+    }
+    throw lastErr || new Error('getUserMedia failed')
+  }
+
+  const attachStream = async (stream) => {
+    streamRef.current = stream
+    const el = liveRef.current
+    if (el) {
+      el.srcObject = stream
+      el.muted = true
+      el.playsInline = true
+      el.setAttribute('playsinline', 'true')
+      try {
+        await el.play()
+      } catch {
+        // autoplay blocked — still show first frame once metadata loads
+        await new Promise((resolve) => {
+          const onMeta = () => {
+            el.removeEventListener('loadedmetadata', onMeta)
+            el.play().catch(() => {})
+            resolve()
+          }
+          el.addEventListener('loadedmetadata', onMeta)
+          setTimeout(resolve, 800)
+        })
+      }
+    }
+    setCamReady(true)
+    setCamError('')
+  }
+
   const startLive = useCallback(async (withAudio = false) => {
-    if (!navigator.mediaDevices?.getUserMedia) {
-      setCamError('Trình duyệt không hỗ trợ camera')
+    const gen = ++startGenRef.current
+    setCamBusy(true)
+    setCamError('')
+
+    if (!window.isSecureContext && !/localhost|127\.0\.0\.1/i.test(window.location.hostname || '')) {
+      setCamReady(false)
+      setCamError('Camera cần HTTPS. Mở site bằng https:// hoặc chọn ảnh từ Thư viện.')
+      setCamBusy(false)
       return null
     }
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setCamReady(false)
+      setCamError('Trình duyệt không hỗ trợ camera — dùng Thư viện')
+      setCamBusy(false)
+      return null
+    }
+
     try {
       if (!recordingRef.current) {
         streamRef.current?.getTracks()?.forEach((t) => t.stop())
         streamRef.current = null
       }
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: facing }, width: { ideal: 1280 }, height: { ideal: 1280 } },
-        audio: withAudio,
-      })
-      streamRef.current = stream
-      if (liveRef.current) {
-        liveRef.current.srcObject = stream
-        await liveRef.current.play().catch(() => {})
+
+      const stream = await requestStream(withAudio, facing)
+      if (gen !== startGenRef.current) {
+        stream.getTracks().forEach((t) => t.stop())
+        return null
       }
-      setCamReady(true)
-      setCamError('')
+      await attachStream(stream)
       return stream
-    } catch {
-      setCamReady(false)
-      setCamError('Cho phép quyền camera hoặc dùng Thư viện')
+    } catch (err) {
+      console.warn('[camera]', err)
+      if (gen === startGenRef.current) {
+        setCamReady(false)
+        setCamError(explainCamError(err))
+      }
       return null
+    } finally {
+      if (gen === startGenRef.current) setCamBusy(false)
     }
   }, [facing])
 
   useEffect(() => {
     if (screen !== 'camera' || sourceUrl) {
-      stopLive()
+      if (screen !== 'camera' || sourceUrl) stopLive()
       return
     }
     if (recordingRef.current) return
     let cancelled = false
-    ;(async () => {
-      const s = await startLive(captureKind === 'video')
-      if (cancelled && s) s.getTracks().forEach((t) => t.stop())
-    })()
-    return () => { cancelled = true }
+    const t = setTimeout(() => {
+      if (cancelled) return
+      startLive(captureKind === 'video')
+    }, 50)
+    return () => {
+      cancelled = true
+      clearTimeout(t)
+    }
   }, [screen, facing, captureKind, sourceUrl, startLive, stopLive])
 
   const capturePhoto = () => {
     const video = liveRef.current
-    if (!video?.videoWidth) return toast('Camera chưa sẵn sàng', 'error')
+    if (!video?.videoWidth) return toast('Camera chưa sẵn sàng — Thử lại hoặc Thư viện', 'error')
     const side = Math.min(video.videoWidth, video.videoHeight)
     const sx = (video.videoWidth - side) / 2
     const sy = (video.videoHeight - side) / 2
     const canvas = document.createElement('canvas')
     canvas.width = 1080
     canvas.height = 1080
-    canvas.getContext('2d').drawImage(video, sx, sy, side, side, 0, 0, 1080, 1080)
+    const ctx = canvas.getContext('2d')
+    // Mirror front camera so capture matches preview
+    if (facing === 'user') {
+      ctx.translate(1080, 0)
+      ctx.scale(-1, 1)
+    }
+    ctx.drawImage(video, sx, sy, side, side, 0, 0, 1080, 1080)
     stopLive()
     setSourceUrl(canvas.toDataURL('image/jpeg', 0.9))
     setType('image')
@@ -573,20 +698,36 @@ export default function Upload() {
 
         <div className={`relative w-full ${isDesktop ? 'max-w-[400px]' : 'max-w-[min(100%,400px)]'}`}>
           <SquareFrame showSafeGuide className="!rounded-[2rem]">
-            <video ref={liveRef} autoPlay playsInline muted className="absolute inset-0 w-full h-full object-cover" />
-            {!camReady && !camError && (
-              <div className="absolute inset-0 z-20 flex items-center justify-center bg-[#0c1222]/90 text-white/70 text-sm font-medium">
+            <video
+              ref={liveRef}
+              autoPlay
+              playsInline
+              muted
+              className="absolute inset-0 w-full h-full object-cover"
+              style={{ transform: facing === 'user' ? 'scaleX(-1)' : undefined }}
+            />
+            {(camBusy || (!camReady && !camError)) && (
+              <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 bg-[#0c1222]/90 text-white/70 text-sm font-medium">
+                <span className="w-8 h-8 rounded-full border-2 border-white/30 border-t-white animate-spin" />
                 Đang mở camera…
               </div>
             )}
-            {camError && (
-              <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-[#0c1222]/95 text-white text-sm p-6 text-center gap-3">
-                <p className="text-white/70">{camError}</p>
-                <button type="button" onClick={() => startLive(captureKind === 'video')} className="px-4 py-2 rounded-full dio-gradient text-white text-xs font-bold press">
-                  Thử lại
+            {camError && !camBusy && (
+              <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-[#0c1222]/95 text-white text-sm p-5 text-center gap-3">
+                <p className="text-white/80 text-[13px] leading-relaxed max-w-[90%]">{camError}</p>
+                <button
+                  type="button"
+                  onClick={() => startLive(captureKind === 'video')}
+                  className="px-5 py-2.5 rounded-full dio-gradient text-white text-xs font-bold press shadow-[var(--shadow-dio)]"
+                >
+                  Thử lại camera
                 </button>
-                <button type="button" onClick={() => fileRef.current?.click()} className="px-4 py-2 rounded-full bg-white/10 text-xs font-bold press">
-                  Thư viện
+                <button
+                  type="button"
+                  onClick={() => fileRef.current?.click()}
+                  className="px-5 py-2.5 rounded-full bg-white text-slate-900 text-xs font-bold press"
+                >
+                  Chọn từ Thư viện
                 </button>
               </div>
             )}
