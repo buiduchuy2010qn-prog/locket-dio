@@ -4,6 +4,18 @@ import { Wrench } from "lucide-react";
 
 export default function SettingsExtras() {
   const handleUpdate = () => {
+    // Ưu tiên PWA register helper (main.jsx)
+    if (typeof window.__applyPwaUpdate === "function") {
+      if (
+        window.confirm(
+          "Tải bản mới? Trang sẽ reload một lần. Nên lưu xong bài trước."
+        )
+      ) {
+        window.__applyPwaUpdate();
+      }
+      return;
+    }
+
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.getRegistration().then((registration) => {
         if (!registration) {
@@ -12,11 +24,20 @@ export default function SettingsExtras() {
         }
         registration.update().then(() => {
           if (registration.waiting) {
-            registration.waiting.postMessage({ type: "SKIP_WAITING" });
-
+            if (
+              !window.confirm(
+                "Có bản mới. Reload ngay? (đang soạn bài sẽ mất)"
+              )
+            ) {
+              return;
+            }
+            let reloaded = false;
             navigator.serviceWorker.addEventListener("controllerchange", () => {
+              if (reloaded) return;
+              reloaded = true;
               window.location.reload();
             });
+            registration.waiting.postMessage({ type: "SKIP_WAITING" });
           } else {
             alert("Đã là phiên bản mới nhất!");
           }

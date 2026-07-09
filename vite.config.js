@@ -17,8 +17,8 @@ const manifestForPlugIn = {
     maximumFileSizeToCacheInBytes: 0, // ✅ TẮT HOÀN TOÀN cache tự động
   },
 
-  // ✅ Tự kiểm tra và cập nhật SW khi có bản mới
-  registerType: "autoUpdate",
+  // prompt: không auto reload tab đang mở (user chọn cập nhật)
+  registerType: "prompt",
 
   includeAssets: ["favicon.ico", "apple-touch-icon.png", "maskable-icon-512x512.png"],
 

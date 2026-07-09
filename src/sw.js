@@ -1,10 +1,10 @@
 /**
- * Locket Dio SW v2.3.6-viewers-blocked
- * - KHÔNG precache JS/CSS/HTML (tránh kẹt bản cũ → postMoment 500)
- * - Navigation + script/style: NetworkFirst
- * - Chỉ cache font/image CDN
+ * Locket Dio SW v2.3.7-no-auto-reload
+ * - KHÔNG precache JS/CSS/HTML
+ * - KHÔNG skipWaiting tự động → không cướp tab đang dùng → không tự reload
+ * - User bấm "Cập nhật" mới SKIP_WAITING
  */
-console.log("[SW] Locket Dio SW v2.3.6-viewers-blocked - loaded");
+console.log("[SW] Locket Dio SW v2.3.7-no-auto-reload - loaded");
 
 import { precacheAndRoute, cleanupOutdatedCaches } from "workbox-precaching";
 import { registerRoute } from "workbox-routing";
@@ -12,17 +12,19 @@ import { NetworkFirst, CacheFirst } from "workbox-strategies";
 import { ExpirationPlugin } from "workbox-expiration";
 
 self.addEventListener("message", (event) => {
-  if (event.data && event.data.type === "SKIP_WAITING") self.skipWaiting();
+  if (event.data && event.data.type === "SKIP_WAITING") {
+    self.skipWaiting();
+  }
 });
 
+// KHÔNG skipWaiting() trong install — chờ user / lần mở app sau
 self.addEventListener("install", () => {
-  self.skipWaiting();
+  // self.skipWaiting() intentionally omitted
 });
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     (async () => {
-      // Xoá precache shell cũ (workbox-precache-v2, v2.2.8, …)
       const keys = await caches.keys();
       await Promise.all(
         keys
@@ -36,6 +38,7 @@ self.addEventListener("activate", (event) => {
             return caches.delete(k);
           })
       );
+      // claim nhẹ — không force reload clients
       await self.clients.claim();
     })()
   );
