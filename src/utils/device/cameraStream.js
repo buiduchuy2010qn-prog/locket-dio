@@ -16,6 +16,11 @@ const PREVIEW_MINIMAL = {
   frameRate: { ideal: 15, max: 24 },
 };
 
+const FRONT_RE =
+  /front|user|mặt trước|trước|facetime|selfie|facing\s*front|facing:\s*front/i;
+const BACK_RE =
+  /back|rear|environment|mặt sau|sau|world|facing\s*back|facing:\s*back/i;
+
 /** Stop all tracks on a stream */
 export function stopMediaStream(stream) {
   if (!stream) return;
@@ -34,6 +39,7 @@ export function stopMediaStream(stream) {
 
 /**
  * List videoinput devices (request permission if labels empty).
+ * Prefer not thrashing the camera: only probe if labels are missing.
  */
 export async function listVideoDevices() {
   if (!navigator.mediaDevices?.enumerateDevices) return [];
@@ -41,11 +47,22 @@ export async function listVideoDevices() {
   let videos = devices.filter((d) => d.kind === "videoinput");
   if (videos.some((d) => !d.label)) {
     try {
-      const tmp = await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: false,
-      });
+      // Prefer environment probe so labels favor rear when possible
+      let tmp;
+      try {
+        tmp = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: "environment" } },
+          audio: false,
+        });
+      } catch (_) {
+        tmp = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: false,
+        });
+      }
       stopMediaStream(tmp);
+      // Give OS time to release after label probe
+      await new Promise((r) => setTimeout(r, 120));
       devices = await navigator.mediaDevices.enumerateDevices();
       videos = devices.filter((d) => d.kind === "videoinput");
     } catch (_) {
@@ -55,6 +72,13 @@ export async function listVideoDevices() {
   return videos;
 }
 
+function classifyDevice(device) {
+  const l = device?.label || "";
+  if (FRONT_RE.test(l) && !BACK_RE.test(l)) return "front";
+  if (BACK_RE.test(l)) return "back";
+  return "unknown";
+}
+
 /**
  * Pick best deviceId for front (user) or back (environment).
  */
@@ -62,19 +86,14 @@ export async function resolveDeviceIdForFacing(facingMode = "user") {
   const videos = await listVideoDevices();
   if (!videos.length) return null;
 
-  const frontRe =
-    /front|user|mặt trước|trước|facetime|selfie|facing\s*front/i;
-  const backRe =
-    /back|rear|environment|mặt sau|sau|world|facing\s*back/i;
-
   const front = [];
   const back = [];
   const unknown = [];
 
   for (const d of videos) {
-    const l = d.label || "";
-    if (frontRe.test(l)) front.push(d);
-    else if (backRe.test(l)) back.push(d);
+    const kind = classifyDevice(d);
+    if (kind === "front") front.push(d);
+    else if (kind === "back") back.push(d);
     else unknown.push(d);
   }
 
@@ -83,12 +102,16 @@ export async function resolveDeviceIdForFacing(facingMode = "user") {
     const mainBack =
       back.find(
         (d) =>
-          !/ultra|0\.5|tele|zoom|2x|3x|cực rộng|siêu rộng/i.test(d.label || "")
+          !/ultra|0\.5|tele|zoom|2x|3x|cực rộng|siêu rộng|uw\b/i.test(
+            d.label || ""
+          )
       ) ||
       back[0] ||
-      // Many Androids: index 0 = back, 1 = front
+      // Many Androids: index 0 = back main when unlabeled
       (unknown.length >= 1 ? unknown[0] : null) ||
-      (videos.length >= 2 ? videos[0] : null);
+      // Fallback: first non-front
+      videos.find((d) => classifyDevice(d) !== "front") ||
+      null;
     return mainBack?.deviceId || null;
   }
 
@@ -100,11 +123,63 @@ export async function resolveDeviceIdForFacing(facingMode = "user") {
   return mainFront?.deviceId || null;
 }
 
+/**
+ * If caller passes a deviceId that clearly belongs to the wrong facing,
+ * ignore it so we don't open front while requesting environment.
+ */
+async function sanitizeDeviceId(deviceId, mode) {
+  if (!deviceId) return null;
+  try {
+    const videos = await listVideoDevices();
+    const d = videos.find((v) => v.deviceId === deviceId);
+    if (!d) return deviceId; // unknown id — still try
+    const kind = classifyDevice(d);
+    if (mode === "environment" && kind === "front") return null;
+    if (mode === "user" && kind === "back") return null;
+    return deviceId;
+  } catch (_) {
+    return deviceId;
+  }
+}
+
 async function tryGetUserMedia(videoConstraint) {
   return navigator.mediaDevices.getUserMedia({
     video: videoConstraint,
     audio: false,
   });
+}
+
+function trackFacing(stream) {
+  try {
+    const track = stream?.getVideoTracks?.()?.[0];
+    const settings =
+      typeof track?.getSettings === "function" ? track.getSettings() : {};
+    return {
+      facingMode: settings.facingMode || null,
+      deviceId: settings.deviceId || null,
+      label: track?.label || "",
+    };
+  } catch (_) {
+    return { facingMode: null, deviceId: null, label: "" };
+  }
+}
+
+/** Reject stream if we can prove it opened the wrong facing. */
+function isWrongFacing(stream, mode) {
+  const info = trackFacing(stream);
+  if (mode === "environment") {
+    if (info.facingMode === "user") return true;
+    if (info.label && FRONT_RE.test(info.label) && !BACK_RE.test(info.label)) {
+      return true;
+    }
+  }
+  if (mode === "user") {
+    if (info.facingMode === "environment") return true;
+    if (info.label && BACK_RE.test(info.label) && !FRONT_RE.test(info.label)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**
@@ -130,8 +205,8 @@ export async function openCameraStream({
     return base;
   };
 
-  // Resolve deviceId for this facing if not provided
-  let resolvedId = deviceId;
+  // Drop deviceId if it belongs to the opposite camera
+  let resolvedId = await sanitizeDeviceId(deviceId, mode);
   if (!resolvedId) {
     try {
       resolvedId = await resolveDeviceIdForFacing(mode);
@@ -140,30 +215,19 @@ export async function openCameraStream({
     }
   }
 
-  // 1) Explicit device (best for flip on Android)
-  if (resolvedId) {
-    attempts.push(
-      withExtras({
-        deviceId: { exact: resolvedId },
-        ...PREVIEW_LIGHT,
-      })
-    );
-    attempts.push({ deviceId: { exact: resolvedId }, ...PREVIEW_MINIMAL });
-    attempts.push({ deviceId: { exact: resolvedId } });
-    attempts.push({ deviceId: { ideal: resolvedId } });
-  }
+  // Order tuned for mobile flip reliability:
+  // - facingMode first (browser picks correct lens; works well on iOS/Chrome)
+  // - then explicit deviceId (helps Android multi-cam)
+  // - then other non-front devices for environment
 
-  // 2) facingMode — do NOT add a final "true" fallback (opens wrong camera)
+  // 1) facingMode variants
   attempts.push(
     withExtras({
       facingMode: { exact: mode },
       ...PREVIEW_LIGHT,
     })
   );
-  attempts.push({
-    facingMode: { exact: mode },
-    ...PREVIEW_MINIMAL,
-  });
+  attempts.push({ facingMode: { exact: mode }, ...PREVIEW_MINIMAL });
   attempts.push({ facingMode: { exact: mode } });
   attempts.push(
     withExtras({
@@ -175,15 +239,36 @@ export async function openCameraStream({
   attempts.push({ facingMode: { ideal: mode } });
   attempts.push({ facingMode: mode });
 
-  // 3) If still failing for environment: try every non-front device
+  // 2) Explicit device
+  if (resolvedId) {
+    attempts.push(
+      withExtras({
+        deviceId: { exact: resolvedId },
+        ...PREVIEW_LIGHT,
+      })
+    );
+    attempts.push({ deviceId: { exact: resolvedId }, ...PREVIEW_MINIMAL });
+    attempts.push({ deviceId: { exact: resolvedId } });
+    attempts.push({ deviceId: { ideal: resolvedId } });
+    // deviceId + facingMode together (some Chromium builds need both)
+    attempts.push({
+      deviceId: { exact: resolvedId },
+      facingMode: { ideal: mode },
+    });
+  }
+
+  // 3) Environment: try every non-front device
   if (mode === "environment") {
     try {
       const videos = await listVideoDevices();
-      const frontRe = /front|user|mặt trước|trước|facetime|selfie/i;
       for (const d of videos) {
-        if (frontRe.test(d.label || "")) continue;
+        if (classifyDevice(d) === "front") continue;
         if (d.deviceId === resolvedId) continue;
         attempts.push({ deviceId: { exact: d.deviceId } });
+        attempts.push({
+          deviceId: { exact: d.deviceId },
+          facingMode: { ideal: "environment" },
+        });
       }
     } catch (_) {
       /* ignore */
@@ -194,17 +279,7 @@ export async function openCameraStream({
   for (const video of attempts) {
     try {
       const stream = await tryGetUserMedia(video);
-      // Verify facing when possible
-      const track = stream.getVideoTracks()[0];
-      const settings =
-        typeof track?.getSettings === "function" ? track.getSettings() : {};
-      if (
-        mode === "environment" &&
-        settings.facingMode &&
-        settings.facingMode === "user" &&
-        resolvedId
-      ) {
-        // Got front by mistake — stop and keep trying
+      if (isWrongFacing(stream, mode)) {
         stopMediaStream(stream);
         continue;
       }

@@ -44,6 +44,10 @@ const MediaPreview = ({ capturedMedia }) => {
     try {
       stopMediaStream(streamRef.current);
       streamRef.current = null;
+      if (videoRef.current) videoRef.current.srcObject = null;
+      // Release lock before opening other lens (Android)
+      await new Promise((r) => setTimeout(r, 250));
+      if (!mountedRef.current) return;
       const stream = await openCameraStream({
         facingMode: cameraMode || "user",
         deviceId: deviceId || null,
@@ -55,11 +59,14 @@ const MediaPreview = ({ capturedMedia }) => {
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
+        videoRef.current.setAttribute("playsinline", "true");
+        videoRef.current.muted = true;
         const p = videoRef.current.play?.();
         if (p?.catch) p.catch(() => {});
       }
     } catch (err) {
       console.error("startCamera failed:", err);
+      showInfo("Không mở được camera. Thử lật lại hoặc dùng Chrome.");
       setCameraActive(false);
     } finally {
       startingRef.current = false;

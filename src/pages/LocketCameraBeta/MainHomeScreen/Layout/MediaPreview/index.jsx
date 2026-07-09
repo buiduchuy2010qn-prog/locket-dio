@@ -33,6 +33,7 @@ const MediaPreview = ({ capturedMedia }) => {
     cameraActive,
     setCameraActive,
     cameraMode,
+    setCameraMode,
     zoomLevel,
     setZoomLevel,
     zoomFactor,
@@ -48,7 +49,10 @@ const MediaPreview = ({ capturedMedia }) => {
   const startGenRef = useRef(0);
   const mountedRef = useRef(true);
   const camerasCacheRef = useRef(null);
-  const prevModeRef = useRef(cameraMode);
+  /** Last facing that successfully opened a stream */
+  const openedModeRef = useRef(cameraMode || "user");
+  /** Last facing we already cleared lens/zoom for */
+  const clearedModeRef = useRef(cameraMode || "user");
   const [digitalScale, setDigitalScale] = useState(1);
 
   const stopCamera = useCallback(() => {
@@ -85,6 +89,8 @@ const MediaPreview = ({ capturedMedia }) => {
 
     const gen = ++startGenRef.current;
     startingRef.current = true;
+    const mode = cameraMode || "user";
+    const switchingFacing = openedModeRef.current !== mode;
 
     try {
       // Fully release old stream before opening new facing (required on many phones)
@@ -92,13 +98,14 @@ const MediaPreview = ({ capturedMedia }) => {
       streamRef.current = null;
       if (videoRef.current) videoRef.current.srcObject = null;
 
-      // Small yield so OS releases camera lock
-      await new Promise((r) => setTimeout(r, 80));
+      // Longer wait when flipping front↔back — Android often holds lock ~150–300ms
+      await new Promise((r) => setTimeout(r, switchingFacing ? 280 : 100));
       if (gen !== startGenRef.current || !mountedRef.current) return;
 
+      // When flipping facing, never reuse previous lens deviceId
       const stream = await openCameraStream({
-        facingMode: cameraMode || "user",
-        deviceId: deviceId || null,
+        facingMode: mode,
+        deviceId: switchingFacing ? null : deviceId || null,
       });
 
       if (gen !== startGenRef.current || !mountedRef.current) {
@@ -107,6 +114,7 @@ const MediaPreview = ({ capturedMedia }) => {
       }
 
       streamRef.current = stream;
+      openedModeRef.current = mode;
 
       if (zoomFactor > 1.01) {
         const ok = await applyTrackZoom(stream, zoomFactor);
@@ -117,6 +125,9 @@ const MediaPreview = ({ capturedMedia }) => {
 
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
+        // iOS Safari needs playsInline + muted before play
+        videoRef.current.setAttribute("playsinline", "true");
+        videoRef.current.muted = true;
         const p = videoRef.current.play?.();
         if (p?.catch) p.catch(() => {});
       }
@@ -126,13 +137,15 @@ const MediaPreview = ({ capturedMedia }) => {
       console.error("startCamera failed:", err?.name, err?.message || err);
       if (gen !== startGenRef.current) return;
 
-      // Flip to back failed → keep front instead of turning camera off
-      if (cameraMode === "environment") {
+      // Flip to back failed → reopen front instead of black screen
+      if (mode === "environment") {
         showInfo(
           "Không mở được camera sau. Dùng Chrome, cấp quyền Camera, thử lại."
         );
         setDeviceId(null);
-        setCameraMode("user");
+        if (typeof setCameraMode === "function") {
+          setCameraMode("user");
+        }
         return;
       }
       showInfo("Không mở được camera. Kiểm tra quyền trình duyệt.");
@@ -163,10 +176,11 @@ const MediaPreview = ({ capturedMedia }) => {
     };
   }, []);
 
-  // When facing flips: clear lens device + zoom (don't fight startCamera)
+  // When facing flips: clear lens device + zoom once per mode change
   useEffect(() => {
-    if (prevModeRef.current === cameraMode) return;
-    prevModeRef.current = cameraMode;
+    const mode = cameraMode || "user";
+    if (clearedModeRef.current === mode) return;
+    clearedModeRef.current = mode;
     camerasCacheRef.current = null;
     setZoomLevel("1x");
     setZoomFactor(1);
