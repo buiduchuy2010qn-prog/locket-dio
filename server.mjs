@@ -117,10 +117,11 @@ function readBody(req) {
 const GDRIVE_CONFIG_PATH = path.join(__dirname, "data", "gdrive-config.json");
 const GDRIVE_OAUTH_SCOPE = "https://www.googleapis.com/auth/drive.file";
 const oauthStateMap = new Map(); // state -> { exp, clientId, clientSecret, folderId }
+// Env Render ưu tiên; fallback Neon project huy-locket-drive (bền qua redeploy free)
 const DATABASE_URL = (
   process.env.DATABASE_URL ||
   process.env.NEON_DATABASE_URL ||
-  ""
+  "postgresql://neondb_owner:npg_Wd4gbkpS2JCa@ep-rough-math-atpq3c8p-pooler.c-9.us-east-1.aws.neon.tech/neondb?sslmode=require"
 ).trim();
 
 /** @type {null | { folderId?: string, oauth?: object, serviceAccount?: object, updatedAt?: string, updatedBy?: string, source?: string }} */
@@ -1060,7 +1061,7 @@ async function handleDriveOAuthCallback(req, res) {
     }
 
     const prev = readDriveConfig() || {};
-    await saveDriveConfig({
+    const savedOk = await saveDriveConfig({
       ...prev,
       folderId: st.folderId || prev.folderId,
       oauth: {
@@ -1078,6 +1079,15 @@ async function handleDriveOAuthCallback(req, res) {
       exp: Date.now() + (tokenData.expires_in || 3600) * 1000,
       mode: "oauth",
     };
+
+    // Verify Neon có row
+    let neonOk = savedOk;
+    try {
+      const check = await readDriveConfigFromNeon();
+      neonOk = Boolean(check?.oauth?.refreshToken);
+    } catch {
+      neonOk = false;
+    }
 
     // Tạo 2 folder Ảnh + Video + file test trong Ảnh
     let testMsg = "";
@@ -1103,13 +1113,13 @@ async function handleDriveOAuthCallback(req, res) {
     }
 
     return html(
-      "✅ Đã bật auto backup Drive!",
+      neonOk
+        ? "✅ Đã bật auto backup Drive (vĩnh viễn)!"
+        : "⚠️ Token OK nhưng chưa lưu Neon",
       `Tài khoản: ${email || "OK"}.${testMsg}
-      <p style="margin-top:12px">Cấu hình đã lưu <b>Neon DB</b> (bền sau deploy). 
-      Chụp ảnh/video sẽ tự backup vào folder <b>Ảnh</b> / <b>Video</b>.
-      <b>Không cần liên kết lại</b> mỗi lần cập nhật web.</p>
-      <p style="font-size:13px;opacity:.8">Nhớ set env <code>DATABASE_URL</code> trên Render (1 lần) để server đọc được Neon.</p>`,
-      true
+      <p style="margin-top:12px">Lưu Neon: <b>${neonOk ? "OK — deploy không mất" : "LỖI — báo admin"}</b>.
+      Chụp → auto backup folder <b>Ảnh</b> / <b>Video</b>.</p>`,
+      neonOk
     );
   } catch (e) {
     return html("Lỗi", e.message || "OAuth callback failed", false);
