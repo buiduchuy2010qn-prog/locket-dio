@@ -8,7 +8,6 @@ export const uploadMedia = async (formData, setUploadProgress) => {
   try {
     const fileType = formData.get("images") ? "image" : "video";
 
-    // Thời gian chờ tùy vào loại file
     timeOutId = setTimeout(
       () => {
         console.log("⏳ Uploading is taking longer than expected...");
@@ -47,94 +46,76 @@ export const uploadMedia = async (formData, setUploadProgress) => {
     return response.data;
   } catch (error) {
     clearTimeout(timeOutId);
-
-    // Log lỗi chi tiết hơn
     console.error("❌ Lỗi khi upload:", error.response?.data || error.message);
-
-    if (error.response) {
-      // Xử lý lỗi từ server
-      console.error("Server Error:", error.response);
-    } else {
-      // Xử lý lỗi kết nối hoặc khác
-      console.error("Network Error:", error.message);
-    }
-
     throw error;
   }
 };
+
 export const uploadMediaV2 = async (payload) => {
-  try {
-    // Lấy mediaInfo từ payload
-    const { mediaInfo } = payload;
-    // Lấy type từ mediaInfo để xác định là ảnh hay video
-    const fileType = mediaInfo.type;
-
-    // Đặt timeout tùy theo loại tệp (ảnh hoặc video)
-    const timeoutDuration =
-      fileType === "image" ? 5000 : fileType === "video" ? 10000 : 5000;
-    const timeoutId = setTimeout(() => {
-      console.log("⏳ Uploading is taking longer than expected...");
-    }, timeoutDuration);
-
-    // Gửi request với payload và header Content-Type: application/json
-    const response = await api.post(
-      utils.API_URL.UPLOAD_MEDIA_URL_V2,
-      payload,
-      {
-        headers: {
-          "Content-Type": "application/json",
-        },
-      }
-    );
-
-    clearTimeout(timeoutId); // Hủy timeout khi upload thành công
-    console.log("✅ Upload thành công:", response.data);
-    return response.data;
-  } catch (error) {
-    console.error("❌ Lỗi khi upload:", error.response?.data || error.message);
-
-    if (error.response) {
-      console.error("📡 Server Error:", error.response);
-    } else {
-      console.error("🌐 Network Error:", error.message);
-    }
-
-    throw error;
-  }
+  return PostMoments(payload);
 };
+
+/** Body postMomentV2 — chỉ field client chính thức. */
+function buildPostMomentBody(payload) {
+  const fileType = payload?.mediaInfo?.type || payload?.contentType || "image";
+  let optionsData = { ...(payload?.optionsData || payload?.options || {}) };
+
+  if (!optionsData.type) optionsData.type = "default";
+
+  // Dio crash nếu streakData là boolean
+  if (typeof optionsData.streakData === "boolean") {
+    delete optionsData.streakData;
+  }
+
+  let mediaInfo = { ...(payload?.mediaInfo || {}) };
+  delete mediaInfo.metadata;
+  delete mediaInfo.downloadURL;
+
+  // JSON-safe clone
+  try {
+    mediaInfo = JSON.parse(JSON.stringify(mediaInfo));
+    optionsData = JSON.parse(JSON.stringify(optionsData));
+  } catch {
+    /* keep as-is */
+  }
+
+  return {
+    model: payload?.model || "Version-UploadmediaV3.1",
+    mediaInfo,
+    contentType: payload?.contentType || fileType,
+    optionsData,
+  };
+}
+
 export const PostMoments = async (payload) => {
   try {
-    // Lấy mediaInfo từ payload
-    const { mediaInfo } = payload;
-    // Lấy type từ mediaInfo để xác định là ảnh hay video
-    const fileType = mediaInfo?.type || payload.contentType;
+    const body = buildPostMomentBody(payload);
+    const fileType = body.contentType;
 
-    // Đặt timeout tùy theo loại tệp (ảnh hoặc video)
+    if (!body.mediaInfo || !body.mediaInfo.url) {
+      throw new Error("Thiếu mediaInfo.url — upload storage chưa xong.");
+    }
+    if (!body.contentType) {
+      throw new Error("Thiếu contentType (image/video).");
+    }
+
     const timeoutDuration =
       fileType === "image" ? 10000 : fileType === "video" ? 15000 : 5000;
     const timeoutId = setTimeout(() => {
       console.log("⏳ Uploading is taking longer than expected...");
     }, timeoutDuration);
 
-    // Chỉ gửi field client chính thức — bỏ id/status/createdAt của Dexie queue
-    const optionsData = payload.optionsData || payload.options || {};
-    if (!optionsData.type) optionsData.type = "default";
+    console.log("[postMomentV2] body keys", {
+      model: body.model,
+      contentType: body.contentType,
+      mediaType: body.mediaInfo?.type,
+      hasUrl: !!body.mediaInfo?.url,
+      hasKey: !!body.mediaInfo?.key,
+      overlayType: body.optionsData?.type,
+      streakData: body.optionsData?.streakData,
+      audience: body.optionsData?.audience,
+    });
 
-    const body = {
-      model: payload.model || "Version-UploadmediaV3.1",
-      mediaInfo: payload.mediaInfo,
-      contentType: payload.contentType || fileType,
-      optionsData,
-    };
-
-    if (!body.mediaInfo) {
-      throw new Error("Thiếu mediaInfo — upload storage chưa xong.");
-    }
-    if (!body.contentType) {
-      throw new Error("Thiếu contentType (image/video).");
-    }
-
-    // Gửi request; Authorization + member header do axios interceptor gắn
     const response = await api.post(
       `${utils.API_URL.UPLOAD_MEDIA_URL_V2}`,
       body,
@@ -146,9 +127,8 @@ export const PostMoments = async (payload) => {
       }
     );
 
-    clearTimeout(timeoutId); // Hủy timeout khi upload thành công
+    clearTimeout(timeoutId);
 
-    // Dio đôi khi trả HTTP 200 + success:false
     if (response.data?.success === false) {
       const msg = formatApiError(
         { response, message: "postMoment bị từ chối" },

@@ -167,15 +167,38 @@ async function proxyR2Put(req, res) {
     return send(res, 400, "Bad request body: " + e.message);
   }
 
+  if (!body.length) {
+    return send(res, 400, "Empty upload body");
+  }
+
+  const expectedSize = Number(req.headers["x-upload-size"] || 0);
+  if (expectedSize > 0 && body.length !== expectedSize) {
+    console.warn(
+      "[r2-put] size mismatch body=%s expected=%s",
+      body.length,
+      expectedSize
+    );
+  }
+
   const targetUrl = new URL(uploadUrl);
+  // Use client Content-Type as-is (must match what was signed in presign)
   const contentType =
     req.headers["content-type"] || "application/octet-stream";
 
-  // Presigned PUT usually only signs Content-Type — do not add extra headers
+  // Presigned PUT: only Content-Type is typically signed — avoid extra signed headers
   const headers = {
     "Content-Type": contentType,
     "Content-Length": String(body.length),
   };
+
+  console.log(
+    "[r2-put] PUT",
+    targetUrl.hostname,
+    "bytes=",
+    body.length,
+    "type=",
+    contentType
+  );
 
   const opts = {
     protocol: targetUrl.protocol,
@@ -192,6 +215,7 @@ async function proxyR2Put(req, res) {
     upRes.on("data", (c) => chunks.push(c));
     upRes.on("end", () => {
       const buf = Buffer.concat(chunks);
+      console.log("[r2-put] status", upRes.statusCode, "respBytes", buf.length);
       send(res, upRes.statusCode || 502, buf, {
         "Content-Type":
           upRes.headers["content-type"] || "text/plain; charset=utf-8",
@@ -209,7 +233,7 @@ async function proxyR2Put(req, res) {
     if (!res.headersSent) send(res, 502, "R2 upload failed: " + err.message);
   });
 
-  if (body.length) up.write(body);
+  up.write(body);
   up.end();
 }
 

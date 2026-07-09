@@ -112,15 +112,22 @@ export const uploadFileAndGetInfoR2 = async (
     );
   }
 
-  // Browser PUT to R2 is CORS-blocked on non-locket-dio.com origins
-  // (R2 only allows official domain). Proxy PUT via same-origin Node server.
+  if (!file.size && !(file instanceof Blob)) {
+    throw new Error("File rỗng — không upload được lên storage.");
+  }
+
+  // Browser PUT to R2 is CORS-blocked on non-locket-dio.com origins.
+  // Official client: fetch(uploadUrl, { method:"PUT", headers:{Content-Type:file.type}, body:file })
+  // We proxy via same-origin so onrender.com works.
   let uploadRes;
   try {
     uploadRes = await fetch("/dio-r2-put", {
       method: "PUT",
       headers: {
+        // Match presign contentType exactly (signature often binds Content-Type)
         "Content-Type": contentType,
         "X-Upload-Url": putUrl,
+        "X-Upload-Size": String(file.size || 0),
       },
       body: file,
     });
@@ -135,20 +142,24 @@ export const uploadFileAndGetInfoR2 = async (
   if (!uploadRes.ok) {
     const t = await uploadRes.text().catch(() => "");
     throw new Error(
-      `Upload to R2 failed (${uploadRes.status})${t ? ": " + t.slice(0, 120) : ""}`
+      `Upload to R2 failed (${uploadRes.status})${t ? ": " + t.slice(0, 160) : ""}`
     );
   }
 
-  // Official returns full presign payload as mediaInfo base (url, uploadUrl, key, expiresIn)
+  // Official returns full r.data.data as mediaInfo base
+  // (url, uploadUrl, key, expiresIn, …) + type
   const publicUrl =
     data.url || data.publicURL || data.publicUrl || data.downloadURL || null;
 
+  if (!publicUrl) {
+    console.warn("Presign missing public url field:", data);
+  }
+
   return {
     ...data,
-    // ensure canonical `url` field for postMomentV2
     url: publicUrl,
     type: safeType,
-    // helpers for older code paths (stripped before post)
+    // helpers (stripped in PayloadServices before post)
     downloadURL: publicUrl,
     metadata: {
       name: fileName,
