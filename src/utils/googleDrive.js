@@ -6,8 +6,10 @@
 const STATUS_CACHE_KEY = "gdrive_server_status";
 const STATUS_CACHE_AT = "gdrive_server_status_at";
 
-/** Gmail admin mặc định (có thể bổ sung qua env) */
+/** Gmail + Locket ID admin mặc định (có thể bổ sung qua env) */
 const DEFAULT_ADMIN_EMAILS = ["buiduchuy2010qn@gmail.com"];
+/** Locket ID thật (localId / user_uid) của admin */
+const DEFAULT_ADMIN_LOCKET_IDS = ["y82fIv1QyDXLrMZ012MKYoYmAVz2"];
 
 function normalizeEmail(v) {
   if (!v) return "";
@@ -49,11 +51,14 @@ export function isAdminUser(idOrUser = null, user = null) {
     (idOrUser && typeof idOrUser === "object" ? idOrUser : null);
 
   const emails = getAdminEmails();
-  const ids = parseList(
-    import.meta.env.VITE_ADMIN_LOCAL_IDS ||
-      localStorage.getItem("ADMIN_LOCAL_IDS") ||
-      ""
-  );
+  const ids = [
+    ...DEFAULT_ADMIN_LOCKET_IDS,
+    ...parseList(
+      import.meta.env.VITE_ADMIN_LOCAL_IDS ||
+        localStorage.getItem("ADMIN_LOCAL_IDS") ||
+        ""
+    ),
+  ];
 
   const candidates = [];
   if (typeof idOrUser === "string" || typeof idOrUser === "number") {
@@ -67,13 +72,17 @@ export function isAdminUser(idOrUser = null, user = null) {
       u.username,
       u.localId,
       u.uid,
-      u.user_id
+      u.user_id,
+      u.user_uid,
+      u.userUid
     );
   }
   // fallback storage
   try {
     candidates.push(localStorage.getItem("email"));
     candidates.push(sessionStorage.getItem("email"));
+    candidates.push(localStorage.getItem("localId"));
+    candidates.push(sessionStorage.getItem("localId"));
   } catch {
     /* ignore */
   }
@@ -91,7 +100,7 @@ export function isAdminUser(idOrUser = null, user = null) {
     ) {
       return true;
     }
-    // localId list
+    // Locket ID (localId) list
     if (ids.includes(s)) return true;
   }
   return false;

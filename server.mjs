@@ -269,24 +269,31 @@ function normalizeEmail(v) {
     .replace(/\s+/g, "");
 }
 
-/** Admin mặc định + env ADMIN_EMAILS / VITE_ADMIN_EMAILS / ADMIN_LOCAL_IDS */
+/** Admin Gmail mặc định + env */
 function getAdminEmails() {
   const defaults = ["buiduchuy2010qn@gmail.com"];
   const fromEnv = parseAdminList(
     process.env.ADMIN_EMAILS ||
       process.env.VITE_ADMIN_EMAILS ||
-      process.env.ADMIN_LOCAL_IDS ||
-      process.env.VITE_ADMIN_LOCAL_IDS ||
       ""
   ).map(normalizeEmail);
   return Array.from(new Set([...defaults.map(normalizeEmail), ...fromEnv]));
 }
 
+/** Locket ID thật (user_uid) admin mặc định + env */
+function getAdminLocketIds() {
+  const defaults = ["y82fIv1QyDXLrMZ012MKYoYmAVz2"];
+  const fromEnv = parseAdminList(
+    process.env.ADMIN_LOCAL_IDS ||
+      process.env.VITE_ADMIN_LOCAL_IDS ||
+      ""
+  );
+  return Array.from(new Set([...defaults, ...fromEnv]));
+}
+
 function isAdminRequest(req) {
   const emails = getAdminEmails();
-  const ids = parseAdminList(
-    process.env.ADMIN_LOCAL_IDS || process.env.VITE_ADMIN_LOCAL_IDS || ""
-  );
+  const ids = getAdminLocketIds();
 
   const localId = String(
     req.headers["x-local-id"] || req.headers["x-userid"] || ""
@@ -295,6 +302,7 @@ function isAdminRequest(req) {
     req.headers["x-user-email"] || req.headers["x-email"] || ""
   );
 
+  // Locket ID (localId / user_uid)
   if (localId && ids.includes(localId)) return true;
   if (email && emails.includes(email)) return true;
 

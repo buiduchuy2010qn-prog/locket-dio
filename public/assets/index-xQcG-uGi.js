@@ -1,0 +1,5 @@
+import{j as e}from"./index-DQfxpdgF.js";import{r as t,b2 as u}from"./ui-BctyIxPm.js";const b=({open:a,onClose:c,title:o,children:d,actions:l})=>{const[s,r]=t.useState(!1),[n,i]=t.useState(!1);return t.useEffect(()=>(document.body.style.overflow=s?"hidden":"",()=>{document.body.style.overflow=""}),[s]),t.useEffect(()=>{a?(r(!0),setTimeout(()=>i(!0),10)):(i(!1),setTimeout(()=>r(!1),300))},[a]),s?u.createPortal(e.jsx("div",{className:`fixed inset-0 z-[9999] flex items-center justify-center 
+        bg-black/40 backdrop-blur-sm transition-opacity duration-300 
+        ${n?"opacity-100":"opacity-0"}`,onClick:c,children:e.jsxs("div",{className:`relative bg-base-100 rounded-2xl p-6 w-[90%] max-w-sm shadow-xl 
+          transform transition-all duration-300 text-base-content 
+          ${n?"scale-100 translate-y-0":"scale-90 translate-y-4"}`,onClick:m=>m.stopPropagation(),children:[o&&e.jsx("h3",{className:"text-lg font-semibold mb-3",children:o}),e.jsx("div",{className:"text-sm text-base-content/80 mb-4",children:d}),l&&e.jsx("div",{className:"flex justify-end gap-2",children:l})]})}),document.body):null};export{b as M};

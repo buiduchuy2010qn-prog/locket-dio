@@ -54,9 +54,9 @@ const LeftHomeScreen = () => {
     if (!myId) return;
     try {
       await navigator.clipboard.writeText(myId);
-      SonnerSuccess("Đã copy User ID");
+      SonnerSuccess("Đã copy Locket ID", myId);
     } catch {
-      prompt("User ID:", myId);
+      prompt("Locket ID:", myId);
     }
   };
 

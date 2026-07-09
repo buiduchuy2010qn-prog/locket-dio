@@ -1,19 +1,34 @@
 import { getToken } from "@/utils/storage/storage";
 
 /**
- * ID acc đang login (Locket/Dio = localId).
- * Không dùng user.uid — field này thường không có sau login.
+ * Locket user ID thật = Firebase localId (user_uid trên api.locketcamera.com).
+ * Ưu tiên token đã lưu sau login (localId từ Locket/Dio).
  */
 export function getMyLocalId(user = null, authTokens = null) {
-  return (
-    user?.localId ||
-    user?.uid ||
-    authTokens?.localId ||
+  // Token sau login Locket = nguồn chuẩn
+  const fromToken =
     getToken()?.localId ||
+    authTokens?.localId ||
     localStorage.getItem("localId") ||
     sessionStorage.getItem("localId") ||
-    null
-  );
+    null;
+
+  if (fromToken) return String(fromToken);
+
+  // Fallback user object
+  const fromUser =
+    user?.localId ||
+    user?.uid ||
+    user?.user_uid ||
+    user?.userUid ||
+    null;
+
+  return fromUser ? String(fromUser) : null;
+}
+
+/** Alias rõ nghĩa: Locket ID = localId */
+export function getMyLocketId(user = null, authTokens = null) {
+  return getMyLocalId(user, authTokens);
 }
 
 /** Moment có phải của acc đang login không */
