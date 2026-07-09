@@ -11,6 +11,7 @@ import SquareFrame from '../components/SquareFrame'
 import SquareCropEditor from '../components/SquareCropEditor'
 import { exportSquareCrop } from '../utils/squareCrop'
 import GlassBtn, { FriendsPill } from '../components/camera/GlassBtn'
+import PostSuccessModal from '../components/camera/PostSuccessModal'
 import Avatar from '../components/Avatar'
 import { timeAgo } from '../utils/storage'
 
@@ -39,6 +40,9 @@ export default function Upload() {
   const [posts, setPosts] = useState([])
   const [selected, setSelected] = useState(null)
   const [msg, setMsg] = useState('')
+  const [audience, setAudience] = useState('FRIENDS') // FRIENDS | CLOSE_FRIENDS
+  const [syncOfficial, setSyncOfficial] = useState(false)
+  const [postResult, setPostResult] = useState(null) // { moment, mediaUrl, caption, sync }
   const [isDesktop, setIsDesktop] = useState(() => window.matchMedia('(min-width: 1024px)').matches)
 
   const liveRef = useRef(null)
@@ -161,11 +165,23 @@ export default function Upload() {
           offsetY: (crop.offsetY || 0) * scale,
         })
       }
-      await api.uploadMoment({ mediaUrl, caption, type, durationSec: duration })
-      toast('Đã đăng moment 1:1!')
+      const result = await api.uploadMoment({
+        mediaUrl,
+        caption,
+        type,
+        durationSec: duration,
+        visibility: audience,
+        syncOfficial,
+      })
+      toast('Đã lưu trên Locket Dio (1:1)')
+      setPostResult({
+        moment: result,
+        mediaUrl,
+        caption,
+        sync: result.officialSync || null,
+      })
       setSourceUrl(null)
       setCaption('')
-      setScreen('history')
       loadHistory()
     } catch (e) {
       toast(e.message, 'error')
@@ -327,12 +343,12 @@ export default function Upload() {
     )
   }
 
-  /* ════════════════ COMPOSE (crop + post) ════════════════ */
+  /* ════════════════ COMPOSE (crop + audience + post) ════════════════ */
   if (screen === 'compose' && sourceUrl) {
     return (
       <div className={`fixed inset-0 z-30 flex flex-col page-enter ${isDesktop ? 'bg-white' : 'bg-gradient-to-b from-[#0a1628] via-[#0c1a2e] to-black'}`}>
         <TopChrome dark={!isDesktop} />
-        <div className="flex-1 flex flex-col justify-center px-4 pt-16 pb-6 max-w-md mx-auto w-full">
+        <div className="flex-1 flex flex-col justify-center px-4 pt-16 pb-6 max-w-md mx-auto w-full overflow-y-auto">
           <div data-square-crop-root>
             {type === 'image' ? (
               <SquareCropEditor src={sourceUrl} onChange={onCropChange} />
@@ -351,6 +367,42 @@ export default function Upload() {
               isDesktop ? 'bg-slate-50 border border-slate-200' : 'bg-white/10 border border-white/15 text-white placeholder:text-white/40 backdrop-blur-md'
             }`}
           />
+          {/* Audience */}
+          <div className="mt-3">
+            <p className={`text-xs font-bold mb-1.5 ${isDesktop ? 'text-slate-500' : 'text-white/60'}`}>Audience</p>
+            <div className="flex gap-2">
+              {[
+                ['FRIENDS', 'Tất cả bạn bè'],
+                ['CLOSE_FRIENDS', 'Close friends'],
+              ].map(([v, label]) => (
+                <button
+                  key={v}
+                  type="button"
+                  onClick={() => setAudience(v)}
+                  className={`flex-1 py-2.5 rounded-xl text-xs font-bold active:scale-95 transition ${
+                    audience === v
+                      ? 'gold-gradient text-white'
+                      : isDesktop
+                        ? 'bg-slate-100 text-slate-600'
+                        : 'bg-white/10 text-white/80 border border-white/15'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <label className={`mt-3 flex items-start gap-2 text-xs ${isDesktop ? 'text-slate-600' : 'text-white/70'}`}>
+            <input
+              type="checkbox"
+              checked={syncOfficial}
+              onChange={(e) => setSyncOfficial(e.target.checked)}
+              className="mt-0.5 accent-amber-500"
+            />
+            <span>
+              Also try <strong>Official Locket Sync</strong> (OAuth/API only — never password). If unavailable, you will get export options.
+            </span>
+          </label>
           <div className="flex gap-2 mt-3">
             <button
               type="button"
@@ -516,6 +568,18 @@ export default function Upload() {
           if (!f) return
           readFile(f, f.type.startsWith('video') ? 'video' : 'image')
         }}
+      />
+
+      <PostSuccessModal
+        open={!!postResult}
+        onClose={() => {
+          setPostResult(null)
+          setScreen('history')
+        }}
+        moment={postResult?.moment}
+        mediaUrl={postResult?.mediaUrl}
+        caption={postResult?.caption}
+        syncResult={postResult?.sync}
       />
     </div>
   )

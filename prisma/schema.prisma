@@ -329,18 +329,54 @@ model Badge {
   isPremium Boolean @default(true)
 }
 
-/// Official Locket OAuth only — never store third-party passwords
+/// OfficialLocketConnection — OAuth tokens ONLY (never passwords). Encrypted at rest when official OAuth exists.
 model LocketConnection {
-  id             String    @id @default(cuid())
-  userId         String    @unique
-  status         String    @default("disconnected") // disconnected | pending | connected | unavailable
-  externalUserId String?
-  accessTokenEnc String?
+  id              String    @id @default(cuid())
+  userId          String    @unique
+  /// disconnected | pending | connected | unavailable | revoked
+  status          String    @default("disconnected")
+  externalUserId  String?
+  /// AES-encrypted official OAuth access token (never raw password)
+  accessTokenEnc  String?
   refreshTokenEnc String?
-  connectedAt    DateTime?
-  lastSyncAt     DateTime?
-  meta           Json?
-  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  scopes          String?
+  connectedAt     DateTime?
+  lastSyncAt      DateTime?
+  revokedAt       DateTime?
+  meta            Json?
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  syncLogs        SyncLog[]
+}
+
+/// Log of official Locket sync attempts (documented API only)
+model SyncLog {
+  id             String    @id @default(cuid())
+  userId         String
+  momentId       String?
+  connectionId   String?
+  /// not_connected | uploading | synced | failed | skipped_unavailable
+  status         String
+  message        String?
+  officialPostId String?
+  errorCode      String?
+  createdAt      DateTime  @default(now())
+  connection     LocketConnection? @relation(fields: [connectionId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([momentId])
+}
+
+/// Export/manual-post actions when official API unavailable
+model ExportLog {
+  id        String   @id @default(cuid())
+  userId    String
+  momentId  String?
+  /// download | copy_caption | share | qr | manual_instruction
+  action    String
+  meta      Json?
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
 }
 
 model Report {

@@ -480,10 +480,12 @@ export async function resetDemoData() {
 export async function fetchLocketConnectionStatus() {
   await delay(200)
   return {
-    status: 'disconnected',
+    status: 'unavailable',
+    available: false,
     officialAvailable: false,
+    mode: 'export_only',
     message:
-      'Official Locket API/OAuth is not available in offline mock mode. Use Locket Dio as an independent app — we never ask for Locket passwords.',
+      'Official Locket sync is unavailable because Locket does not provide a public official API/OAuth integration.',
   }
 }
 
@@ -492,7 +494,8 @@ export async function connectLocketAccount() {
   return {
     ok: false,
     status: 'unavailable',
-    error: 'Official Locket OAuth not configured. Password login is not supported.',
+    error:
+      'Official Locket sync is unavailable because Locket does not provide a public official API/OAuth integration.',
   }
 }
 
@@ -503,7 +506,21 @@ export async function disconnectLocketAccount() {
 
 export async function syncWithLocketOfficialAPI() {
   await delay(200)
-  return { ok: false, error: 'Not connected' }
+  return {
+    ok: false,
+    status: 'skipped_unavailable',
+    message:
+      'Official Locket sync is unavailable because Locket does not provide a public official API/OAuth integration.',
+  }
+}
+
+export async function syncMomentToOfficialLocket() {
+  return syncWithLocketOfficialAPI()
+}
+
+export async function logLocketExport() {
+  await delay(100)
+  return { ok: true }
 }
 
 export async function verifyEmail() {

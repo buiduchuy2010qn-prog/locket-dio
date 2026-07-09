@@ -78,4 +78,6 @@ export const fetchLocketConnectionStatus = (...a) => call('fetchLocketConnection
 export const connectLocketAccount = (...a) => call('connectLocketAccount', ...a)
 export const disconnectLocketAccount = (...a) => call('disconnectLocketAccount', ...a)
 export const syncWithLocketOfficialAPI = (...a) => call('syncWithLocketOfficialAPI', ...a)
+export const syncMomentToOfficialLocket = (...a) => call('syncMomentToOfficialLocket', ...a)
+export const logLocketExport = (...a) => call('logLocketExport', ...a)
 export const resetDemoData = (...a) => call('resetDemoData', ...a)

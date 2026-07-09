@@ -49,43 +49,68 @@ router.post(
   uploadLimiter,
   upload.single('file'),
   asyncHandler(async (req, res) => {
-    if (!req.file) throw new AppError('File required')
-
     const source = String(req.body.source || 'camera') // camera | roll
     if (source === 'roll' && !canUseCameraRoll(req.user)) {
       throw new AppError('Camera roll upload requires Gold', 403, 'GOLD_REQUIRED')
     }
 
     const maxBytes = maxUploadBytes(req.user)
-    validateUploadSize(req.file.size, maxBytes)
-
-    const isVideo = (req.file.mimetype || '').startsWith('video/')
     const durationSec = req.body.durationSec ? Number(req.body.durationSec) : null
-
-    if (isVideo) {
-      const maxSec = videoMaxSec(req.user)
-      if (durationSec && durationSec > maxSec) {
-        throw new AppError(`Video max ${maxSec}s`, 400, 'VIDEO_TOO_LONG')
-      }
-    }
+    const syncOfficial = req.body.syncOfficial === 'true' || req.body.syncOfficial === true
 
     let mediaMeta
-    try {
+    // Path A: multipart file
+    if (req.file) {
+      validateUploadSize(req.file.size, maxBytes)
+      const isVideo = (req.file.mimetype || '').startsWith('video/')
       if (isVideo) {
-        mediaMeta = await uploadVideoFile(req.file.path, {
-          folder: 'moments',
-          filename: `v_${req.user.id}_${Date.now()}`,
-          durationSec,
-        })
-      } else {
-        const buf = await fs.readFile(req.file.path)
+        const maxSec = videoMaxSec(req.user)
+        if (durationSec && durationSec > maxSec) {
+          throw new AppError(`Video max ${maxSec}s`, 400, 'VIDEO_TOO_LONG')
+        }
+      }
+      try {
+        if (isVideo) {
+          mediaMeta = await uploadVideoFile(req.file.path, {
+            folder: 'moments',
+            filename: `v_${req.user.id}_${Date.now()}`,
+            durationSec,
+          })
+        } else {
+          const buf = await fs.readFile(req.file.path)
+          mediaMeta = await uploadImageBuffer(buf, {
+            folder: 'moments',
+            filename: `i_${req.user.id}_${Date.now()}`,
+          })
+        }
+      } finally {
+        try { await fs.unlink(req.file.path) } catch { /* */ }
+      }
+    } else if (req.body.mediaBase64 || req.body.mediaUrl) {
+      // Path B: already-cropped square data URL / remote URL from client
+      const raw = req.body.mediaBase64 || req.body.mediaUrl
+      if (String(raw).startsWith('data:image')) {
+        const b64 = String(raw).split(',')[1]
+        const buf = Buffer.from(b64, 'base64')
+        validateUploadSize(buf.length, maxBytes)
         mediaMeta = await uploadImageBuffer(buf, {
           folder: 'moments',
           filename: `i_${req.user.id}_${Date.now()}`,
         })
+      } else if (String(raw).startsWith('http')) {
+        mediaMeta = {
+          type: req.body.type === 'video' ? 'VIDEO' : 'IMAGE',
+          url: raw,
+          publicId: null,
+          thumbnailUrl: raw,
+          mimeType: req.body.type === 'video' ? 'video/mp4' : 'image/jpeg',
+          sizeBytes: 0,
+        }
+      } else {
+        throw new AppError('File or mediaBase64 required')
       }
-    } finally {
-      try { await fs.unlink(req.file.path) } catch { /* */ }
+    } else {
+      throw new AppError('File required')
     }
 
     const moment = await createMoment(req.user, {
@@ -94,11 +119,20 @@ router.post(
       mediaRecords: [mediaMeta],
     })
 
-    // Socket broadcast
+    // Optional official Locket sync (documented API only)
+    let officialSync = null
+    if (syncOfficial) {
+      const { syncMomentToOfficialLocket } = await import('../services/officialLocketSync.js')
+      officialSync = await syncMomentToOfficialLocket(req.user.id, moment.id, {
+        mediaUrl: mediaMeta.url,
+        caption: req.body.caption,
+      })
+    }
+
     const io = req.app.get('io')
     if (io) io.to(`user:${req.user.id}`).emit('moment:created', { momentId: moment.id })
 
-    res.status(201).json({ moment })
+    res.status(201).json({ moment, officialSync })
   }),
 )
 

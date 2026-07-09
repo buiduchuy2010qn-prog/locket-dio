@@ -73,15 +73,41 @@ export async function fetchGallery(filter = 'all') {
   return data.moments || []
 }
 
-export async function uploadMoment({ file, caption, source = 'camera', durationSec, visibility }) {
+export async function uploadMoment({
+  file,
+  mediaUrl,
+  caption,
+  source = 'camera',
+  durationSec,
+  visibility,
+  type,
+  syncOfficial = false,
+}) {
+  // Prefer already-cropped data URL (square 1:1 from client)
+  if (mediaUrl && !file) {
+    const data = await http('/api/moments', {
+      method: 'POST',
+      body: {
+        mediaBase64: mediaUrl,
+        caption,
+        source,
+        durationSec,
+        visibility,
+        type,
+        syncOfficial,
+      },
+    })
+    return { ...data.moment, officialSync: data.officialSync }
+  }
   const fd = new FormData()
-  fd.append('file', file)
+  if (file) fd.append('file', file)
   if (caption) fd.append('caption', caption)
   fd.append('source', source)
   if (durationSec != null) fd.append('durationSec', String(durationSec))
   if (visibility) fd.append('visibility', visibility)
+  if (syncOfficial) fd.append('syncOfficial', 'true')
   const data = await http('/api/moments', { method: 'POST', body: fd, headers: {} })
-  return data.moment
+  return { ...data.moment, officialSync: data.officialSync }
 }
 
 export async function deleteMoment(id) {
@@ -207,6 +233,14 @@ export async function disconnectLocketAccount() {
 
 export async function syncWithLocketOfficialAPI() {
   return http('/api/locket/sync', { method: 'POST', body: {} })
+}
+
+export async function syncMomentToOfficialLocket(momentId) {
+  return http('/api/locket/sync', { method: 'POST', body: { momentId } })
+}
+
+export async function logLocketExport({ momentId, action, meta }) {
+  return http('/api/locket/export-log', { method: 'POST', body: { momentId, action, meta } })
 }
 
 export async function fetchServerStatus() {
