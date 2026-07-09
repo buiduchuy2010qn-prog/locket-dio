@@ -1,7 +1,6 @@
 /**
  * Locket Dio static + API proxy
- * Browser → same origin → this server → api.locket-dio.com
- * (bypasses Dio CORS allowlist that only permits locket-dio.com / localhost)
+ * Browser → same origin → this server → api.locket-dio.com / storage.locket-dio.com
  */
 import http from "http";
 import https from "https";
@@ -13,7 +12,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 4173);
 const PUBLIC_DIR = path.join(__dirname, "public");
 
-/** Upstream map: local prefix → remote base */
 const PROXIES = [
   { prefix: "/dio-api", target: "https://api.locket-dio.com" },
   { prefix: "/dio-data", target: "https://data.locket-dio.com" },
@@ -69,7 +67,6 @@ function serveStatic(req, res) {
   if (!filePath) return send(res, 403, "Forbidden");
 
   if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
-    // SPA fallback
     filePath = path.join(PUBLIC_DIR, "index.html");
   }
 
@@ -102,22 +99,70 @@ function matchProxy(urlPath) {
   return null;
 }
 
-function proxyRequest(req, res, proxy) {
-  const targetUrl = new URL(proxy.rest + (req.url.includes("?") ? "?" + req.url.split("?")[1] : ""), proxy.target);
+function readBody(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    req.on("data", (c) => chunks.push(c));
+    req.on("end", () => resolve(Buffer.concat(chunks)));
+    req.on("error", reject);
+  });
+}
+
+async function proxyRequest(req, res, proxy) {
+  const search = req.url.includes("?") ? "?" + req.url.split("?").slice(1).join("?") : "";
+  const targetUrl = new URL(proxy.rest + search, proxy.target);
   const isHttps = targetUrl.protocol === "https:";
   const lib = isHttps ? https : http;
 
-  const headers = { ...req.headers };
-  // Host must match upstream
+  // CORS preflight (same-origin usually skips this)
+  if (req.method === "OPTIONS") {
+    return send(res, 204, "", {
+      "Access-Control-Allow-Origin": req.headers.origin || "*",
+      "Access-Control-Allow-Methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
+      "Access-Control-Allow-Headers":
+        req.headers["access-control-request-headers"] ||
+        "content-type,authorization,x-api-key,x-app-author,x-app-name,x-app-client,x-app-api,x-app-env",
+      "Access-Control-Allow-Credentials": "true",
+      "Access-Control-Max-Age": "86400",
+    });
+  }
+
+  let body = Buffer.alloc(0);
+  try {
+    body = await readBody(req);
+  } catch (e) {
+    console.error("[proxy] body read", e.message);
+    return send(res, 400, "Bad request body");
+  }
+
+  // Clean hop-by-hop headers; KEEP content-length accurate for JSON POSTs
+  const hopByHop = new Set([
+    "connection",
+    "keep-alive",
+    "proxy-authenticate",
+    "proxy-authorization",
+    "te",
+    "trailers",
+    "transfer-encoding",
+    "upgrade",
+    "host",
+    "accept-encoding",
+  ]);
+
+  const headers = {};
+  for (const [k, v] of Object.entries(req.headers)) {
+    if (v == null) continue;
+    if (hopByHop.has(k.toLowerCase())) continue;
+    headers[k] = v;
+  }
+
   headers.host = targetUrl.host;
-  // Spoof allowed origin so Dio CORS middleware accepts the request
   headers.origin = ALLOWED_ORIGIN_SPOOF;
   headers.referer = ALLOWED_ORIGIN_SPOOF + "/";
-  // Avoid compressed streams we don't re-encode
-  delete headers["accept-encoding"];
-  // Hop-by-hop
-  delete headers.connection;
-  delete headers["content-length"];
+  headers["content-length"] = String(body.length);
+
+  // Prefer identity so we can stream response as-is
+  headers["accept-encoding"] = "identity";
 
   const opts = {
     protocol: targetUrl.protocol,
@@ -126,17 +171,17 @@ function proxyRequest(req, res, proxy) {
     path: targetUrl.pathname + targetUrl.search,
     method: req.method,
     headers,
-    timeout: 60000,
+    timeout: 90000,
   };
 
   const up = lib.request(opts, (upRes) => {
     const outHeaders = { ...upRes.headers };
-    // Expose to browser as same-origin; strip upstream CORS (we don't need them)
     delete outHeaders["access-control-allow-origin"];
     delete outHeaders["access-control-allow-credentials"];
     delete outHeaders["access-control-allow-headers"];
     delete outHeaders["access-control-allow-methods"];
-    // Rewrite Set-Cookie domain if any
+    delete outHeaders["content-encoding"]; // we asked identity
+
     if (outHeaders["set-cookie"]) {
       const cookies = Array.isArray(outHeaders["set-cookie"])
         ? outHeaders["set-cookie"]
@@ -159,23 +204,12 @@ function proxyRequest(req, res, proxy) {
   });
 
   up.on("error", (err) => {
-    console.error("[proxy]", proxy.prefix, err.message);
+    console.error("[proxy]", proxy.prefix, req.method, targetUrl.pathname, err.message);
     if (!res.headersSent) send(res, 502, "Bad gateway: " + err.message);
   });
 
-  // CORS preflight handled locally (browser sees same-origin so rarely needed)
-  if (req.method === "OPTIONS") {
-    send(res, 204, "", {
-      "Access-Control-Allow-Origin": req.headers.origin || "*",
-      "Access-Control-Allow-Methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
-      "Access-Control-Allow-Headers": req.headers["access-control-request-headers"] || "*",
-      "Access-Control-Allow-Credentials": "true",
-      "Access-Control-Max-Age": "86400",
-    });
-    return;
-  }
-
-  req.pipe(up);
+  if (body.length) up.write(body);
+  up.end();
 }
 
 const server = http.createServer((req, res) => {
