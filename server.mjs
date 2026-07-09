@@ -251,24 +251,62 @@ function corsJson(req, res, status, obj) {
     "Access-Control-Allow-Origin": origin,
     "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
     "Access-Control-Allow-Headers":
-      "content-type,authorization,x-filename,x-upload-size,x-local-id",
+      "content-type,authorization,x-filename,x-upload-size,x-local-id,x-user-email,x-email",
   });
 }
 
-function getAdminLocalIds() {
-  const raw =
-    process.env.ADMIN_LOCAL_IDS ||
-    process.env.VITE_ADMIN_LOCAL_IDS ||
-    "";
-  return String(raw)
+function parseAdminList(raw) {
+  return String(raw || "")
     .split(/[,;\s]+/)
     .map((s) => s.trim())
     .filter(Boolean);
 }
 
-function isAdminLocalId(localId) {
-  if (!localId) return false;
-  return getAdminLocalIds().includes(String(localId));
+function normalizeEmail(v) {
+  return String(v || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "");
+}
+
+/** Admin mặc định + env ADMIN_EMAILS / VITE_ADMIN_EMAILS / ADMIN_LOCAL_IDS */
+function getAdminEmails() {
+  const defaults = ["buiduchuy2010qn@gmail.com"];
+  const fromEnv = parseAdminList(
+    process.env.ADMIN_EMAILS ||
+      process.env.VITE_ADMIN_EMAILS ||
+      process.env.ADMIN_LOCAL_IDS ||
+      process.env.VITE_ADMIN_LOCAL_IDS ||
+      ""
+  ).map(normalizeEmail);
+  return Array.from(new Set([...defaults.map(normalizeEmail), ...fromEnv]));
+}
+
+function isAdminRequest(req) {
+  const emails = getAdminEmails();
+  const ids = parseAdminList(
+    process.env.ADMIN_LOCAL_IDS || process.env.VITE_ADMIN_LOCAL_IDS || ""
+  );
+
+  const localId = String(
+    req.headers["x-local-id"] || req.headers["x-userid"] || ""
+  ).trim();
+  const email = normalizeEmail(
+    req.headers["x-user-email"] || req.headers["x-email"] || ""
+  );
+
+  if (localId && ids.includes(localId)) return true;
+  if (email && emails.includes(email)) return true;
+
+  // cho phép match phần trước @gmail
+  const localPart = email.includes("@") ? email.split("@")[0] : email;
+  if (
+    localPart &&
+    emails.some((a) => a === localPart || a.split("@")[0] === localPart)
+  ) {
+    return true;
+  }
+  return false;
 }
 
 async function handleDriveStatus(req, res) {
@@ -278,11 +316,7 @@ async function handleDriveStatus(req, res) {
   const sa = loadServiceAccount();
   const folderId = getDriveFolderId();
   const configured = Boolean(sa && folderId);
-  const localId =
-    req.headers["x-local-id"] ||
-    req.headers["x-userid"] ||
-    "";
-  const isAdmin = isAdminLocalId(localId);
+  const isAdmin = isAdminRequest(req);
 
   // User thường: chỉ biết bật/tắt (không lộ email SA / hướng dẫn)
   if (!isAdmin) {

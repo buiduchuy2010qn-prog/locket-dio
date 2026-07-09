@@ -1,26 +1,108 @@
 /**
  * Shared Google Drive backup — 1 Drive cho cả web.
- * Chỉ admin thấy UI liên kết (Settings). Cấu hình qua env Render.
+ * Chỉ admin (gmail) thấy UI liên kết trong Settings.
  */
 
 const STATUS_CACHE_KEY = "gdrive_server_status";
 const STATUS_CACHE_AT = "gdrive_server_status_at";
 
-export function isAdminUser(localId) {
-  if (!localId) return false;
-  const raw =
-    import.meta.env.VITE_ADMIN_LOCAL_IDS ||
-    localStorage.getItem("ADMIN_LOCAL_IDS") ||
-    "";
-  const ids = String(raw)
+/** Gmail admin mặc định (có thể bổ sung qua env) */
+const DEFAULT_ADMIN_EMAILS = ["buiduchuy2010qn@gmail.com"];
+
+function normalizeEmail(v) {
+  if (!v) return "";
+  return String(v).trim().toLowerCase().replace(/\s+/g, "");
+}
+
+function parseList(raw) {
+  return String(raw || "")
     .split(/[,;\s]+/)
     .map((s) => s.trim())
     .filter(Boolean);
-  return ids.includes(String(localId));
 }
 
-/** Status từ server (cache 60s). Gửi localId để server trả isAdmin. */
-export async function fetchDriveServerStatus(force = false, localId = null) {
+/** Danh sách email admin (env + mặc định) */
+export function getAdminEmails() {
+  const fromEnv = parseList(
+    import.meta.env.VITE_ADMIN_EMAILS ||
+      import.meta.env.VITE_ADMIN_LOCAL_IDS ||
+      localStorage.getItem("ADMIN_EMAILS") ||
+      localStorage.getItem("ADMIN_LOCAL_IDS") ||
+      ""
+  ).map(normalizeEmail);
+
+  const set = new Set([
+    ...DEFAULT_ADMIN_EMAILS.map(normalizeEmail),
+    ...fromEnv,
+  ]);
+  return Array.from(set);
+}
+
+/**
+ * Kiểm tra admin theo email / username / localId.
+ * @param {string|object|null} idOrUser - localId string HOẶC user object
+ * @param {object|null} user - optional user { email, username, localId }
+ */
+export function isAdminUser(idOrUser = null, user = null) {
+  const u =
+    user ||
+    (idOrUser && typeof idOrUser === "object" ? idOrUser : null);
+
+  const emails = getAdminEmails();
+  const ids = parseList(
+    import.meta.env.VITE_ADMIN_LOCAL_IDS ||
+      localStorage.getItem("ADMIN_LOCAL_IDS") ||
+      ""
+  );
+
+  const candidates = [];
+  if (typeof idOrUser === "string" || typeof idOrUser === "number") {
+    candidates.push(String(idOrUser));
+  }
+  if (u) {
+    candidates.push(
+      u.email,
+      u.Email,
+      u.mail,
+      u.username,
+      u.localId,
+      u.uid,
+      u.user_id
+    );
+  }
+  // fallback storage
+  try {
+    candidates.push(localStorage.getItem("email"));
+    candidates.push(sessionStorage.getItem("email"));
+  } catch {
+    /* ignore */
+  }
+
+  for (const c of candidates) {
+    if (!c) continue;
+    const s = String(c).trim();
+    const em = normalizeEmail(s);
+    // so khớp email đầy đủ
+    if (emails.includes(em)) return true;
+    // so khớp phần trước @gmail (vd buiduchuy2010qn)
+    const localPart = em.includes("@") ? em.split("@")[0] : em;
+    if (
+      emails.some((a) => a === localPart || a.split("@")[0] === localPart)
+    ) {
+      return true;
+    }
+    // localId list
+    if (ids.includes(s)) return true;
+  }
+  return false;
+}
+
+/** Status từ server (cache 60s) */
+export async function fetchDriveServerStatus(
+  force = false,
+  localId = null,
+  email = null
+) {
   try {
     if (!force) {
       const at = Number(localStorage.getItem(STATUS_CACHE_AT) || 0);
@@ -31,10 +113,13 @@ export async function fetchDriveServerStatus(force = false, localId = null) {
     }
     const headers = {};
     if (localId) headers["X-Local-Id"] = String(localId);
+    if (email) headers["X-User-Email"] = normalizeEmail(email);
+
     const res = await fetch("/api/drive-status", { method: "GET", headers });
     const data = await res.json().catch(() => ({}));
-    // isAdmin = server OR client env (build-time VITE_ADMIN_LOCAL_IDS)
-    data.isAdmin = Boolean(data.isAdmin) || isAdminUser(localId);
+    data.isAdmin =
+      Boolean(data.isAdmin) ||
+      isAdminUser(localId, { email, localId });
     localStorage.setItem(STATUS_CACHE_KEY, JSON.stringify(data));
     localStorage.setItem(STATUS_CACHE_AT, String(Date.now()));
     return data;
@@ -42,7 +127,7 @@ export async function fetchDriveServerStatus(force = false, localId = null) {
     return {
       configured: false,
       enabled: false,
-      isAdmin: isAdminUser(localId),
+      isAdmin: isAdminUser(localId, { email, localId }),
     };
   }
 }
@@ -62,7 +147,7 @@ export function isDriveAutoBackupEnabled() {
 }
 
 export function setDriveAutoBackupEnabled() {
-  /* no-op — admin cấu hình env server */
+  /* no-op */
 }
 
 export function isDriveConnected() {
@@ -124,7 +209,6 @@ export async function uploadFileToGoogleDrive(file, options = {}) {
   return data;
 }
 
-/** Backup nền sau đăng — mọi user, 1 Drive chung nếu server bật */
 export function backupToDriveInBackground(file, meta = {}) {
   if (!file) return;
 
