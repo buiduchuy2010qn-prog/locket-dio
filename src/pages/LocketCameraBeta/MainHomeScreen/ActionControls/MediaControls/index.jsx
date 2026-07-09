@@ -88,11 +88,30 @@ const MediaControls = () => {
       setUploadLoading(true);
       setIsSuccess(false);
 
+      // Caption object (weather cũ) dễ làm Dio 500 — reset về default sạch nếu hỏng
+      let overlayForPost = postOverlay;
+      if (
+        postOverlay?.caption != null &&
+        typeof postOverlay.caption === "object"
+      ) {
+        overlayForPost = {
+          ...postOverlay,
+          caption:
+            postOverlay.caption.temp_c_rounded != null
+              ? `${postOverlay.caption.temp_c_rounded}°C`
+              : postOverlay.caption.title ||
+                postOverlay.caption.text ||
+                "",
+          text:
+            typeof postOverlay.text === "string" ? postOverlay.text : "",
+        };
+      }
+
       // Tạo payload
       const payload = await services.createRequestPayloadV5(
         selectedFile,
         previewType,
-        postOverlay,
+        overlayForPost,
         audience,
         selectedRecipients
       );

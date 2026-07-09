@@ -2,6 +2,10 @@ import axios from "axios";
 import * as utils from "@/utils";
 import api from "@/lib/axios";
 import { formatApiError } from "@/utils/formatApiError";
+import {
+  sanitizeMediaInfo,
+  sanitizeOptionsData,
+} from "@/utils/sanitizePostOptions";
 
 export const uploadMedia = async (formData, setUploadProgress) => {
   let timeOutId;
@@ -51,33 +55,36 @@ export const uploadMedia = async (formData, setUploadProgress) => {
   }
 };
 
-export const uploadMediaV2 = async (payload) => {
-  return PostMoments(payload);
-};
+export const uploadMediaV2 = async (payload) => PostMoments(payload);
 
-/** Body postMomentV2 — chỉ field client chính thức. */
 function buildPostMomentBody(payload) {
   const fileType = payload?.mediaInfo?.type || payload?.contentType || "image";
-  let optionsData = { ...(payload?.optionsData || payload?.options || {}) };
 
-  if (!optionsData.type) optionsData.type = "default";
+  const mediaInfo = sanitizeMediaInfo(
+    payload?.mediaInfo || {},
+    fileType,
+    payload?.mediaInfo?.size
+  );
 
-  // Dio crash nếu streakData là boolean
-  if (typeof optionsData.streakData === "boolean") {
-    delete optionsData.streakData;
-  }
-
-  let mediaInfo = { ...(payload?.mediaInfo || {}) };
-  delete mediaInfo.metadata;
-  delete mediaInfo.downloadURL;
-
-  // JSON-safe clone
-  try {
-    mediaInfo = JSON.parse(JSON.stringify(mediaInfo));
-    optionsData = JSON.parse(JSON.stringify(optionsData));
-  } catch {
-    /* keep as-is */
-  }
+  const optionsData = sanitizeOptionsData(
+    payload?.optionsData || payload?.options || {},
+    {
+      audience:
+        payload?.optionsData?.audience ||
+        payload?.options?.audience ||
+        "all",
+      recipients:
+        payload?.optionsData?.recipients ||
+        payload?.options?.recipients ||
+        [],
+      streakData:
+        typeof payload?.optionsData?.streakData === "number"
+          ? payload.optionsData.streakData
+          : typeof payload?.options?.streakData === "number"
+            ? payload.options.streakData
+            : null,
+    }
+  );
 
   return {
     model: payload?.model || "Version-UploadmediaV3.1",
@@ -90,39 +97,29 @@ function buildPostMomentBody(payload) {
 export const PostMoments = async (payload) => {
   try {
     const body = buildPostMomentBody(payload);
-    const fileType = body.contentType;
 
-    if (!body.mediaInfo || !body.mediaInfo.url) {
+    if (!body.mediaInfo?.url) {
       throw new Error("Thiếu mediaInfo.url — upload storage chưa xong.");
     }
-    if (!body.contentType) {
-      throw new Error("Thiếu contentType (image/video).");
-    }
 
-    const timeoutDuration =
-      fileType === "image" ? 10000 : fileType === "video" ? 15000 : 5000;
     const timeoutId = setTimeout(() => {
       console.log("⏳ Uploading is taking longer than expected...");
-    }, timeoutDuration);
+    }, body.contentType === "video" ? 15000 : 10000);
 
-    console.log("[postMomentV2] body keys", {
-      model: body.model,
+    console.log("[postMomentV2]", {
       contentType: body.contentType,
-      mediaType: body.mediaInfo?.type,
-      hasUrl: !!body.mediaInfo?.url,
-      hasKey: !!body.mediaInfo?.key,
       overlayType: body.optionsData?.type,
+      captionType: typeof body.optionsData?.caption,
+      caption: String(body.optionsData?.caption || "").slice(0, 40),
       streakData: body.optionsData?.streakData,
-      audience: body.optionsData?.audience,
+      hasUrl: !!body.mediaInfo?.url,
     });
 
     const response = await api.post(
       `${utils.API_URL.UPLOAD_MEDIA_URL_V2}`,
       body,
       {
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         timeout: 90000,
       }
     );
@@ -145,7 +142,6 @@ export const PostMoments = async (payload) => {
   } catch (error) {
     const pretty = formatApiError(error, "Lỗi khi đăng moment");
     console.error("❌ Lỗi khi upload:", pretty, error.response?.data || error);
-
     const e = new Error(pretty);
     e.response = error.response;
     e.status = error?.response?.status || error?.status;

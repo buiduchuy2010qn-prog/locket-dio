@@ -4,6 +4,22 @@ import { useApp } from "@/context/AppContext";
 import { StarRating } from "../../Widgets/StarRating/StarRating";
 import SnowEffect from "@/components/Effects/SnowEffect";
 
+/** caption UI đôi khi là object (weather cũ) → không render [object Object] */
+function captionToText(caption) {
+  if (caption == null) return "";
+  if (typeof caption === "string") return caption;
+  if (typeof caption === "number" || typeof caption === "boolean") {
+    return String(caption);
+  }
+  if (typeof caption === "object") {
+    if (caption.temp_c_rounded != null) return `${caption.temp_c_rounded}°C`;
+    if (typeof caption.title === "string") return caption.title;
+    if (typeof caption.text === "string") return caption.text;
+    return "";
+  }
+  return "";
+}
+
 // Custom Hooks
 const useTextMeasurement = (text, ref, type, placeholder, parentRef) => {
   const canvasRef = useRef(document.createElement("canvas"));
@@ -83,8 +99,9 @@ const ImageIconOverlay = ({
   parentRef,
 }) => {
   const textareaRef = useRef(null);
+  const capText = captionToText(postOverlay.caption);
   const { width, shouldWrap } = useTextMeasurement(
-    postOverlay.caption,
+    capText,
     textareaRef,
     "image_icon",
     placeholder,
@@ -101,10 +118,18 @@ const ImageIconOverlay = ({
         background: `linear-gradient(to bottom, ${postOverlay.color_top}, ${postOverlay.color_bottom})`,
       }}
     >
-      <img src={postOverlay.icon} alt="Icon" className="w-6 h-6 object-cover" />
+      <img
+        src={
+          typeof postOverlay.icon === "string"
+            ? postOverlay.icon
+            : postOverlay.icon?.data || postOverlay.icon?.url || ""
+        }
+        alt="Icon"
+        className="w-6 h-6 object-cover"
+      />
       <textarea
         ref={textareaRef}
-        value={postOverlay.caption || ""}
+        value={capText}
         onChange={(e) =>
           setPostOverlay((prev) => ({
             ...prev,
@@ -126,6 +151,10 @@ const ImageIconOverlay = ({
 
 const MusicOverlay = ({ postOverlay }) => {
   const music = postOverlay?.music || {};
+  const title =
+    captionToText(postOverlay.caption) ||
+    captionToText(music.title) ||
+    "Music";
 
   return (
     <div className="flex w-auto items-center gap-2 py-2 px-4 rounded-4xl absolute bottom-2 left-1/2 transform -translate-x-1/2 text-white font-semibold bg-white/50 backdrop-blur-2xl max-w-[85%] overflow-hidden">
@@ -140,15 +169,11 @@ const MusicOverlay = ({ postOverlay }) => {
           className="inline-block animate-marquee"
           style={{
             animationDuration:
-              postOverlay.caption.length < 30
-                ? "9s"
-                : postOverlay.caption.length < 60
-                ? "15s"
-                : "17s",
+              title.length < 30 ? "9s" : title.length < 60 ? "15s" : "17s",
           }}
         >
-          <span className="mr-4">{postOverlay.caption}</span>
-          <span className="mr-4 absolute">{postOverlay.caption}</span>
+          <span className="mr-4">{title}</span>
+          <span className="mr-4 absolute">{title}</span>
         </div>
       </div>
       {/* ✅ Chỉ hiện icon nếu platform là spotify */}
@@ -167,22 +192,26 @@ const MusicOverlay = ({ postOverlay }) => {
 };
 
 const WeatherOverlay = ({ postOverlay }) => {
+  // caption có thể là string "25°C" (mới) hoặc object weather (cũ)
+  const cap = postOverlay?.caption;
+  const isObj = cap && typeof cap === "object";
+  const iconSrc = isObj && cap.icon ? `https:${cap.icon}` : "./images/sun_max_indicator.png";
+  const label = isObj
+    ? cap.temp_c_rounded !== undefined
+      ? `${cap.temp_c_rounded}°C`
+      : cap.condition || "Thời tiết"
+    : typeof cap === "string" && cap
+      ? cap
+      : "Thời tiết";
+
   return (
     <div className="flex items-center bg-white/50 backdrop-blur-2xl gap-1 py-2 px-4 rounded-4xl absolute bottom-2 left-1/2 transform -translate-x-1/2 text-white font-semibold">
       <img
-        src={
-          postOverlay?.caption?.icon
-            ? `https:${postOverlay?.caption?.icon}`
-            : "./images/sun_max_indicator.png"
-        }
-        alt={postOverlay?.caption?.condition || "Thời tiết"}
+        src={iconSrc}
+        alt={isObj ? cap.condition || "Thời tiết" : "Thời tiết"}
         className="w-6 h-6"
       />
-      <span>
-        {postOverlay?.caption?.temp_c_rounded !== undefined
-          ? `${postOverlay?.caption?.temp_c_rounded}°C`
-          : "Thời tiết"}
-      </span>
+      <span>{label}</span>
     </div>
   );
 };
@@ -194,8 +223,9 @@ const LocationOverlay = ({
   parentRef,
 }) => {
   const textareaRef = useRef(null);
+  const capText = captionToText(postOverlay.caption);
   const { width, shouldWrap } = useTextMeasurement(
-    postOverlay.caption,
+    capText,
     textareaRef,
     "location",
     placeholder,
@@ -216,7 +246,7 @@ const LocationOverlay = ({
       />
       <textarea
         ref={textareaRef}
-        value={postOverlay.caption || ""}
+        value={capText}
         onChange={(e) =>
           setPostOverlay((prev) => ({
             ...prev,
@@ -347,9 +377,12 @@ const CustomeOverlay = ({
   parentRef,
 }) => {
   const textareaRef = useRef(null);
-  const combinedText = postOverlay.icon
-    ? `${postOverlay.icon} ${postOverlay.caption || ""}`.trim()
-    : postOverlay.caption || "";
+  const capText = captionToText(postOverlay.caption);
+  const iconText =
+    typeof postOverlay.icon === "string" ? postOverlay.icon : "";
+  const combinedText = iconText
+    ? `${iconText} ${capText}`.trim()
+    : capText;
 
   const { width, shouldWrap } = useTextMeasurement(
     combinedText,
