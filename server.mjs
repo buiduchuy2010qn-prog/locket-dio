@@ -831,9 +831,23 @@ async function handleDriveOAuthCallback(req, res) {
       testMsg = ` Token OK nhưng upload thử lỗi: ${e.message}`;
     }
 
+    // Nhắc set env Render — free tier xóa file data/ mỗi lần redeploy
+    const folderSaved = st.folderId || prev.folderId || "";
+    const envHint = `
+      <div style="margin-top:16px;padding:12px;background:#fef3c7;border-radius:8px;font-size:14px;text-align:left">
+        <b>⚠️ Quan trọng — để không bị mất sau deploy:</b>
+        <p>Render free xóa file cấu hình mỗi lần deploy. Vào
+        <b>Render Dashboard → Web Service → Environment</b> thêm:</p>
+        <pre style="white-space:pre-wrap;word-break:break-all;background:#fff;padding:8px;border-radius:6px;font-size:11px">GOOGLE_OAUTH_CLIENT_ID=${st.clientId}
+GOOGLE_OAUTH_CLIENT_SECRET=${st.clientSecret}
+GOOGLE_OAUTH_REFRESH_TOKEN=${tokenData.refresh_token}
+GOOGLE_DRIVE_FOLDER_ID=${folderSaved}</pre>
+        <p>Rồi <b>Save</b> (không cần redeploy nếu auto). Sau này deploy thoải mái, Drive vẫn ON.</p>
+      </div>`;
+
     return html(
       "✅ Đã liên kết Google Drive!",
-      `Tài khoản: ${email || "OK"}.${testMsg}`,
+      `Tài khoản: ${email || "OK"}.${testMsg}${envHint}`,
       true
     );
   } catch (e) {

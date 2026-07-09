@@ -196,6 +196,15 @@ export default function GoogleDriveBackup({ forceShow = false }) {
           </span>
         </div>
 
+        <div className="alert alert-error text-xs py-2">
+          <span>
+            <b>Vì sao hay bị “CHƯA SẴN SÀNG”?</b> Render free{" "}
+            <b>xóa file cấu hình</b> mỗi lần deploy code. Liên kết form chỉ tạm.
+            Sau khi OAuth xong, copy 4 dòng env hiện trên trang thành công → dán
+            vào <b>Render → Environment</b> thì <b>không mất nữa</b>.
+          </span>
+        </div>
+
         {status?.warning && (
           <div className="alert alert-warning text-xs py-2">
             <span>{status.warning}</span>
