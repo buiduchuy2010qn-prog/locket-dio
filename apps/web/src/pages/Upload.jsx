@@ -1,45 +1,121 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Camera, Image as ImageIcon, Video, Lock, Sparkles, Square } from 'lucide-react'
+import {
+  User, MessageCircle, Grid3X3, Camera, SwitchCamera, Zap, ZapOff,
+  Images, MoreHorizontal, Heart, Flame, Send, X, Upload as UploadIcon, Bell, Crown,
+} from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import * as api from '../api/index.js'
-import { CAMERA_THEMES, FREE_VIDEO_MAX_SEC, GOLD_VIDEO_MAX_SEC } from '../data/constants'
+import { FREE_VIDEO_MAX_SEC, GOLD_VIDEO_MAX_SEC } from '../data/constants'
 import SquareFrame from '../components/SquareFrame'
 import SquareCropEditor from '../components/SquareCropEditor'
 import { exportSquareCrop } from '../utils/squareCrop'
+import GlassBtn, { FriendsPill } from '../components/camera/GlassBtn'
+import Avatar from '../components/Avatar'
+import { timeAgo } from '../utils/storage'
 
+/**
+ * Locket-style camera experience:
+ * Mobile = immersive dark/blue full-screen
+ * Desktop = white minimal centered square + floating controls
+ */
 export default function Upload() {
-  const { user, toast, openUpgrade } = useApp()
+  const { user, toast, openUpgrade, unreadCount } = useApp()
   const nav = useNavigate()
-  const camRef = useRef(null)
-  const fileRef = useRef(null)
-  const liveVideoRef = useRef(null)
-  const streamRef = useRef(null)
 
-  const [sourceUrl, setSourceUrl] = useState(null) // original image/video url
+  const [screen, setScreen] = useState('camera') // camera | history | detail | compose
+  const [mode, setMode] = useState('camera') // camera | gallery (toggle pill)
+  const [facing, setFacing] = useState('environment')
+  const [flash, setFlash] = useState(false)
+  const [friendsLabel, setFriendsLabel] = useState('Tất cả bạn bè')
+  const [friendCount, setFriendCount] = useState(0)
+
+  const [sourceUrl, setSourceUrl] = useState(null)
   const [type, setType] = useState('image')
   const [caption, setCaption] = useState('')
   const [duration, setDuration] = useState(0)
   const [loading, setLoading] = useState(false)
-  const [progress, setProgress] = useState(0)
-  const [success, setSuccess] = useState(false)
-  const [liveCam, setLiveCam] = useState(false)
   const [crop, setCrop] = useState({ zoom: 1, offsetX: 0, offsetY: 0 })
+  const [posts, setPosts] = useState([])
+  const [selected, setSelected] = useState(null)
+  const [msg, setMsg] = useState('')
+  const [isDesktop, setIsDesktop] = useState(() => window.matchMedia('(min-width: 1024px)').matches)
 
-  const theme = CAMERA_THEMES.find((t) => t.id === (user?.cameraTheme || 'soft-pink')) || CAMERA_THEMES[0]
+  const liveRef = useRef(null)
+  const streamRef = useRef(null)
+  const fileRef = useRef(null)
   const maxVideo = user?.isGold ? GOLD_VIDEO_MAX_SEC : FREE_VIDEO_MAX_SEC
+
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 1024px)')
+    const fn = () => setIsDesktop(mq.matches)
+    mq.addEventListener('change', fn)
+    return () => mq.removeEventListener('change', fn)
+  }, [])
+
+  useEffect(() => {
+    api.fetchFriends().then((f) => {
+      setFriendCount(f.length)
+      setFriendsLabel(f.length ? `Tất cả bạn bè · ${f.length}` : 'Tất cả bạn bè')
+    }).catch(() => {})
+  }, [])
+
+  const loadHistory = useCallback(() => {
+    api.fetchGallery('all').then(setPosts).catch(() => setPosts([]))
+  }, [])
+
+  useEffect(() => {
+    if (screen === 'history') loadHistory()
+  }, [screen, loadHistory])
 
   const stopLive = useCallback(() => {
     streamRef.current?.getTracks()?.forEach((t) => t.stop())
     streamRef.current = null
-    setLiveCam(false)
   }, [])
 
   useEffect(() => () => stopLive(), [stopLive])
 
-  const onCropChange = useCallback((c) => {
-    setCrop(c)
-  }, [])
+  const startLive = useCallback(async () => {
+    try {
+      stopLive()
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: facing, aspectRatio: { ideal: 1 }, width: { ideal: 1280 } },
+        audio: false,
+      })
+      streamRef.current = stream
+      if (liveRef.current) {
+        liveRef.current.srcObject = stream
+        await liveRef.current.play().catch(() => {})
+      }
+    } catch {
+      toast('Không mở được camera — dùng thư viện', 'error')
+    }
+  }, [facing, stopLive, toast])
+
+  useEffect(() => {
+    if (screen === 'camera' && mode === 'camera' && !sourceUrl) {
+      startLive()
+    } else if (sourceUrl || screen !== 'camera') {
+      stopLive()
+    }
+  }, [screen, mode, facing, sourceUrl, startLive, stopLive])
+
+  const capture = () => {
+    const video = liveRef.current
+    if (!video?.videoWidth) return toast('Camera chưa sẵn sàng', 'error')
+    const side = Math.min(video.videoWidth, video.videoHeight)
+    const sx = (video.videoWidth - side) / 2
+    const sy = (video.videoHeight - side) / 2
+    const canvas = document.createElement('canvas')
+    canvas.width = 1080
+    canvas.height = 1080
+    canvas.getContext('2d').drawImage(video, sx, sy, side, side, 0, 0, 1080, 1080)
+    stopLive()
+    setSourceUrl(canvas.toDataURL('image/jpeg', 0.92))
+    setType('image')
+    setCrop({ zoom: 1, offsetX: 0, offsetY: 0 })
+    setScreen('compose')
+  }
 
   const readFile = (file, mediaType) => {
     if (!file) return
@@ -47,282 +123,400 @@ export default function Upload() {
     if (mediaType === 'video') {
       const url = URL.createObjectURL(file)
       const v = document.createElement('video')
-      v.preload = 'metadata'
       v.onloadedmetadata = () => {
-        const d = Math.round(v.duration || 0)
-        setDuration(d)
-        if (d > maxVideo) {
-          toast(`Video ${d}s vượt giới hạn ${maxVideo}s`, 'error')
-          if (!user?.isGold) openUpgrade('Longer videos', `Gold cho phép video tới ${GOLD_VIDEO_MAX_SEC}s.`)
-        }
+        setDuration(Math.round(v.duration || 0))
         setSourceUrl(url)
         setType('video')
+        setScreen('compose')
       }
       v.src = url
     } else {
-      const reader = new FileReader()
-      reader.onload = () => {
-        setSourceUrl(reader.result)
+      const r = new FileReader()
+      r.onload = () => {
+        setSourceUrl(r.result)
         setType('image')
-        setDuration(0)
-        setCrop({ zoom: 1, offsetX: 0, offsetY: 0 })
+        setScreen('compose')
       }
-      reader.readAsDataURL(file)
+      r.readAsDataURL(file)
     }
   }
 
-  const startLiveCamera = async () => {
-    try {
-      stopLive()
-      setSourceUrl(null)
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment', aspectRatio: { ideal: 1 } },
-        audio: false,
-      })
-      streamRef.current = stream
-      setLiveCam(true)
-      setType('image')
-      requestAnimationFrame(() => {
-        if (liveVideoRef.current) {
-          liveVideoRef.current.srcObject = stream
-          liveVideoRef.current.play().catch(() => {})
-        }
-      })
-    } catch {
-      // fallback: file capture
-      camRef.current?.click()
-    }
-  }
-
-  const captureFromLive = () => {
-    const video = liveVideoRef.current
-    if (!video || !video.videoWidth) return toast('Camera chưa sẵn sàng', 'error')
-    const side = Math.min(video.videoWidth, video.videoHeight)
-    const sx = (video.videoWidth - side) / 2
-    const sy = (video.videoHeight - side) / 2
-    const canvas = document.createElement('canvas')
-    const out = 1080
-    canvas.width = out
-    canvas.height = out
-    const ctx = canvas.getContext('2d')
-    ctx.drawImage(video, sx, sy, side, side, 0, 0, out, out)
-    const data = canvas.toDataURL('image/jpeg', 0.92)
-    stopLive()
-    setSourceUrl(data)
-    setType('image')
-    setCrop({ zoom: 1, offsetX: 0, offsetY: 0 })
-    toast('Đã chụp · chỉnh crop nếu cần')
-  }
-
-  const onCameraRoll = () => {
-    if (!user?.isGold) {
-      openUpgrade('Camera roll', 'Tải ảnh/video từ thư viện — chỉ dành cho Locket Dio Gold.')
-      return
-    }
-    fileRef.current?.click()
-  }
+  const onCropChange = useCallback((c) => setCrop(c), [])
 
   const post = async () => {
-    if (!sourceUrl && !liveCam) return toast('Chọn hoặc chụp ảnh trước', 'error')
-    if (liveCam) return toast('Bấm «Chụp 1:1» trước khi đăng', 'error')
+    if (!sourceUrl) return
     if (type === 'video' && duration > maxVideo) {
-      return openUpgrade('Longer videos', `Rút ngắn video hoặc nâng Gold (${GOLD_VIDEO_MAX_SEC}s).`)
+      return openUpgrade('Longer videos', `Video tối đa ${maxVideo}s`)
     }
     setLoading(true)
-    setProgress(0)
-    const tick = setInterval(() => setProgress((p) => Math.min(92, p + 12)), 120)
     try {
       let mediaUrl = sourceUrl
       if (type === 'image') {
-        // Export perfect square crop (frame size used for pan was display width — scale offsets)
-        const frameEl = document.querySelector('[data-square-crop-root]')
-        const displaySize = frameEl?.clientWidth || 360
+        const displaySize = document.querySelector('[data-square-crop-root]')?.clientWidth || 360
         const scale = 1080 / displaySize
         mediaUrl = await exportSquareCrop(sourceUrl, {
           frameSize: 1080,
           zoom: crop.zoom || 1,
           offsetX: (crop.offsetX || 0) * scale,
           offsetY: (crop.offsetY || 0) * scale,
-          mime: 'image/jpeg',
-          quality: 0.92,
         })
       }
-      await api.uploadMoment({
-        mediaUrl,
-        caption,
-        type,
-        durationSec: duration,
-      })
-      setProgress(100)
-      setSuccess(true)
-      toast('Đã đăng moment vuông 1:1!')
-      setTimeout(() => nav('/app/feed'), 900)
+      await api.uploadMoment({ mediaUrl, caption, type, durationSec: duration })
+      toast('Đã đăng moment 1:1!')
+      setSourceUrl(null)
+      setCaption('')
+      setScreen('history')
+      loadHistory()
     } catch (e) {
       toast(e.message, 'error')
     } finally {
-      clearInterval(tick)
       setLoading(false)
     }
   }
 
-  return (
-    <div className={`min-h-[70vh] md:rounded-3xl overflow-hidden ${theme.className}`}>
-      <div className="px-3 py-5 sm:px-4 md:p-8" style={{ background: 'var(--cam-bg)' }}>
-        <div className="max-w-md mx-auto md:max-w-lg">
-          <div className="mb-4 text-center md:text-left">
-            <h1 className="text-2xl font-extrabold text-slate-900 dark:text-white flex items-center justify-center md:justify-start gap-2">
-              <Square size={22} className="text-amber-600" /> Upload moment
-            </h1>
-            <p className="text-xs text-slate-500 flex items-center justify-center md:justify-start gap-1 mt-0.5 flex-wrap">
-              <Lock size={12} /> Friends only · <strong className="text-amber-700">1:1 square</strong> · {theme.name}
-              {user?.isGold && <span className="text-amber-600 font-bold">· Gold video</span>}
-            </p>
-          </div>
+  const btnVariant = isDesktop ? 'light' : 'dark'
 
-          {/* Centered square camera / crop panel */}
-          <div className="rounded-[1.75rem] bg-white/70 dark:bg-slate-900/75 backdrop-blur-xl border border-white/60 dark:border-white/10 p-3 sm:p-4 shadow-[var(--shadow-card)]">
-            <div data-square-crop-root className="w-full max-w-[min(100%,420px)] mx-auto">
-              {/* Live camera */}
-              {liveCam && (
-                <div className="space-y-3">
-                  <SquareFrame showSafeGuide>
-                    <video
-                      ref={liveVideoRef}
-                      autoPlay
-                      playsInline
-                      muted
-                      className="absolute inset-0 w-full h-full object-cover"
-                    />
-                  </SquareFrame>
+  /* ─── shared top chrome ─── */
+  const TopChrome = ({ dark }) => (
+    <div className="absolute top-0 inset-x-0 z-40 safe-pt px-4 pt-3 flex items-center justify-between gap-2 pointer-events-none">
+      <div className="pointer-events-auto">
+        <GlassBtn size="md" variant={dark ? 'dark' : 'light'} label="Hồ sơ" onClick={() => nav('/app/profile')}>
+          {user?.avatar ? (
+            <img src={user.avatar} alt="" className="w-full h-full rounded-full object-cover" />
+          ) : (
+            <User size={20} />
+          )}
+        </GlassBtn>
+      </div>
+      <div className="pointer-events-auto">
+        <FriendsPill
+          text={friendsLabel}
+          variant={dark ? 'dark' : 'light'}
+          onClick={() => nav('/app/friends')}
+        />
+      </div>
+      <div className="pointer-events-auto relative">
+        <GlassBtn size="md" variant={dark ? 'dark' : 'light'} label="Chat" onClick={() => nav('/app/notifications')}>
+          <MessageCircle size={20} />
+        </GlassBtn>
+        {unreadCount > 0 && (
+          <span className="absolute -top-0.5 -right-0.5 w-4 h-4 rounded-full bg-rose-500 text-white text-[9px] font-bold flex items-center justify-center">
+            {unreadCount > 9 ? '9+' : unreadCount}
+          </span>
+        )}
+      </div>
+    </div>
+  )
+
+  /* ════════════════ HISTORY (mobile-first dark) ════════════════ */
+  if (screen === 'history') {
+    return (
+      <div className={`fixed inset-0 z-30 lg:relative lg:inset-auto lg:min-h-[80vh] ${isDesktop ? 'bg-white' : 'bg-black'} page-enter`}>
+        <div className={`relative min-h-full ${isDesktop ? 'max-w-2xl mx-auto' : ''}`}>
+          <TopChrome dark={!isDesktop} />
+          <div className="pt-20 px-3 pb-28">
+            <h1 className={`text-center font-bold mb-4 ${isDesktop ? 'text-slate-800' : 'text-white'}`}>Lịch sử</h1>
+            {posts.length === 0 ? (
+              <p className={`text-center text-sm py-16 ${isDesktop ? 'text-slate-400' : 'text-white/50'}`}>Chưa có moment</p>
+            ) : (
+              <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
+                {posts.map((p) => (
                   <button
+                    key={p.id}
                     type="button"
-                    onClick={captureFromLive}
-                    className="w-full py-3 rounded-2xl gold-gradient text-white font-bold shadow-[var(--shadow-gold)]"
+                    onClick={() => { setSelected(p); setScreen('detail') }}
+                    className="aspect-square rounded-2xl overflow-hidden bg-slate-800 active:scale-95 transition"
                   >
-                    Chụp 1:1
+                    {p.type === 'video' ? (
+                      <video src={p.mediaUrl} className="w-full h-full object-cover" muted playsInline />
+                    ) : (
+                      <img src={p.mediaUrl} alt="" className="w-full h-full object-cover" />
+                    )}
                   </button>
-                </div>
-              )}
-
-              {/* Image crop editor */}
-              {!liveCam && sourceUrl && type === 'image' && (
-                <SquareCropEditor src={sourceUrl} onChange={onCropChange} />
-              )}
-
-              {/* Video square preview */}
-              {!liveCam && sourceUrl && type === 'video' && (
-                <SquareFrame showSafeGuide>
-                  <video src={sourceUrl} className="w-full h-full object-cover" controls playsInline />
-                  {duration > 0 && (
-                    <span className="absolute top-3 right-3 z-30 px-2 py-1 rounded-full bg-black/60 text-white text-xs font-bold">
-                      {duration}s / max {maxVideo}s
-                    </span>
-                  )}
-                </SquareFrame>
-              )}
-
-              {/* Empty state square */}
-              {!liveCam && !sourceUrl && (
-                <SquareFrame showSafeGuide>
-                  <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-400 bg-gradient-to-br from-slate-100 to-slate-200 dark:from-slate-800 dark:to-slate-900">
-                    <Camera size={40} className="mb-2 opacity-40" />
-                    <p className="text-sm font-medium">Khung camera 1:1</p>
-                    <p className="text-xs opacity-70 mt-1">Chụp hoặc chọn ảnh vuông</p>
-                  </div>
-                </SquareFrame>
-              )}
-            </div>
-
-            <div className="mt-4 space-y-3">
-              <div className="grid grid-cols-3 gap-2">
-                <button
-                  type="button"
-                  onClick={startLiveCamera}
-                  className="flex flex-col items-center gap-1 py-3 rounded-2xl bg-slate-50/90 dark:bg-slate-800 text-sm font-semibold hover:bg-amber-50 active:scale-95 transition"
-                >
-                  <Camera size={20} style={{ color: 'var(--cam-accent)' }} />
-                  Camera
-                </button>
-                <button
-                  type="button"
-                  onClick={onCameraRoll}
-                  className="relative flex flex-col items-center gap-1 py-3 rounded-2xl bg-slate-50/90 dark:bg-slate-800 text-sm font-semibold hover:bg-amber-50 active:scale-95 transition"
-                >
-                  <ImageIcon size={20} />
-                  Thư viện
-                  {!user?.isGold && (
-                    <span className="absolute top-1 right-1 text-[9px] font-bold text-amber-600">🔒</span>
-                  )}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const input = document.createElement('input')
-                    input.type = 'file'
-                    input.accept = 'video/*'
-                    input.onchange = (e) => readFile(e.target.files?.[0], 'video')
-                    input.click()
-                  }}
-                  className="flex flex-col items-center gap-1 py-3 rounded-2xl bg-slate-50/90 dark:bg-slate-800 text-sm font-semibold hover:bg-amber-50 active:scale-95 transition"
-                >
-                  <Video size={20} />
-                  Video
-                </button>
+                ))}
               </div>
-
-              {/* hidden inputs — also allow non-live file camera */}
-              <input
-                ref={camRef}
-                type="file"
-                accept="image/*"
-                capture="environment"
-                className="hidden"
-                onChange={(e) => readFile(e.target.files?.[0], 'image')}
-              />
-              <input
-                ref={fileRef}
-                type="file"
-                accept="image/*,video/*"
-                className="hidden"
-                onChange={(e) => {
-                  const f = e.target.files?.[0]
-                  if (!f) return
-                  readFile(f, f.type.startsWith('video') ? 'video' : 'image')
-                }}
-              />
-
-              <textarea
-                value={caption}
-                onChange={(e) => setCaption(e.target.value)}
-                rows={2}
-                placeholder="Caption + emoji… ✨"
-                className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2.5 text-sm focus:ring-2 focus:ring-amber-400 focus:outline-none resize-none"
-              />
-
-              {loading && (
-                <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
-                  <div className="h-full gold-gradient transition-all duration-200" style={{ width: `${progress}%` }} />
-                </div>
-              )}
-
-              {success && (
-                <div className="text-center py-2 text-emerald-600 font-bold text-sm float-up">
-                  <Sparkles className="inline mr-1" size={16} /> Đăng thành công (1:1)!
-                </div>
-              )}
-
-              <button
-                type="button"
-                disabled={loading || (!sourceUrl && !liveCam)}
-                onClick={post}
-                className="w-full py-3.5 rounded-2xl gold-gradient text-white font-bold shadow-[var(--shadow-gold)] disabled:opacity-50 active:scale-[0.98] transition"
-              >
-                {loading ? 'Đang đăng…' : 'Đăng moment 1:1'}
-              </button>
-            </div>
+            )}
+          </div>
+          {/* floating capture */}
+          <div className="fixed bottom-8 inset-x-0 z-40 flex justify-center lg:bottom-10">
+            <GlassBtn
+              size="xl"
+              variant="solid"
+              label="Chụp"
+              className="!bg-white border-4 border-slate-200 shadow-2xl"
+              onClick={() => { setSourceUrl(null); setScreen('camera'); setMode('camera') }}
+            >
+              <span className="w-14 h-14 rounded-full border-[3px] border-slate-800" />
+            </GlassBtn>
           </div>
         </div>
       </div>
+    )
+  }
+
+  /* ════════════════ DETAIL ════════════════ */
+  if (screen === 'detail' && selected) {
+    return (
+      <div className={`fixed inset-0 z-30 flex flex-col ${isDesktop ? 'bg-white' : 'bg-black'} page-enter`}>
+        <TopChrome dark={!isDesktop} />
+        <div className="flex-1 flex flex-col justify-center px-4 pt-16 pb-4 max-w-md mx-auto w-full">
+          <div className="relative">
+            <SquareFrame className="!rounded-[1.75rem]">
+              {selected.type === 'video' ? (
+                <video src={selected.mediaUrl} className="w-full h-full object-cover" controls playsInline />
+              ) : (
+                <img src={selected.mediaUrl} alt="" className="w-full h-full object-cover" />
+              )}
+            </SquareFrame>
+            <span className="absolute bottom-3 left-3 z-30 px-2.5 py-1 rounded-full bg-black/55 text-white text-[11px] font-semibold backdrop-blur-sm">
+              {timeAgo(selected.createdAt)}
+            </span>
+          </div>
+          <div className="flex items-center gap-2 mt-3">
+            <Avatar user={selected.user} size="sm" />
+            <div className="min-w-0">
+              <p className={`font-bold text-sm truncate ${isDesktop ? 'text-slate-900' : 'text-white'}`}>
+                {selected.user?.displayName || selected.user?.username}
+              </p>
+              <p className={`text-xs ${isDesktop ? 'text-slate-400' : 'text-white/50'}`}>{timeAgo(selected.createdAt)}</p>
+            </div>
+          </div>
+          <div className="flex gap-2 mt-3">
+            {['❤️', '😍', '🔥'].map((e) => (
+              <button
+                key={e}
+                type="button"
+                onClick={() => api.reactToMoment(selected.id, e).then(() => toast(`React ${e}`)).catch((err) => toast(err.message, 'error'))}
+                className="w-11 h-11 rounded-full bg-white/10 border border-white/15 text-lg active:scale-90 transition backdrop-blur-md"
+              >
+                {e}
+              </button>
+            ))}
+            <button type="button" className="w-11 h-11 rounded-full bg-white/10 border border-white/15 text-white active:scale-90 backdrop-blur-md">
+              😊
+            </button>
+          </div>
+          <div className={`mt-3 flex items-center gap-2 rounded-full px-3 py-2 border ${isDesktop ? 'bg-slate-50 border-slate-200' : 'bg-white/10 border-white/15 backdrop-blur-md'}`}>
+            <input
+              value={msg}
+              onChange={(e) => setMsg(e.target.value)}
+              placeholder="Gửi tin nhắn..."
+              className={`flex-1 bg-transparent text-sm outline-none ${isDesktop ? 'text-slate-800 placeholder:text-slate-400' : 'text-white placeholder:text-white/40'}`}
+            />
+            <button
+              type="button"
+              onClick={() => { if (msg.trim()) { toast('Đã gửi (mock)'); setMsg('') } }}
+              className="text-amber-400 active:scale-90"
+            >
+              <Send size={18} />
+            </button>
+          </div>
+        </div>
+        <div className="safe-pb pb-4 px-8 flex items-center justify-between max-w-md mx-auto w-full">
+          <GlassBtn size="md" variant={btnVariant} label="Lịch sử" onClick={() => setScreen('history')}>
+            <Grid3X3 size={20} />
+          </GlassBtn>
+          <GlassBtn size="xl" variant="solid" label="Chụp" onClick={() => { setSelected(null); setSourceUrl(null); setScreen('camera') }}>
+            <span className="w-14 h-14 rounded-full border-[3px] border-slate-800" />
+          </GlassBtn>
+          <GlassBtn size="md" variant={btnVariant} label="Thêm" onClick={() => toast('Tuỳ chọn', 'info')}>
+            <MoreHorizontal size={20} />
+          </GlassBtn>
+        </div>
+      </div>
+    )
+  }
+
+  /* ════════════════ COMPOSE (crop + post) ════════════════ */
+  if (screen === 'compose' && sourceUrl) {
+    return (
+      <div className={`fixed inset-0 z-30 flex flex-col page-enter ${isDesktop ? 'bg-white' : 'bg-gradient-to-b from-[#0a1628] via-[#0c1a2e] to-black'}`}>
+        <TopChrome dark={!isDesktop} />
+        <div className="flex-1 flex flex-col justify-center px-4 pt-16 pb-6 max-w-md mx-auto w-full">
+          <div data-square-crop-root>
+            {type === 'image' ? (
+              <SquareCropEditor src={sourceUrl} onChange={onCropChange} />
+            ) : (
+              <SquareFrame showSafeGuide>
+                <video src={sourceUrl} className="w-full h-full object-cover" controls playsInline />
+              </SquareFrame>
+            )}
+          </div>
+          <textarea
+            value={caption}
+            onChange={(e) => setCaption(e.target.value)}
+            rows={2}
+            placeholder="Thêm caption..."
+            className={`mt-3 w-full rounded-2xl px-4 py-3 text-sm resize-none outline-none focus:ring-2 focus:ring-amber-400 ${
+              isDesktop ? 'bg-slate-50 border border-slate-200' : 'bg-white/10 border border-white/15 text-white placeholder:text-white/40 backdrop-blur-md'
+            }`}
+          />
+          <div className="flex gap-2 mt-3">
+            <button
+              type="button"
+              onClick={() => { setSourceUrl(null); setScreen('camera') }}
+              className={`flex-1 py-3 rounded-2xl font-semibold text-sm active:scale-95 ${isDesktop ? 'border border-slate-200' : 'bg-white/10 text-white border border-white/15'}`}
+            >
+              Chụp lại
+            </button>
+            <button
+              type="button"
+              disabled={loading}
+              onClick={post}
+              className="flex-1 py-3 rounded-2xl gold-gradient text-white font-bold text-sm active:scale-95 disabled:opacity-50"
+            >
+              {loading ? 'Đang đăng…' : 'Đăng 1:1'}
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  /* ════════════════ CAMERA (main) ════════════════ */
+  const cameraShell = isDesktop
+    ? 'min-h-[calc(100vh-2rem)] bg-white relative flex flex-col'
+    : 'fixed inset-0 z-30 bg-gradient-to-b from-[#0b1526] via-[#0e1c33] to-black flex flex-col'
+
+  return (
+    <div className={`${cameraShell} page-enter`}>
+      <TopChrome dark={!isDesktop} />
+
+      {/* optional desktop extras */}
+      {isDesktop && (
+        <div className="absolute top-4 right-20 z-40 flex gap-2">
+          <GlassBtn size="sm" variant="light" label="Gold" onClick={() => nav('/app/gold')}><Crown size={16} className="text-amber-500" /></GlassBtn>
+          <GlassBtn size="sm" variant="light" label="TB" onClick={() => nav('/app/notifications')}><Bell size={16} /></GlassBtn>
+        </div>
+      )}
+
+      <div className={`flex-1 flex flex-col items-center justify-center px-4 ${isDesktop ? 'pt-8 pb-8' : 'pt-16 pb-4'}`}>
+        {/* mode pill over preview */}
+        <div className="mb-3 z-20">
+          <div className={`inline-flex p-1 rounded-full border backdrop-blur-md ${isDesktop ? 'bg-slate-100 border-slate-200' : 'bg-white/10 border-white/20'}`}>
+            {['camera', 'gallery'].map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => {
+                  setMode(m)
+                  if (m === 'gallery') {
+                    if (!user?.isGold) return openUpgrade('Camera roll', 'Thư viện dành cho Gold')
+                    fileRef.current?.click()
+                    setMode('camera')
+                  }
+                }}
+                className={`px-4 py-1.5 rounded-full text-xs font-bold transition active:scale-95 ${
+                  mode === m
+                    ? isDesktop ? 'bg-white shadow text-slate-900' : 'bg-white text-slate-900'
+                    : isDesktop ? 'text-slate-500' : 'text-white/70'
+                }`}
+              >
+                {m === 'camera' ? 'Camera' : 'Thư viện'}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* SQUARE FRAME */}
+        <div className={`relative w-full ${isDesktop ? 'max-w-[420px]' : 'max-w-[min(100%,420px)]'}`}>
+          <SquareFrame showSafeGuide className="!rounded-[1.75rem] sm:!rounded-[2rem]">
+            <video
+              ref={liveRef}
+              autoPlay
+              playsInline
+              muted
+              className="absolute inset-0 w-full h-full object-cover"
+            />
+          </SquareFrame>
+
+          {/* flash */}
+          <button
+            type="button"
+            onClick={() => setFlash((f) => !f)}
+            className={`absolute top-3 left-3 z-30 w-10 h-10 rounded-full flex items-center justify-center border backdrop-blur-md active:scale-90 transition ${
+              isDesktop ? 'bg-white/90 border-slate-200 text-slate-800' : 'bg-black/35 border-white/20 text-white'
+            }`}
+            title="Flash"
+          >
+            {flash ? <Zap size={18} className="text-amber-400" /> : <ZapOff size={18} />}
+          </button>
+        </div>
+
+        {/* Lịch sử link */}
+        <button
+          type="button"
+          onClick={() => setScreen('history')}
+          className={`mt-4 text-sm font-semibold active:scale-95 transition ${isDesktop ? 'text-slate-500 hover:text-slate-800' : 'text-white/80'}`}
+        >
+          Lịch sử
+        </button>
+
+        {/* Bottom controls row */}
+        <div className={`mt-5 w-full max-w-md flex items-center justify-between px-2 ${isDesktop ? 'mt-8' : ''}`}>
+          <GlassBtn
+            size="md"
+            variant={btnVariant}
+            label="Lịch sử"
+            onClick={() => setScreen('history')}
+          >
+            <Images size={20} />
+          </GlassBtn>
+
+          {/* Capture — large circle */}
+          <button
+            type="button"
+            onClick={capture}
+            className="relative w-[4.75rem] h-[4.75rem] rounded-full bg-white border-[5px] border-slate-300 shadow-2xl active:scale-90 transition flex items-center justify-center"
+            aria-label="Chụp"
+          >
+            <span className="w-[3.4rem] h-[3.4rem] rounded-full border-2 border-slate-800/80" />
+          </button>
+
+          <GlassBtn
+            size="md"
+            variant={btnVariant}
+            label="Đổi camera"
+            onClick={() => setFacing((f) => (f === 'environment' ? 'user' : 'environment'))}
+          >
+            <SwitchCamera size={20} />
+          </button>
+        </div>
+
+        {isDesktop && (
+          <div className="mt-6 flex gap-3">
+            <button
+              type="button"
+              onClick={() => {
+                if (!user?.isGold) return openUpgrade('Camera roll', 'Thư viện Gold')
+                fileRef.current?.click()
+              }}
+              className="px-4 py-2 rounded-full text-xs font-bold bg-slate-100 text-slate-600 border border-slate-200 active:scale-95 flex items-center gap-1"
+            >
+              <UploadIcon size={14} /> Upload
+            </button>
+            <button
+              type="button"
+              onClick={() => nav('/app/settings')}
+              className="px-4 py-2 rounded-full text-xs font-bold bg-slate-100 text-slate-600 border border-slate-200 active:scale-95"
+            >
+              Settings
+            </button>
+          </div>
+        )}
+      </div>
+
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/*,video/*"
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0]
+          if (!f) return
+          readFile(f, f.type.startsWith('video') ? 'video' : 'image')
+        }}
+      />
     </div>
   )
 }

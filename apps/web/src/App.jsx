@@ -47,9 +47,10 @@ export default function App() {
               </ProtectedRoute>
             }
           >
-            <Route index element={<Navigate to="feed" replace />} />
+            <Route index element={<Navigate to="upload" replace />} />
             <Route path="feed" element={<Feed />} />
             <Route path="upload" element={<Upload />} />
+            <Route path="camera" element={<Navigate to="/app/upload" replace />} />
             <Route path="friends" element={<Friends />} />
             <Route path="friends/requests" element={<FriendRequests />} />
             <Route path="notifications" element={<Notifications />} />

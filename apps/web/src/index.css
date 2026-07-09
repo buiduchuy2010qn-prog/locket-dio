@@ -169,3 +169,9 @@ html.dark .custom-scroll::-webkit-scrollbar-thumb {
   object-fit: cover;
   object-position: center;
 }
+
+/* Immersive camera app */
+.camera-immersive {
+  min-height: 100dvh;
+  min-height: 100vh;
+}

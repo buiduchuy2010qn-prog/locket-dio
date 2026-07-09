@@ -1,4 +1,4 @@
-import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import {
   Home, Camera, Users, Images, Flame, Bell, Crown, User, Settings, LogOut, Sparkles, Link2,
 } from 'lucide-react'
@@ -35,8 +35,12 @@ const mobileNav = [
 export default function AppLayout() {
   const { user, logout, unreadCount, theme } = useApp()
   const navg = useNavigate()
+  const location = useLocation()
   const [activity, setActivity] = useState([])
   const [streaks, setStreaks] = useState([])
+
+  // Immersive camera app: hide app chrome
+  const isCameraApp = location.pathname.startsWith('/app/upload')
 
   useEffect(() => {
     api.fetchFriends().then((f) => setActivity(f.slice(0, 6)))
@@ -49,6 +53,16 @@ export default function AppLayout() {
         ? 'bg-amber-50 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300'
         : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
     }`
+
+  if (isCameraApp) {
+    return (
+      <div className="min-h-screen bg-white">
+        <Outlet />
+        <ToastStack />
+        <UpgradeModal />
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen sparkle-bg flex">
