@@ -11,20 +11,63 @@ export const loginV2 = async ({ email, password, captchaToken }) => {
       captchaToken,
     });
 
-    // Kiểm tra nếu API trả về lỗi nhưng vẫn có status 200
-    if (res.data?.success === false) {
-      console.error("Login failed:", res.data.message);
-      return null;
+    const payload = res?.data;
+
+    // Proxy chưa chạy (Static Site trả HTML/empty) → hướng dẫn rõ
+    if (payload == null || payload === "" || typeof payload === "string") {
+      const err = new Error(
+        "API proxy chưa chạy. Trên Render hãy tạo Web Service (Node) với Start: node server.mjs — không dùng Static Site."
+      );
+      err.status = 502;
+      throw err;
     }
 
-    return res.data; // Trả về dữ liệu từ server
+    // API Dio: { success: false, error: "Permission Denied" | message }
+    if (payload.success === false) {
+      const msg =
+        (typeof payload.error === "string" && payload.error) ||
+        payload.error?.message ||
+        payload.message ||
+        "Đăng nhập thất bại";
+      const err = new Error(msg);
+      err.status = payload.status || 400;
+      err.code = payload.error?.code || payload.code;
+      throw err;
+    }
+
+    // Chuẩn hóa: một số bản API bọc trong .data, một số trả phẳng
+    if (payload.data?.idToken || payload.data?.localId) {
+      return payload;
+    }
+    if (payload.idToken || payload.localId) {
+      return { data: payload, success: true };
+    }
+
+    const err = new Error(
+      "Server không trả token đăng nhập. Kiểm tra Web Service proxy /dio-api."
+    );
+    err.status = 502;
+    throw err;
   } catch (error) {
+    if (error.status) throw error;
     if (error.response && error.response.data?.error) {
-      throw error.response.data.error; // ⬅️ Ném lỗi từ `error.response.data.error`
+      const e = error.response.data.error;
+      if (typeof e === "string") {
+        const err = new Error(e);
+        err.status = error.response.status || 400;
+        throw err;
+      }
+      throw e;
+    }
+    if (error.response?.data?.message) {
+      const err = new Error(error.response.data.message);
+      err.status = error.response.status || 500;
+      throw err;
     }
     console.error("❌ Network Error:", error.message);
     throw new Error(
-      "Có sự cố khi kết nối đến hệ thống, vui lòng thử lại sau ít phút."
+      error.message ||
+        "Có sự cố khi kết nối đến hệ thống, vui lòng thử lại sau ít phút."
     );
   }
 };

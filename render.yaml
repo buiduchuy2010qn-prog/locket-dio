@@ -1,11 +1,8 @@
 services:
+  # IMPORTANT: Web Service (Docker/Node), NOT Static Site
   - type: web
     name: locket-dio
-    runtime: node
+    runtime: docker
     plan: free
-    # Prebuilt SPA in public/ + CORS proxy (server.mjs) — no npm build on Render
-    buildCommand: echo "Using prebuilt public/ + server.mjs proxy"
-    startCommand: node server.mjs
-    envVars:
-      - key: NODE_VERSION
-        value: "20"
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /dio-api/

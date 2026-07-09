@@ -60,56 +60,65 @@ const Login = () => {
       });
       if (!res) throw new Error("Lỗi: Server không trả về dữ liệu!");
 
-      const { idToken, localId } = res.data;
+      const userPayload = res.data || res;
+      const idToken = userPayload?.idToken;
+      const localId = userPayload?.localId;
+      if (!idToken || !localId) {
+        throw new Error(
+          "Đăng nhập không nhận được token. Cần Web Service (node server.mjs) + mật khẩu Locket đúng."
+        );
+      }
 
       // ⚡️ Lưu refreshToken theo rememberMe
       // Khi login thành công:
       utils.saveToken({ idToken, localId }, rememberMe);
       await ensureDBOwner(localId);
-      // ⚡️ Lưu user data toàn bộ (gồm thông tin cá nhân)
-      utils.saveUser(res.data);
+      utils.saveUser(userPayload);
       setAuthTokens(utils.getToken());
-      setUser(res.data);
+      setUser(userPayload);
 
       SonnerSuccess(
         "Đăng nhập thành công!",
-        `Xin chào ${res.data?.displayName || "người dùng"}!`
+        `Xin chào ${userPayload?.displayName || "người dùng"}!`
       );
     } catch (error) {
-      if (error.status) {
-        const { status, message } = error;
-        switch (status) {
-          case 400:
-            SonnerError("Tài khoản hoặc mật khẩu không đúng!");
-            break;
-          case 401:
-            SonnerError("Phiên đăng nhập đã hết. Vui lòng đăng nhập lại!");
-            break;
-          case 429:
-            SonnerError(
-              "Bạn nhập sai quá nhiều lần. Vui lòng thử lại sau 15 phút!"
-            );
-            setEmail("");
-            setPassword("");
-            break;
-          case 403:
-            SonnerError("Bạn không có quyền truy cập.");
-            setEmail("");
-            setPassword("");
-            window.location.href = "/login";
-            break;
-          case 500:
-            SonnerError("Lỗi hệ thống, vui lòng thử lại sau!");
-            break;
-          default:
-            SonnerError(message || "Đăng nhập thất bại!");
-            setEmail("");
-            setPassword("");
-        }
+      const status = error?.status || error?.response?.status;
+      const message =
+        error?.message ||
+        error?.response?.data?.error ||
+        error?.response?.data?.message ||
+        "";
+      const msgLower = String(message).toLowerCase();
+
+      if (
+        msgLower.includes("permission denied") ||
+        status === 400 ||
+        status === 401
+      ) {
+        SonnerError(
+          "Đăng nhập thất bại",
+          message === "Permission Denied" || msgLower.includes("permission")
+            ? "Sai email/mật khẩu Locket, hoặc API từ chối (Permission Denied)."
+            : message || "Tài khoản hoặc mật khẩu không đúng!"
+        );
+      } else if (status === 429) {
+        SonnerError(
+          "Bạn nhập sai quá nhiều lần. Vui lòng thử lại sau 15 phút!"
+        );
+        setEmail("");
+        setPassword("");
+      } else if (status === 403) {
+        SonnerError("Bạn không có quyền truy cập.");
+      } else if (status === 502 || msgLower.includes("proxy") || msgLower.includes("web service")) {
+        SonnerError("Chưa có API proxy", message || "Tạo Web Service Node trên Render.");
+      } else if (status === 500) {
+        SonnerError("Lỗi hệ thống", message || "Vui lòng thử lại sau!");
+      } else if (status) {
+        SonnerError("Đăng nhập thất bại", message || `Lỗi ${status}`);
       } else {
         SonnerError(
           "Lỗi kết nối!",
-          error.message || "Vui lòng kiểm tra lại mạng."
+          message || "Vui lòng kiểm tra lại mạng / Web Service."
         );
       }
     } finally {

@@ -16,9 +16,22 @@ const StatusServer = () => {
     const checkServer = async () => {
       try {
         const response = await axios.get(utils.API_URL.CHECK_SERVER, {
-          timeout: 5000, // tránh treo request
+          timeout: 8000,
+          // Không coi HTML của Static Site là server API OK
+          validateStatus: (s) => s >= 200 && s < 500,
         });
-        setIsStatusServer(response.status === 200);
+        const data = response.data;
+        const isJsonOk =
+          response.status === 200 &&
+          data != null &&
+          typeof data === "object" &&
+          (typeof data.message === "string" || data.success === true || data.status === "ok");
+        // Fallback: body text chứa running
+        const isTextOk =
+          response.status === 200 &&
+          typeof data === "string" &&
+          /server is running/i.test(data);
+        setIsStatusServer(Boolean(isJsonOk || isTextOk));
       } catch (error) {
         setIsStatusServer(false);
       }

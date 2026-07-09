@@ -1,0 +1,8 @@
+node_modules
+src
+.git
+*.md
+.env
+.env.local
+dist
+stats.html
