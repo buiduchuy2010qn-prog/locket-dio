@@ -480,7 +480,7 @@ export default function Upload() {
             onClick={() => setFacing((f) => (f === 'environment' ? 'user' : 'environment'))}
           >
             <SwitchCamera size={20} />
-          </button>
+          </GlassBtn>
         </div>
 
         {isDesktop && (
