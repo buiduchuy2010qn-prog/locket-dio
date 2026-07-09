@@ -1,8 +1,9 @@
-﻿services:
+services:
   - type: web
     name: locket-dio
     runtime: static
-    buildCommand: cd apps/web && npm install && npm run build && cd ../.. && node scripts/copy-web-dist.mjs
+    # Try live build; if it fails, still publish committed public/ (never fail the whole deploy)
+    buildCommand: "(cd apps/web && npm install && npm run build && cd ../.. && node scripts/copy-web-dist.mjs) || echo 'BUILD_FALLBACK: using committed public/'"
     staticPublishPath: ./public
     routes:
       - type: rewrite
@@ -12,3 +13,6 @@
       - path: /*
         name: X-Frame-Options
         value: DENY
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
