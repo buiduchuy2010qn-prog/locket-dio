@@ -110,6 +110,109 @@ function readBody(req) {
   });
 }
 
+/**
+ * Browser cannot PUT directly to R2 (CORS only allows locket-dio.com).
+ * Client sends file here; we PUT to the presigned uploadUrl server-side.
+ * Header: X-Upload-Url = full presigned URL
+ * Body: raw file bytes; Content-Type must match presign
+ */
+function isAllowedR2UploadUrl(urlStr) {
+  try {
+    const u = new URL(urlStr);
+    if (u.protocol !== "https:") return false;
+    const h = u.hostname.toLowerCase();
+    return (
+      h.endsWith(".r2.cloudflarestorage.com") ||
+      h.endsWith(".cloudflarestorage.com") ||
+      h === "storage.locket-dio.com" ||
+      h.endsWith(".storage.locket-dio.com")
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function proxyR2Put(req, res) {
+  if (req.method === "OPTIONS") {
+    return send(res, 204, "", {
+      "Access-Control-Allow-Origin": req.headers.origin || "*",
+      "Access-Control-Allow-Methods": "PUT,OPTIONS",
+      "Access-Control-Allow-Headers":
+        req.headers["access-control-request-headers"] ||
+        "content-type,x-upload-url",
+      "Access-Control-Max-Age": "86400",
+    });
+  }
+
+  if (req.method !== "PUT" && req.method !== "POST") {
+    return send(res, 405, "Method not allowed");
+  }
+
+  const uploadUrl =
+    req.headers["x-upload-url"] ||
+    req.headers["x-r2-upload-url"] ||
+    "";
+  if (!uploadUrl || !isAllowedR2UploadUrl(uploadUrl)) {
+    return send(
+      res,
+      400,
+      "Missing or invalid X-Upload-Url (must be R2/storage presigned URL)"
+    );
+  }
+
+  let body;
+  try {
+    body = await readBody(req);
+  } catch (e) {
+    return send(res, 400, "Bad request body: " + e.message);
+  }
+
+  const targetUrl = new URL(uploadUrl);
+  const contentType =
+    req.headers["content-type"] || "application/octet-stream";
+
+  // Presigned PUT usually only signs Content-Type — do not add extra headers
+  const headers = {
+    "Content-Type": contentType,
+    "Content-Length": String(body.length),
+  };
+
+  const opts = {
+    protocol: targetUrl.protocol,
+    hostname: targetUrl.hostname,
+    port: 443,
+    path: targetUrl.pathname + targetUrl.search,
+    method: "PUT",
+    headers,
+    timeout: 120000,
+  };
+
+  const up = https.request(opts, (upRes) => {
+    const chunks = [];
+    upRes.on("data", (c) => chunks.push(c));
+    upRes.on("end", () => {
+      const buf = Buffer.concat(chunks);
+      send(res, upRes.statusCode || 502, buf, {
+        "Content-Type":
+          upRes.headers["content-type"] || "text/plain; charset=utf-8",
+      });
+    });
+  });
+
+  up.on("timeout", () => {
+    up.destroy();
+    if (!res.headersSent) send(res, 504, "R2 upload timeout");
+  });
+
+  up.on("error", (err) => {
+    console.error("[r2-put]", err.message);
+    if (!res.headersSent) send(res, 502, "R2 upload failed: " + err.message);
+  });
+
+  if (body.length) up.write(body);
+  up.end();
+}
+
 async function proxyRequest(req, res, proxy) {
   const search = req.url.includes("?") ? "?" + req.url.split("?").slice(1).join("?") : "";
   const targetUrl = new URL(proxy.rest + search, proxy.target);
@@ -123,7 +226,7 @@ async function proxyRequest(req, res, proxy) {
       "Access-Control-Allow-Methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
       "Access-Control-Allow-Headers":
         req.headers["access-control-request-headers"] ||
-        "content-type,authorization,x-api-key,x-app-author,x-app-name,x-app-client,x-app-api,x-app-env,x-locketdio-member",
+        "content-type,authorization,x-api-key,x-app-author,x-app-name,x-app-client,x-app-api,x-app-env,x-locketdio-member,x-upload-url",
       "Access-Control-Allow-Credentials": "true",
       "Access-Control-Max-Age": "86400",
     });
@@ -217,6 +320,12 @@ async function proxyRequest(req, res, proxy) {
 const server = http.createServer((req, res) => {
   try {
     const urlPath = (req.url || "/").split("?")[0];
+
+    // R2 presigned PUT proxy (avoids browser CORS on cloudflarestorage.com)
+    if (urlPath === "/dio-r2-put") {
+      return proxyR2Put(req, res);
+    }
+
     const proxy = matchProxy(urlPath);
     if (proxy) {
       return proxyRequest(req, res, proxy);
@@ -231,5 +340,5 @@ const server = http.createServer((req, res) => {
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`[locket-dio] listening on :${PORT}`);
   console.log(`[locket-dio] static: ${PUBLIC_DIR}`);
-  console.log(`[locket-dio] proxies: ${PROXIES.map((p) => p.prefix).join(", ")}`);
+  console.log(`[locket-dio] proxies: ${PROXIES.map((p) => p.prefix).join(", ")}, /dio-r2-put`);
 });

@@ -112,16 +112,30 @@ export const uploadFileAndGetInfoR2 = async (
     );
   }
 
-  const uploadRes = await fetch(putUrl, {
-    method: "PUT",
-    headers: { "Content-Type": contentType },
-    body: file,
-  });
+  // Browser PUT to R2 is CORS-blocked on non-locket-dio.com origins
+  // (R2 only allows official domain). Proxy PUT via same-origin Node server.
+  let uploadRes;
+  try {
+    uploadRes = await fetch("/dio-r2-put", {
+      method: "PUT",
+      headers: {
+        "Content-Type": contentType,
+        "X-Upload-Url": putUrl,
+      },
+      body: file,
+    });
+  } catch (netErr) {
+    console.error("❌ R2 proxy PUT network error:", netErr);
+    throw new Error(
+      netErr?.message ||
+        "Failed to fetch — không upload được file lên storage (CORS/proxy)."
+    );
+  }
 
   if (!uploadRes.ok) {
     const t = await uploadRes.text().catch(() => "");
     throw new Error(
-      `Upload to R2 failed (${uploadRes.status})${t ? ": " + t.slice(0, 100) : ""}`
+      `Upload to R2 failed (${uploadRes.status})${t ? ": " + t.slice(0, 120) : ""}`
     );
   }
 
