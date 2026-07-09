@@ -1,51 +1,17 @@
-import { useState } from "react";
-import { useApp } from "@/context/AppContext";
-import { CloudUpload, Download } from "lucide-react";
-import {
-  fetchDriveServerStatus,
-  isDriveConfigured,
-  uploadFileToGoogleDrive,
-} from "@/utils/googleDrive";
-import { SonnerError, SonnerSuccess } from "@/components/ui/SonnerToast";
+import { Download } from "lucide-react";
+import { useAutoDriveBackup } from "@/hooks/useAutoDriveBackup";
+import { SonnerSuccess } from "@/components/ui/SonnerToast";
 
 const HeaderAfterCapture = ({ selectedFile }) => {
-  const { navigation } = useApp();
-  const { setIsSidebarOpen, setFriendsTabOpen } = navigation;
-  const [savingDrive, setSavingDrive] = useState(false);
+  // Drive: tự backup ngay sau khi chụp / chọn file
+  useAutoDriveBackup(selectedFile);
 
-  const handleDownload = async () => {
+  /** Chỉ tải về máy */
+  const handleDownload = () => {
     if (!selectedFile) return;
 
-    try {
-      await fetchDriveServerStatus(false);
-    } catch {
-      /* ignore */
-    }
-
-    if (isDriveConfigured()) {
-      setSavingDrive(true);
-      try {
-        const extension = selectedFile.type?.split("/")[1] || "jpg";
-        const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-        const defaultName = `locketdio-${timestamp}.${extension}`;
-        const res = await uploadFileToGoogleDrive(selectedFile, {
-          fileName: defaultName,
-        });
-        SonnerSuccess(
-          "Đã lưu Google Drive (web)",
-          res?.name || "Drive chung"
-        );
-        return;
-      } catch (err) {
-        SonnerError(err?.message || "Lưu Drive thất bại — tải về máy");
-      } finally {
-        setSavingDrive(false);
-      }
-    }
-
     const url = URL.createObjectURL(selectedFile);
-
-    const extension = selectedFile.type.split("/")[1] || "png";
+    const extension = selectedFile.type?.split("/")[1] || "jpg";
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
     const defaultName = `locketdio-${timestamp}.${extension}`;
 
@@ -55,8 +21,8 @@ const HeaderAfterCapture = ({ selectedFile }) => {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-
     URL.revokeObjectURL(url);
+    SonnerSuccess("Đã tải về máy", defaultName);
   };
 
   return (
@@ -74,14 +40,10 @@ const HeaderAfterCapture = ({ selectedFile }) => {
       <div className="flex items-center gap-3">
         <button
           onClick={handleDownload}
-          disabled={savingDrive}
-          className="w-11 h-11 flex items-center justify-center hover:bg-base-300 rounded-full transition disabled:opacity-50"
+          title="Tải về máy"
+          className="w-11 h-11 flex items-center justify-center hover:bg-base-300 rounded-full transition"
         >
-          {isDriveConfigured() ? (
-            <CloudUpload size={28} strokeWidth={2} />
-          ) : (
-            <Download size={28} strokeWidth={2} />
-          )}
+          <Download size={28} strokeWidth={2} />
         </button>
       </div>
     </div>
