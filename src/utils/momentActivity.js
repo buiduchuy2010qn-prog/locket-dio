@@ -28,18 +28,53 @@ function getMomentAudienceMeta(moment) {
     return { audience: "all", recipients: [], excluded: [], isPublic: true };
   }
   const opts = moment.optionsData || moment.options || moment.overlays || {};
-  const audience =
+
+  const showPersonally = !!(
+    moment.show_personally ??
+    opts.show_personally
+  );
+  const sentToAll = !!(moment.sent_to_all ?? opts.sent_to_all);
+
+  let audience =
     moment.audience ||
     opts.audience ||
-    (moment.isPublic === false ? "private" : "all");
+    null;
+
+  if (!audience) {
+    if (moment.isPublic === false || (showPersonally && !sentToAll && !normalizeIdList(moment.recipients || opts.recipients || []).length)) {
+      audience = moment.isPublic === false && !showPersonally ? "private" : null;
+    }
+    if (!audience && sentToAll) audience = "all";
+    else if (!audience && showPersonally) audience = "selected";
+    else if (!audience) audience = moment.isPublic === false ? "private" : "all";
+  }
 
   const recipients = normalizeIdList(
     moment.recipients ||
       opts.recipients ||
       moment.allowed_users ||
       opts.allowed_users ||
+      opts.user_uids ||
+      moment.user_uids ||
       []
   );
+
+  // private: show_personally + chỉ mình / isPublic false không recipients
+  if (
+    audience === "all" &&
+    showPersonally &&
+    !sentToAll &&
+    recipients.length > 0
+  ) {
+    audience = "selected";
+  }
+  if (
+    (audience === "private" ||
+      (showPersonally && recipients.length <= 1 && moment.isPublic === false)) &&
+    !sentToAll
+  ) {
+    // giữ private nếu đã set
+  }
 
   const excluded = normalizeIdList(
     moment.excluded_users ||
@@ -54,7 +89,8 @@ function getMomentAudienceMeta(moment) {
   const isPublic =
     moment.isPublic !== false &&
     audience !== "private" &&
-    audience !== "selected";
+    audience !== "selected" &&
+    !showPersonally;
 
   return { audience, recipients, excluded, isPublic: !!isPublic };
 }

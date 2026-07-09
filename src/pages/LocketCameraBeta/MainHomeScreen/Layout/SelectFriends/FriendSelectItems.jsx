@@ -7,6 +7,10 @@ export default function FriendSelectItems({ friend, isSelected, onToggle }) {
   // Nếu là celebrity thì không hiển thị
   if (friend?.isCelebrity) return null;
 
+  const uid =
+    friend?.uid || friend?.localId || friend?.user || friend?.id || null;
+  if (!uid) return null;
+
   // Lấy ký tự đầu của firstName + ký tự đầu của lastName
   const initials = (
     (friend?.firstName?.[0] || "") + (friend?.lastName?.[0] || "")
@@ -14,7 +18,7 @@ export default function FriendSelectItems({ friend, isSelected, onToggle }) {
 
   return (
     <div
-      onClick={() => onToggle(friend.uid)}
+      onClick={() => onToggle(String(uid))}
       className={clsx(
         "flex flex-col items-center cursor-pointer transition-opacity hover:opacity-80 active:opacity-60 snap-center shrink-0",
         isSelected ? "opacity-100" : "opacity-60"

@@ -66,25 +66,40 @@ function buildPostMomentBody(payload) {
     payload?.mediaInfo?.size
   );
 
-  const optionsData = sanitizeOptionsData(
-    payload?.optionsData || payload?.options || {},
-    {
-      audience:
-        payload?.optionsData?.audience ||
-        payload?.options?.audience ||
-        "all",
-      recipients:
-        payload?.optionsData?.recipients ||
-        payload?.options?.recipients ||
-        [],
-      streakData:
-        typeof payload?.optionsData?.streakData === "number"
-          ? payload.optionsData.streakData
-          : typeof payload?.options?.streakData === "number"
-            ? payload.options.streakData
-            : null,
-    }
-  );
+  const src = payload?.optionsData || payload?.options || {};
+  const audience =
+    src.audience ||
+    payload?.optionsData?.audience ||
+    payload?.options?.audience ||
+    "all";
+  const recipients =
+    src.recipients ||
+    payload?.optionsData?.recipients ||
+    payload?.options?.recipients ||
+    src.allowed_users ||
+    src.user_uids ||
+    [];
+  const sent_to_all =
+    typeof src.sent_to_all === "boolean"
+      ? src.sent_to_all
+      : audience === "all";
+  const show_personally =
+    typeof src.show_personally === "boolean"
+      ? src.show_personally
+      : audience === "selected" || audience === "private";
+
+  const optionsData = sanitizeOptionsData(src, {
+    audience,
+    recipients,
+    sent_to_all,
+    show_personally,
+    streakData:
+      typeof payload?.optionsData?.streakData === "number"
+        ? payload.optionsData.streakData
+        : typeof payload?.options?.streakData === "number"
+          ? payload.options.streakData
+          : null,
+  });
 
   return {
     model: payload?.model || "Version-UploadmediaV3.1",
@@ -112,6 +127,10 @@ export const PostMoments = async (payload) => {
       captionType: typeof body.optionsData?.caption,
       caption: String(body.optionsData?.caption || "").slice(0, 40),
       streakData: body.optionsData?.streakData,
+      audience: body.optionsData?.audience,
+      recipients: body.optionsData?.recipients?.length || 0,
+      sent_to_all: body.optionsData?.sent_to_all,
+      show_personally: body.optionsData?.show_personally,
       hasUrl: !!body.mediaInfo?.url,
     });
 

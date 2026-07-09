@@ -89,7 +89,18 @@ const MediaControls = () => {
       setUploadLoading(true);
       setIsSuccess(false);
 
-      // Tạo payload
+      if (
+        audience === "selected" &&
+        (!Array.isArray(selectedRecipients) || selectedRecipients.length === 0)
+      ) {
+        SonnerWarning(
+          "Chưa chọn người xem",
+          "Chọn ít nhất 1 bạn, hoặc bấm Tất cả / Riêng tư."
+        );
+        return;
+      }
+
+      // Tạo payload (kèm sent_to_all / show_personally cho Dio)
       const payload = await services.createRequestPayloadV5(
         selectedFile,
         previewType,

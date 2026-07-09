@@ -6,10 +6,63 @@ import {
   sanitizeMediaInfo,
   sanitizeOptionsData,
 } from "@/utils/sanitizePostOptions";
-const determineRecipients = (audience, selectedRecipients, localId) => {
-  if (audience === "selected") return selectedRecipients || [];
-  if (audience === "private") return localId ? [localId] : [];
-  return [];
+/** Chuẩn hoá danh sách uid người nhận (string, bỏ rỗng/trùng). */
+const normalizeRecipientIds = (list) => {
+  if (!Array.isArray(list)) return [];
+  const out = [];
+  const seen = new Set();
+  for (const r of list) {
+    let id = null;
+    if (typeof r === "string" && r.trim()) id = r.trim();
+    else if (r && typeof r === "object") {
+      id = r.uid || r.localId || r.userId || r.id || r.user || null;
+      if (id != null) id = String(id).trim();
+    } else if (typeof r === "number" && Number.isFinite(r)) {
+      id = String(r);
+    }
+    if (id && !seen.has(id)) {
+      seen.add(id);
+      out.push(id);
+    }
+  }
+  return out;
+};
+
+/**
+ * Map audience UI → recipients + cờ Locket/Dio.
+ * - all: sent_to_all, recipients rỗng
+ * - selected: show_personally + danh sách uid đã chọn
+ * - private: chỉ mình (localId)
+ */
+export const resolveAudiencePayload = (
+  audience,
+  selectedRecipients,
+  localId
+) => {
+  const mode = audience === "private" || audience === "selected" ? audience : "all";
+  let recipients = [];
+
+  if (mode === "private") {
+    recipients = localId ? [String(localId)] : [];
+  } else if (mode === "selected") {
+    recipients = normalizeRecipientIds(selectedRecipients);
+    // Không gửi selected rỗng → Dio thường hiểu là all → ép private an toàn hơn
+    if (recipients.length === 0 && localId) {
+      return {
+        audience: "private",
+        recipients: [String(localId)],
+        sent_to_all: false,
+        show_personally: true,
+      };
+    }
+  }
+
+  return {
+    audience: mode,
+    recipients,
+    sent_to_all: mode === "all",
+    show_personally: mode === "selected" || mode === "private",
+  };
 };
 
 /**
@@ -50,9 +103,17 @@ export const createRequestPayloadV5 = async (
     );
 
     const streakData = getStreakDataForPost();
+    const audienceMeta = resolveAudiencePayload(
+      audience,
+      selectedRecipients,
+      localId
+    );
+
     const optionsData = sanitizeOptionsData(postOverlay || {}, {
-      audience: audience || "all",
-      recipients: determineRecipients(audience, selectedRecipients, localId),
+      audience: audienceMeta.audience,
+      recipients: audienceMeta.recipients,
+      sent_to_all: audienceMeta.sent_to_all,
+      show_personally: audienceMeta.show_personally,
       streakData,
     });
 

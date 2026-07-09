@@ -262,16 +262,23 @@ const deleteDonePayloadAfterDelay = async (payloadId, delay = 3000) => {
 export const savePostedMoment = async (payload, posted) => {
   try {
     // Giữ audience/recipients để UI "bị chặn không xem được"
+    const opts = payload?.optionsData || payload?.options || {};
     const audience =
-      payload?.optionsData?.audience ||
-      payload?.options?.audience ||
-      posted?.audience ||
-      "all";
+      opts.audience || posted?.audience || "all";
     const recipients =
-      payload?.optionsData?.recipients ||
-      payload?.options?.recipients ||
+      opts.recipients ||
+      opts.allowed_users ||
+      opts.user_uids ||
       posted?.recipients ||
       [];
+    const sent_to_all =
+      typeof opts.sent_to_all === "boolean"
+        ? opts.sent_to_all
+        : audience === "all";
+    const show_personally =
+      typeof opts.show_personally === "boolean"
+        ? opts.show_personally
+        : audience === "selected" || audience === "private";
 
     await db.postedMoments.add({
       postId: posted?.id || null,
@@ -280,12 +287,16 @@ export const savePostedMoment = async (payload, posted) => {
       ...posted,
       audience,
       recipients,
+      sent_to_all,
+      show_personally,
       optionsData: {
         ...(posted?.optionsData || {}),
         audience,
         recipients,
+        sent_to_all,
+        show_personally,
       },
-      isPublic: audience !== "private",
+      isPublic: audience !== "private" && !show_personally,
     });
   } catch (err) {
     console.error("❌ Lỗi khi lưu postedMoment:", err);

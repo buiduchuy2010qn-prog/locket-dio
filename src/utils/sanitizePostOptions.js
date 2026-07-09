@@ -63,6 +63,8 @@ function normalizeBackground(bg) {
  * @param {object} opts
  * @param {string} opts.audience
  * @param {array} opts.recipients
+ * @param {boolean} [opts.sent_to_all]
+ * @param {boolean} [opts.show_personally]
  * @param {number|null} opts.streakData - yyyymmdd or null
  */
 export function sanitizeOptionsData(overlay = {}, opts = {}) {
@@ -124,6 +126,25 @@ export function sanitizeOptionsData(overlay = {}, opts = {}) {
     }
   }
 
+  const audience = opts.audience || raw.audience || "all";
+  const recipients = normalizeRecipients(
+    opts.recipients != null ? opts.recipients : raw.recipients
+  );
+
+  // Cờ native Locket — Dio postMomentV2 thường map theo 2 field này
+  const sent_to_all =
+    typeof opts.sent_to_all === "boolean"
+      ? opts.sent_to_all
+      : typeof raw.sent_to_all === "boolean"
+        ? raw.sent_to_all
+        : audience === "all";
+  const show_personally =
+    typeof opts.show_personally === "boolean"
+      ? opts.show_personally
+      : typeof raw.show_personally === "boolean"
+        ? raw.show_personally
+        : audience === "selected" || audience === "private";
+
   const optionsData = {
     overlay_id:
       typeof raw.overlay_id === "string" && raw.overlay_id
@@ -141,10 +162,13 @@ export function sanitizeOptionsData(overlay = {}, opts = {}) {
     caption: caption || text || "",
     color_top: typeof raw.color_top === "string" ? raw.color_top : "",
     color_bottom: typeof raw.color_bottom === "string" ? raw.color_bottom : "",
-    audience: opts.audience || raw.audience || "all",
-    recipients: normalizeRecipients(
-      opts.recipients != null ? opts.recipients : raw.recipients
-    ),
+    audience,
+    recipients,
+    // Alias Dio / Locket backend
+    sent_to_all,
+    show_personally,
+    allowed_users: recipients,
+    user_uids: recipients,
   };
 
   if (music) optionsData.music = music;
