@@ -113,12 +113,35 @@ function readBody(req) {
 }
 
 // ===== Shared Google Drive (service account) — 1 folder cho cả web =====
-function loadServiceAccount() {
-  const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON || "";
-  if (!raw.trim()) return null;
+const GDRIVE_CONFIG_PATH = path.join(__dirname, "data", "gdrive-config.json");
+
+function readDriveConfigFile() {
   try {
-    // Cho phép JSON thuần hoặc base64
-    let text = raw.trim();
+    if (!fs.existsSync(GDRIVE_CONFIG_PATH)) return null;
+    const raw = fs.readFileSync(GDRIVE_CONFIG_PATH, "utf8");
+    const cfg = JSON.parse(raw);
+    if (cfg?.serviceAccount?.private_key) {
+      cfg.serviceAccount.private_key = String(
+        cfg.serviceAccount.private_key
+      ).replace(/\\n/g, "\n");
+    }
+    return cfg;
+  } catch (e) {
+    console.warn("[gdrive] read config file failed:", e.message);
+    return null;
+  }
+}
+
+function writeDriveConfigFile(cfg) {
+  const dir = path.dirname(GDRIVE_CONFIG_PATH);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(GDRIVE_CONFIG_PATH, JSON.stringify(cfg, null, 2), "utf8");
+}
+
+function parseServiceAccountJson(raw) {
+  if (!raw || !String(raw).trim()) return null;
+  try {
+    let text = String(raw).trim();
     if (!text.startsWith("{")) {
       text = Buffer.from(text, "base64").toString("utf8");
     }
@@ -129,13 +152,28 @@ function loadServiceAccount() {
     if (!sa.client_email || !sa.private_key) return null;
     return sa;
   } catch (e) {
-    console.warn("[gdrive] invalid GOOGLE_SERVICE_ACCOUNT_JSON:", e.message);
+    console.warn("[gdrive] invalid SA json:", e.message);
     return null;
   }
 }
 
+function loadServiceAccount() {
+  // 1) Env Render
+  const fromEnv = parseServiceAccountJson(
+    process.env.GOOGLE_SERVICE_ACCOUNT_JSON || ""
+  );
+  if (fromEnv) return fromEnv;
+  // 2) File cấu hình từ form admin trên web
+  const fileCfg = readDriveConfigFile();
+  if (fileCfg?.serviceAccount) return fileCfg.serviceAccount;
+  return null;
+}
+
 function getDriveFolderId() {
-  return (process.env.GOOGLE_DRIVE_FOLDER_ID || "").trim();
+  const fromEnv = (process.env.GOOGLE_DRIVE_FOLDER_ID || "").trim();
+  if (fromEnv) return fromEnv;
+  const fileCfg = readDriveConfigFile();
+  return (fileCfg?.folderId || "").trim();
 }
 
 let gdriveTokenCache = { token: null, exp: 0 };
@@ -325,6 +363,7 @@ async function handleDriveStatus(req, res) {
   const folderId = getDriveFolderId();
   const configured = Boolean(sa && folderId);
   const isAdmin = isAdminRequest(req);
+  const fileCfg = readDriveConfigFile();
 
   // User thường: chỉ biết bật/tắt (không lộ email SA / hướng dẫn)
   if (!isAdmin) {
@@ -350,10 +389,99 @@ async function handleDriveStatus(req, res) {
       ? `https://drive.google.com/drive/folders/${folderId}`
       : null,
     serviceEmail: sa?.client_email || null,
+    source: process.env.GOOGLE_SERVICE_ACCOUNT_JSON
+      ? "env"
+      : fileCfg
+        ? "file"
+        : "none",
     message: configured
       ? "Shared Drive backup is ON for all posts"
-      : "Set GOOGLE_SERVICE_ACCOUNT_JSON + GOOGLE_DRIVE_FOLDER_ID on Render",
+      : "Dán Service Account JSON + Folder ID bên dưới (hoặc set env Render)",
   });
+}
+
+/** Admin lưu cấu hình Drive từ form web → data/gdrive-config.json */
+async function handleDriveConfigSave(req, res) {
+  if (req.method === "OPTIONS") {
+    return corsJson(req, res, 204, {});
+  }
+  if (req.method !== "POST") {
+    return corsJson(req, res, 405, { error: "Method not allowed" });
+  }
+  if (!isAdminRequest(req)) {
+    return corsJson(req, res, 403, {
+      error: "Chỉ admin mới cấu hình được Google Drive",
+    });
+  }
+
+  let body;
+  try {
+    const raw = await readBody(req);
+    body = JSON.parse(raw.toString("utf8") || "{}");
+  } catch (e) {
+    return corsJson(req, res, 400, { error: "JSON body không hợp lệ" });
+  }
+
+  const folderId = String(body.folderId || "")
+    .trim()
+    .replace(/^.*\/folders\//, "")
+    .replace(/[?#].*$/, "");
+  const sa =
+    typeof body.serviceAccount === "object"
+      ? body.serviceAccount
+      : parseServiceAccountJson(body.serviceAccountJson || body.json || "");
+
+  if (!sa) {
+    return corsJson(req, res, 400, {
+      error:
+        "Service Account JSON sai. Dán cả file .json (có client_email + private_key).",
+    });
+  }
+  if (!folderId || folderId.length < 10) {
+    return corsJson(req, res, 400, {
+      error: "Folder ID không hợp lệ. Copy từ URL Drive /folders/XXXX",
+    });
+  }
+
+  try {
+    writeDriveConfigFile({
+      folderId,
+      serviceAccount: sa,
+      updatedAt: new Date().toISOString(),
+      updatedBy: String(
+        req.headers["x-user-email"] || req.headers["x-local-id"] || "admin"
+      ),
+    });
+    gdriveTokenCache = { token: null, exp: 0 };
+
+    // Test token ngay
+    try {
+      await getGoogleAccessToken(sa);
+    } catch (e) {
+      return corsJson(req, res, 400, {
+        error:
+          "Lưu được nhưng Google từ chối token: " +
+          (e.message || "check private_key"),
+        saved: true,
+      });
+    }
+
+    return corsJson(req, res, 200, {
+      ok: true,
+      configured: true,
+      serviceEmail: sa.client_email,
+      folderId,
+      folderUrl: `https://drive.google.com/drive/folders/${folderId}`,
+      message:
+        "Đã liên kết Drive! Nhớ Share folder cho " +
+        sa.client_email +
+        " (Editor).",
+    });
+  } catch (e) {
+    return corsJson(req, res, 500, {
+      error: "Không ghi được file cấu hình: " + e.message,
+    });
+  }
 }
 
 async function handleDriveBackup(req, res) {
@@ -685,9 +813,12 @@ const server = http.createServer((req, res) => {
   try {
     const urlPath = (req.url || "/").split("?")[0];
 
-    // Shared Google Drive (admin env) — 1 Drive cho cả web
+    // Shared Google Drive (admin) — 1 Drive cho cả web
     if (urlPath === "/api/drive-status") {
       return handleDriveStatus(req, res);
+    }
+    if (urlPath === "/api/drive-config") {
+      return handleDriveConfigSave(req, res);
     }
     if (urlPath === "/api/drive-backup") {
       return handleDriveBackup(req, res);

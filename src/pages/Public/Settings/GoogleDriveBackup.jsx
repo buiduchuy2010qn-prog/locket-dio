@@ -14,7 +14,7 @@ import {
 } from "@/utils/googleDrive";
 import { AuthContext } from "@/context/AuthLocket";
 import { getMyLocalId } from "@/utils/auth/getMyLocalId";
-import { SonnerSuccess } from "@/components/ui/SonnerToast";
+import { SonnerError, SonnerSuccess } from "@/components/ui/SonnerToast";
 
 function pickUserEmail(user, authTokens) {
   return (
@@ -29,8 +29,7 @@ function pickUserEmail(user, authTokens) {
 }
 
 /**
- * Card admin — 1 Google Drive dùng chung cả web.
- * Chỉ admin (buiduchuy2010qn@gmail.com) thấy.
+ * Admin card: dán JSON + Folder ID ngay trên web (không bắt buộc Render env).
  */
 export default function GoogleDriveBackup({ forceShow = false }) {
   const { user, authTokens } = useContext(AuthContext);
@@ -39,9 +38,13 @@ export default function GoogleDriveBackup({ forceShow = false }) {
 
   const [status, setStatus] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [isAdmin, setIsAdmin] = useState(() =>
     isAdminUser(localId, { ...user, email, localId })
   );
+
+  const [saJson, setSaJson] = useState("");
+  const [folderId, setFolderId] = useState("");
 
   const load = async () => {
     setLoading(true);
@@ -52,6 +55,7 @@ export default function GoogleDriveBackup({ forceShow = false }) {
         Boolean(st?.isAdmin) ||
           isAdminUser(localId, { ...user, email, localId })
       );
+      if (st?.folderId) setFolderId(st.folderId);
     } finally {
       setLoading(false);
     }
@@ -62,7 +66,6 @@ export default function GoogleDriveBackup({ forceShow = false }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [localId, email]);
 
-  // Không admin: vẫn hiện card nhẹ + hướng dẫn vào đúng chỗ
   if (!isAdmin && !forceShow) {
     return (
       <div
@@ -73,29 +76,18 @@ export default function GoogleDriveBackup({ forceShow = false }) {
           <HardDrive className="w-5 h-5" /> Google Drive (dùng chung web)
         </p>
         <p className="mt-2 text-xs">
-          Chỉ tài khoản admin (
+          Chỉ admin{" "}
           <code className="bg-base-300 px-1 rounded">
             buiduchuy2010qn@gmail.com
-          </code>
-          ) mới cấu hình liên kết. Bạn đang login:{" "}
+          </code>{" "}
+          cấu hình được. Login:{" "}
           <code className="bg-base-300 px-1 rounded">
             {email || "chưa có email"}
           </code>
-          {localId ? (
-            <>
-              {" · "}
-              <code className="bg-base-300 px-1 rounded text-[10px]">
-                {localId}
-              </code>
-            </>
-          ) : null}
         </p>
-        <p className="mt-2 text-xs opacity-70">
-          Admin mở:{" "}
-          <a className="link link-primary" href="/admin/google-drive">
-            /admin/google-drive
-          </a>
-        </p>
+        <a className="link link-primary text-xs" href="/admin/google-drive">
+          /admin/google-drive
+        </a>
       </div>
     );
   }
@@ -103,13 +95,39 @@ export default function GoogleDriveBackup({ forceShow = false }) {
   const configured = Boolean(status?.configured);
   const enabled = status?.enabled !== false && configured;
 
-  const copyEmail = async () => {
-    const v = email || "buiduchuy2010qn@gmail.com";
+  const saveConfig = async () => {
+    if (!saJson.trim() || !folderId.trim()) {
+      SonnerError("Cần dán JSON + Folder ID");
+      return;
+    }
+    setSaving(true);
     try {
-      await navigator.clipboard.writeText(v);
-      SonnerSuccess("Đã copy email admin");
-    } catch {
-      prompt("Email admin:", v);
+      const res = await fetch("/api/drive-config", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Local-Id": localId || "",
+          "X-User-Email": email || "",
+        },
+        body: JSON.stringify({
+          serviceAccountJson: saJson,
+          folderId: folderId.trim(),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data?.error || `Lỗi ${res.status}`);
+      }
+      SonnerSuccess(
+        "Đã liên kết Google Drive!",
+        data?.message || data?.serviceEmail || ""
+      );
+      setSaJson(""); // xóa JSON khỏi form (đã lưu server)
+      await load();
+    } catch (e) {
+      SonnerError(e?.message || "Lưu thất bại");
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -118,7 +136,6 @@ export default function GoogleDriveBackup({ forceShow = false }) {
       id="google-drive-admin"
       className="w-full rounded-3xl border-4 border-amber-400 bg-gradient-to-br from-amber-50 to-orange-100 dark:from-amber-950/40 dark:to-base-300 shadow-xl overflow-hidden"
     >
-      {/* Banner nhận diện */}
       <div className="bg-amber-400 text-amber-950 px-4 py-3 flex items-center gap-2 flex-wrap">
         <HardDrive className="w-6 h-6 shrink-0" />
         <div className="flex-1 min-w-0">
@@ -126,7 +143,7 @@ export default function GoogleDriveBackup({ forceShow = false }) {
             🔗 LIÊN KẾT GOOGLE DRIVE (ADMIN)
           </p>
           <p className="text-xs font-semibold opacity-90">
-            1 Drive dùng chung cả website · chỉ admin thấy
+            Dán JSON + Folder ID ngay tại đây · 1 Drive cho cả web
           </p>
         </div>
         <span className="badge badge-neutral gap-1 text-xs">
@@ -134,13 +151,7 @@ export default function GoogleDriveBackup({ forceShow = false }) {
         </span>
       </div>
 
-      <div className="p-4 sm:p-5 space-y-3 text-base-content">
-        <p className="text-sm">
-          Mọi ảnh/video user đăng trên web sẽ backup vào{" "}
-          <strong>folder Drive chung</strong> (không cần từng user login
-          Google).
-        </p>
-
+      <div className="p-4 sm:p-5 space-y-4 text-base-content">
         <div className="flex items-center gap-2 text-sm font-semibold">
           {loading ? (
             <Loader2 className="w-5 h-5 animate-spin" />
@@ -154,7 +165,7 @@ export default function GoogleDriveBackup({ forceShow = false }) {
               ? "Đang kiểm tra…"
               : enabled
                 ? "✅ Backup Drive: ĐANG BẬT"
-                : "⚠️ Backup Drive: CHƯA LIÊN KẾT (cấu hình Render)"}
+                : "⚠️ CHƯA LIÊN KẾT — điền form bên dưới"}
           </span>
         </div>
 
@@ -163,7 +174,7 @@ export default function GoogleDriveBackup({ forceShow = false }) {
             href={status.folderUrl}
             target="_blank"
             rel="noreferrer"
-            className="btn btn-warning btn-sm gap-2 w-full sm:w-auto"
+            className="btn btn-warning btn-sm gap-2"
           >
             <ExternalLink className="w-4 h-4" />
             Mở folder Google Drive
@@ -173,62 +184,110 @@ export default function GoogleDriveBackup({ forceShow = false }) {
         {status?.serviceEmail && (
           <p className="text-xs text-success break-all">
             Service Account: {status.serviceEmail}
+            {status.source ? ` (nguồn: ${status.source})` : ""}
           </p>
         )}
 
-        <div className="rounded-2xl bg-base-100/80 border border-amber-300/50 p-3 space-y-2 text-xs">
-          <p className="font-bold text-sm text-amber-800 dark:text-amber-200">
-            Cách liên kết (1 lần trên Render)
+        {/* Form dán — admin tự liên kết, không cần Render env */}
+        <div className="rounded-2xl bg-base-100 border-2 border-amber-300 p-4 space-y-3">
+          <p className="font-bold text-amber-800 dark:text-amber-200">
+            📝 Dán thông tin để liên kết (1 lần)
           </p>
-          <ol className="list-decimal pl-4 space-y-1.5">
-            <li>
-              Google Cloud → tạo <strong>Service Account</strong> → bật{" "}
-              <strong>Drive API</strong> → tải JSON
-            </li>
-            <li>
-              Env{" "}
-              <code className="bg-base-300 px-1 rounded">
-                GOOGLE_SERVICE_ACCOUNT_JSON
-              </code>{" "}
-              = nội dung file JSON
-            </li>
-            <li>
-              Drive: tạo folder → Share <strong>Editor</strong> cho email
-              service account
-            </li>
-            <li>
-              Env{" "}
-              <code className="bg-base-300 px-1 rounded">
-                GOOGLE_DRIVE_FOLDER_ID
-              </code>{" "}
-              = ID trong URL{" "}
-              <code className="bg-base-300 px-1 rounded">/folders/XXXX</code>
-            </li>
-          </ol>
 
-          <div className="flex items-center gap-2 p-2 bg-base-200 rounded-lg">
-            <span className="opacity-70 shrink-0">Gmail admin:</span>
-            <code className="truncate flex-1">
-              {email || "buiduchuy2010qn@gmail.com"}
-            </code>
-            <button type="button" className="btn btn-ghost btn-xs" onClick={copyEmail}>
-              <Copy className="w-3.5 h-3.5" />
-            </button>
+          <div className="text-xs space-y-1 opacity-80 bg-base-200 rounded-xl p-3">
+            <p className="font-semibold">Làm trên Google (≈ 3 phút):</p>
+            <ol className="list-decimal pl-4 space-y-1">
+              <li>
+                Vào{" "}
+                <a
+                  className="link link-primary"
+                  href="https://console.cloud.google.com/iam-admin/serviceaccounts"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Google Cloud → Service Accounts
+                </a>
+              </li>
+              <li>
+                Tạo Service Account → tab <strong>Keys</strong> → Add key →{" "}
+                <strong>JSON</strong> (tải file .json)
+              </li>
+              <li>
+                Bật{" "}
+                <a
+                  className="link link-primary"
+                  href="https://console.cloud.google.com/apis/library/drive.googleapis.com"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Google Drive API
+                </a>
+              </li>
+              <li>
+                Drive.google.com → tạo folder (vd. <em>Locket Dio Web</em>) →
+                Share → dán email trong JSON (
+                <code>client_email</code>) quyền <strong>Editor</strong>
+              </li>
+              <li>
+                Copy Folder ID từ URL:{" "}
+                <code className="bg-base-300 px-1">
+                  drive.google.com/.../folders/<b>XXXX</b>
+                </code>
+              </li>
+            </ol>
           </div>
+
+          <label className="form-control w-full">
+            <span className="label-text text-xs font-semibold mb-1">
+              1) Dán nội dung file JSON Service Account
+            </span>
+            <textarea
+              className="textarea textarea-bordered w-full font-mono text-[11px] min-h-[120px]"
+              placeholder='{"type":"service_account","project_id":"...","private_key":"-----BEGIN...","client_email":"...@....iam.gserviceaccount.com",...}'
+              value={saJson}
+              onChange={(e) => setSaJson(e.target.value)}
+            />
+          </label>
+
+          <label className="form-control w-full">
+            <span className="label-text text-xs font-semibold mb-1">
+              2) Folder ID (hoặc dán cả link folder)
+            </span>
+            <input
+              type="text"
+              className="input input-bordered w-full font-mono text-sm"
+              placeholder="1a2B3cDeFgHiJkLmNoPqRsTuVwXyZ"
+              value={folderId}
+              onChange={(e) => setFolderId(e.target.value)}
+            />
+          </label>
 
           <button
             type="button"
-            className="btn btn-sm btn-primary w-full"
+            className="btn btn-primary w-full gap-2"
+            disabled={saving || !saJson.trim() || !folderId.trim()}
+            onClick={saveConfig}
+          >
+            {saving ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <HardDrive className="w-4 h-4" />
+            )}
+            {saving ? "Đang lưu…" : "Lưu & bật backup Drive"}
+          </button>
+
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm w-full"
             onClick={load}
           >
-            Kiểm tra liên kết lại
+            Kiểm tra lại trạng thái
           </button>
         </div>
 
         <p className="text-[11px] opacity-60">
-          Menu: <strong>Google Drive (Admin)</strong> · hoặc trang{" "}
-          <strong>/settings</strong> · hoặc{" "}
-          <strong>/admin/google-drive</strong>
+          Gmail admin: {email || "buiduchuy2010qn@gmail.com"} · Sau khi bật,
+          mọi bài đăng web backup vào folder đó.
         </p>
       </div>
     </div>
