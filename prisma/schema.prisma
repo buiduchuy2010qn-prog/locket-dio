@@ -1,0 +1,369 @@
+// Locket Dio — production schema
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum FriendRequestStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  CANCELLED
+}
+
+enum FriendshipStatus {
+  ACTIVE
+  BLOCKED
+}
+
+enum MomentVisibility {
+  FRIENDS
+  CLOSE_FRIENDS
+}
+
+enum MediaType {
+  IMAGE
+  VIDEO
+}
+
+enum NotificationType {
+  FRIEND_REQUEST
+  FRIEND_ACCEPTED
+  NEW_MOMENT
+  REACTION
+  STREAK_REMINDER
+  GOLD_UPDATE
+  SYSTEM
+}
+
+enum SubscriptionStatus {
+  NONE
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+  TRIALING
+}
+
+enum SubscriptionPlan {
+  MONTHLY
+  YEARLY
+}
+
+model User {
+  id              String    @id @default(cuid())
+  email           String    @unique
+  username        String    @unique
+  passwordHash    String
+  role            Role      @default(USER)
+  emailVerifiedAt DateTime?
+  isBlocked       Boolean   @default(false)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  profile           Profile?
+  sessions          Session[]
+  passwordResets    PasswordReset[]
+  emailTokens       EmailVerificationToken[]
+  sentRequests      FriendRequest[]          @relation("SentRequests")
+  receivedRequests  FriendRequest[]          @relation("ReceivedRequests")
+  friendshipsA      Friendship[]             @relation("FriendshipA")
+  friendshipsB      Friendship[]             @relation("FriendshipB")
+  blockedByMe       Block[]                  @relation("Blocker")
+  blockedMe         Block[]                  @relation("Blocked")
+  moments           Moment[]
+  reactions         Reaction[]
+  mediaFiles        MediaFile[]
+  notifications     Notification[]           @relation("UserNotifications")
+  actorNotifications Notification[]          @relation("NotificationActor")
+  streaksAsUser     Streak[]                 @relation("StreakUser")
+  streaksAsFriend   Streak[]                 @relation("StreakFriend")
+  goldSubscription  GoldSubscription?
+  goldCustomization GoldCustomization?
+  locketConnection  LocketConnection?
+  auditLogs         AuditLog[]
+  momentViews       MomentView[]
+
+  @@index([username])
+  @@index([email])
+}
+
+model Profile {
+  id           String  @id @default(cuid())
+  userId       String  @unique
+  displayName  String
+  bio          String  @default("")
+  avatarUrl    String?
+  darkMode     Boolean @default(false)
+  showActivity Boolean @default(true)
+  friendsOnly  Boolean @default(true)
+  user         User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String   @unique
+  userAgent String?
+  ip        String?
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model PasswordReset {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model EmailVerificationToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model FriendRequest {
+  id          String              @id @default(cuid())
+  fromUserId  String
+  toUserId    String
+  status      FriendRequestStatus @default(PENDING)
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  fromUser    User                @relation("SentRequests", fields: [fromUserId], references: [id], onDelete: Cascade)
+  toUser      User                @relation("ReceivedRequests", fields: [toUserId], references: [id], onDelete: Cascade)
+
+  @@unique([fromUserId, toUserId])
+  @@index([toUserId, status])
+}
+
+model Friendship {
+  id        String           @id @default(cuid())
+  userAId   String
+  userBId   String
+  status    FriendshipStatus @default(ACTIVE)
+  isClose   Boolean          @default(false)
+  createdAt DateTime         @default(now())
+  userA     User             @relation("FriendshipA", fields: [userAId], references: [id], onDelete: Cascade)
+  userB     User             @relation("FriendshipB", fields: [userBId], references: [id], onDelete: Cascade)
+
+  @@unique([userAId, userBId])
+  @@index([userAId])
+  @@index([userBId])
+}
+
+model Block {
+  id        String   @id @default(cuid())
+  blockerId String
+  blockedId String
+  createdAt DateTime @default(now())
+  blocker   User     @relation("Blocker", fields: [blockerId], references: [id], onDelete: Cascade)
+  blocked   User     @relation("Blocked", fields: [blockedId], references: [id], onDelete: Cascade)
+
+  @@unique([blockerId, blockedId])
+}
+
+model Moment {
+  id          String           @id @default(cuid())
+  authorId    String
+  caption     String           @default("")
+  visibility  MomentVisibility @default(FRIENDS)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  deletedAt   DateTime?
+  author      User             @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  media       MediaFile[]
+  reactions   Reaction[]
+  views       MomentView[]
+  reports     Report[]
+
+  @@index([authorId, createdAt])
+  @@index([createdAt])
+}
+
+model MediaFile {
+  id           String    @id @default(cuid())
+  ownerId      String
+  momentId     String?
+  type         MediaType
+  url          String
+  publicId     String?
+  thumbnailUrl String?
+  mimeType     String?
+  sizeBytes    Int?
+  width        Int?
+  height       Int?
+  durationSec  Float?
+  createdAt    DateTime  @default(now())
+  owner        User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  moment       Moment?   @relation(fields: [momentId], references: [id], onDelete: Cascade)
+
+  @@index([momentId])
+  @@index([ownerId])
+}
+
+model Reaction {
+  id        String   @id @default(cuid())
+  momentId  String
+  userId    String
+  emoji     String
+  createdAt DateTime @default(now())
+  moment    Moment   @relation(fields: [momentId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([momentId, userId])
+  @@index([momentId])
+}
+
+model MomentView {
+  id       String   @id @default(cuid())
+  momentId String
+  userId   String
+  seenAt   DateTime @default(now())
+  moment   Moment   @relation(fields: [momentId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([momentId, userId])
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  actorId   String?
+  type      NotificationType
+  title     String
+  body      String
+  data      Json?
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+  user      User             @relation("UserNotifications", fields: [userId], references: [id], onDelete: Cascade)
+  actor     User?            @relation("NotificationActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([userId, readAt])
+}
+
+model Streak {
+  id         String    @id @default(cuid())
+  userId     String
+  friendId   String
+  count      Int       @default(0)
+  lastPostAt DateTime?
+  broken     Boolean   @default(false)
+  history    Json      @default("[]")
+  updatedAt  DateTime  @updatedAt
+  user       User      @relation("StreakUser", fields: [userId], references: [id], onDelete: Cascade)
+  friend     User      @relation("StreakFriend", fields: [friendId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, friendId])
+}
+
+model GoldSubscription {
+  id                   String             @id @default(cuid())
+  userId               String             @unique
+  status               SubscriptionStatus @default(NONE)
+  plan                 SubscriptionPlan?
+  stripeCustomerId     String?
+  stripeSubscriptionId String?
+  currentPeriodEnd     DateTime?
+  cancelAtPeriodEnd    Boolean            @default(false)
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+  user                 User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model GoldCustomization {
+  id            String  @id @default(cuid())
+  userId        String  @unique
+  appIconId     String  @default("classic")
+  cameraThemeId String  @default("soft-pink")
+  badgeId       String  @default("gold-star")
+  badgeVisible  Boolean @default(true)
+  profileFrame  String  @default("none")
+  profileBg     String  @default("soft")
+  user          User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+/// Catalog rows (seeded)
+model CameraTheme {
+  id        String  @id
+  name      String
+  className String
+  preview   String
+  isPremium Boolean @default(true)
+}
+
+model AppIcon {
+  id        String  @id
+  name      String
+  gradient  String
+  emoji     String
+  isPremium Boolean @default(true)
+}
+
+model Badge {
+  id        String  @id
+  name      String
+  icon      String
+  label     String
+  isPremium Boolean @default(true)
+}
+
+/// Official Locket OAuth only — never store third-party passwords
+model LocketConnection {
+  id             String    @id @default(cuid())
+  userId         String    @unique
+  status         String    @default("disconnected") // disconnected | pending | connected | unavailable
+  externalUserId String?
+  accessTokenEnc String?
+  refreshTokenEnc String?
+  connectedAt    DateTime?
+  lastSyncAt     DateTime?
+  meta           Json?
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Report {
+  id         String   @id @default(cuid())
+  reporterId String
+  momentId   String?
+  reason     String
+  status     String   @default("open")
+  createdAt  DateTime @default(now())
+  moment     Moment?  @relation(fields: [momentId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  action    String
+  meta      Json?
+  ip        String?
+  createdAt DateTime @default(now())
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([userId])
+}
