@@ -74,14 +74,24 @@ export const SendReactMoment = async (emoji, selectedMomentId, power) => {
 /** Chuẩn hoá payload views/reactions từ Dio hoặc Locket API */
 const normalizeMomentActivity = (raw) => {
   if (!raw || typeof raw !== "object") {
-    return { views: [], reactions: [] };
+    return { views: [], reactions: [], pageToken: null };
   }
   // Một số endpoint bọc trong data/result
   const payload = raw.data ?? raw.result ?? raw;
 
-  let views = payload.views ?? payload.viewers ?? payload.view_list ?? [];
+  let views =
+    payload.views ??
+    payload.viewers ??
+    payload.view_list ??
+    payload.users_who_viewed ??
+    payload.seen_by ??
+    [];
   let reactions =
-    payload.reactions ?? payload.reacts ?? payload.reaction_list ?? [];
+    payload.reactions ??
+    payload.reacts ??
+    payload.reaction_list ??
+    payload.users_who_reacted ??
+    [];
 
   // getMomentViews đôi khi trả mảng viewer thuần
   if (Array.isArray(payload) && !payload.views) {
@@ -91,69 +101,131 @@ const normalizeMomentActivity = (raw) => {
   if (!Array.isArray(reactions)) reactions = [];
 
   const mapView = (v) => {
-    if (!v || typeof v !== "object") {
-      return { user: String(v || ""), viewedAt: null };
+    if (v == null) return null;
+    if (typeof v === "string" || typeof v === "number") {
+      return { user: String(v), viewedAt: null };
     }
+    if (typeof v !== "object") return null;
+    const user =
+      v.user ||
+      v.uid ||
+      v.user_uid ||
+      v.userUid ||
+      v.viewer_uid ||
+      v.viewerUid ||
+      v.id ||
+      v.localId ||
+      "";
     return {
-      user: v.user || v.uid || v.user_uid || v.userUid || v.viewer_uid || "",
+      user: String(user || ""),
       viewedAt:
         v.viewedAt ||
         v.viewed_at ||
+        v.seen_at ||
         v.createdAt ||
         v.created_at ||
         v.timestamp ||
+        v.time ||
         null,
     };
   };
 
   const mapReaction = (r) => {
     if (!r || typeof r !== "object") return null;
+    const user =
+      r.user || r.uid || r.user_uid || r.userUid || r.id || r.localId || "";
+    if (!user) return null;
     return {
-      user: r.user || r.uid || r.user_uid || r.userUid || "",
-      emoji: r.emoji || r.reaction || "💛",
-      intensity: r.intensity ?? r.power ?? 0,
-      createdAt: r.createdAt || r.created_at || r.timestamp || null,
+      user: String(user),
+      emoji: r.emoji || r.reaction || r.react || "💛",
+      intensity: r.intensity ?? r.power ?? r.strength ?? 0,
+      createdAt:
+        r.createdAt || r.created_at || r.timestamp || r.time || null,
     };
   };
 
   return {
-    views: views.map(mapView).filter((v) => v.user),
+    views: views.map(mapView).filter((v) => v?.user),
     reactions: reactions.map(mapReaction).filter(Boolean),
+    pageToken:
+      payload.pageToken ||
+      payload.nextPageToken ||
+      payload.next_page_token ||
+      null,
   };
+};
+
+const mergeActivity = (a, b) => {
+  const viewMap = new Map();
+  const reactMap = new Map();
+  for (const src of [a, b]) {
+    for (const v of src?.views || []) {
+      if (!v?.user) continue;
+      const prev = viewMap.get(v.user);
+      if (!prev || (v.viewedAt && !prev.viewedAt)) viewMap.set(v.user, v);
+    }
+    for (const r of src?.reactions || []) {
+      if (!r?.user) continue;
+      reactMap.set(r.user, r);
+    }
+  }
+  return {
+    views: Array.from(viewMap.values()),
+    reactions: Array.from(reactMap.values()),
+  };
+};
+
+/** Gọi Dio getInfoMomentV2 — lặp pageToken nếu có để lấy full */
+const fetchDioInfoMomentAll = async (idMoment) => {
+  let pageToken = null;
+  let acc = { views: [], reactions: [] };
+  for (let i = 0; i < 10; i++) {
+    const res = await api.post("/locket/getInfoMomentV2", {
+      pageToken,
+      idMoment,
+      // limit lớn để lấy đủ người xem / reaction
+      limit: 200,
+    });
+    const raw = res?.data?.data ?? res?.data?.result ?? res?.data;
+    const page = normalizeMomentActivity(raw);
+    acc = mergeActivity(acc, page);
+    if (!page.pageToken || page.pageToken === pageToken) break;
+    pageToken = page.pageToken;
+  }
+  return acc;
 };
 
 export const GetInfoMoment = async (idMoment) => {
   if (!idMoment) return { views: [], reactions: [] };
 
-  // 1) Dio proxy getInfoMomentV2 (views + reactions)
-  try {
-    const res = await api.post("/locket/getInfoMomentV2", {
-      pageToken: null,
-      idMoment,
-      limit: null,
-    });
-    const raw = res?.data?.data ?? res?.data;
-    const normalized = normalizeMomentActivity(raw);
-    if (normalized.views.length > 0 || normalized.reactions.length > 0) {
-      return normalized;
-    }
-    // Có thể API OK nhưng rỗng — vẫn thử fallback Locket native
-  } catch (err) {
-    console.warn("❌ GetInfoMoment Dio failed:", err?.response?.data || err?.message);
+  // Gọi song song Dio + Locket native, gộp full (không bỏ sót nguồn nào)
+  const [dioRes, locketRes] = await Promise.allSettled([
+    fetchDioInfoMomentAll(idMoment),
+    getMomentViews(idMoment).then((viewsRaw) =>
+      normalizeMomentActivity(
+        viewsRaw && typeof viewsRaw === "object"
+          ? viewsRaw
+          : { views: Array.isArray(viewsRaw) ? viewsRaw : [] }
+      )
+    ),
+  ]);
+
+  let merged = { views: [], reactions: [] };
+  if (dioRes.status === "fulfilled") {
+    merged = mergeActivity(merged, dioRes.value);
+  } else {
+    console.warn("❌ GetInfoMoment Dio failed:", dioRes.reason?.message || dioRes.reason);
+  }
+  if (locketRes.status === "fulfilled") {
+    merged = mergeActivity(merged, locketRes.value);
+  } else {
+    console.warn(
+      "❌ getMomentViews failed:",
+      locketRes.reason?.message || locketRes.reason
+    );
   }
 
-  // 2) Fallback: Locket getMomentViews
-  try {
-    const viewsRaw = await getMomentViews(idMoment);
-    return normalizeMomentActivity(
-      viewsRaw && typeof viewsRaw === "object"
-        ? viewsRaw
-        : { views: Array.isArray(viewsRaw) ? viewsRaw : [] }
-    );
-  } catch (err) {
-    console.warn("❌ GetInfoMoment fallback failed:", err?.message);
-    return { views: [], reactions: [] };
-  }
+  return merged;
 };
 
 export const GetLastestMoment = async () => {

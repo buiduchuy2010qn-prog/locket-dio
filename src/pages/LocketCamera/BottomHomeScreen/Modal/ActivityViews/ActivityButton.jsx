@@ -1,21 +1,30 @@
 import LoadingRing from "@/components/ui/Loading/ring";
 import { Eye } from "lucide-react";
+import { splitActivity } from "@/utils/momentActivity";
 
 const FALLBACK_AVATAR = "/images/default_profile.png";
 
 const ActivityButton = ({ activity = [], isLoading, onClick }) => {
-  const viewCount = activity.length;
-  const reactionCount = activity.filter((i) => i?.reaction).length;
+  const parts = splitActivity(activity);
+  const viewCount = parts.viewedAll.length;
+  const reactionCount = parts.reacted.length;
+  const noReactCount = parts.noReaction.length;
 
   let label = "Chưa có ai xem";
+  let sub = "Nhấn để xem bạn bè · chưa thả cảm xúc";
   if (isLoading) {
     label = "Đang tải lượt xem…";
-  } else if (viewCount > 0) {
-    label =
-      reactionCount > 0
-        ? `${viewCount} đã xem · ${reactionCount} cảm xúc`
-        : `${viewCount} người đã xem`;
+    sub = "";
+  } else if (viewCount > 0 || noReactCount > 0) {
+    label = `${viewCount} đã xem · ${reactionCount} cảm xúc`;
+    sub = `${noReactCount} chưa thả cảm xúc · nhấn xem full`;
   }
+
+  // Avatar ưu tiên người đã xem/reaction
+  const avatars = (parts.viewedAll.length ? parts.viewedAll : activity).slice(
+    0,
+    5
+  );
 
   return (
     <div
@@ -28,8 +37,10 @@ const ActivityButton = ({ activity = [], isLoading, onClick }) => {
       }}
     >
       <div
-        className={`flex items-center justify-center w-8 h-8 rounded-full ${
-          viewCount > 0 ? "bg-primary/15 text-primary" : "bg-base-300 text-base-content/70"
+        className={`flex items-center justify-center w-8 h-8 rounded-full shrink-0 ${
+          viewCount > 0
+            ? "bg-primary/15 text-primary"
+            : "bg-base-300 text-base-content/70"
         }`}
       >
         <Eye className="w-5 h-5" strokeWidth={2.25} />
@@ -38,9 +49,9 @@ const ActivityButton = ({ activity = [], isLoading, onClick }) => {
         <span className="block text-base-content font-semibold truncate">
           {label}
         </span>
-        {!isLoading && viewCount > 0 && (
-          <span className="block text-xs text-base-content/60 font-medium">
-            Nhấn để xem chi tiết
+        {sub && (
+          <span className="block text-xs text-base-content/60 font-medium truncate">
+            {sub}
           </span>
         )}
       </div>
@@ -49,7 +60,7 @@ const ActivityButton = ({ activity = [], isLoading, onClick }) => {
         {isLoading ? (
           <LoadingRing size={28} stroke={3} />
         ) : (
-          activity.slice(0, 5).map((item, idx) => (
+          avatars.map((item, idx) => (
             <img
               key={item?.user?.uid || idx}
               src={item?.user?.profilePic || FALLBACK_AVATAR}

@@ -1,11 +1,13 @@
 /**
  * Locket Dio static + API proxy
  * Browser → same origin → this server → api.locket-dio.com / storage.locket-dio.com
+ * Shared Google Drive backup (1 Drive for whole site, admin env only)
  */
 import http from "http";
 import https from "https";
 import fs from "fs";
 import path from "path";
+import crypto from "crypto";
 import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -108,6 +110,225 @@ function readBody(req) {
     req.on("end", () => resolve(Buffer.concat(chunks)));
     req.on("error", reject);
   });
+}
+
+// ===== Shared Google Drive (service account) — 1 folder cho cả web =====
+function loadServiceAccount() {
+  const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON || "";
+  if (!raw.trim()) return null;
+  try {
+    // Cho phép JSON thuần hoặc base64
+    let text = raw.trim();
+    if (!text.startsWith("{")) {
+      text = Buffer.from(text, "base64").toString("utf8");
+    }
+    const sa = JSON.parse(text);
+    if (sa.private_key && typeof sa.private_key === "string") {
+      sa.private_key = sa.private_key.replace(/\\n/g, "\n");
+    }
+    if (!sa.client_email || !sa.private_key) return null;
+    return sa;
+  } catch (e) {
+    console.warn("[gdrive] invalid GOOGLE_SERVICE_ACCOUNT_JSON:", e.message);
+    return null;
+  }
+}
+
+function getDriveFolderId() {
+  return (process.env.GOOGLE_DRIVE_FOLDER_ID || "").trim();
+}
+
+let gdriveTokenCache = { token: null, exp: 0 };
+
+function b64url(input) {
+  return Buffer.from(input)
+    .toString("base64")
+    .replace(/=/g, "")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_");
+}
+
+async function getGoogleAccessToken(sa) {
+  if (gdriveTokenCache.token && Date.now() < gdriveTokenCache.exp - 60_000) {
+    return gdriveTokenCache.token;
+  }
+  const now = Math.floor(Date.now() / 1000);
+  const header = b64url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
+  const claim = b64url(
+    JSON.stringify({
+      iss: sa.client_email,
+      scope: "https://www.googleapis.com/auth/drive.file",
+      aud: "https://oauth2.googleapis.com/token",
+      iat: now,
+      exp: now + 3600,
+    })
+  );
+  const unsigned = `${header}.${claim}`;
+  const sign = crypto.createSign("RSA-SHA256");
+  sign.update(unsigned);
+  sign.end();
+  const signature = sign
+    .sign(sa.private_key)
+    .toString("base64")
+    .replace(/=/g, "")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_");
+  const jwt = `${unsigned}.${signature}`;
+
+  const body = new URLSearchParams({
+    grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+    assertion: jwt,
+  });
+
+  const res = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: body.toString(),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.access_token) {
+    throw new Error(
+      data.error_description || data.error || "Google token failed"
+    );
+  }
+  gdriveTokenCache = {
+    token: data.access_token,
+    exp: Date.now() + (data.expires_in || 3600) * 1000,
+  };
+  return data.access_token;
+}
+
+async function uploadToSharedDrive(fileBuf, contentType, filename) {
+  const sa = loadServiceAccount();
+  const folderId = getDriveFolderId();
+  if (!sa || !folderId) {
+    const err = new Error("Drive not configured");
+    err.code = "NOT_CONFIGURED";
+    throw err;
+  }
+  const token = await getGoogleAccessToken(sa);
+  const boundary = "----LocketDioDrive" + Date.now();
+  const meta = JSON.stringify({
+    name: filename || `locketdio-${Date.now()}.bin`,
+    parents: [folderId],
+  });
+  const preamble = Buffer.from(
+    `--${boundary}\r\n` +
+      `Content-Type: application/json; charset=UTF-8\r\n\r\n` +
+      `${meta}\r\n` +
+      `--${boundary}\r\n` +
+      `Content-Type: ${contentType || "application/octet-stream"}\r\n\r\n`,
+    "utf8"
+  );
+  const closing = Buffer.from(`\r\n--${boundary}--\r\n`, "utf8");
+  const body = Buffer.concat([preamble, fileBuf, closing]);
+
+  const res = await fetch(
+    "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": `multipart/related; boundary=${boundary}`,
+        "Content-Length": String(body.length),
+      },
+      body,
+    }
+  );
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(
+      data?.error?.message || `Drive upload ${res.status}`
+    );
+  }
+  return data;
+}
+
+function corsJson(req, res, status, obj) {
+  const origin = req.headers.origin || "*";
+  send(res, status, JSON.stringify(obj), {
+    "Content-Type": "application/json; charset=utf-8",
+    "Access-Control-Allow-Origin": origin,
+    "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+    "Access-Control-Allow-Headers":
+      "content-type,authorization,x-filename,x-upload-size",
+  });
+}
+
+async function handleDriveStatus(req, res) {
+  if (req.method === "OPTIONS") {
+    return corsJson(req, res, 204, {});
+  }
+  const sa = loadServiceAccount();
+  const folderId = getDriveFolderId();
+  const configured = Boolean(sa && folderId);
+  return corsJson(req, res, 200, {
+    configured,
+    enabled: configured,
+    folderHint: folderId
+      ? `…${folderId.slice(-8)}`
+      : null,
+    serviceEmail: sa?.client_email || null,
+    adminOnly: true,
+    message: configured
+      ? "Shared Drive backup is ON for all posts"
+      : "Set GOOGLE_SERVICE_ACCOUNT_JSON + GOOGLE_DRIVE_FOLDER_ID on server",
+  });
+}
+
+async function handleDriveBackup(req, res) {
+  if (req.method === "OPTIONS") {
+    return corsJson(req, res, 204, {});
+  }
+  if (req.method !== "POST") {
+    return corsJson(req, res, 405, { error: "Method not allowed" });
+  }
+  if (!loadServiceAccount() || !getDriveFolderId()) {
+    return corsJson(req, res, 503, {
+      error: "Drive not configured by admin",
+      configured: false,
+    });
+  }
+
+  let body;
+  try {
+    body = await readBody(req);
+  } catch (e) {
+    return corsJson(req, res, 400, { error: "Bad body: " + e.message });
+  }
+  if (!body?.length) {
+    return corsJson(req, res, 400, { error: "Empty file" });
+  }
+  // Giới hạn 80MB
+  if (body.length > 80 * 1024 * 1024) {
+    return corsJson(req, res, 413, { error: "File too large (max 80MB)" });
+  }
+
+  let filename = "locketdio.bin";
+  try {
+    filename = decodeURIComponent(
+      req.headers["x-filename"] || "locketdio.bin"
+    );
+  } catch {
+    filename = String(req.headers["x-filename"] || "locketdio.bin");
+  }
+  // Chặn path traversal
+  filename = path.basename(filename).replace(/[^\w.\-()+\s]/g, "_") || "locketdio.bin";
+  const contentType = req.headers["content-type"] || "application/octet-stream";
+
+  try {
+    const result = await uploadToSharedDrive(body, contentType, filename);
+    console.log("[gdrive] uploaded", result?.id, filename, body.length);
+    return corsJson(req, res, 200, {
+      ok: true,
+      id: result.id,
+      name: result.name,
+      webViewLink: result.webViewLink,
+    });
+  } catch (e) {
+    console.error("[gdrive] upload failed:", e.message);
+    return corsJson(req, res, 502, { error: e.message || "Drive upload failed" });
+  }
 }
 
 /**
@@ -384,6 +605,14 @@ const server = http.createServer((req, res) => {
   try {
     const urlPath = (req.url || "/").split("?")[0];
 
+    // Shared Google Drive (admin env) — 1 Drive cho cả web
+    if (urlPath === "/api/drive-status") {
+      return handleDriveStatus(req, res);
+    }
+    if (urlPath === "/api/drive-backup") {
+      return handleDriveBackup(req, res);
+    }
+
     // R2 presigned PUT proxy (avoids browser CORS on cloudflarestorage.com)
     if (urlPath === "/dio-r2-put") {
       return proxyR2Put(req, res);
@@ -401,7 +630,12 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(PORT, "0.0.0.0", () => {
+  const sa = loadServiceAccount();
+  const folder = getDriveFolderId();
   console.log(`[locket-dio] listening on :${PORT}`);
   console.log(`[locket-dio] static: ${PUBLIC_DIR}`);
   console.log(`[locket-dio] proxies: ${PROXIES.map((p) => p.prefix).join(", ")}, /dio-r2-put`);
+  console.log(
+    `[locket-dio] gdrive: ${sa && folder ? "ON shared folder" : "OFF (set GOOGLE_SERVICE_ACCOUNT_JSON + GOOGLE_DRIVE_FOLDER_ID)"}`
+  );
 });

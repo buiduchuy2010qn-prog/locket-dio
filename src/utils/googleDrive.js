@@ -1,322 +1,144 @@
 /**
- * Google Drive backup (client-side OAuth + Drive API v3).
- * Folder: "Locket Dio" trên Drive của user.
- *
- * Cần VITE_GOOGLE_CLIENT_ID (OAuth 2.0 Web client).
- * Origins: https://huy-locket.onrender.com + http://localhost:5173
+ * Shared Google Drive backup — 1 Drive cho cả web, cấu hình server (admin).
+ * Client chỉ POST file lên /api/drive-backup khi server đã bật.
  */
 
-const FOLDER_NAME = "Locket Dio";
-const SCOPE = "https://www.googleapis.com/auth/drive.file";
-const STORAGE_TOKEN = "gdrive_access_token";
-const STORAGE_EXP = "gdrive_token_exp";
-const STORAGE_AUTO = "gdrive_auto_backup";
-const STORAGE_FOLDER = "gdrive_folder_id";
-const STORAGE_EMAIL = "gdrive_email";
+const STATUS_CACHE_KEY = "gdrive_server_status";
+const STATUS_CACHE_AT = "gdrive_server_status_at";
 
-export function getGoogleClientId() {
-  return (
-    import.meta.env.VITE_GOOGLE_CLIENT_ID ||
-    localStorage.getItem("VITE_GOOGLE_CLIENT_ID") ||
-    ""
-  ).trim();
+export function isAdminUser(localId) {
+  if (!localId) return false;
+  const raw =
+    import.meta.env.VITE_ADMIN_LOCAL_IDS ||
+    localStorage.getItem("ADMIN_LOCAL_IDS") ||
+    "";
+  const ids = String(raw)
+    .split(/[,;\s]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return ids.includes(String(localId));
+}
+
+/** Status từ server (cache 60s) */
+export async function fetchDriveServerStatus(force = false) {
+  try {
+    if (!force) {
+      const at = Number(localStorage.getItem(STATUS_CACHE_AT) || 0);
+      const cached = localStorage.getItem(STATUS_CACHE_KEY);
+      if (cached && Date.now() - at < 60_000) {
+        return JSON.parse(cached);
+      }
+    }
+    const res = await fetch("/api/drive-status", { method: "GET" });
+    const data = await res.json().catch(() => ({}));
+    localStorage.setItem(STATUS_CACHE_KEY, JSON.stringify(data));
+    localStorage.setItem(STATUS_CACHE_AT, String(Date.now()));
+    return data;
+  } catch {
+    return { configured: false, enabled: false };
+  }
 }
 
 export function isDriveConfigured() {
-  return Boolean(getGoogleClientId());
+  try {
+    const cached = localStorage.getItem(STATUS_CACHE_KEY);
+    if (cached) return Boolean(JSON.parse(cached)?.configured);
+  } catch {
+    /* ignore */
+  }
+  return false;
 }
 
+/** Auto backup = server đã cấu hình (1 Drive cho cả site) */
 export function isDriveAutoBackupEnabled() {
-  return localStorage.getItem(STORAGE_AUTO) === "true";
+  return isDriveConfigured();
 }
 
-export function setDriveAutoBackupEnabled(on) {
-  localStorage.setItem(STORAGE_AUTO, on ? "true" : "false");
+export function setDriveAutoBackupEnabled() {
+  /* no-op — admin cấu hình qua env server */
 }
 
 export function isDriveConnected() {
-  const token = localStorage.getItem(STORAGE_TOKEN);
-  const exp = Number(localStorage.getItem(STORAGE_EXP) || 0);
-  return Boolean(token && exp > Date.now() + 30_000);
+  return isDriveConfigured();
 }
 
 export function getDriveEmail() {
-  return localStorage.getItem(STORAGE_EMAIL) || "";
+  try {
+    const cached = localStorage.getItem(STATUS_CACHE_KEY);
+    if (cached) return JSON.parse(cached)?.folderHint || "Shared Drive (admin)";
+  } catch {
+    /* ignore */
+  }
+  return "";
+}
+
+export function getGoogleClientId() {
+  return "";
 }
 
 export function disconnectGoogleDrive() {
-  localStorage.removeItem(STORAGE_TOKEN);
-  localStorage.removeItem(STORAGE_EXP);
-  localStorage.removeItem(STORAGE_FOLDER);
-  localStorage.removeItem(STORAGE_EMAIL);
+  localStorage.removeItem(STATUS_CACHE_KEY);
+  localStorage.removeItem(STATUS_CACHE_AT);
 }
 
-function saveToken(accessToken, expiresInSec = 3600) {
-  localStorage.setItem(STORAGE_TOKEN, accessToken);
-  localStorage.setItem(
-    STORAGE_EXP,
-    String(Date.now() + Math.max(60, expiresInSec - 60) * 1000)
-  );
-}
-
-function getStoredToken() {
-  if (!isDriveConnected()) return null;
-  return localStorage.getItem(STORAGE_TOKEN);
-}
-
-function loadGisScript() {
-  return new Promise((resolve, reject) => {
-    if (window.google?.accounts?.oauth2) {
-      resolve();
-      return;
-    }
-    const existing = document.querySelector('script[data-gis="1"]');
-    if (existing) {
-      existing.addEventListener("load", () => resolve());
-      existing.addEventListener("error", () =>
-        reject(new Error("Không tải được Google Identity Services"))
-      );
-      return;
-    }
-    const s = document.createElement("script");
-    s.src = "https://accounts.google.com/gsi/client";
-    s.async = true;
-    s.defer = true;
-    s.dataset.gis = "1";
-    s.onload = () => resolve();
-    s.onerror = () =>
-      reject(new Error("Không tải được Google Identity Services"));
-    document.head.appendChild(s);
-  });
-}
-
-/**
- * Xin quyền Drive (popup Google).
- * @param {{ prompt?: string }} opts prompt: '' silent | 'consent' force
- */
-export async function connectGoogleDrive(opts = {}) {
-  const clientId = getGoogleClientId();
-  if (!clientId) {
+export async function connectGoogleDrive() {
+  const st = await fetchDriveServerStatus(true);
+  if (!st?.configured) {
     throw new Error(
-      "Chưa cấu hình Google Client ID. Thêm VITE_GOOGLE_CLIENT_ID vào env (Render) hoặc Settings."
+      "Admin chưa cấu hình Google Drive trên server (GOOGLE_SERVICE_ACCOUNT_JSON + GOOGLE_DRIVE_FOLDER_ID)."
     );
   }
-
-  await loadGisScript();
-
-  return new Promise((resolve, reject) => {
-    try {
-      const tokenClient = window.google.accounts.oauth2.initTokenClient({
-        client_id: clientId,
-        scope: SCOPE,
-        callback: async (resp) => {
-          if (resp.error) {
-            reject(new Error(resp.error_description || resp.error));
-            return;
-          }
-          saveToken(resp.access_token, resp.expires_in || 3600);
-          try {
-            const me = await fetch(
-              "https://www.googleapis.com/drive/v3/about?fields=user",
-              {
-                headers: { Authorization: `Bearer ${resp.access_token}` },
-              }
-            ).then((r) => r.json());
-            if (me?.user?.emailAddress) {
-              localStorage.setItem(STORAGE_EMAIL, me.user.emailAddress);
-            }
-          } catch {
-            /* ignore */
-          }
-          // Bật auto backup khi connect thành công
-          setDriveAutoBackupEnabled(true);
-          resolve(resp.access_token);
-        },
-        error_callback: (err) => {
-          reject(new Error(err?.message || "Huỷ đăng nhập Google Drive"));
-        },
-      });
-
-      tokenClient.requestAccessToken({
-        prompt: opts.prompt ?? "consent",
-      });
-    } catch (e) {
-      reject(e);
-    }
-  });
-}
-
-/** Lấy token — silent nếu đã cấp quyền, popup nếu cần */
-async function ensureAccessToken({ interactive = true } = {}) {
-  const existing = getStoredToken();
-  if (existing) return existing;
-
-  if (!interactive) return null;
-
-  return connectGoogleDrive({ prompt: "" });
-}
-
-async function driveFetch(path, options = {}) {
-  const token = await ensureAccessToken({ interactive: options.interactive !== false });
-  if (!token) throw new Error("Chưa kết nối Google Drive");
-
-  const res = await fetch(`https://www.googleapis.com${path}`, {
-    ...options,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      ...(options.headers || {}),
-    },
-  });
-
-  if (res.status === 401) {
-    disconnectGoogleDrive();
-    if (options.interactive === false) {
-      throw new Error("Token Drive hết hạn");
-    }
-    const newToken = await connectGoogleDrive({ prompt: "" });
-    const retry = await fetch(`https://www.googleapis.com${path}`, {
-      ...options,
-      headers: {
-        Authorization: `Bearer ${newToken}`,
-        ...(options.headers || {}),
-      },
-    });
-    if (!retry.ok) {
-      const t = await retry.text().catch(() => "");
-      throw new Error(`Drive API ${retry.status}: ${t.slice(0, 200)}`);
-    }
-    return retry;
-  }
-
-  if (!res.ok) {
-    const t = await res.text().catch(() => "");
-    throw new Error(`Drive API ${res.status}: ${t.slice(0, 200)}`);
-  }
-  return res;
-}
-
-async function ensureLocketFolder(interactive = true) {
-  const cached = localStorage.getItem(STORAGE_FOLDER);
-  if (cached) return cached;
-
-  const q = encodeURIComponent(
-    `name='${FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false`
-  );
-  const listRes = await driveFetch(
-    `/drive/v3/files?q=${q}&fields=files(id,name)&pageSize=5`,
-    { interactive }
-  );
-  const list = await listRes.json();
-  if (list.files?.[0]?.id) {
-    localStorage.setItem(STORAGE_FOLDER, list.files[0].id);
-    return list.files[0].id;
-  }
-
-  const createRes = await driveFetch("/drive/v3/files", {
-    method: "POST",
-    interactive,
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      name: FOLDER_NAME,
-      mimeType: "application/vnd.google-apps.folder",
-    }),
-  });
-  const created = await createRes.json();
-  if (!created.id) throw new Error("Không tạo được folder Drive");
-  localStorage.setItem(STORAGE_FOLDER, created.id);
-  return created.id;
+  return true;
 }
 
 /**
- * Upload File/Blob lên folder Locket Dio.
- * @returns {{ id: string, webViewLink?: string, name: string }}
+ * Upload file lên Drive chung của web (server service account).
  */
 export async function uploadFileToGoogleDrive(file, options = {}) {
-  if (!file) throw new Error("Không có file để backup Drive");
+  if (!file) throw new Error("Không có file");
 
-  const interactive = options.interactive !== false;
-  const folderId = await ensureLocketFolder(interactive);
-
-  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const ext =
-    (file.name && file.name.includes(".") && file.name.split(".").pop()) ||
-    (file.type?.includes("video") ? "mp4" : "jpg");
   const name =
     options.fileName ||
     file.name ||
-    `locketdio-${timestamp}.${ext}`;
+    `locketdio-${Date.now()}.${file.type?.includes("video") ? "mp4" : "jpg"}`;
 
-  const metadata = {
-    name,
-    parents: [folderId],
-  };
+  const buf = await file.arrayBuffer();
+  const res = await fetch("/api/drive-backup", {
+    method: "POST",
+    headers: {
+      "Content-Type": file.type || "application/octet-stream",
+      "X-Filename": encodeURIComponent(name),
+      "X-Upload-Size": String(buf.byteLength),
+    },
+    body: buf,
+  });
 
-  const form = new FormData();
-  form.append(
-    "metadata",
-    new Blob([JSON.stringify(metadata)], { type: "application/json" })
-  );
-  form.append(
-    "file",
-    file instanceof Blob
-      ? file
-      : new Blob([file], { type: file.type || "application/octet-stream" }),
-    name
-  );
-
-  const token = await ensureAccessToken({ interactive });
-  if (!token) throw new Error("Chưa kết nối Google Drive");
-
-  const res = await fetch(
-    "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink",
-    {
-      method: "POST",
-      headers: { Authorization: `Bearer ${token}` },
-      body: form,
-    }
-  );
-
-  if (res.status === 401) {
-    disconnectGoogleDrive();
-    if (!interactive) throw new Error("Token Drive hết hạn");
-    await connectGoogleDrive({ prompt: "" });
-    return uploadFileToGoogleDrive(file, { ...options, interactive: false });
-  }
-
+  const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const t = await res.text().catch(() => "");
-    throw new Error(`Upload Drive thất bại (${res.status}): ${t.slice(0, 180)}`);
+    throw new Error(data?.error || `Drive backup failed (${res.status})`);
   }
-
-  return res.json();
+  return data;
 }
 
 /**
- * Backup sau khi upload R2 / đăng Locket.
- * Không chặn luồng chính — fire-and-forget an toàn.
- * Chỉ chạy nếu auto-backup bật + đã từng connect.
+ * Fire-and-forget backup sau khi upload R2.
+ * Chỉ chạy khi server đã bật Drive (1 Drive cho cả web).
  */
 export function backupToDriveInBackground(file, meta = {}) {
   if (!file) return;
-  if (!isDriveConfigured()) return;
-  if (!isDriveAutoBackupEnabled()) return;
-  // Chỉ auto nếu đã có token (user đã connect) — không bật popup giữa lúc đăng
-  if (!getStoredToken() && !isDriveConnected()) {
-    // Thử silent: nếu token hết hạn nhưng cookie Google còn → có thể fail silently
-    return;
-  }
 
-  // Không await — tránh làm chậm post Locket
   (async () => {
     try {
+      const st = await fetchDriveServerStatus(false);
+      if (!st?.configured || st?.enabled === false) return;
+
       const result = await uploadFileToGoogleDrive(file, {
-        interactive: false,
         fileName: meta.fileName,
       });
-      console.log("[gdrive] backup OK", result?.id, result?.name);
+      console.log("[gdrive] shared backup OK", result?.id, result?.name);
       if (typeof meta.onSuccess === "function") meta.onSuccess(result);
     } catch (err) {
-      console.warn("[gdrive] backup skipped/failed:", err?.message || err);
+      console.warn("[gdrive] backup skipped:", err?.message || err);
       if (typeof meta.onError === "function") meta.onError(err);
     }
   })();

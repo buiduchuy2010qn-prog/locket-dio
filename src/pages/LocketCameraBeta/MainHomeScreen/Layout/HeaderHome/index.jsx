@@ -4,8 +4,8 @@ import HistorySelectFriend from "@/pages/LocketCameraBeta/ModalViews/HistorySele
 import { AuthContext } from "@/context/AuthLocket";
 import { useFriendStore } from "@/stores/useFriendStore";
 import {
-  isDriveAutoBackupEnabled,
-  isDriveConnected,
+  fetchDriveServerStatus,
+  isDriveConfigured,
   uploadFileToGoogleDrive,
 } from "@/utils/googleDrive";
 import { SonnerError, SonnerSuccess } from "@/components/ui/SonnerToast";
@@ -51,8 +51,13 @@ const HeaderHome = ({
   const handleDownload = async () => {
     if (!selectedFile) return;
 
-    // Ưu tiên Google Drive nếu đã kết nối + bật backup
-    if (isDriveConnected() && isDriveAutoBackupEnabled()) {
+    // Shared Drive (admin): ưu tiên lưu cloud chung
+    try {
+      await fetchDriveServerStatus(false);
+    } catch {
+      /* ignore */
+    }
+    if (isDriveConfigured()) {
       setSavingDrive(true);
       try {
         const extension = selectedFile.type?.split("/")[1] || "jpg";
@@ -60,18 +65,17 @@ const HeaderHome = ({
         const defaultName = `locketdio-${timestamp}.${extension}`;
         const res = await uploadFileToGoogleDrive(selectedFile, {
           fileName: defaultName,
-          interactive: true,
         });
         SonnerSuccess(
-          "Đã lưu Google Drive",
-          res?.name || "Folder “Locket Dio”"
+          "Đã lưu Google Drive (web)",
+          res?.name || "Drive chung"
         );
+        return;
       } catch (err) {
-        SonnerError(err?.message || "Lưu Drive thất bại");
+        SonnerError(err?.message || "Lưu Drive thất bại — tải về máy");
       } finally {
         setSavingDrive(false);
       }
-      return;
     }
 
     // Fallback: tải về máy
@@ -107,13 +111,13 @@ const HeaderHome = ({
               onClick={handleDownload}
               disabled={savingDrive}
               title={
-                isDriveConnected() && isDriveAutoBackupEnabled()
-                  ? "Lưu Google Drive"
-                  : "Tải về máy (bật Drive trong Settings để lưu cloud)"
+                isDriveConfigured()
+                  ? "Lưu Google Drive (chung)"
+                  : "Tải về máy"
               }
               className="w-11 h-11 flex items-center justify-center hover:bg-base-300 rounded-full transition disabled:opacity-50"
             >
-              {isDriveConnected() && isDriveAutoBackupEnabled() ? (
+              {isDriveConfigured() ? (
                 <CloudUpload size={28} strokeWidth={2} />
               ) : (
                 <Download size={28} strokeWidth={2} />

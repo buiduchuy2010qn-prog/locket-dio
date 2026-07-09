@@ -10,8 +10,7 @@ import { getFriendDetail } from "@/cache/friendsDB";
 import ActivitySection from "../Modal/ActivityViews/ActivityModal";
 import { markMomentViewedOnce } from "@/cache/viewedMomentDB";
 import { getMyLocalId } from "@/utils/auth/getMyLocalId";
-
-const FALLBACK_AVATAR = "/images/default_profile.png";
+import { buildFullMomentActivity } from "@/utils/momentActivity";
 
 const InputForMoment = () => {
   const { user, authTokens } = useContext(AuthContext);
@@ -171,57 +170,12 @@ const InputForMoment = () => {
           views: [],
           reactions: [],
         };
-        const { views = [], reactions = [] } = info;
-
-        // Gộp viewer + người chỉ reaction (không có trong views)
-        const byUser = new Map();
-        for (const view of views) {
-          if (!view?.user) continue;
-          byUser.set(view.user, {
-            userId: view.user,
-            viewedAt: view.viewedAt || null,
-            reaction: null,
-          });
-        }
-        for (const r of reactions) {
-          if (!r?.user) continue;
-          const existing = byUser.get(r.user) || {
-            userId: r.user,
-            viewedAt: r.createdAt || null,
-            reaction: null,
-          };
-          existing.reaction = {
-            emoji: r.emoji,
-            intensity: r.intensity,
-            createdAt: r.createdAt,
-          };
-          if (!existing.viewedAt) existing.viewedAt = r.createdAt || null;
-          byUser.set(r.user, existing);
-        }
-
-        const merged = await Promise.all(
-          Array.from(byUser.values()).map(async (item) => {
-            const userInfo = await getFriendDetail(item.userId);
-            return {
-              user: userInfo || {
-                uid: item.userId,
-                firstName: "Bạn bè",
-                lastName: "",
-                profilePic: FALLBACK_AVATAR,
-              },
-              viewedAt: item.viewedAt,
-              reaction: item.reaction,
-            };
-          })
-        );
-
-        // Mới xem trước
-        merged.sort((a, b) => {
-          const ta = a.viewedAt ? new Date(a.viewedAt).getTime() : 0;
-          const tb = b.viewedAt ? new Date(b.viewedAt).getTime() : 0;
-          return tb - ta;
+        // Full: viewers API + reactions + bạn bè chưa xem/chưa thả cảm xúc
+        const merged = await buildFullMomentActivity({
+          views: info.views || [],
+          reactions: info.reactions || [],
+          myLocalId: localId,
         });
-
         if (!cancelled) setActivity(merged);
       } catch (err) {
         console.error("❌ Lỗi khi gọi GetInfoMoment:", err);
