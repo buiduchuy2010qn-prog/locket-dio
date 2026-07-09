@@ -43,6 +43,7 @@ const InputForMoment = () => {
   const [momentUser, setMomentUser] = useState(null);
   const [userDetail, setUserDetail] = useState(null);
   const [isPublic, setIsPublic] = useState(true);
+  const [currentMoment, setCurrentMoment] = useState(null);
 
   const [activity, setActivity] = useState([]);
 
@@ -95,10 +96,13 @@ const InputForMoment = () => {
       try {
         setIsLoadingMoment(true);
         const moment = await getMomentById(selectedMomentId);
-        setIsPublic(moment.isPublic);
-        setMomentUser(moment.user);
-        const data = await getFriendDetail(moment.user);
-        setUserDetail(data);
+        setCurrentMoment(moment || null);
+        setIsPublic(moment?.isPublic);
+        setMomentUser(moment?.user);
+        if (moment?.user) {
+          const data = await getFriendDetail(moment.user);
+          setUserDetail(data);
+        }
       } catch (err) {
         console.error("Lỗi khi lấy moment hoặc user:", err);
       } finally {
@@ -170,11 +174,14 @@ const InputForMoment = () => {
           views: [],
           reactions: [],
         };
-        // Full: viewers API + reactions + bạn bè chưa xem/chưa thả cảm xúc
+        // Chỉ người đã xem + cuối danh sách: bị chặn không xem được
+        const moment =
+          currentMoment || (await getMomentById(selectedMomentId));
         const merged = await buildFullMomentActivity({
           views: info.views || [],
           reactions: info.reactions || [],
           myLocalId: localId,
+          moment,
         });
         if (!cancelled) setActivity(merged);
       } catch (err) {

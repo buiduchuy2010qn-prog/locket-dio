@@ -1,10 +1,10 @@
 /**
- * Locket Dio SW v2.3.5-full-views-shared-drive
+ * Locket Dio SW v2.3.6-viewers-blocked
  * - KHÔNG precache JS/CSS/HTML (tránh kẹt bản cũ → postMoment 500)
  * - Navigation + script/style: NetworkFirst
  * - Chỉ cache font/image CDN
  */
-console.log("[SW] Locket Dio SW v2.3.5-full-views-shared-drive - loaded");
+console.log("[SW] Locket Dio SW v2.3.6-viewers-blocked - loaded");
 
 import { precacheAndRoute, cleanupOutdatedCaches } from "workbox-precaching";
 import { registerRoute } from "workbox-routing";

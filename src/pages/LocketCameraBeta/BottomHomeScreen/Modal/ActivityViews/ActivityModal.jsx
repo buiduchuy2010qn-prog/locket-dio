@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { X, Info } from "lucide-react";
+import { X, Info, Ban } from "lucide-react";
 import LoadingActivityItem from "./LoadingActivityItem";
 import { formatTimeAgo } from "@/utils";
 import ActivityButton from "./ActivityButton";
@@ -10,38 +10,45 @@ const FALLBACK = "/images/default_profile.png";
 
 function ActivityRow({ item, activeTooltip, setActiveTooltip }) {
   const uid = item?.user?.uid || item?.user?.localId;
+  const isBlocked = item.status === "blocked";
+
   const statusLabel = (() => {
+    if (isBlocked) {
+      return <>🚫 bị chặn · không xem được bài này</>;
+    }
     if (item.reaction) {
       return (
         <>
-          đã thả {item.reaction.emoji}{" "}
+          đã xem · {item.reaction.emoji}{" "}
           {item.reaction.createdAt
             ? formatTimeAgo(item.reaction.createdAt)
             : ""}
         </>
       );
     }
-    if (item.viewedAt || item.status === "viewed") {
-      return (
-        <>✨ đã xem {item.viewedAt ? formatTimeAgo(item.viewedAt) : ""}</>
-      );
-    }
-    return <>⏳ chưa xem · chưa thả cảm xúc</>;
+    return (
+      <>✨ đã xem {item.viewedAt ? formatTimeAgo(item.viewedAt) : ""}</>
+    );
   })();
 
-  const border =
-    item.reaction
+  const border = isBlocked
+    ? "border-error/60"
+    : item.reaction
       ? "border-pink-400"
-      : item.viewedAt || item.status === "viewed"
-        ? "border-amber-400"
-        : "border-base-300";
+      : "border-amber-400";
 
   return (
-    <li className="flex items-center gap-3 relative py-1">
+    <li
+      className={`flex items-center gap-3 relative py-1 ${
+        isBlocked ? "opacity-80" : ""
+      }`}
+    >
       <img
         src={item?.user?.profilePic || FALLBACK}
         alt={item?.user?.firstName || "user"}
-        className={`w-12 h-12 rounded-full border-[2.5px] p-0.5 ${border} object-cover bg-base-300`}
+        className={`w-12 h-12 rounded-full border-[2.5px] p-0.5 ${border} object-cover bg-base-300 ${
+          isBlocked ? "grayscale" : ""
+        }`}
         onError={(e) => {
           e.currentTarget.src = FALLBACK;
         }}
@@ -50,7 +57,13 @@ function ActivityRow({ item, activeTooltip, setActiveTooltip }) {
         <span className="text-base text-base-content font-semibold truncate">
           {item.user?.firstName || "Bạn bè"} {item.user?.lastName || ""}
         </span>
-        <span className="text-sm text-base-content/80">{statusLabel}</span>
+        <span
+          className={`text-sm ${
+            isBlocked ? "text-error/90" : "text-base-content/80"
+          }`}
+        >
+          {statusLabel}
+        </span>
       </div>
 
       <div className="relative">
@@ -61,7 +74,11 @@ function ActivityRow({ item, activeTooltip, setActiveTooltip }) {
           }
           className="p-2 rounded-full hover:bg-base-200 transition-colors"
         >
-          <Info className="w-5 h-5 text-base-content/60" />
+          {isBlocked ? (
+            <Ban className="w-5 h-5 text-error/70" />
+          ) : (
+            <Info className="w-5 h-5 text-base-content/60" />
+          )}
         </button>
 
         {activeTooltip === uid && (
@@ -85,21 +102,26 @@ function ActivityRow({ item, activeTooltip, setActiveTooltip }) {
               <p className="text-xs text-base-content/70">
                 <span className="font-medium">User ID:</span> {uid}
               </p>
-              {item.viewedAt && (
-                <p className="text-xs text-base-content/70">
-                  <span className="font-medium">Xem:</span>{" "}
-                  {new Date(item.viewedAt).toLocaleString("vi-VN")}
+              {isBlocked ? (
+                <p className="text-xs text-error">
+                  Không nhận được / không xem được bài đăng này (chặn, ẩn, hoặc
+                  không nằm trong danh sách gửi).
                 </p>
-              )}
-              {item.reaction && (
-                <p className="text-xs text-base-content/70">
-                  <span className="font-medium">Cảm xúc:</span>{" "}
-                  {item.reaction.emoji} (cường độ{" "}
-                  {item.reaction.intensity || 0})
-                </p>
-              )}
-              {!item.reaction && (
-                <p className="text-xs text-warning">Chưa thả cảm xúc</p>
+              ) : (
+                <>
+                  {item.viewedAt && (
+                    <p className="text-xs text-base-content/70">
+                      <span className="font-medium">Xem:</span>{" "}
+                      {new Date(item.viewedAt).toLocaleString("vi-VN")}
+                    </p>
+                  )}
+                  {item.reaction && (
+                    <p className="text-xs text-base-content/70">
+                      <span className="font-medium">Cảm xúc:</span>{" "}
+                      {item.reaction.emoji}
+                    </p>
+                  )}
+                </>
               )}
             </div>
           </div>
@@ -109,20 +131,29 @@ function ActivityRow({ item, activeTooltip, setActiveTooltip }) {
   );
 }
 
-function Section({ title, count, children }) {
+function Section({ title, count, children, tone = "default" }) {
   if (!count) return null;
   return (
     <div className="mb-4">
-      <h3 className="text-sm font-bold text-base-content/80 mb-2 sticky top-0 bg-base-100 py-1">
+      <h3
+        className={`text-sm font-bold mb-2 sticky top-0 bg-base-100 py-1 ${
+          tone === "danger" ? "text-error" : "text-base-content/80"
+        }`}
+      >
         {title}{" "}
-        <span className="font-semibold text-primary">({count})</span>
+        <span
+          className={`font-semibold ${
+            tone === "danger" ? "text-error" : "text-primary"
+          }`}
+        >
+          ({count})
+        </span>
       </h3>
       <ul className="space-y-1">{children}</ul>
     </div>
   );
 }
 
-// ================= Component: ActivityModal =================
 export const ActivityModal = ({
   show,
   onClose,
@@ -131,24 +162,7 @@ export const ActivityModal = ({
   activeTooltip,
   setActiveTooltip,
 }) => {
-  const [tab, setTab] = useState("all");
   const parts = useMemo(() => splitActivity(activity), [activity]);
-
-  const list =
-    tab === "reacted"
-      ? parts.reacted
-      : tab === "viewed"
-        ? parts.viewedAll
-        : tab === "no_react"
-          ? parts.noReaction
-          : activity;
-
-  const tabs = [
-    { id: "all", label: "Tất cả", n: activity.length },
-    { id: "viewed", label: "Đã xem", n: parts.viewedAll.length },
-    { id: "reacted", label: "Cảm xúc", n: parts.reacted.length },
-    { id: "no_react", label: "Chưa thả", n: parts.noReaction.length },
-  ];
 
   return (
     <div
@@ -157,14 +171,14 @@ export const ActivityModal = ({
       }`}
     >
       <div
-        className={`relative w-full h-[75vh] bg-base-100 rounded-t-3xl shadow-lg p-4 transform transition-transform duration-300 ${
+        className={`relative w-full h-[70vh] bg-base-100 rounded-t-3xl shadow-lg p-4 transform transition-transform duration-300 ${
           show ? "translate-y-0" : "translate-y-full"
         } flex flex-col`}
       >
         <div className="sticky top-0 z-10 border-b border-base-300 pb-3 bg-base-100">
           <div className="relative flex items-center">
             <h2 className="text-lg font-bold text-center flex-1 text-base-content">
-              Hoạt động
+              Người đã xem
             </h2>
             <button
               type="button"
@@ -180,102 +194,66 @@ export const ActivityModal = ({
               <p>
                 👁️ Đã xem:{" "}
                 <span className="font-semibold">{parts.viewedAll.length}</span>
-                {" · "}
-                💖 Cảm xúc:{" "}
-                <span className="font-semibold">{parts.reacted.length}</span>
+                {parts.reacted.length > 0 && (
+                  <>
+                    {" · "}
+                    💖 Cảm xúc:{" "}
+                    <span className="font-semibold">
+                      {parts.reacted.length}
+                    </span>
+                  </>
+                )}
               </p>
-              <p>
-                😶 Chưa thả cảm xúc:{" "}
-                <span className="font-semibold">{parts.noReaction.length}</span>
-                {" · "}
-                ⏳ Chưa xem:{" "}
-                <span className="font-semibold">{parts.notViewed.length}</span>
-              </p>
+              {parts.blocked.length > 0 && (
+                <p className="text-error/90">
+                  🚫 Không xem được (bị chặn):{" "}
+                  <span className="font-semibold">{parts.blocked.length}</span>
+                </p>
+              )}
             </div>
           )}
-
-          <div className="flex gap-1 mt-3 overflow-x-auto pb-1">
-            {tabs.map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => setTab(t.id)}
-                className={`px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition ${
-                  tab === t.id
-                    ? "bg-primary text-primary-content"
-                    : "bg-base-200 text-base-content"
-                }`}
-              >
-                {t.label} ({t.n})
-              </button>
-            ))}
-          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto pt-2">
           {isLoading ? (
             <ul className="space-y-2">
-              {[1, 2, 3, 4, 5, 6].map((i) => (
+              {[1, 2, 3, 4, 5].map((i) => (
                 <LoadingActivityItem key={i} />
               ))}
             </ul>
-          ) : tab === "all" ? (
-            activity.length === 0 ? (
-              <div className="flex items-center justify-center h-40 text-base-content/60 italic">
-                Chưa có hoạt động nào
-              </div>
-            ) : (
-              <>
-                <Section title="💖 Đã thả cảm xúc" count={parts.reacted.length}>
-                  {parts.reacted.map((item, idx) => (
-                    <ActivityRow
-                      key={item?.user?.uid || `r-${idx}`}
-                      item={item}
-                      activeTooltip={activeTooltip}
-                      setActiveTooltip={setActiveTooltip}
-                    />
-                  ))}
-                </Section>
-                <Section
-                  title="✨ Đã xem · chưa thả cảm xúc"
-                  count={parts.viewedOnly.length}
-                >
-                  {parts.viewedOnly.map((item, idx) => (
-                    <ActivityRow
-                      key={item?.user?.uid || `v-${idx}`}
-                      item={item}
-                      activeTooltip={activeTooltip}
-                      setActiveTooltip={setActiveTooltip}
-                    />
-                  ))}
-                </Section>
-                <Section title="⏳ Chưa xem" count={parts.notViewed.length}>
-                  {parts.notViewed.map((item, idx) => (
-                    <ActivityRow
-                      key={item?.user?.uid || `n-${idx}`}
-                      item={item}
-                      activeTooltip={activeTooltip}
-                      setActiveTooltip={setActiveTooltip}
-                    />
-                  ))}
-                </Section>
-              </>
-            )
-          ) : list.length > 0 ? (
-            <ul className="space-y-1">
-              {list.map((item, idx) => (
-                <ActivityRow
-                  key={item?.user?.uid || idx}
-                  item={item}
-                  activeTooltip={activeTooltip}
-                  setActiveTooltip={setActiveTooltip}
-                />
-              ))}
-            </ul>
-          ) : (
+          ) : parts.viewedAll.length === 0 && parts.blocked.length === 0 ? (
             <div className="flex items-center justify-center h-40 text-base-content/60 italic">
-              Không có ai trong mục này
+              Chưa có ai xem
             </div>
+          ) : (
+            <>
+              <Section title="👁️ Đã xem" count={parts.viewedAll.length}>
+                {parts.viewedAll.map((item, idx) => (
+                  <ActivityRow
+                    key={item?.user?.uid || `v-${idx}`}
+                    item={item}
+                    activeTooltip={activeTooltip}
+                    setActiveTooltip={setActiveTooltip}
+                  />
+                ))}
+              </Section>
+
+              {/* Luôn ở cuối */}
+              <Section
+                title="🚫 Bị chặn · không xem được"
+                count={parts.blocked.length}
+                tone="danger"
+              >
+                {parts.blocked.map((item, idx) => (
+                  <ActivityRow
+                    key={item?.user?.uid || `b-${idx}`}
+                    item={item}
+                    activeTooltip={activeTooltip}
+                    setActiveTooltip={setActiveTooltip}
+                  />
+                ))}
+              </Section>
+            </>
           )}
         </div>
       </div>

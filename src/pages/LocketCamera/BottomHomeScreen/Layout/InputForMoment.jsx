@@ -42,6 +42,7 @@ const InputForMoment = () => {
 
   const [momentUser, setMomentUser] = useState(null);
   const [userDetail, setUserDetail] = useState(null);
+  const [currentMoment, setCurrentMoment] = useState(null);
   const [activity, setActivity] = useState([]);
 
   // ✅ Loading states
@@ -99,6 +100,7 @@ const InputForMoment = () => {
       try {
         setIsLoadingMoment(true);
         const moment = await getMomentById(selectedMomentId);
+        setCurrentMoment(moment || null);
         setMomentUser(moment?.user || null);
         if (moment?.user) {
           const data = await getFriendDetail(moment.user);
@@ -175,10 +177,13 @@ const InputForMoment = () => {
           views: [],
           reactions: [],
         };
+        const moment =
+          currentMoment || (await getMomentById(selectedMomentId));
         const merged = await buildFullMomentActivity({
           views: info.views || [],
           reactions: info.reactions || [],
           myLocalId: localId,
+          moment,
         });
         if (!cancelled) setActivity(merged);
       } catch (err) {

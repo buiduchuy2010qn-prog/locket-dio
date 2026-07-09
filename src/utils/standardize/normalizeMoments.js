@@ -48,6 +48,26 @@ export function normalizeMoment(data) {
     });
   }
 
+  const audience =
+    data.audience ||
+    data.optionsData?.audience ||
+    data.options?.audience ||
+    (sent_to_all ? "all" : show_personally ? "selected" : "all");
+
+  const recipients =
+    data.recipients ||
+    data.optionsData?.recipients ||
+    data.options?.recipients ||
+    data.allowed_users ||
+    [];
+
+  const excluded_users =
+    data.excluded_users ||
+    data.excludedUsers ||
+    data.blocked_users ||
+    data.optionsData?.excluded_users ||
+    [];
+
   return {
     id: momentId,
     user,
@@ -59,6 +79,12 @@ export function normalizeMoment(data) {
     sent_to_all: !!sent_to_all,
     show_personally: !!show_personally,
     captions,
+    // Dùng cho UI người xem / bị chặn
+    audience,
+    recipients: Array.isArray(recipients) ? recipients : [],
+    excluded_users: Array.isArray(excluded_users) ? excluded_users : [],
+    isPublic: audience !== "private" && !show_personally,
+    optionsData: data.optionsData || data.options || { audience, recipients },
   };
 }
 

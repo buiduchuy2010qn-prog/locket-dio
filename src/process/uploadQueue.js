@@ -261,11 +261,31 @@ const deleteDonePayloadAfterDelay = async (payloadId, delay = 3000) => {
 // ===== Lưu payload đã đăng thành công =====
 export const savePostedMoment = async (payload, posted) => {
   try {
+    // Giữ audience/recipients để UI "bị chặn không xem được"
+    const audience =
+      payload?.optionsData?.audience ||
+      payload?.options?.audience ||
+      posted?.audience ||
+      "all";
+    const recipients =
+      payload?.optionsData?.recipients ||
+      payload?.options?.recipients ||
+      posted?.recipients ||
+      [];
+
     await db.postedMoments.add({
       postId: posted?.id || null,
       createdAt: new Date().toISOString(),
       contentType: payload.contentType,
       ...posted,
+      audience,
+      recipients,
+      optionsData: {
+        ...(posted?.optionsData || {}),
+        audience,
+        recipients,
+      },
+      isPublic: audience !== "private",
     });
   } catch (err) {
     console.error("❌ Lỗi khi lưu postedMoment:", err);

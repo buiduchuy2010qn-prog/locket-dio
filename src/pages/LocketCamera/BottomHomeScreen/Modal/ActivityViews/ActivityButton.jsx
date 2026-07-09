@@ -7,24 +7,24 @@ const FALLBACK_AVATAR = "/images/default_profile.png";
 const ActivityButton = ({ activity = [], isLoading, onClick }) => {
   const parts = splitActivity(activity);
   const viewCount = parts.viewedAll.length;
-  const reactionCount = parts.reacted.length;
-  const noReactCount = parts.noReaction.length;
+  const blockedCount = parts.blocked.length;
 
   let label = "Chưa có ai xem";
-  let sub = "Nhấn để xem bạn bè · chưa thả cảm xúc";
+  let sub = "";
   if (isLoading) {
     label = "Đang tải lượt xem…";
-    sub = "";
-  } else if (viewCount > 0 || noReactCount > 0) {
-    label = `${viewCount} đã xem · ${reactionCount} cảm xúc`;
-    sub = `${noReactCount} chưa thả cảm xúc · nhấn xem full`;
+  } else if (viewCount > 0) {
+    label = `${viewCount} người đã xem`;
+    sub =
+      blockedCount > 0
+        ? `${blockedCount} bị chặn · nhấn xem chi tiết`
+        : "Nhấn để xem ai đã xem";
+  } else if (blockedCount > 0) {
+    label = "Chưa có ai xem";
+    sub = `${blockedCount} người bị chặn không xem được`;
   }
 
-  // Avatar ưu tiên người đã xem/reaction
-  const avatars = (parts.viewedAll.length ? parts.viewedAll : activity).slice(
-    0,
-    5
-  );
+  const avatars = parts.viewedAll.slice(0, 5);
 
   return (
     <div
