@@ -1,8 +1,128 @@
 import axios from "axios";
 import { CONFIG } from "@/config/webConfig";
 import { getToken } from "@/utils";
-import { applyMemberHeader } from "@/utils/memberToken";
+import {
+  applyMemberHeader,
+  clearMemberSession,
+  getMemberSession,
+  saveMemberSession,
+} from "@/utils/memberToken";
 import { formatApiError } from "@/utils/formatApiError";
+
+/** Dio/R2 hay chối MIME lạ từ camera (quicktime, 3gpp…) — chuẩn hóa an toàn */
+function normalizeContentType(file, safeType) {
+  const raw = (file?.type && String(file.type).trim()) || "";
+  const lower = raw.toLowerCase();
+
+  if (safeType === "video") {
+    if (
+      !lower ||
+      lower === "application/octet-stream" ||
+      lower.includes("quicktime") ||
+      lower.includes("x-m4v") ||
+      lower.includes("3gpp") ||
+      lower.includes("3gp")
+    ) {
+      return "video/mp4";
+    }
+    if (lower.startsWith("video/")) return lower;
+    return "video/mp4";
+  }
+
+  if (
+    !lower ||
+    lower === "application/octet-stream" ||
+    lower === "image/jpg"
+  ) {
+    return "image/jpeg";
+  }
+  if (lower.startsWith("image/")) {
+    return lower === "image/jpg" ? "image/jpeg" : lower;
+  }
+  return "image/jpeg";
+}
+
+function extensionFor(file, safeType, contentType) {
+  const rawName = file?.name || "";
+  if (rawName.includes(".")) {
+    const ext = rawName.split(".").pop()?.toLowerCase();
+    if (ext && ext.length <= 5 && /^[a-z0-9]+$/.test(ext)) {
+      // .mov / .qt → mp4 khi đã ép mime mp4
+      if (safeType === "video" && (ext === "mov" || ext === "qt" || ext === "3gp")) {
+        return "mp4";
+      }
+      if (ext === "jpg") return "jpeg";
+      return ext;
+    }
+  }
+  if (safeType === "video") {
+    if (contentType.includes("webm")) return "webm";
+    return "mp4";
+  }
+  if (contentType.includes("png")) return "png";
+  if (contentType.includes("webp")) return "webp";
+  return "jpg";
+}
+
+/** Làm mới member token (bắt buộc presign) — hết hạn hay mất hay bị 403 */
+async function ensureMemberToken(idToken, force = false) {
+  const { token } = getMemberSession();
+  if (token && !force) return true;
+
+  try {
+    const base = (CONFIG.api.baseUrl || "/dio-api").replace(/\/$/, "");
+    const url = base.startsWith("http")
+      ? `${base}/api/cn`
+      : `${base.startsWith("/") ? base : "/" + base}/api/cn`;
+    const res = await axios.get(url, {
+      headers: {
+        Authorization: `Bearer ${idToken}`,
+        "x-api-key": CONFIG.keys.apiKey,
+        "x-app-author": CONFIG.app.author,
+        "x-app-name": CONFIG.app.shortname,
+        "x-app-client": CONFIG.app.clientVersion,
+        "x-app-api": CONFIG.app.apiVersion,
+        "x-app-env": CONFIG.app.env || "production",
+      },
+      withCredentials: true,
+      timeout: 20000,
+    });
+    const data = res.data?.data ?? res.data;
+    if (data?.session) saveMemberSession(data.session);
+    if (data?.member_token) saveMemberSession(data);
+    if (data?.plan_info?.session) saveMemberSession(data.plan_info.session);
+    if (res.data?.session) saveMemberSession(res.data.session);
+  } catch (e) {
+    console.warn("[storage] refresh member token failed:", e?.message);
+  }
+  return Boolean(getMemberSession().token);
+}
+
+function mapUploadError(err, phase) {
+  const status = err?.response?.status || err?.status;
+  const raw = formatApiError(err, phase || "Upload failed");
+  const lower = String(raw).toLowerCase();
+
+  if (status === 401 || /token|unauthorized|hết hạn|expired/i.test(lower)) {
+    return "Phiên đăng nhập hết hạn hoặc token sai. Đăng xuất rồi đăng nhập lại.";
+  }
+  if (
+    status === 403 ||
+    /forbidden|permission|denied|member|gói|plan|quota|không có quyền/i.test(
+      lower
+    )
+  ) {
+    // Dio hay trả message mơ hồ "ok" kèm 403
+    if (/^403:\s*ok$/i.test(raw.trim()) || lower === "ok" || /403:\s*ok/i.test(raw)) {
+      return "Bị từ chối (403). Thường do: hết member token / gói không cho video / cần đăng nhập lại. Hãy Đăng xuất → Đăng nhập lại rồi thử.";
+    }
+    return `Không có quyền upload (${raw}). Thử đăng nhập lại hoặc kiểm tra gói thành viên.`;
+  }
+  if (status === 413 || /too large|quá lớn/i.test(lower)) {
+    return "File quá lớn. Nén video nhỏ hơn rồi thử lại.";
+  }
+  return raw;
+}
 
 /**
  * Upload R2 — khớp client chính thức locket-dio.com:
@@ -19,18 +139,8 @@ export const uploadFileAndGetInfoR2 = async (
 
   const safeType = String(previewType || "other").toLowerCase();
   const timestamp = Date.now();
-  const rawName = file.name || `capture_${timestamp}.jpg`;
-  const extension = rawName.includes(".")
-    ? rawName.split(".").pop()
-    : safeType === "video"
-      ? "mp4"
-      : "jpg";
-
-  // Official: contentType = file.type (không fallback khác nhau giữa presign và PUT)
-  // Camera File luôn có type image/jpeg — nếu trống mới fallback
-  const contentType =
-    (file.type && String(file.type).trim()) ||
-    (safeType === "video" ? "video/mp4" : "image/jpeg");
+  const contentType = normalizeContentType(file, safeType);
+  const extension = extensionFor(file, safeType, contentType);
 
   const fileName = `locketdio_${timestamp}_${localId}_cli${CONFIG.app.clientVersion}.${extension}`;
 
@@ -43,6 +153,8 @@ export const uploadFileAndGetInfoR2 = async (
   if (!idToken) {
     throw new Error("Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.");
   }
+
+  await ensureMemberToken(idToken);
 
   const body = {
     filename: fileName,
@@ -77,14 +189,47 @@ export const uploadFileAndGetInfoR2 = async (
     res = await axios.post(presignUrl, body, {
       headers,
       withCredentials: true,
-      timeout: 60000,
+      timeout: safeType === "video" ? 120000 : 60000,
     });
   } catch (err) {
-    console.error("❌ Presign failed:", err?.response?.status, err?.response?.data);
-    const e = new Error(formatApiError(err, "Presign failed"));
-    e.response = err.response;
-    e.status = err?.response?.status;
-    throw e;
+    console.error(
+      "❌ Presign failed:",
+      err?.response?.status,
+      err?.response?.data
+    );
+    // 403 member hết hạn → thử refresh 1 lần rồi presign lại
+    if (err?.response?.status === 403) {
+      try {
+        // Xóa token cũ hỏng (nếu có) rồi lấy lại từ /api/cn
+        clearMemberSession();
+        await ensureMemberToken(idToken, true);
+        applyMemberHeader(headers);
+        if (
+          headers["X-LocketDio-Member"] ||
+          Object.keys(headers).some(
+            (k) => k.toLowerCase() === "x-locketdio-member"
+          )
+        ) {
+          res = await axios.post(presignUrl, body, {
+            headers,
+            withCredentials: true,
+            timeout: safeType === "video" ? 120000 : 60000,
+          });
+        } else {
+          throw err;
+        }
+      } catch (retryErr) {
+        const e = new Error(mapUploadError(retryErr || err, "Presign failed"));
+        e.response = (retryErr || err).response;
+        e.status = (retryErr || err)?.response?.status;
+        throw e;
+      }
+    } else {
+      const e = new Error(mapUploadError(err, "Presign failed"));
+      e.response = err.response;
+      e.status = err?.response?.status;
+      throw e;
+    }
   }
 
   if (res.data?.success === false) {
@@ -142,6 +287,11 @@ export const uploadFileAndGetInfoR2 = async (
   if (!uploadRes.ok) {
     const t = await uploadRes.text().catch(() => "");
     console.error("❌ R2 PUT failed", uploadRes.status, t.slice(0, 300));
+    if (uploadRes.status === 403) {
+      throw new Error(
+        "Upload storage bị chặn (403). Thường do Content-Type/chữ ký R2. Thử video MP4 khác hoặc đăng nhập lại."
+      );
+    }
     throw new Error(
       `Upload to R2 failed (${uploadRes.status})${t ? ": " + t.slice(0, 160) : ""}`
     );
