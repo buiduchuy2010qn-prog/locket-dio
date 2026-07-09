@@ -419,15 +419,6 @@ const MediaPreview = ({ capturedMedia }) => {
               </div>
             </div>
 
-            {/* Gợi ý pinch — chỉ lúc live, không chặn touch */}
-            {showLive && (
-              <div className="absolute bottom-16 left-0 right-0 z-20 pointer-events-none flex justify-center">
-                <span className="text-[10px] text-white/70 bg-black/25 backdrop-blur-sm px-2 py-0.5 rounded-full">
-                  2 ngón · kéo để zoom
-                </span>
-              </div>
-            )}
-
             {selectedFrame?.imageSrc && (
               <div className="absolute inset-0 z-20 pointer-events-none">
                 <img
