@@ -13,6 +13,7 @@ const PostMoments = React.lazy(() => import("../pages/Auth/PostMoments"));
 const AboutMe = React.lazy(() => import("../pages/Auth/AboutMe"));
 const Docs = React.lazy(() => import("../pages/Public/Docs"));
 const Settings = React.lazy(() => import("../pages/Public/Settings"));
+const AdminGoogleDrive = React.lazy(() => import("../pages/Public/AdminGoogleDrive"));
 const DevPage = React.lazy(() => import("../pages/Public/DevPage"));
 const AddToHomeScreenGuide = React.lazy(() => import("../pages/Public/AddToScreen"));
 const PricingPage = React.lazy(() => import("../pages/Public/Pricing"));
@@ -52,6 +53,11 @@ export const authRoutes = [
   // { path: "/locket", component: CameraCapture, title: `Locket Camera | ${APP_NAME}` },
 
   { path: "/settings", component: Settings, title: `Cài đặt | ${APP_NAME}` },
+  {
+    path: "/admin/google-drive",
+    component: AdminGoogleDrive,
+    title: `Google Drive Admin | ${APP_NAME}`,
+  },
   { path: "/devpage", component: DevPage, title: `Dev Page | ${APP_NAME}` },
   { path: "/contact", component: Contact, title: `Liên hệ & Hỗ trợ | ${APP_NAME}` },
   { path: "/incidents", component: ErrorReferencePage, title: `Trung tâm sự cố | ${APP_NAME}` },

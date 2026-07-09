@@ -29,10 +29,10 @@ function pickUserEmail(user, authTokens) {
 }
 
 /**
- * CHỈ admin (gmail buiduchuy2010qn@gmail.com) thấy.
- * 1 Drive dùng chung cả web.
+ * Card admin — 1 Google Drive dùng chung cả web.
+ * Chỉ admin (buiduchuy2010qn@gmail.com) thấy.
  */
-export default function GoogleDriveBackup() {
+export default function GoogleDriveBackup({ forceShow = false }) {
   const { user, authTokens } = useContext(AuthContext);
   const localId = getMyLocalId(user, authTokens);
   const email = pickUserEmail(user, authTokens);
@@ -62,8 +62,7 @@ export default function GoogleDriveBackup() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [localId, email]);
 
-  // User thường: ẩn hoàn toàn
-  if (!isAdmin) {
+  if (!isAdmin && !forceShow) {
     return null;
   }
 
@@ -81,43 +80,47 @@ export default function GoogleDriveBackup() {
   };
 
   return (
-    <div className="w-full max-w-[600px] mx-auto mt-8 mb-6">
-      <div className="flex items-center mb-3 text-base-content flex-wrap gap-2">
-        <HardDrive className="w-5 h-5 mr-1" />
-        <h2 className="text-lg font-semibold">Google Drive (admin)</h2>
-        <span className="badge badge-primary badge-sm gap-1">
-          <Shield className="w-3 h-3" /> buiduchuy2010qn@gmail.com
+    <div
+      id="google-drive-admin"
+      className="w-full rounded-3xl border-4 border-amber-400 bg-gradient-to-br from-amber-50 to-orange-100 dark:from-amber-950/40 dark:to-base-300 shadow-xl overflow-hidden"
+    >
+      {/* Banner nhận diện */}
+      <div className="bg-amber-400 text-amber-950 px-4 py-3 flex items-center gap-2 flex-wrap">
+        <HardDrive className="w-6 h-6 shrink-0" />
+        <div className="flex-1 min-w-0">
+          <p className="font-black text-base sm:text-lg leading-tight">
+            🔗 LIÊN KẾT GOOGLE DRIVE (ADMIN)
+          </p>
+          <p className="text-xs font-semibold opacity-90">
+            1 Drive dùng chung cả website · chỉ admin thấy
+          </p>
+        </div>
+        <span className="badge badge-neutral gap-1 text-xs">
+          <Shield className="w-3 h-3" /> Admin
         </span>
       </div>
 
-      <div className="bg-base-200 rounded-2xl p-4 shadow-sm space-y-3">
-        <p className="text-sm text-base-content/80">
-          <strong>1 Drive dùng chung cả web.</strong> Mọi user đăng ảnh/video
-          backup vào folder này. Chỉ Gmail admin mới thấy mục này.
+      <div className="p-4 sm:p-5 space-y-3 text-base-content">
+        <p className="text-sm">
+          Mọi ảnh/video user đăng trên web sẽ backup vào{" "}
+          <strong>folder Drive chung</strong> (không cần từng user login
+          Google).
         </p>
 
-        <div className="text-xs bg-base-300/60 rounded-xl p-3 space-y-1">
-          <p className="font-semibold">Vào đâu trên app?</p>
-          <p>
-            Camera → <strong>Settings</strong> → cuộn xuống{" "}
-            <strong>Google Drive (admin)</strong>
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2 text-sm">
+        <div className="flex items-center gap-2 text-sm font-semibold">
           {loading ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
+            <Loader2 className="w-5 h-5 animate-spin" />
           ) : enabled ? (
-            <Cloud className="w-4 h-4 text-success" />
+            <Cloud className="w-5 h-5 text-success" />
           ) : (
-            <CloudOff className="w-4 h-4 text-warning" />
+            <CloudOff className="w-5 h-5 text-warning" />
           )}
           <span>
             {loading
               ? "Đang kiểm tra…"
               : enabled
-                ? "Backup Drive: đang bật (cả web)"
-                : "Backup Drive: chưa liên kết trên Render"}
+                ? "✅ Backup Drive: ĐANG BẬT"
+                : "⚠️ Backup Drive: CHƯA LIÊN KẾT (cấu hình Render)"}
           </span>
         </div>
 
@@ -126,7 +129,7 @@ export default function GoogleDriveBackup() {
             href={status.folderUrl}
             target="_blank"
             rel="noreferrer"
-            className="btn btn-sm btn-outline gap-2 w-full"
+            className="btn btn-warning btn-sm gap-2 w-full sm:w-auto"
           >
             <ExternalLink className="w-4 h-4" />
             Mở folder Google Drive
@@ -139,64 +142,60 @@ export default function GoogleDriveBackup() {
           </p>
         )}
 
-        <div className="border border-dashed border-primary/40 rounded-xl p-3 space-y-2 text-xs text-base-content/80">
-          <p className="font-semibold text-primary flex items-center gap-1">
-            <Shield className="w-3.5 h-3.5" />
-            Liên kết Drive (Render — 1 lần)
+        <div className="rounded-2xl bg-base-100/80 border border-amber-300/50 p-3 space-y-2 text-xs">
+          <p className="font-bold text-sm text-amber-800 dark:text-amber-200">
+            Cách liên kết (1 lần trên Render)
           </p>
           <ol className="list-decimal pl-4 space-y-1.5">
             <li>
-              Google Cloud → Service Account + bật <strong>Drive API</strong> →
-              tải JSON key
+              Google Cloud → tạo <strong>Service Account</strong> → bật{" "}
+              <strong>Drive API</strong> → tải JSON
             </li>
             <li>
-              Env Render{" "}
+              Env{" "}
               <code className="bg-base-300 px-1 rounded">
                 GOOGLE_SERVICE_ACCOUNT_JSON
               </code>{" "}
               = nội dung file JSON
             </li>
             <li>
-              Tạo folder Drive → Share <strong>Editor</strong> cho email service
-              account
+              Drive: tạo folder → Share <strong>Editor</strong> cho email
+              service account
             </li>
             <li>
               Env{" "}
               <code className="bg-base-300 px-1 rounded">
                 GOOGLE_DRIVE_FOLDER_ID
               </code>{" "}
-              = ID folder (trên URL /folders/XXXX)
-            </li>
-            <li>
-              (Tuỳ chọn) thêm admin khác:{" "}
-              <code className="bg-base-300 px-1 rounded">
-                ADMIN_EMAILS
-              </code>
+              = ID trong URL{" "}
+              <code className="bg-base-300 px-1 rounded">/folders/XXXX</code>
             </li>
           </ol>
 
-          <div className="flex items-center gap-2 mt-2 p-2 bg-base-100 rounded-lg">
-            <span className="text-[11px] opacity-70 shrink-0">Admin Gmail:</span>
-            <code className="text-[11px] truncate flex-1">
+          <div className="flex items-center gap-2 p-2 bg-base-200 rounded-lg">
+            <span className="opacity-70 shrink-0">Gmail admin:</span>
+            <code className="truncate flex-1">
               {email || "buiduchuy2010qn@gmail.com"}
             </code>
-            <button
-              type="button"
-              className="btn btn-ghost btn-xs"
-              onClick={copyEmail}
-            >
+            <button type="button" className="btn btn-ghost btn-xs" onClick={copyEmail}>
               <Copy className="w-3.5 h-3.5" />
             </button>
           </div>
 
           <button
             type="button"
-            className="btn btn-xs btn-primary w-full mt-1"
+            className="btn btn-sm btn-primary w-full"
             onClick={load}
           >
             Kiểm tra liên kết lại
           </button>
         </div>
+
+        <p className="text-[11px] opacity-60">
+          Menu: <strong>Google Drive (Admin)</strong> · hoặc trang{" "}
+          <strong>/settings</strong> · hoặc{" "}
+          <strong>/admin/google-drive</strong>
+        </p>
       </div>
     </div>
   );

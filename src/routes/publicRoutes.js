@@ -21,6 +21,7 @@ const PricingPage = React.lazy(() => import("../pages/Public/Pricing"));
 const PlanDetailPage = React.lazy(() => import("../pages/Auth/PricingDetail"));
 const ToolsLocket = React.lazy(() => import("../pages/Auth/LocketDioTools"));
 const Settings = React.lazy(() => import("../pages/Public/Settings"));
+const AdminGoogleDrive = React.lazy(() => import("../pages/Public/AdminGoogleDrive"));
 const DevPage = React.lazy(() => import("../pages/Public/DevPage"));
 const AddToHomeScreenGuide = React.lazy(() => import("../pages/Public/AddToScreen"));
 const ErrorReferencePage = React.lazy(() => import("../pages/Public/ErrorReferencePage"));
@@ -53,6 +54,11 @@ export const publicRoutes = [
   { path: "/locketdio-tools", component: ToolsLocket, title: `Công cụ mở rộng | ${APP_NAME}` },
 
   { path: "/settings", component: Settings, title: `Cài đặt | ${APP_NAME}` },
+  {
+    path: "/admin/google-drive",
+    component: AdminGoogleDrive,
+    title: `Google Drive Admin | ${APP_NAME}`,
+  },
   { path: "/devpage", component: DevPage, title: `Dev Page | ${APP_NAME}` },
   { path: "/reference", component: ReferencePage, title: `API Docs | ${APP_NAME}` },
   { path: "/incidents", component: ErrorReferencePage, title: `Trung tâm sự cố | ${APP_NAME}` },

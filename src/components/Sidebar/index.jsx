@@ -1,16 +1,14 @@
-import React, { useContext, useEffect } from "react";
+import React, { useContext, useEffect, useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   X,
   Home,
   Upload,
   Smartphone,
-  Briefcase,
   Rocket,
   Info,
   ShieldCheck,
   Wrench,
-  Code2,
   BookText,
   UserCircle,
   Clock,
@@ -23,6 +21,7 @@ import {
   SquareArrowOutUpRight,
   Heart,
   Newspaper,
+  HardDrive,
 } from "lucide-react";
 import * as ultils from "@/utils";
 import { useApp } from "@/context/AppContext";
@@ -34,12 +33,22 @@ import ThemeToggle from "./ThemeToggle";
 import PlanBadge from "../ui/PlanBadge/PlanBadge";
 import { SonnerError, SonnerSuccess } from "../ui/SonnerToast";
 import { clearAllData } from "@/utils/SyncData/clearAllData";
+import { isAdminUser } from "@/utils/googleDrive";
+import { getMyLocalId } from "@/utils/auth/getMyLocalId";
 
 const Sidebar = () => {
-  const { user, resetAuthContext } = useContext(AuthContext);
+  const { user, authTokens, resetAuthContext } = useContext(AuthContext);
   const navigate = useNavigate();
   const { navigation } = useApp();
   const { isSidebarOpen, setIsSidebarOpen } = navigation;
+
+  const myId = getMyLocalId(user, authTokens);
+  const email =
+    user?.email ||
+    localStorage.getItem("email") ||
+    sessionStorage.getItem("email") ||
+    "";
+  const showAdminDrive = isAdminUser(myId, { ...user, email, localId: myId });
 
   useEffect(() => {
     document.body.classList.toggle("overflow-hidden", isSidebarOpen);
@@ -63,45 +72,66 @@ const Sidebar = () => {
   };
 
   // Menu chia theo nhóm
-  const userMenuSections = [
-    {
-      title: "Locket Dio",
-      items: [
-        { to: "/home", icon: Home, text: "Trang chủ" },
-        { to: "/about", icon: Info, text: "Locket Dio" },
-        { to: "/newsfeed", icon: Newspaper, text: "Bảng tin", badge: "New" },
-        {
-          to: "/download",
-          icon: SquareArrowOutUpRight,
-          text: "Cài đặt WebApp",
-        },
-        { to: "/sponsors", icon: Heart, text: "Ủng hộ dự án" },
-      ],
-    },
-    {
-      title: "Tính năng",
-      badge: <PlanBadge />,
-      items: [
-        { to: "/postmoments", icon: Upload, text: "Đăng ảnh, video" },
-        // { to: "/locket", icon: Smartphone, text: "Locket Camera", badge: "Hot" },
-        { to: "/locket-beta", icon: Smartphone, text: "Locket Camera", badge: "Beta" },
-        { to: "/manage", icon: Palette, text: "Quản lý Caption" },
-        { to: "/tools", icon: Wrench, text: "Công cụ Locket" },
-        { to: "/pricing", icon: Rocket, text: "Gói thành viên", badge: "Hot" },
-        { to: "/profile", icon: UserRound, text: "Hồ sơ của bạn" },
-      ],
-    },
-    {
-      title: "Hệ thống & Hỗ trợ",
-      items: [
-        // { to: "/devpage", icon: Code2, text: "Trang lập trình", badge: "New" },
-        { to: "/incidents", icon: Bug, text: "Trung tâm sự cố" },
-        { to: "/contact", icon: LifeBuoy, text: "Liên hệ & Hỗ trợ" },
-        { to: "/privacy", icon: ShieldCheck, text: "Chính sách bảo mật" },
-        { to: "/settings", icon: Settings, text: "Cài đặt" },
-      ],
-    },
-  ];
+  const userMenuSections = useMemo(() => {
+    const systemItems = [
+      { to: "/incidents", icon: Bug, text: "Trung tâm sự cố" },
+      { to: "/contact", icon: LifeBuoy, text: "Liên hệ & Hỗ trợ" },
+      { to: "/privacy", icon: ShieldCheck, text: "Chính sách bảo mật" },
+      { to: "/settings", icon: Settings, text: "Cài đặt" },
+    ];
+    // Admin: mục Drive nổi bật riêng
+    if (showAdminDrive) {
+      systemItems.unshift({
+        to: "/admin/google-drive",
+        icon: HardDrive,
+        text: "Google Drive",
+        badge: "Admin",
+      });
+    }
+
+    return [
+      {
+        title: "Locket Dio",
+        items: [
+          { to: "/home", icon: Home, text: "Trang chủ" },
+          { to: "/about", icon: Info, text: "Locket Dio" },
+          { to: "/newsfeed", icon: Newspaper, text: "Bảng tin", badge: "New" },
+          {
+            to: "/download",
+            icon: SquareArrowOutUpRight,
+            text: "Cài đặt WebApp",
+          },
+          { to: "/sponsors", icon: Heart, text: "Ủng hộ dự án" },
+        ],
+      },
+      {
+        title: "Tính năng",
+        badge: <PlanBadge />,
+        items: [
+          { to: "/postmoments", icon: Upload, text: "Đăng ảnh, video" },
+          {
+            to: "/locket-beta",
+            icon: Smartphone,
+            text: "Locket Camera",
+            badge: "Beta",
+          },
+          { to: "/manage", icon: Palette, text: "Quản lý Caption" },
+          { to: "/tools", icon: Wrench, text: "Công cụ Locket" },
+          {
+            to: "/pricing",
+            icon: Rocket,
+            text: "Gói thành viên",
+            badge: "Hot",
+          },
+          { to: "/profile", icon: UserRound, text: "Hồ sơ của bạn" },
+        ],
+      },
+      {
+        title: "Hệ thống & Hỗ trợ",
+        items: systemItems,
+      },
+    ];
+  }, [showAdminDrive]);
 
   const guestMenuSections = [
     {
