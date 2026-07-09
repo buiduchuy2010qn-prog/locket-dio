@@ -1,5 +1,5 @@
-node_modules
-dist
+﻿node_modules
+dist-ssr
 dist-ssr
 .env
 .env.local
@@ -11,3 +11,7 @@ coverage
 public_legacy_locket
 apps/web/dist
 apps/api/uploads
+
+apps/web/node_modules
+apps/api/node_modules
+
