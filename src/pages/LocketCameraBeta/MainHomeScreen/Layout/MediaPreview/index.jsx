@@ -1,4 +1,11 @@
-import React, { lazy, Suspense, useCallback, useEffect, useRef } from "react";
+import React, {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
 import MediaSizeInfo from "@/components/ui/MediaSizeInfo";
 import { showInfo } from "@/components/Toast";
@@ -10,9 +17,15 @@ import {
   openCameraStream,
   stopMediaStream,
 } from "@/utils/device/cameraStream";
+import {
+  applyTrackZoom,
+  buildZoomSteps,
+  getTrackZoomCapability,
+  nextZoomStep,
+} from "@/utils/device/cameraZoom";
 
 const MediaPreview = ({ capturedMedia }) => {
-  const { post, useloading, camera } = useApp();
+  const { post, camera } = useApp();
   const { selectedFile, preview } = post;
   const {
     streamRef,
@@ -22,6 +35,10 @@ const MediaPreview = ({ capturedMedia }) => {
     cameraMode,
     zoomLevel,
     setZoomLevel,
+    zoomFactor,
+    setZoomFactor,
+    zoomSteps,
+    setZoomSteps,
     deviceId,
     setDeviceId,
     selectedFrame,
@@ -29,6 +46,8 @@ const MediaPreview = ({ capturedMedia }) => {
 
   const startingRef = useRef(false);
   const mountedRef = useRef(true);
+  const camerasCacheRef = useRef(null);
+  const [digitalScale, setDigitalScale] = useState(1);
 
   const stopCamera = useCallback(() => {
     stopMediaStream(streamRef.current);
@@ -39,19 +58,44 @@ const MediaPreview = ({ capturedMedia }) => {
     startingRef.current = false;
   }, [streamRef, videoRef]);
 
+  const refreshZoomSteps = useCallback(
+    async (stream) => {
+      try {
+        if (!camerasCacheRef.current) {
+          camerasCacheRef.current = await getAvailableCameras();
+        }
+        const cap = getTrackZoomCapability(stream);
+        const steps = buildZoomSteps({
+          facingMode: cameraMode || "user",
+          cameras: camerasCacheRef.current,
+          trackCap: cap,
+        });
+        setZoomSteps(steps);
+      } catch (e) {
+        console.warn("zoom steps", e);
+      }
+    },
+    [cameraMode, setZoomSteps]
+  );
+
   const startCamera = useCallback(async () => {
     if (!cameraActive || preview || selectedFile) return;
     if (startingRef.current) return;
     startingRef.current = true;
 
     try {
-      // Always release previous stream before new one (flip camera)
       stopMediaStream(streamRef.current);
       streamRef.current = null;
+
+      const opticalZoom =
+        zoomFactor > 1 && (!deviceId || zoomLevel !== "0.5x")
+          ? zoomFactor
+          : null;
 
       const stream = await openCameraStream({
         facingMode: cameraMode || "user",
         deviceId: deviceId || null,
+        zoom: opticalZoom && opticalZoom <= 1.01 ? null : null,
       });
 
       if (!mountedRef.current) {
@@ -60,12 +104,22 @@ const MediaPreview = ({ capturedMedia }) => {
       }
 
       streamRef.current = stream;
+
+      // Apply native track zoom when step is optical (same lens)
+      if (zoomFactor > 1.01) {
+        const ok = await applyTrackZoom(stream, zoomFactor);
+        setDigitalScale(ok ? 1 : zoomFactor); // digital CSS fallback
+      } else {
+        setDigitalScale(1);
+      }
+
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        // Ensure playback (iOS / some Android)
         const p = videoRef.current.play?.();
         if (p?.catch) p.catch(() => {});
       }
+
+      await refreshZoomSteps(stream);
     } catch (err) {
       console.error("startCamera failed:", err);
       setCameraActive(false);
@@ -81,6 +135,9 @@ const MediaPreview = ({ capturedMedia }) => {
     setCameraActive,
     streamRef,
     videoRef,
+    zoomFactor,
+    zoomLevel,
+    refreshZoomSteps,
   ]);
 
   useEffect(() => {
@@ -90,20 +147,22 @@ const MediaPreview = ({ capturedMedia }) => {
     };
   }, []);
 
-  // Start / restart when mode, device, or preview state changes
+  // Rebuild zoom steps when flipping camera
+  useEffect(() => {
+    camerasCacheRef.current = null;
+    setZoomLevel("1x");
+    setZoomFactor(1);
+    setDeviceId(null);
+    setDigitalScale(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cameraMode]);
+
   useEffect(() => {
     if (!cameraActive || preview || selectedFile) {
       stopCamera();
       return;
     }
-
     startCamera();
-
-    // Only fully stop on unmount or when leaving live view
-    return () => {
-      // Don't stop if only re-running for same live session race —
-      // startCamera always stops previous itself when reopening.
-    };
   }, [
     cameraActive,
     cameraMode,
@@ -114,52 +173,118 @@ const MediaPreview = ({ capturedMedia }) => {
     stopCamera,
   ]);
 
-  // Cleanup on unmount
+  // Optical zoom only (same device) — apply without full restart when possible
+  useEffect(() => {
+    const stream = streamRef.current;
+    if (!stream || !cameraActive || preview || selectedFile) return;
+    if (deviceId) return; // lens switch handled by startCamera via deviceId
+
+    let cancelled = false;
+    (async () => {
+      if (zoomFactor <= 1.01) {
+        await applyTrackZoom(stream, 1);
+        if (!cancelled) setDigitalScale(1);
+        return;
+      }
+      const ok = await applyTrackZoom(stream, zoomFactor);
+      if (!cancelled) setDigitalScale(ok ? 1 : zoomFactor);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [zoomFactor, deviceId, cameraActive, preview, selectedFile, streamRef]);
+
   useEffect(() => {
     return () => {
       stopCamera();
     };
   }, [stopCamera]);
 
+  /** Apply a zoom step (lens switch and/or optical/digital) */
+  const applyZoomStep = useCallback(
+    async (step) => {
+      if (!step) return;
+      setZoomLevel(step.label);
+      setZoomFactor(step.factor);
+
+      if (step.mode === "lens" && step.deviceId) {
+        // Different physical lens → reopen stream with that deviceId
+        if (step.deviceId !== deviceId) {
+          setDeviceId(step.deviceId);
+        } else {
+          // same device, reset optical
+          setDigitalScale(1);
+          if (streamRef.current) await applyTrackZoom(streamRef.current, 1);
+        }
+        return;
+      }
+
+      // Optical or digital on current stream
+      if (step.mode === "optical" || step.mode === "digital") {
+        // Stay on current device; clear forced deviceId if we were on ultra-wide
+        if (deviceId && step.factor >= 1) {
+          // Prefer main lens for >=1x zoom
+          try {
+            if (!camerasCacheRef.current) {
+              camerasCacheRef.current = await getAvailableCameras();
+            }
+            const main =
+              camerasCacheRef.current.backNormalCamera?.deviceId ||
+              camerasCacheRef.current.backCameras?.[0]?.deviceId ||
+              camerasCacheRef.current.frontCameras?.[0]?.deviceId;
+            if (main && main !== deviceId && step.factor >= 1) {
+              setDeviceId(main);
+              return; // startCamera will apply zoom after reopen
+            }
+          } catch (_) {
+            /* ignore */
+          }
+        }
+
+        if (streamRef.current) {
+          if (step.mode === "optical" || step.factor > 1) {
+            const ok = await applyTrackZoom(streamRef.current, step.factor);
+            setDigitalScale(ok ? 1 : step.factor);
+          } else {
+            await applyTrackZoom(streamRef.current, 1);
+            setDigitalScale(1);
+          }
+        }
+      }
+    },
+    [deviceId, setDeviceId, setZoomFactor, setZoomLevel, streamRef]
+  );
+
   const handleCycleZoomCamera = async () => {
     try {
-      const cameras = await getAvailableCameras();
-      const isBackCamera = cameraMode === "environment";
-      const isFrontCamera = cameraMode === "user";
-
-      let newZoom = "1x";
-      let newDeviceId = null;
-
-      if (isFrontCamera) {
-        newZoom = zoomLevel === "1x" ? "0.5x" : "1x";
-        newDeviceId = cameras?.frontCameras?.[0]?.deviceId;
-      } else if (isBackCamera) {
-        if (zoomLevel === "1x") {
-          newZoom = "0.5x";
-          newDeviceId = cameras?.backUltraWideCamera?.deviceId;
-        } else if (zoomLevel === "0.5x") {
-          newZoom = "3x";
-          newDeviceId = cameras?.backZoomCamera?.deviceId;
-        } else if (zoomLevel === "3x") {
-          newZoom = "1x";
-          newDeviceId = cameras?.backNormalCamera?.deviceId;
-        }
-
-        if (!newDeviceId && zoomLevel !== "1x") {
-          newZoom = "1x";
-          newDeviceId =
-            cameras?.backNormalCamera?.deviceId ||
-            cameras?.backCameras?.[0]?.deviceId;
-        }
+      if (!camerasCacheRef.current) {
+        camerasCacheRef.current = await getAvailableCameras();
+      }
+      let steps = zoomSteps;
+      if (!steps?.length && streamRef.current) {
+        const cap = getTrackZoomCapability(streamRef.current);
+        steps = buildZoomSteps({
+          facingMode: cameraMode || "user",
+          cameras: camerasCacheRef.current,
+          trackCap: cap,
+        });
+        setZoomSteps(steps);
+      }
+      if (!steps?.length) {
+        steps = buildZoomSteps({
+          facingMode: cameraMode || "user",
+          cameras: camerasCacheRef.current,
+          trackCap: null,
+        });
+        setZoomSteps(steps);
       }
 
-      if (newDeviceId) {
-        setZoomLevel(newZoom);
-        setDeviceId(newDeviceId);
-      } else {
-        // No multi-lens — soft digital zoom toggle is not supported
-        showInfo("Thiết bị không hỗ trợ đổi zoom camera");
+      const next = nextZoomStep(steps, zoomLevel, zoomFactor);
+      if (!next) {
+        showInfo("Không có mức zoom khác");
+        return;
       }
+      await applyZoomStep(next);
     } catch (e) {
       console.error(e);
       showInfo("Không đổi được zoom camera");
@@ -168,6 +293,15 @@ const MediaPreview = ({ capturedMedia }) => {
 
   const showLive =
     !preview && !selectedFile && !capturedMedia && cameraActive;
+
+  const displaySteps =
+    zoomSteps?.length > 0
+      ? zoomSteps
+      : [
+          { label: "0.5x", factor: 0.5 },
+          { label: "1x", factor: 1 },
+          { label: "2x", factor: 2 },
+        ];
 
   return (
     <>
@@ -178,16 +312,24 @@ const MediaPreview = ({ capturedMedia }) => {
             autoPlay
             playsInline
             muted
-            // no heavy CSS transition — smoother on mid phones
-            className={`w-full h-full object-cover ${
+            className={`w-full h-full object-cover origin-center ${
               cameraMode === "user" ? "scale-x-[-1]" : ""
             }`}
+            style={
+              digitalScale > 1.01
+                ? {
+                    transform: `${
+                      cameraMode === "user" ? "scaleX(-1) " : ""
+                    }scale(${digitalScale})`,
+                  }
+                : undefined
+            }
           />
         )}
 
         {!preview && !selectedFile && (
           <>
-            <div className="absolute inset-0 top-7 px-7 z-30 pointer-events-none flex justify-between text-base-content text-xs font-semibold">
+            <div className="absolute inset-0 top-7 px-5 z-30 pointer-events-none flex justify-between items-start text-base-content text-xs font-semibold">
               <button
                 type="button"
                 onClick={() => showInfo("Chức năng này sẽ sớm có mặt!")}
@@ -196,14 +338,44 @@ const MediaPreview = ({ capturedMedia }) => {
                 <img src="/icons/bolt.fill.png" alt="Icon sấm sét" />
               </button>
 
+              {/* Cycle zoom — phone style */}
               <button
                 type="button"
                 onClick={handleCycleZoomCamera}
-                className="pointer-events-auto w-6 h-6 text-primary-content font-semibold rounded-full bg-white/30 backdrop-blur-md p-3.5 flex items-center justify-center"
+                className="pointer-events-auto min-w-8 h-8 px-2 text-primary-content font-bold rounded-full bg-white/35 backdrop-blur-md flex items-center justify-center shadow"
+                title="Đổi zoom (0.5x / 1x / 2x / …)"
               >
                 {zoomLevel}
               </button>
             </div>
+
+            {/* Zoom chips like native camera */}
+            {showLive && displaySteps.length > 1 && (
+              <div className="absolute bottom-20 left-0 right-0 z-30 pointer-events-none flex justify-center px-3">
+                <div className="pointer-events-auto flex flex-row gap-1.5 bg-black/40 backdrop-blur-md rounded-full px-2 py-1.5 max-w-full overflow-x-auto">
+                  {displaySteps.map((step) => {
+                    const active =
+                      step.label === zoomLevel ||
+                      Math.abs(step.factor - zoomFactor) < 0.05;
+                    return (
+                      <button
+                        key={step.label}
+                        type="button"
+                        onClick={() => applyZoomStep(step)}
+                        className={`min-w-9 h-8 px-2 rounded-full text-xs font-bold transition ${
+                          active
+                            ? "bg-yellow-400 text-black scale-110"
+                            : "bg-white/20 text-white"
+                        }`}
+                      >
+                        {step.label.replace("x", "")}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {selectedFrame?.imageSrc && (
               <div className="absolute inset-0 z-20 pointer-events-none">
                 <img

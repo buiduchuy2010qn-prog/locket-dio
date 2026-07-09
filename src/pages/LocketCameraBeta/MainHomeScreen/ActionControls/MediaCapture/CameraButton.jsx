@@ -29,6 +29,7 @@ const CameraButton = () => {
     setLoading,
     setDeviceId,
     setZoomLevel,
+    setZoomFactor,
   } = camera;
   const { preview, setPreview, setSelectedFile, setSizeMedia } = post;
   const { setIsCaptionLoading, uploadLoading, setUploadLoading } = useloading;
@@ -326,8 +327,9 @@ const CameraButton = () => {
     if (uploadLoading || preview) return;
     setRotation((prev) => prev - 180);
     const newMode = cameraMode === "user" ? "environment" : "user";
-    // Clear deviceId so we don't stick to wrong physical lens after flip
+    // Reset zoom to 1x when flipping cameras
     setZoomLevel("1x");
+    setZoomFactor?.(1);
     setDeviceId(null);
     setCameraMode(newMode);
     if (!cameraActive) setCameraActive(true);

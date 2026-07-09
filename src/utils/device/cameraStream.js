@@ -10,39 +10,52 @@ const PREVIEW_IDEAL = {
 };
 
 /**
- * @param {{ facingMode?: string, deviceId?: string | null }} opts
+ * @param {{ facingMode?: string, deviceId?: string | null, zoom?: number | null }} opts
  * @returns {Promise<MediaStream>}
  */
 export async function openCameraStream({
   facingMode = "user",
   deviceId = null,
+  zoom = null,
 } = {}) {
   if (!navigator.mediaDevices?.getUserMedia) {
     throw new Error("Trình duyệt không hỗ trợ camera");
   }
 
   const attempts = [];
+  const withZoom = (base) => {
+    if (zoom != null && zoom > 1 && typeof base === "object") {
+      return { ...base, zoom: { ideal: zoom } };
+    }
+    return base;
+  };
 
   // 1) Specific device (zoom lens) — no facingMode conflict
   if (deviceId) {
-    attempts.push({
-      deviceId: { exact: deviceId },
-      ...PREVIEW_IDEAL,
-    });
+    attempts.push(
+      withZoom({
+        deviceId: { exact: deviceId },
+        ...PREVIEW_IDEAL,
+      })
+    );
     attempts.push({ deviceId: { exact: deviceId } });
   }
 
   // 2) Facing mode exact + ideal res
-  attempts.push({
-    facingMode: { exact: facingMode },
-    ...PREVIEW_IDEAL,
-  });
+  attempts.push(
+    withZoom({
+      facingMode: { exact: facingMode },
+      ...PREVIEW_IDEAL,
+    })
+  );
 
   // 3) Facing mode ideal (more compatible)
-  attempts.push({
-    facingMode: { ideal: facingMode },
-    ...PREVIEW_IDEAL,
-  });
+  attempts.push(
+    withZoom({
+      facingMode: { ideal: facingMode },
+      ...PREVIEW_IDEAL,
+    })
+  );
 
   // 4) Facing mode only (legacy string)
   attempts.push({ facingMode });

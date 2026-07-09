@@ -16,7 +16,9 @@ export const useCamera = () => {
   const [loading, setLoading] = useState(false);
   const [countdown, setCountdown] = useState(null);
   const [cameraMode, setCameraMode] = useState("user");
-  const [zoomLevel, setZoomLevel] = useState("1x"); // "0.5x" | "1x" | "3x"
+  const [zoomLevel, setZoomLevel] = useState("1x"); // label: "0.5x" | "1x" | "2x" | ...
+  const [zoomFactor, setZoomFactor] = useState(1); // numeric factor for optical/digital
+  const [zoomSteps, setZoomSteps] = useState([]); // available phone zoom steps
   const [deviceId, setDeviceId] = useState(null); // deviceId của camera hiện tại
 
   // ✅ Lấy từ localStorage hoặc mặc định frame đầu tiên
@@ -59,6 +61,10 @@ export const useCamera = () => {
     setDeviceId,
     zoomLevel,
     setZoomLevel,
+    zoomFactor,
+    setZoomFactor,
+    zoomSteps,
+    setZoomSteps,
     selectedFrame,
     setSelectedFrame,
   };
