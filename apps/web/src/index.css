@@ -161,3 +161,11 @@ html.dark .custom-scroll::-webkit-scrollbar-thumb {
 
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* Square moment media — never stretch */
+.square-media {
+  aspect-ratio: 1 / 1;
+  width: 100%;
+  object-fit: cover;
+  object-position: center;
+}

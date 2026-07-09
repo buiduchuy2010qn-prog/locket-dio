@@ -6,6 +6,7 @@ import { timeAgo } from '../utils/storage'
 import { BASIC_REACTIONS, GOLD_REACTIONS } from '../data/constants'
 import { useApp } from '../context/AppContext'
 import * as api from '../api/index.js'
+import { SquareMedia } from './SquareFrame'
 
 export default function MomentCard({ post, onReact, onOpenInsights, compact }) {
   const { user, openUpgrade, toast } = useApp()
@@ -55,12 +56,13 @@ export default function MomentCard({ post, onReact, onOpenInsights, compact }) {
         </button>
       </div>
 
-      <div className="relative bg-slate-100 dark:bg-slate-800 aspect-[4/5] sm:aspect-square max-h-[70vh]">
-        {local.type === 'video' ? (
-          <video src={local.mediaUrl} className="w-full h-full object-cover" controls playsInline />
-        ) : (
-          <img src={local.mediaUrl} alt="" className="w-full h-full object-cover" loading="lazy" />
-        )}
+      <div className="px-3 sm:px-4 pb-1">
+        <SquareMedia
+          src={local.mediaUrl}
+          type={local.type === 'video' ? 'video' : 'image'}
+          controls={local.type === 'video'}
+          className="max-w-full"
+        />
       </div>
 
       <div className="p-3 sm:p-4 space-y-2">

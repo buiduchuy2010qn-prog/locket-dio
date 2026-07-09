@@ -113,7 +113,15 @@ export default function Gallery() {
                 <p className="text-xs text-slate-400">{timeAgo(open.createdAt)}</p>
               </div>
             </div>
-            <img src={open.mediaUrl} alt="" className="w-full rounded-2xl max-h-[60vh] object-contain bg-slate-100" />
+            <div className="max-w-sm mx-auto w-full">
+              <div className="aspect-square rounded-2xl overflow-hidden bg-slate-100 shadow-[var(--shadow-soft)] ring-1 ring-white/40">
+                {open.type === 'video' ? (
+                  <video src={open.mediaUrl} className="w-full h-full object-cover" controls playsInline />
+                ) : (
+                  <img src={open.mediaUrl} alt="" className="w-full h-full object-cover" />
+                )}
+              </div>
+            </div>
             {open.caption && <p className="text-sm">{open.caption}</p>}
             {open.userId === user?.id && (
               <div className="flex gap-2">
