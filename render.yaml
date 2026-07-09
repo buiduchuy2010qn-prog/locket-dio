@@ -1,8 +1,12 @@
 services:
-  # IMPORTANT: Web Service (Docker/Node), NOT Static Site
+  # MUST be Web Service (Docker) — Static Site cannot proxy API (CORS login fails)
   - type: web
-    name: locket-dio
+    name: locket-dio-web
     runtime: docker
     plan: free
+    region: singapore
     dockerfilePath: ./Dockerfile
     healthCheckPath: /dio-api/
+    envVars:
+      - key: NODE_ENV
+        value: production
