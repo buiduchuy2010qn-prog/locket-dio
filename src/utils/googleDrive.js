@@ -1,6 +1,6 @@
 /**
- * Shared Google Drive backup — 1 Drive cho cả web, cấu hình server (admin).
- * Client chỉ POST file lên /api/drive-backup khi server đã bật.
+ * Shared Google Drive backup — 1 Drive cho cả web.
+ * Chỉ admin thấy UI liên kết (Settings). Cấu hình qua env Render.
  */
 
 const STATUS_CACHE_KEY = "gdrive_server_status";
@@ -19,8 +19,8 @@ export function isAdminUser(localId) {
   return ids.includes(String(localId));
 }
 
-/** Status từ server (cache 60s) */
-export async function fetchDriveServerStatus(force = false) {
+/** Status từ server (cache 60s). Gửi localId để server trả isAdmin. */
+export async function fetchDriveServerStatus(force = false, localId = null) {
   try {
     if (!force) {
       const at = Number(localStorage.getItem(STATUS_CACHE_AT) || 0);
@@ -29,13 +29,21 @@ export async function fetchDriveServerStatus(force = false) {
         return JSON.parse(cached);
       }
     }
-    const res = await fetch("/api/drive-status", { method: "GET" });
+    const headers = {};
+    if (localId) headers["X-Local-Id"] = String(localId);
+    const res = await fetch("/api/drive-status", { method: "GET", headers });
     const data = await res.json().catch(() => ({}));
+    // isAdmin = server OR client env (build-time VITE_ADMIN_LOCAL_IDS)
+    data.isAdmin = Boolean(data.isAdmin) || isAdminUser(localId);
     localStorage.setItem(STATUS_CACHE_KEY, JSON.stringify(data));
     localStorage.setItem(STATUS_CACHE_AT, String(Date.now()));
     return data;
   } catch {
-    return { configured: false, enabled: false };
+    return {
+      configured: false,
+      enabled: false,
+      isAdmin: isAdminUser(localId),
+    };
   }
 }
 
@@ -49,13 +57,12 @@ export function isDriveConfigured() {
   return false;
 }
 
-/** Auto backup = server đã cấu hình (1 Drive cho cả site) */
 export function isDriveAutoBackupEnabled() {
   return isDriveConfigured();
 }
 
 export function setDriveAutoBackupEnabled() {
-  /* no-op — admin cấu hình qua env server */
+  /* no-op — admin cấu hình env server */
 }
 
 export function isDriveConnected() {
@@ -65,7 +72,7 @@ export function isDriveConnected() {
 export function getDriveEmail() {
   try {
     const cached = localStorage.getItem(STATUS_CACHE_KEY);
-    if (cached) return JSON.parse(cached)?.folderHint || "Shared Drive (admin)";
+    if (cached) return JSON.parse(cached)?.serviceEmail || "";
   } catch {
     /* ignore */
   }
@@ -85,15 +92,12 @@ export async function connectGoogleDrive() {
   const st = await fetchDriveServerStatus(true);
   if (!st?.configured) {
     throw new Error(
-      "Admin chưa cấu hình Google Drive trên server (GOOGLE_SERVICE_ACCOUNT_JSON + GOOGLE_DRIVE_FOLDER_ID)."
+      "Admin chưa cấu hình Drive trên Render (GOOGLE_SERVICE_ACCOUNT_JSON + GOOGLE_DRIVE_FOLDER_ID)."
     );
   }
   return true;
 }
 
-/**
- * Upload file lên Drive chung của web (server service account).
- */
 export async function uploadFileToGoogleDrive(file, options = {}) {
   if (!file) throw new Error("Không có file");
 
@@ -120,10 +124,7 @@ export async function uploadFileToGoogleDrive(file, options = {}) {
   return data;
 }
 
-/**
- * Fire-and-forget backup sau khi upload R2.
- * Chỉ chạy khi server đã bật Drive (1 Drive cho cả web).
- */
+/** Backup nền sau đăng — mọi user, 1 Drive chung nếu server bật */
 export function backupToDriveInBackground(file, meta = {}) {
   if (!file) return;
 

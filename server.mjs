@@ -251,8 +251,24 @@ function corsJson(req, res, status, obj) {
     "Access-Control-Allow-Origin": origin,
     "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
     "Access-Control-Allow-Headers":
-      "content-type,authorization,x-filename,x-upload-size",
+      "content-type,authorization,x-filename,x-upload-size,x-local-id",
   });
+}
+
+function getAdminLocalIds() {
+  const raw =
+    process.env.ADMIN_LOCAL_IDS ||
+    process.env.VITE_ADMIN_LOCAL_IDS ||
+    "";
+  return String(raw)
+    .split(/[,;\s]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function isAdminLocalId(localId) {
+  if (!localId) return false;
+  return getAdminLocalIds().includes(String(localId));
 }
 
 async function handleDriveStatus(req, res) {
@@ -262,17 +278,39 @@ async function handleDriveStatus(req, res) {
   const sa = loadServiceAccount();
   const folderId = getDriveFolderId();
   const configured = Boolean(sa && folderId);
+  const localId =
+    req.headers["x-local-id"] ||
+    req.headers["x-userid"] ||
+    "";
+  const isAdmin = isAdminLocalId(localId);
+
+  // User thường: chỉ biết bật/tắt (không lộ email SA / hướng dẫn)
+  if (!isAdmin) {
+    return corsJson(req, res, 200, {
+      configured,
+      enabled: configured,
+      isAdmin: false,
+      adminOnly: true,
+      message: configured
+        ? "Shared Drive backup is ON"
+        : "Drive not configured",
+    });
+  }
+
   return corsJson(req, res, 200, {
     configured,
     enabled: configured,
-    folderHint: folderId
-      ? `…${folderId.slice(-8)}`
+    isAdmin: true,
+    adminOnly: true,
+    folderId: folderId || null,
+    folderHint: folderId ? `…${folderId.slice(-8)}` : null,
+    folderUrl: folderId
+      ? `https://drive.google.com/drive/folders/${folderId}`
       : null,
     serviceEmail: sa?.client_email || null,
-    adminOnly: true,
     message: configured
       ? "Shared Drive backup is ON for all posts"
-      : "Set GOOGLE_SERVICE_ACCOUNT_JSON + GOOGLE_DRIVE_FOLDER_ID on server",
+      : "Set GOOGLE_SERVICE_ACCOUNT_JSON + GOOGLE_DRIVE_FOLDER_ID on Render",
   });
 }
 
