@@ -3,10 +3,11 @@ import {
   backupToDriveInBackground,
   fetchDriveServerStatus,
 } from "@/utils/googleDrive";
+import { SonnerError, SonnerSuccess } from "@/components/ui/SonnerToast";
 
 /**
  * Tự backup Google Drive ngay khi có file (sau chụp / chọn ảnh-video).
- * Không chặn UI; chỉ chạy nếu admin đã cấu hình Drive.
+ * Toast báo thành công / lỗi — dễ kiểm tra video đã lên chưa.
  */
 export function useAutoDriveBackup(selectedFile) {
   const lastKeyRef = useRef("");
@@ -39,18 +40,34 @@ export function useAutoDriveBackup(selectedFile) {
           : "jpg");
     const ts = new Date().toISOString().replace(/[:.]/g, "-");
     const fileName = `locketdio_capture_${ts}.${ext}`;
+    const folderLabel = isVideo ? "Video" : "Ảnh";
 
-    // Prefetch status (cache) rồi backup nền → folder Ảnh hoặc Video
-    fetchDriveServerStatus(false)
+    // force=true: không dùng cache cũ (tránh bỏ qua backup)
+    fetchDriveServerStatus(true)
       .then((st) => {
-        if (!st?.configured || st?.enabled === false) return;
+        if (!st?.configured || st?.enabled === false) {
+          console.warn("[gdrive] skip backup — Drive chưa bật");
+          return;
+        }
         backupToDriveInBackground(selectedFile, {
           fileName,
           mediaType: isVideo ? "video" : "image",
+          onSuccess: (result) => {
+            SonnerSuccess(
+              `Đã backup Drive → ${result?.folder || folderLabel}`,
+              result?.name || fileName
+            );
+          },
+          onError: (err) => {
+            SonnerError(
+              "Backup Drive thất bại",
+              err?.message || "Thử lại hoặc mở Quản lý Drive"
+            );
+          },
         });
       })
-      .catch(() => {
-        /* offline / chưa cấu hình — bỏ qua */
+      .catch((e) => {
+        console.warn("[gdrive] status failed:", e?.message);
       });
   }, [selectedFile]);
 }

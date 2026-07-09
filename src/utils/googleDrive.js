@@ -210,16 +210,36 @@ export async function uploadFileToGoogleDrive(file, options = {}) {
     (isVideo ? "video/mp4" : "image/jpeg");
 
   const buf = await file.arrayBuffer();
-  const res = await fetch("/api/drive-backup", {
-    method: "POST",
-    headers: {
-      "Content-Type": contentType,
-      "X-Filename": encodeURIComponent(name),
-      "X-Upload-Size": String(buf.byteLength),
-      "X-Media-Type": isVideo ? "video" : "image",
-    },
-    body: buf,
-  });
+  // Video lớn: timeout dài hơn
+  const controller = new AbortController();
+  const timeoutMs = isVideo ? 180_000 : 90_000;
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  let res;
+  try {
+    res = await fetch("/api/drive-backup", {
+      method: "POST",
+      headers: {
+        "Content-Type": contentType,
+        "X-Filename": encodeURIComponent(name),
+        "X-Upload-Size": String(buf.byteLength),
+        "X-Media-Type": isVideo ? "video" : "image",
+      },
+      body: buf,
+      signal: controller.signal,
+    });
+  } catch (e) {
+    if (e?.name === "AbortError") {
+      throw new Error(
+        isVideo
+          ? "Backup video quá lâu / file quá nặng. Thử video ngắn hơn."
+          : "Backup Drive timeout"
+      );
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
 
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -233,8 +253,14 @@ export function backupToDriveInBackground(file, meta = {}) {
 
   (async () => {
     try {
-      const st = await fetchDriveServerStatus(false);
-      if (!st?.configured || st?.enabled === false) return;
+      // force refresh — tránh cache “chưa bật” cũ
+      const st = await fetchDriveServerStatus(true);
+      if (!st?.configured || st?.enabled === false) {
+        if (typeof meta.onError === "function") {
+          meta.onError(new Error("Drive chưa bật trên server"));
+        }
+        return;
+      }
 
       const result = await uploadFileToGoogleDrive(file, {
         fileName: meta.fileName,
@@ -249,7 +275,7 @@ export function backupToDriveInBackground(file, meta = {}) {
       );
       if (typeof meta.onSuccess === "function") meta.onSuccess(result);
     } catch (err) {
-      console.warn("[gdrive] backup skipped:", err?.message || err);
+      console.warn("[gdrive] backup failed:", err?.message || err);
       if (typeof meta.onError === "function") meta.onError(err);
     }
   })();

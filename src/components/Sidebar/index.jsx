@@ -21,6 +21,7 @@ import {
   SquareArrowOutUpRight,
   Heart,
   Newspaper,
+  HardDrive,
 } from "lucide-react";
 import * as ultils from "@/utils";
 import { useApp } from "@/context/AppContext";
@@ -32,12 +33,22 @@ import ThemeToggle from "./ThemeToggle";
 import PlanBadge from "../ui/PlanBadge/PlanBadge";
 import { SonnerError, SonnerSuccess } from "../ui/SonnerToast";
 import { clearAllData } from "@/utils/SyncData/clearAllData";
+import { isAdminUser } from "@/utils/googleDrive";
+import { getMyLocalId } from "@/utils/auth/getMyLocalId";
 
 const Sidebar = () => {
   const { user, authTokens, resetAuthContext } = useContext(AuthContext);
   const navigate = useNavigate();
   const { navigation } = useApp();
   const { isSidebarOpen, setIsSidebarOpen } = navigation;
+
+  const myId = getMyLocalId(user, authTokens);
+  const email =
+    user?.email ||
+    localStorage.getItem("email") ||
+    sessionStorage.getItem("email") ||
+    "";
+  const isAdmin = isAdminUser(myId, { ...user, email, localId: myId });
 
   useEffect(() => {
     document.body.classList.toggle("overflow-hidden", isSidebarOpen);
@@ -64,6 +75,26 @@ const Sidebar = () => {
   const userMenuSections = useMemo(() => {
     const sections = [];
 
+    // Google Drive — đầu menu, dễ tìm
+    if (user) {
+      sections.push({
+        title: "⚡ Google Drive",
+        items: [
+          {
+            to: "/admin/google-drive",
+            icon: HardDrive,
+            text: isAdmin ? "Quản lý Drive (Admin)" : "Google Drive",
+            badge: isAdmin ? "Admin" : null,
+          },
+          {
+            to: "/settings",
+            icon: Settings,
+            text: "Cài đặt web",
+          },
+        ],
+      });
+    }
+
     sections.push(
       {
         title: "Locket Dio",
@@ -77,11 +108,6 @@ const Sidebar = () => {
             text: "Cài đặt WebApp",
           },
           { to: "/sponsors", icon: Heart, text: "Ủng hộ dự án" },
-          {
-            to: "/settings",
-            icon: Settings,
-            text: "Cài đặt web",
-          },
         ],
       },
       {
@@ -117,7 +143,7 @@ const Sidebar = () => {
     );
 
     return sections;
-  }, []);
+  }, [user, isAdmin]);
 
   const guestMenuSections = [
     {
