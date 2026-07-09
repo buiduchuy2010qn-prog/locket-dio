@@ -56,14 +56,20 @@ const HeaderHome = ({
     setFriendsTabOpen(true);
   };
 
-  /** Chỉ tải về máy — Drive đã backup tự động */
-  const handleDownload = () => {
+  /** Chỉ tải về máy — tên + MIME sạch để máy nhận đúng video */
+  const handleDownload = async () => {
     if (!selectedFile) return;
-
-    const url = URL.createObjectURL(selectedFile);
-    const extension = selectedFile.type?.split("/")[1] || "jpg";
-    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-    const defaultName = `locketdio-${timestamp}.${extension}`;
+    const { buildDownloadFileName, normalizeMediaFile } = await import(
+      "@/utils/mediaFileName"
+    );
+    const hint =
+      selectedFile.type?.startsWith("video/") ||
+      /\.(mp4|webm|mov)$/i.test(selectedFile.name || "")
+        ? "video"
+        : "image";
+    const file = normalizeMediaFile(selectedFile, hint);
+    const defaultName = buildDownloadFileName(file, hint);
+    const url = URL.createObjectURL(file);
 
     const link = document.createElement("a");
     link.href = url;

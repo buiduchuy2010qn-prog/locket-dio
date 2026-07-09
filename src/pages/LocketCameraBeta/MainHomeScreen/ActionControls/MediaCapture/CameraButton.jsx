@@ -96,12 +96,18 @@ const CameraButton = () => {
         }`
       );
 
-      // Thử các MIME type khác nhau cho iOS
-      let mimeType = "video/webm";
-      if (!MediaRecorder.isTypeSupported(mimeType)) {
-        mimeType = "video/mp4";
-        if (!MediaRecorder.isTypeSupported(mimeType)) {
-          mimeType = ""; // Để MediaRecorder tự chọn
+      // Ưu tiên mp4 (máy + Drive nhận video tốt); webm hay hiện icon file
+      let mimeType = "";
+      const mimeCandidates = [
+        "video/mp4",
+        "video/webm;codecs=vp8,opus",
+        "video/webm;codecs=vp9,opus",
+        "video/webm",
+      ];
+      for (const m of mimeCandidates) {
+        if (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(m)) {
+          mimeType = m;
+          break;
         }
       }
 
@@ -133,13 +139,12 @@ const CameraButton = () => {
           return;
         }
 
-        // Tạo blob với MIME type phù hợp
-        const finalMimeType = mimeType || "video/mp4";
+        // MIME sạch (bỏ ;codecs=...) để đuôi file / Drive đúng
+        const rawMime = mimeType || chunks[0]?.type || "video/mp4";
+        const finalMimeType = String(rawMime).split(";")[0].trim() || "video/mp4";
         const blob = new Blob(chunks, { type: finalMimeType });
-
-        // Tạo file name với extension phù hợp
         const extension = finalMimeType.includes("webm") ? "webm" : "mp4";
-        const file = new File([blob], `locket_dio.${extension}`, {
+        const file = new File([blob], `locket_dio_${Date.now()}.${extension}`, {
           type: finalMimeType,
         });
 

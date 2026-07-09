@@ -28,30 +28,28 @@ export function useAutoDriveBackup(selectedFile) {
     if (lastKeyRef.current === key) return;
     lastKeyRef.current = key;
 
-    const isVideo =
-      (selectedFile.type && String(selectedFile.type).startsWith("video/")) ||
-      /\.(mp4|webm|mov|m4v|3gp|avi|mkv)$/i.test(selectedFile.name || "");
-    const ext =
-      (selectedFile.type && selectedFile.type.split("/")[1]) ||
-      (selectedFile.name && selectedFile.name.includes(".")
-        ? selectedFile.name.split(".").pop()
-        : isVideo
-          ? "mp4"
-          : "jpg");
-    const ts = new Date().toISOString().replace(/[:.]/g, "-");
-    const fileName = `locketdio_capture_${ts}.${ext}`;
-    const folderLabel = isVideo ? "Video" : "Ảnh";
+    (async () => {
+      try {
+        const { buildDownloadFileName, normalizeMediaFile } = await import(
+          "@/utils/mediaFileName"
+        );
+        const isVideo =
+          (selectedFile.type &&
+            String(selectedFile.type).startsWith("video/")) ||
+          /\.(mp4|webm|mov|m4v|3gp|avi|mkv)$/i.test(selectedFile.name || "");
+        const hint = isVideo ? "video" : "image";
+        const clean = normalizeMediaFile(selectedFile, hint);
+        const fileName = buildDownloadFileName(clean, hint);
+        const folderLabel = isVideo ? "Video" : "Ảnh";
 
-    // force=true: không dùng cache cũ (tránh bỏ qua backup)
-    fetchDriveServerStatus(true)
-      .then((st) => {
+        const st = await fetchDriveServerStatus(true);
         if (!st?.configured || st?.enabled === false) {
           console.warn("[gdrive] skip backup — Drive chưa bật");
           return;
         }
-        backupToDriveInBackground(selectedFile, {
+        backupToDriveInBackground(clean, {
           fileName,
-          mediaType: isVideo ? "video" : "image",
+          mediaType: hint,
           onSuccess: (result) => {
             SonnerSuccess(
               `Đã backup Drive → ${result?.folder || folderLabel}`,
@@ -65,9 +63,9 @@ export function useAutoDriveBackup(selectedFile) {
             );
           },
         });
-      })
-      .catch((e) => {
-        console.warn("[gdrive] status failed:", e?.message);
-      });
+      } catch (e) {
+        console.warn("[gdrive] auto backup setup failed:", e?.message);
+      }
+    })();
   }, [selectedFile]);
 }

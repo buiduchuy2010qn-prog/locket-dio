@@ -195,21 +195,29 @@ export async function connectGoogleDrive() {
 export async function uploadFileToGoogleDrive(file, options = {}) {
   if (!file) throw new Error("Không có file");
 
+  const { contentTypeFromMedia, extensionFromMedia, normalizeMediaFile } =
+    await import("@/utils/mediaFileName");
+
   const isVideo =
     options.mediaType === "video" ||
     (file.type && String(file.type).startsWith("video/")) ||
     /\.(mp4|webm|mov|m4v|3gp|avi|mkv)$/i.test(file.name || "");
 
-  const name =
+  const hint = isVideo ? "video" : options.mediaType || "image";
+  const clean = normalizeMediaFile(file, hint);
+  const ext = extensionFromMedia(clean, hint);
+  const contentType = contentTypeFromMedia(clean, hint);
+
+  let name =
     options.fileName ||
-    file.name ||
-    `locketdio-${Date.now()}.${isVideo ? "mp4" : "jpg"}`;
+    clean.name ||
+    `locketdio-${Date.now()}.${ext}`;
+  // Đảm bảo đuôi khớp MIME (Drive mới nhận video)
+  if (!name.toLowerCase().endsWith(`.${ext}`)) {
+    name = `${String(name).replace(/\.[^.]+$/, "")}.${ext}`;
+  }
 
-  const contentType =
-    (file.type && String(file.type).trim()) ||
-    (isVideo ? "video/mp4" : "image/jpeg");
-
-  const buf = await file.arrayBuffer();
+  const buf = await clean.arrayBuffer();
   // Video lớn: timeout dài hơn
   const controller = new AbortController();
   const timeoutMs = isVideo ? 180_000 : 90_000;
