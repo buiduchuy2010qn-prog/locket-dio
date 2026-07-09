@@ -345,7 +345,107 @@ async function getGoogleAccessToken() {
   );
 }
 
-async function uploadToSharedDrive(fileBuf, contentType, filename) {
+/** Cache ID folder con Ảnh / Video trong root Drive */
+const subfolderCache = { rootId: null, anh: null, video: null };
+
+function isVideoMedia(contentType, filename, mediaHint) {
+  const hint = String(mediaHint || "").toLowerCase();
+  if (hint === "video" || hint === "image") return hint === "video";
+  const ct = String(contentType || "").toLowerCase();
+  if (ct.startsWith("video/")) return true;
+  if (ct.startsWith("image/")) return false;
+  const name = String(filename || "").toLowerCase();
+  return /\.(mp4|webm|mov|m4v|3gp|avi|mkv)(\?|$)/i.test(name);
+}
+
+/**
+ * Tìm hoặc tạo folder con trong parent (tên: Ảnh / Video).
+ * @returns {Promise<string>} folder id
+ */
+async function ensureDriveSubfolder(token, parentId, folderName) {
+  const q = [
+    `name='${folderName.replace(/'/g, "\\'")}'`,
+    `'${parentId}' in parents`,
+    `mimeType='application/vnd.google-apps.folder'`,
+    `trashed=false`,
+  ].join(" and ");
+
+  const listUrl =
+    "https://www.googleapis.com/drive/v3/files?" +
+    new URLSearchParams({
+      q,
+      fields: "files(id,name)",
+      pageSize: "5",
+      supportsAllDrives: "true",
+      includeItemsFromAllDrives: "true",
+    }).toString();
+
+  const listRes = await fetch(listUrl, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const listData = await listRes.json().catch(() => ({}));
+  if (listRes.ok && listData.files?.[0]?.id) {
+    return listData.files[0].id;
+  }
+
+  // Tạo folder mới
+  const createRes = await fetch(
+    "https://www.googleapis.com/drive/v3/files?supportsAllDrives=true&fields=id,name",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        name: folderName,
+        mimeType: "application/vnd.google-apps.folder",
+        parents: [parentId],
+      }),
+    }
+  );
+  const created = await createRes.json().catch(() => ({}));
+  if (!createRes.ok || !created.id) {
+    throw new Error(
+      created?.error?.message ||
+        `Không tạo được folder "${folderName}" trên Drive`
+    );
+  }
+  return created.id;
+}
+
+/** Lấy parent ID: root/Ảnh hoặc root/Video */
+async function resolveBackupParentId(token, contentType, filename, mediaHint) {
+  const rootId = getDriveFolderId();
+  if (!rootId) throw new Error("Thiếu Folder ID");
+
+  const video = isVideoMedia(contentType, filename, mediaHint);
+  const subName = video ? "Video" : "Ảnh";
+
+  // Invalidate cache nếu đổi root folder
+  if (subfolderCache.rootId !== rootId) {
+    subfolderCache.rootId = rootId;
+    subfolderCache.anh = null;
+    subfolderCache.video = null;
+  }
+
+  if (video && subfolderCache.video) return subfolderCache.video;
+  if (!video && subfolderCache.anh) return subfolderCache.anh;
+
+  const id = await ensureDriveSubfolder(token, rootId, subName);
+  if (video) subfolderCache.video = id;
+  else subfolderCache.anh = id;
+  return id;
+}
+
+/**
+ * Upload file vào folder Ảnh hoặc Video (tự tạo nếu chưa có).
+ * @param {Buffer} fileBuf
+ * @param {string} contentType
+ * @param {string} filename
+ * @param {string} [mediaHint] "image" | "video"
+ */
+async function uploadToSharedDrive(fileBuf, contentType, filename, mediaHint) {
   const folderId = getDriveFolderId();
   if (!folderId) {
     const err = new Error("Drive not configured (thiếu Folder ID)");
@@ -359,10 +459,17 @@ async function uploadToSharedDrive(fileBuf, contentType, filename) {
   }
 
   const token = await getGoogleAccessToken();
+  const parentId = await resolveBackupParentId(
+    token,
+    contentType,
+    filename,
+    mediaHint
+  );
+
   const boundary = "----LocketDioDrive" + Date.now();
   const meta = JSON.stringify({
     name: filename || `locketdio-${Date.now()}.bin`,
-    parents: [folderId],
+    parents: [parentId],
   });
   const preamble = Buffer.from(
     `--${boundary}\r\n` +
@@ -376,7 +483,7 @@ async function uploadToSharedDrive(fileBuf, contentType, filename) {
   const body = Buffer.concat([preamble, fileBuf, closing]);
 
   const res = await fetch(
-    "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true&fields=id,name,webViewLink",
+    "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true&fields=id,name,webViewLink,parents",
     {
       method: "POST",
       headers: {
@@ -390,7 +497,6 @@ async function uploadToSharedDrive(fileBuf, contentType, filename) {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     const msg = data?.error?.message || `Drive upload ${res.status}`;
-    // Gợi ý rõ lỗi quota SA
     if (/storage quota|Service Accounts do not have storage/i.test(msg)) {
       throw new Error(
         "Service Account không ghi được Drive cá nhân. Vào /admin/google-drive → Đăng nhập Google (OAuth)."
@@ -398,7 +504,10 @@ async function uploadToSharedDrive(fileBuf, contentType, filename) {
     }
     throw new Error(msg);
   }
-  return data;
+  return {
+    ...data,
+    folder: isVideoMedia(contentType, filename, mediaHint) ? "Video" : "Ảnh",
+  };
 }
 
 function corsJson(req, res, status, obj) {
@@ -408,7 +517,7 @@ function corsJson(req, res, status, obj) {
     "Access-Control-Allow-Origin": origin,
     "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
     "Access-Control-Allow-Headers":
-      "content-type,authorization,x-filename,x-upload-size,x-local-id,x-user-email,x-email",
+      "content-type,authorization,x-filename,x-upload-size,x-media-type,x-local-id,x-user-email,x-email",
   });
 }
 
@@ -815,18 +924,25 @@ async function handleDriveOAuthCallback(req, res) {
       mode: "oauth",
     };
 
-    // Upload file test ngay
+    // Tạo 2 folder Ảnh + Video + file test trong Ảnh
     let testMsg = "";
     try {
+      const token = tokenData.access_token;
+      const root = st.folderId || prev.folderId || getDriveFolderId();
+      if (root) {
+        await ensureDriveSubfolder(token, root, "Ảnh");
+        await ensureDriveSubfolder(token, root, "Video");
+      }
       const test = await uploadToSharedDrive(
         Buffer.from(
           `Locket Dio backup test ${new Date().toISOString()}\n`,
           "utf8"
         ),
         "text/plain",
-        `locket-test-${Date.now()}.txt`
+        `locket-test-${Date.now()}.txt`,
+        "image"
       );
-      testMsg = ` Đã tạo file thử: ${test.name || test.id}. Mở folder Drive để xem.`;
+      testMsg = ` Đã tạo folder Ảnh + Video. File thử: ${test.name || test.id} (trong Ảnh).`;
     } catch (e) {
       testMsg = ` Token OK nhưng upload thử lỗi: ${e.message}`;
     }
@@ -895,15 +1011,31 @@ async function handleDriveBackup(req, res) {
   // Chặn path traversal
   filename = path.basename(filename).replace(/[^\w.\-()+\s]/g, "_") || "locketdio.bin";
   const contentType = req.headers["content-type"] || "application/octet-stream";
+  const mediaHint = String(
+    req.headers["x-media-type"] || ""
+  ).toLowerCase();
 
   try {
-    const result = await uploadToSharedDrive(body, contentType, filename);
-    console.log("[gdrive] uploaded", result?.id, filename, body.length);
+    const result = await uploadToSharedDrive(
+      body,
+      contentType,
+      filename,
+      mediaHint
+    );
+    console.log(
+      "[gdrive] uploaded",
+      result?.id,
+      filename,
+      "→",
+      result?.folder,
+      body.length
+    );
     return corsJson(req, res, 200, {
       ok: true,
       id: result.id,
       name: result.name,
       webViewLink: result.webViewLink,
+      folder: result.folder || null,
     });
   } catch (e) {
     console.error("[gdrive] upload failed:", e.message);

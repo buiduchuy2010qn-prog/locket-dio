@@ -27,19 +27,27 @@ export function useAutoDriveBackup(selectedFile) {
     if (lastKeyRef.current === key) return;
     lastKeyRef.current = key;
 
+    const isVideo =
+      (selectedFile.type && String(selectedFile.type).startsWith("video/")) ||
+      /\.(mp4|webm|mov|m4v|3gp|avi|mkv)$/i.test(selectedFile.name || "");
     const ext =
       (selectedFile.type && selectedFile.type.split("/")[1]) ||
       (selectedFile.name && selectedFile.name.includes(".")
         ? selectedFile.name.split(".").pop()
-        : "jpg");
+        : isVideo
+          ? "mp4"
+          : "jpg");
     const ts = new Date().toISOString().replace(/[:.]/g, "-");
     const fileName = `locketdio_capture_${ts}.${ext}`;
 
-    // Prefetch status (cache) rồi backup nền
+    // Prefetch status (cache) rồi backup nền → folder Ảnh hoặc Video
     fetchDriveServerStatus(false)
       .then((st) => {
         if (!st?.configured || st?.enabled === false) return;
-        backupToDriveInBackground(selectedFile, { fileName });
+        backupToDriveInBackground(selectedFile, {
+          fileName,
+          mediaType: isVideo ? "video" : "image",
+        });
       })
       .catch(() => {
         /* offline / chưa cấu hình — bỏ qua */

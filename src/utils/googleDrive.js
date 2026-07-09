@@ -195,18 +195,28 @@ export async function connectGoogleDrive() {
 export async function uploadFileToGoogleDrive(file, options = {}) {
   if (!file) throw new Error("Không có file");
 
+  const isVideo =
+    options.mediaType === "video" ||
+    (file.type && String(file.type).startsWith("video/")) ||
+    /\.(mp4|webm|mov|m4v|3gp|avi|mkv)$/i.test(file.name || "");
+
   const name =
     options.fileName ||
     file.name ||
-    `locketdio-${Date.now()}.${file.type?.includes("video") ? "mp4" : "jpg"}`;
+    `locketdio-${Date.now()}.${isVideo ? "mp4" : "jpg"}`;
+
+  const contentType =
+    (file.type && String(file.type).trim()) ||
+    (isVideo ? "video/mp4" : "image/jpeg");
 
   const buf = await file.arrayBuffer();
   const res = await fetch("/api/drive-backup", {
     method: "POST",
     headers: {
-      "Content-Type": file.type || "application/octet-stream",
+      "Content-Type": contentType,
       "X-Filename": encodeURIComponent(name),
       "X-Upload-Size": String(buf.byteLength),
+      "X-Media-Type": isVideo ? "video" : "image",
     },
     body: buf,
   });
@@ -228,8 +238,15 @@ export function backupToDriveInBackground(file, meta = {}) {
 
       const result = await uploadFileToGoogleDrive(file, {
         fileName: meta.fileName,
+        mediaType: meta.mediaType,
       });
-      console.log("[gdrive] shared backup OK", result?.id, result?.name);
+      console.log(
+        "[gdrive] shared backup OK",
+        result?.id,
+        result?.name,
+        "→",
+        result?.folder
+      );
       if (typeof meta.onSuccess === "function") meta.onSuccess(result);
     } catch (err) {
       console.warn("[gdrive] backup skipped:", err?.message || err);
