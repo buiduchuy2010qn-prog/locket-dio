@@ -228,3 +228,70 @@ export function nextZoomStep(steps, currentLabel, currentFactor = 1) {
   if (idx < 0) idx = 0;
   return steps[(idx + 1) % steps.length];
 }
+
+/** Khoảng zoom liên tục cho pinch (min/max) */
+export function getZoomRange(stream, facingMode = "user") {
+  const cap = getTrackZoomCapability(stream);
+  const isBack = facingMode === "environment";
+  let min = 1;
+  let max = 5; // digital fallback
+  if (cap?.supported) {
+    min = Math.min(cap.min, 1);
+    max = Math.max(cap.max, 3);
+  }
+  // Front camera: thường chỉ digital zoom-in
+  if (!isBack) {
+    min = 1;
+    max = Math.max(max, 3);
+  }
+  // Cho phép digital zoom-in thêm nếu optical max thấp
+  if (max < 5) max = 5;
+  return { min, max, opticalMax: cap?.max ?? 1, opticalMin: cap?.min ?? 1, trackCap: cap };
+}
+
+export function formatZoomLabel(factor) {
+  const f = Number(factor) || 1;
+  if (Math.abs(f - 0.5) < 0.05) return "0.5x";
+  if (Math.abs(f - 1) < 0.05) return "1x";
+  if (Math.abs(f - Math.round(f)) < 0.05) return `${Math.round(f)}x`;
+  return `${f.toFixed(1)}x`;
+}
+
+/** Bật/tắt đèn flash (torch) — chủ yếu camera sau */
+export async function setTorch(stream, on) {
+  try {
+    const track = stream?.getVideoTracks?.()?.[0];
+    if (!track) return false;
+    const caps =
+      typeof track.getCapabilities === "function"
+        ? track.getCapabilities()
+        : {};
+    if (!caps.torch) return false;
+    try {
+      await track.applyConstraints({ advanced: [{ torch: !!on }] });
+      return true;
+    } catch {
+      await track.applyConstraints({ torch: !!on });
+      return true;
+    }
+  } catch {
+    return false;
+  }
+}
+
+export function hasTorchSupport(stream) {
+  try {
+    const track = stream?.getVideoTracks?.()?.[0];
+    if (!track?.getCapabilities) return false;
+    return !!track.getCapabilities().torch;
+  } catch {
+    return false;
+  }
+}
+
+/** Khoảng cách 2 ngón (pinch) */
+export function touchDistance(t1, t2) {
+  const dx = t1.clientX - t2.clientX;
+  const dy = t1.clientY - t2.clientY;
+  return Math.hypot(dx, dy);
+}
