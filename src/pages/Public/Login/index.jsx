@@ -73,9 +73,20 @@ const Login = () => {
       // Khi login thành công:
       utils.saveToken({ idToken, localId }, rememberMe);
       await ensureDBOwner(localId);
-      utils.saveUser(userPayload);
+      // Lưu email để nhận diện admin (Google Drive, …)
+      const userWithEmail = {
+        ...userPayload,
+        email: userPayload.email || email,
+      };
+      try {
+        localStorage.setItem("email", email);
+        if (!rememberMe) sessionStorage.setItem("email", email);
+      } catch {
+        /* ignore */
+      }
+      utils.saveUser(userWithEmail);
       setAuthTokens(utils.getToken());
-      setUser(userPayload);
+      setUser(userWithEmail);
 
       SonnerSuccess(
         "Đăng nhập thành công!",
