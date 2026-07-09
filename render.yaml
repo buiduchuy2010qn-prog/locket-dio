@@ -2,8 +2,8 @@
   - type: web
     name: locket-dio
     runtime: static
-    buildCommand: npm install && npm run build
-    staticPublishPath: ./dist
+    buildCommand: "(npm install && npm run build && node scripts/prepare-static.mjs) || echo 'Using prebuilt public/'"
+    staticPublishPath: ./public
     routes:
       - type: rewrite
         source: /*

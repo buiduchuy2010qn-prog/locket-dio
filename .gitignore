@@ -9,7 +9,7 @@ lerna-debug.log*
 glite-debug.log*
 
 node_modules
-dist
+# dist committed as build fallback
 dist-ssr
 *.local
 
