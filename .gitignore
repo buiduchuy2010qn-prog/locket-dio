@@ -37,3 +37,6 @@ src/config/firebase.js
 stats.html
 .env
 
+# Google Drive admin secrets (form web)
+data/
+
