@@ -15,21 +15,15 @@ import PostSuccessModal from '../components/camera/PostSuccessModal'
 import Avatar from '../components/Avatar'
 import { timeAgo } from '../utils/storage'
 
-/**
- * Locket-style camera: photo + video, gallery, square 1:1
- * Full features — no Gold paywall
- */
 export default function Upload() {
   const { user, toast, unreadCount } = useApp()
   const nav = useNavigate()
 
-  const [screen, setScreen] = useState('camera') // camera | history | detail | compose
-  const [mode, setMode] = useState('camera') // camera | gallery
-  const [captureKind, setCaptureKind] = useState('photo') // photo | video
+  const [screen, setScreen] = useState('camera')
+  const [captureKind, setCaptureKind] = useState('photo')
   const [facing, setFacing] = useState('environment')
   const [flash, setFlash] = useState(false)
   const [friendsLabel, setFriendsLabel] = useState('Tất cả bạn bè')
-  const [friendCount, setFriendCount] = useState(0)
 
   const [sourceUrl, setSourceUrl] = useState(null)
   const [type, setType] = useState('image')
@@ -42,9 +36,13 @@ export default function Upload() {
   const [msg, setMsg] = useState('')
   const [audience, setAudience] = useState('FRIENDS')
   const [postResult, setPostResult] = useState(null)
-  const [isDesktop, setIsDesktop] = useState(() => window.matchMedia('(min-width: 1024px)').matches)
+  const [isDesktop, setIsDesktop] = useState(() =>
+    typeof window !== 'undefined' ? window.matchMedia('(min-width: 1024px)').matches : false,
+  )
   const [recording, setRecording] = useState(false)
   const [recSec, setRecSec] = useState(0)
+  const [camReady, setCamReady] = useState(false)
+  const [camError, setCamError] = useState('')
 
   const liveRef = useRef(null)
   const streamRef = useRef(null)
@@ -52,6 +50,7 @@ export default function Upload() {
   const recorderRef = useRef(null)
   const chunksRef = useRef([])
   const recTimerRef = useRef(null)
+  const recordingRef = useRef(false)
   const maxVideo = GOLD_VIDEO_MAX_SEC
 
   useEffect(() => {
@@ -62,10 +61,9 @@ export default function Upload() {
   }, [])
 
   useEffect(() => {
-    api.fetchFriends().then((f) => {
-      setFriendCount(f.length)
-      setFriendsLabel(f.length > 0 ? `${f.length} Bạn bè` : 'Tất cả bạn bè')
-    }).catch(() => {})
+    api.fetchFriends()
+      .then((f) => setFriendsLabel(f.length > 0 ? `${f.length} Bạn bè` : 'Tất cả bạn bè'))
+      .catch(() => {})
   }, [])
 
   const loadHistory = useCallback(() => {
@@ -76,110 +74,193 @@ export default function Upload() {
     if (screen === 'history') loadHistory()
   }, [screen, loadHistory])
 
-  const stopLive = useCallback(() => {
-    if (recorderRef.current && recorderRef.current.state !== 'inactive') {
-      try { recorderRef.current.stop() } catch { /* ignore */ }
-    }
-    recorderRef.current = null
+  const stopRecorderOnly = useCallback(() => {
     if (recTimerRef.current) {
       clearInterval(recTimerRef.current)
       recTimerRef.current = null
     }
+    recordingRef.current = false
     setRecording(false)
     setRecSec(0)
+  }, [])
+
+  const stopLive = useCallback(() => {
+    try {
+      if (recorderRef.current && recorderRef.current.state !== 'inactive') {
+        recorderRef.current.ondataavailable = null
+        recorderRef.current.onstop = null
+        recorderRef.current.stop()
+      }
+    } catch { /* ignore */ }
+    recorderRef.current = null
+    stopRecorderOnly()
     streamRef.current?.getTracks()?.forEach((t) => t.stop())
     streamRef.current = null
-  }, [])
+    setCamReady(false)
+  }, [stopRecorderOnly])
 
   useEffect(() => () => stopLive(), [stopLive])
 
+  const attachStream = useCallback(async (stream) => {
+    streamRef.current = stream
+    const el = liveRef.current
+    if (el) {
+      el.srcObject = stream
+      try {
+        await el.play()
+      } catch { /* autoplay policies */ }
+    }
+    setCamReady(true)
+    setCamError('')
+  }, [])
+
   const startLive = useCallback(async (withAudio = false) => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setCamError('Trình duyệt không hỗ trợ camera. Dùng Thư viện.')
+      return null
+    }
     try {
-      stopLive()
+      // Don't tear down mid-record via this path if already recording
+      if (!recordingRef.current) {
+        streamRef.current?.getTracks()?.forEach((t) => t.stop())
+        streamRef.current = null
+      }
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: facing, aspectRatio: { ideal: 1 }, width: { ideal: 1280 } },
+        video: {
+          facingMode: { ideal: facing },
+          width: { ideal: 1280 },
+          height: { ideal: 1280 },
+        },
         audio: withAudio,
       })
-      streamRef.current = stream
-      if (liveRef.current) {
-        liveRef.current.srcObject = stream
-        await liveRef.current.play().catch(() => {})
-      }
-    } catch {
-      toast('Không mở được camera — dùng thư viện', 'error')
+      await attachStream(stream)
+      return stream
+    } catch (e) {
+      console.error(e)
+      setCamReady(false)
+      setCamError('Không mở được camera — cho phép quyền camera hoặc dùng Thư viện')
+      return null
     }
-  }, [facing, stopLive, toast])
+  }, [facing, attachStream])
 
+  // Start/stop camera when on camera screen
   useEffect(() => {
-    if (screen === 'camera' && mode === 'camera' && !sourceUrl) {
-      startLive(captureKind === 'video')
-    } else if (sourceUrl || screen !== 'camera') {
-      stopLive()
+    if (screen !== 'camera' || sourceUrl) {
+      if (screen !== 'camera' || sourceUrl) stopLive()
+      return
     }
-  }, [screen, mode, facing, sourceUrl, captureKind, startLive, stopLive])
+    if (recordingRef.current) return
+    let cancelled = false
+    ;(async () => {
+      const s = await startLive(captureKind === 'video')
+      if (cancelled && s) {
+        s.getTracks().forEach((t) => t.stop())
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-run on screen/facing/kind when not recording
+  }, [screen, facing, captureKind, sourceUrl])
 
-  const capturePhoto = () => {
+  const capturePhoto = async () => {
     const video = liveRef.current
-    if (!video?.videoWidth) return toast('Camera chưa sẵn sàng', 'error')
-    const side = Math.min(video.videoWidth, video.videoHeight)
-    const sx = (video.videoWidth - side) / 2
-    const sy = (video.videoHeight - side) / 2
-    const canvas = document.createElement('canvas')
-    canvas.width = 1080
-    canvas.height = 1080
-    canvas.getContext('2d').drawImage(video, sx, sy, side, side, 0, 0, 1080, 1080)
-    stopLive()
-    setSourceUrl(canvas.toDataURL('image/jpeg', 0.92))
-    setType('image')
-    setDuration(0)
-    setCrop({ zoom: 1, offsetX: 0, offsetY: 0 })
-    setScreen('compose')
+    if (!video?.videoWidth) {
+      toast('Camera chưa sẵn sàng — đợi preview hoặc dùng Thư viện', 'error')
+      return
+    }
+    try {
+      const side = Math.min(video.videoWidth, video.videoHeight)
+      const sx = (video.videoWidth - side) / 2
+      const sy = (video.videoHeight - side) / 2
+      const canvas = document.createElement('canvas')
+      canvas.width = 1080
+      canvas.height = 1080
+      canvas.getContext('2d').drawImage(video, sx, sy, side, side, 0, 0, 1080, 1080)
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.9)
+      stopLive()
+      setSourceUrl(dataUrl)
+      setType('image')
+      setDuration(0)
+      setCrop({ zoom: 1, offsetX: 0, offsetY: 0 })
+      setScreen('compose')
+    } catch (e) {
+      toast(e.message || 'Chụp thất bại', 'error')
+    }
   }
 
   const stopRecording = useCallback(() => {
-    if (recorderRef.current && recorderRef.current.state !== 'inactive') {
-      recorderRef.current.stop()
+    const rec = recorderRef.current
+    if (rec && rec.state !== 'inactive') {
+      try {
+        rec.stop()
+      } catch { /* ignore */ }
     }
     if (recTimerRef.current) {
       clearInterval(recTimerRef.current)
       recTimerRef.current = null
     }
+    recordingRef.current = false
     setRecording(false)
   }, [])
 
   const startRecording = async () => {
-    let stream = streamRef.current
-    if (!stream || !stream.getAudioTracks().length) {
-      await startLive(true)
-      stream = streamRef.current
-    }
-    if (!stream) return toast('Camera chưa sẵn sàng', 'error')
-
-    const mimeCandidates = [
-      'video/webm;codecs=vp9,opus',
-      'video/webm;codecs=vp8,opus',
-      'video/webm',
-      'video/mp4',
-    ]
-    const mime = mimeCandidates.find((m) => typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported?.(m)) || ''
-    if (typeof MediaRecorder === 'undefined') {
-      return toast('Trình duyệt không hỗ trợ quay video — dùng Thư viện', 'error')
-    }
-
-    chunksRef.current = []
     try {
+      let stream = streamRef.current
+      if (!stream || stream.getVideoTracks().every((t) => t.readyState !== 'live')) {
+        stream = await startLive(true)
+      } else if (!stream.getAudioTracks().length) {
+        // re-acquire with audio
+        stream = await startLive(true)
+      }
+      if (!stream) {
+        toast('Không mở camera/mic để quay video', 'error')
+        return
+      }
+      if (typeof MediaRecorder === 'undefined') {
+        toast('Trình duyệt không hỗ trợ quay video — dùng Thư viện', 'error')
+        return
+      }
+
+      const mimeCandidates = [
+        'video/webm;codecs=vp9,opus',
+        'video/webm;codecs=vp8,opus',
+        'video/webm',
+        'video/mp4',
+      ]
+      const mime = mimeCandidates.find((m) => MediaRecorder.isTypeSupported?.(m)) || ''
+      chunksRef.current = []
       const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined)
       recorderRef.current = rec
+
       rec.ondataavailable = (e) => {
         if (e.data?.size) chunksRef.current.push(e.data)
       }
+      rec.onerror = () => {
+        toast('Lỗi quay video', 'error')
+        stopRecording()
+      }
       rec.onstop = () => {
         const blob = new Blob(chunksRef.current, { type: rec.mimeType || 'video/webm' })
+        if (!blob.size) {
+          toast('Video rỗng — thử lại', 'error')
+          stopRecorderOnly()
+          return
+        }
         const url = URL.createObjectURL(blob)
         const v = document.createElement('video')
+        v.preload = 'metadata'
         v.onloadedmetadata = () => {
-          const sec = Math.round(v.duration || recSec || 0)
+          let sec = Math.round(v.duration || 0)
+          if (!Number.isFinite(sec) || sec <= 0) sec = recSec || 1
           setDuration(sec)
+          setSourceUrl(url)
+          setType('video')
+          setScreen('compose')
+          stopLive()
+        }
+        v.onerror = () => {
+          setDuration(recSec || 1)
           setSourceUrl(url)
           setType('video')
           setScreen('compose')
@@ -187,7 +268,9 @@ export default function Upload() {
         }
         v.src = url
       }
-      rec.start(200)
+
+      rec.start(250)
+      recordingRef.current = true
       setRecording(true)
       setRecSec(0)
       recTimerRef.current = setInterval(() => {
@@ -199,7 +282,8 @@ export default function Upload() {
           return next
         })
       }, 1000)
-    } catch {
+    } catch (e) {
+      console.error(e)
       toast('Không quay được video — thử Thư viện', 'error')
     }
   }
@@ -209,7 +293,7 @@ export default function Upload() {
       capturePhoto()
       return
     }
-    if (recording) stopRecording()
+    if (recordingRef.current) stopRecording()
     else startRecording()
   }
 
@@ -219,8 +303,15 @@ export default function Upload() {
     if (mediaType === 'video') {
       const url = URL.createObjectURL(file)
       const v = document.createElement('video')
+      v.preload = 'metadata'
       v.onloadedmetadata = () => {
-        setDuration(Math.round(v.duration || 0))
+        setDuration(Math.round(v.duration || 0) || 1)
+        setSourceUrl(url)
+        setType('video')
+        setScreen('compose')
+      }
+      v.onerror = () => {
+        setDuration(1)
         setSourceUrl(url)
         setType('video')
         setScreen('compose')
@@ -234,6 +325,7 @@ export default function Upload() {
         setDuration(0)
         setScreen('compose')
       }
+      r.onerror = () => toast('Không đọc được file', 'error')
       r.readAsDataURL(file)
     }
   }
@@ -266,13 +358,18 @@ export default function Upload() {
         visibility: audience,
         syncOfficial: false,
       })
-      toast('Đã lưu trên Locket Dio')
-      setPostResult({ moment: result, mediaUrl, caption })
+      toast('Đã lưu moment!')
+      setPostResult({
+        moment: result,
+        mediaUrl: result.mediaUrl || mediaUrl,
+        caption,
+      })
       setSourceUrl(null)
       setCaption('')
       loadHistory()
     } catch (e) {
-      toast(e.message, 'error')
+      console.error(e)
+      toast(e.message || 'Đăng thất bại', 'error')
     } finally {
       setLoading(false)
     }
@@ -319,7 +416,7 @@ export default function Upload() {
           <div className="pt-20 px-3 pb-28">
             <h1 className={`text-center font-bold mb-4 ${isDesktop ? 'text-slate-800' : 'text-white'}`}>Lịch sử</h1>
             {posts.length === 0 ? (
-              <p className={`text-center text-sm py-16 ${isDesktop ? 'text-slate-400' : 'text-white/50'}`}>Chưa có moment</p>
+              <p className={`text-center text-sm py-16 ${isDesktop ? 'text-slate-400' : 'text-white/50'}`}>Chưa có moment — chụp ngay!</p>
             ) : (
               <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
                 {posts.map((p) => (
@@ -345,7 +442,7 @@ export default function Upload() {
               variant="solid"
               label="Chụp"
               className="!bg-white border-4 border-slate-200 shadow-2xl"
-              onClick={() => { setSourceUrl(null); setScreen('camera'); setMode('camera') }}
+              onClick={() => { setSourceUrl(null); setScreen('camera') }}
             >
               <span className="w-14 h-14 rounded-full border-[3px] border-slate-800" />
             </GlassBtn>
@@ -402,7 +499,16 @@ export default function Upload() {
             />
             <button
               type="button"
-              onClick={() => { if (msg.trim()) { toast('Đã gửi'); setMsg('') } }}
+              onClick={() => {
+                if (!msg.trim()) return
+                const peer = selected.userId !== user?.id ? selected.userId : null
+                if (peer) {
+                  api.sendMessage?.(peer, msg).then(() => { toast('Đã gửi'); setMsg('') }).catch((err) => toast(err.message, 'error'))
+                } else {
+                  toast('Chọn moment của bạn bè để chat')
+                  setMsg('')
+                }
+              }}
               className="text-amber-400 active:scale-90"
             >
               <Send size={18} />
@@ -416,7 +522,7 @@ export default function Upload() {
           <GlassBtn size="xl" variant="solid" label="Chụp" onClick={() => { setSelected(null); setSourceUrl(null); setScreen('camera') }}>
             <span className="w-14 h-14 rounded-full border-[3px] border-slate-800" />
           </GlassBtn>
-          <GlassBtn size="md" variant={btnVariant} label="Thêm" onClick={() => toast('Tuỳ chọn', 'info')}>
+          <GlassBtn size="md" variant={btnVariant} label="Thêm" onClick={() => nav('/app/gallery')}>
             <MoreHorizontal size={20} />
           </GlassBtn>
         </div>
@@ -476,9 +582,6 @@ export default function Upload() {
               ))}
             </div>
           </div>
-          <p className={`mt-2 text-[11px] ${isDesktop ? 'text-slate-400' : 'text-white/45'}`}>
-            Đăng trên Dio · Tải/share để đăng tay trên app Locket (không auto-sync).
-          </p>
           <div className="flex gap-2 mt-3">
             <button
               type="button"
@@ -516,33 +619,24 @@ export default function Upload() {
       )}
 
       <div className={`flex-1 flex flex-col items-center justify-center px-4 ${isDesktop ? 'pt-8 pb-8' : 'pt-16 pb-4'}`}>
-        {/* Camera | Gallery */}
         <div className="mb-2 z-20">
           <div className={`inline-flex p-1 rounded-full border backdrop-blur-md ${isDesktop ? 'bg-slate-100 border-slate-200' : 'bg-white/10 border-white/20'}`}>
-            {['camera', 'gallery'].map((m) => (
-              <button
-                key={m}
-                type="button"
-                onClick={() => {
-                  setMode(m)
-                  if (m === 'gallery') {
-                    fileRef.current?.click()
-                    setMode('camera')
-                  }
-                }}
-                className={`px-4 py-1.5 rounded-full text-xs font-bold transition active:scale-95 ${
-                  mode === m
-                    ? isDesktop ? 'bg-white shadow text-slate-900' : 'bg-white text-slate-900'
-                    : isDesktop ? 'text-slate-500' : 'text-white/70'
-                }`}
-              >
-                {m === 'camera' ? 'Camera' : 'Thư viện'}
-              </button>
-            ))}
+            <button
+              type="button"
+              className={`px-4 py-1.5 rounded-full text-xs font-bold ${isDesktop ? 'bg-white shadow text-slate-900' : 'bg-white text-slate-900'}`}
+            >
+              Camera
+            </button>
+            <button
+              type="button"
+              onClick={() => fileRef.current?.click()}
+              className={`px-4 py-1.5 rounded-full text-xs font-bold ${isDesktop ? 'text-slate-500' : 'text-white/70'}`}
+            >
+              Thư viện
+            </button>
           </div>
         </div>
 
-        {/* Photo | Video */}
         <div className="mb-3 z-20">
           <div className={`inline-flex p-1 rounded-full border backdrop-blur-md ${isDesktop ? 'bg-slate-100 border-slate-200' : 'bg-white/10 border-white/20'}`}>
             {[
@@ -575,6 +669,30 @@ export default function Upload() {
               muted
               className="absolute inset-0 w-full h-full object-cover"
             />
+            {!camReady && !camError && (
+              <div className="absolute inset-0 z-20 flex items-center justify-center bg-slate-900/80 text-white text-sm">
+                Đang mở camera…
+              </div>
+            )}
+            {camError && (
+              <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-slate-900/90 text-white text-sm p-4 text-center gap-3">
+                <p>{camError}</p>
+                <button
+                  type="button"
+                  onClick={() => startLive(captureKind === 'video')}
+                  className="px-4 py-2 rounded-full gold-gradient text-white text-xs font-bold"
+                >
+                  Thử lại camera
+                </button>
+                <button
+                  type="button"
+                  onClick={() => fileRef.current?.click()}
+                  className="px-4 py-2 rounded-full bg-white/15 text-white text-xs font-bold border border-white/20"
+                >
+                  Chọn từ Thư viện
+                </button>
+              </div>
+            )}
           </SquareFrame>
 
           {recording && (
@@ -608,12 +726,7 @@ export default function Upload() {
         </button>
 
         <div className={`mt-5 w-full max-w-md flex items-center justify-between px-2 ${isDesktop ? 'mt-8' : ''}`}>
-          <GlassBtn
-            size="md"
-            variant={btnVariant}
-            label="Lịch sử"
-            onClick={() => setScreen('history')}
-          >
+          <GlassBtn size="md" variant={btnVariant} label="Lịch sử" onClick={() => setScreen('history')}>
             <Images size={20} />
           </GlassBtn>
 
@@ -649,12 +762,12 @@ export default function Upload() {
           </GlassBtn>
         </div>
 
-        <p className={`mt-3 text-[11px] ${isDesktop ? 'text-slate-400' : 'text-white/50'}`}>
+        <p className={`mt-3 text-[11px] text-center px-4 ${isDesktop ? 'text-slate-400' : 'text-white/50'}`}>
           {captureKind === 'photo'
             ? 'Chạm nút tròn để chụp ảnh 1:1'
             : recording
               ? 'Chạm lại để dừng quay'
-              : `Chạm nút đỏ để quay video (tối đa ${maxVideo}s)`}
+              : `Chạm nút đỏ để quay (tối đa ${maxVideo}s)`}
         </p>
 
         {isDesktop && (

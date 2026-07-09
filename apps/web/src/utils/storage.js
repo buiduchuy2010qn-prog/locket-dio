@@ -16,6 +16,11 @@ export function save(key, value) {
     localStorage.setItem(PREFIX + key, JSON.stringify(value))
   } catch (e) {
     console.warn('storage save failed', e)
+    // Surface quota errors so upload can show a toast
+    if (e?.name === 'QuotaExceededError' || /quota/i.test(String(e?.message))) {
+      throw new Error('Bộ nhớ trình duyệt đầy. Xóa bớt moment hoặc dữ liệu site.')
+    }
+    throw e
   }
 }
 

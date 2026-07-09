@@ -8,65 +8,88 @@ const AppContext = createContext(null)
 export function AppProvider({ children }) {
   const [user, setUser] = useState(null)
   const [booting, setBooting] = useState(true)
-  const [theme, setTheme] = useState(() => load('theme', 'light'))
+  const [theme, setTheme] = useState(() => {
+    try {
+      return load('theme', 'light') || 'light'
+    } catch {
+      return 'light'
+    }
+  })
   const [notifications, setNotifications] = useState([])
   const [toasts, setToasts] = useState([])
-  const [upgradeModal, setUpgradeModal] = useState(null) // { feature, message }
+  const [upgradeModal, setUpgradeModal] = useState(null)
+  const [apiMode, setApiMode] = useState(null)
 
   const refreshUser = useCallback(async () => {
-    const u = await api.fetchCurrentUser()
-    setUser(u)
-    if (u?.darkMode) setTheme('dark')
-    return u
+    try {
+      const u = await api.fetchCurrentUser()
+      setUser(u)
+      if (u?.darkMode) setTheme('dark')
+      return u
+    } catch {
+      setUser(null)
+      return null
+    }
   }, [])
 
   const refreshNotifications = useCallback(async () => {
-    if (!user && !load('sessionUserId')) {
+    try {
+      const list = await api.fetchNotifications()
+      setNotifications(Array.isArray(list) ? list : [])
+      return list
+    } catch {
       setNotifications([])
       return []
     }
-    try {
-      const list = await api.fetchNotifications()
-      setNotifications(list)
-      return list
-    } catch {
-      return []
-    }
-  }, [user])
+  }, [])
 
   useEffect(() => {
+    let cancelled = false
     ;(async () => {
       try {
-        await resolveApiMode()
+        const m = await resolveApiMode()
+        if (!cancelled) setApiMode(m)
         const u = await api.fetchCurrentUser()
+        if (cancelled) return
         setUser(u)
         if (u) {
           if (u.darkMode) setTheme('dark')
-          const list = await api.fetchNotifications()
-          setNotifications(list)
+          try {
+            const list = await api.fetchNotifications()
+            if (!cancelled) setNotifications(Array.isArray(list) ? list : [])
+          } catch {
+            /* ignore */
+          }
         }
+      } catch (e) {
+        console.error('[App] boot error', e)
       } finally {
-        setBooting(false)
+        if (!cancelled) setBooting(false)
       }
     })()
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark')
-    save('theme', theme)
+    try {
+      save('theme', theme)
+    } catch { /* ignore */ }
   }, [theme])
 
   const toast = useCallback((message, type = 'success') => {
     const id = Date.now() + Math.random()
     setToasts((t) => [...t, { id, message, type }])
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3200)
+    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3500)
   }, [])
 
   const login = async (creds) => {
     const u = await api.loginUser(creds)
     setUser(u)
     await refreshNotifications()
-    toast(`Chào mừng trở lại, ${u.displayName}!`)
+    toast(`Chào mừng trở lại, ${u.displayName || u.username}!`)
     return u
   }
 
@@ -78,10 +101,13 @@ export function AppProvider({ children }) {
   }
 
   const logout = async () => {
-    await api.logoutUser()
-    setUser(null)
-    setNotifications([])
-    toast('Đã đăng xuất')
+    try {
+      await api.logoutUser()
+    } finally {
+      setUser(null)
+      setNotifications([])
+      toast('Đã đăng xuất')
+    }
   }
 
   const updateUser = async (patch) => {
@@ -98,12 +124,12 @@ export function AppProvider({ children }) {
       try {
         const u = await api.updateProfile({ darkMode: next === 'dark' })
         setUser(u)
-      } catch { /* local only */ }
+      } catch { /* local theme only */ }
     }
   }
 
   const openUpgrade = (feature, message) => {
-    setUpgradeModal({ feature, message: message || 'Tính năng dành cho Piclet Gold' })
+    setUpgradeModal({ feature, message: message || 'Tính năng đã mở cho mọi người' })
   }
 
   const closeUpgrade = () => setUpgradeModal(null)
@@ -112,7 +138,7 @@ export function AppProvider({ children }) {
     const u = await api.upgradeToGold({ plan })
     setUser(u)
     await refreshNotifications()
-    toast('✨ Piclet Gold đã kích hoạt!')
+    toast('Đã mở full tính năng!')
     return u
   }
 
@@ -150,7 +176,7 @@ export function AppProvider({ children }) {
       await api.markNotificationAsRead(id)
       await refreshNotifications()
     },
-    apiMode: getApiMode,
+    apiMode: () => apiMode || getApiMode(),
   }
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>

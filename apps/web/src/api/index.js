@@ -1,7 +1,8 @@
 /**
- * API facade: prefers real backend, falls back to local mock when API offline.
+ * API facade: mock-first for static deploy; real only when remote API is healthy.
+ * Falls back to mock on real API failures so the app always works.
  */
-import { checkApiHealth } from '../services/http.js'
+import { checkApiHealth, shouldUseRealApiConfig } from '../services/http.js'
 import * as real from '../services/realApi.js'
 import * as mock from './mockApi.js'
 
@@ -9,6 +10,11 @@ let mode = null // 'real' | 'mock'
 
 export async function resolveApiMode() {
   if (mode) return mode
+  if (!shouldUseRealApiConfig()) {
+    mode = 'mock'
+    console.info('[Locket Dio] Local mode (mock storage) — full features offline')
+    return mode
+  }
   const ok = await checkApiHealth()
   mode = ok ? 'real' : 'mock'
   if (mode === 'mock') {
@@ -23,18 +29,30 @@ export function getApiMode() {
   return mode
 }
 
+export function forceMockMode() {
+  mode = 'mock'
+}
+
 async function call(name, ...args) {
   await resolveApiMode()
   const impl = mode === 'real' ? real : mock
   if (typeof impl[name] !== 'function') {
-    // graceful missing mock method
     if (mode === 'real' && typeof mock[name] === 'function') return mock[name](...args)
     throw new Error(`API method missing: ${name}`)
   }
   try {
     return await impl[name](...args)
   } catch (e) {
-    // If real fails hard on network, try mock once for read-only safety? No — surface errors.
+    // Network / backend down → switch to mock once and retry (auth/session local)
+    const isNet =
+      e?.name === 'TypeError' ||
+      e?.name === 'AbortError' ||
+      /fetch|network|Failed to fetch|API URL/i.test(String(e?.message || ''))
+    if (mode === 'real' && isNet && typeof mock[name] === 'function') {
+      console.warn(`[Locket Dio] ${name} failed on real API, falling back to mock`, e.message)
+      mode = 'mock'
+      return mock[name](...args)
+    }
     throw e
   }
 }
@@ -81,3 +99,6 @@ export const syncWithLocketOfficialAPI = (...a) => call('syncWithLocketOfficialA
 export const syncMomentToOfficialLocket = (...a) => call('syncMomentToOfficialLocket', ...a)
 export const logLocketExport = (...a) => call('logLocketExport', ...a)
 export const resetDemoData = (...a) => call('resetDemoData', ...a)
+export const fetchConversations = (...a) => call('fetchConversations', ...a)
+export const fetchMessages = (...a) => call('fetchMessages', ...a)
+export const sendMessage = (...a) => call('sendMessage', ...a)

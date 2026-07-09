@@ -16,11 +16,14 @@ export default function Feed() {
 
   useEffect(() => {
     setLoading(true)
-    api.fetchFeed().then((p) => {
-      setPosts(p)
-      setLoading(false)
-      p.slice(0, 5).forEach((x) => api.markSeen(x.id))
-    })
+    api.fetchFeed()
+      .then((p) => {
+        const list = Array.isArray(p) ? p : []
+        setPosts(list)
+        list.slice(0, 5).forEach((x) => api.markSeen(x.id).catch(() => {}))
+      })
+      .catch(() => setPosts([]))
+      .finally(() => setLoading(false))
   }, [])
 
   return (

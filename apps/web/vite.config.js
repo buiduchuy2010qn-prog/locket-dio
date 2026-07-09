@@ -4,6 +4,8 @@ import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  // Static-first: default mock. Set VITE_API_URL to remote API only when backend is live.
+  envPrefix: 'VITE_',
   server: {
     port: 5173,
     proxy: {
@@ -12,5 +14,9 @@ export default defineConfig({
       '/health': { target: 'http://localhost:4000', changeOrigin: true },
       '/socket.io': { target: 'http://localhost:4000', ws: true },
     },
+  },
+  build: {
+    sourcemap: false,
+    chunkSizeWarningLimit: 800,
   },
 })

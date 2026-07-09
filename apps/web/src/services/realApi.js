@@ -246,3 +246,25 @@ export async function logLocketExport({ momentId, action, meta }) {
 export async function fetchServerStatus() {
   return http('/api/status')
 }
+
+export async function fetchConversations() {
+  try {
+    const data = await http('/api/chat/conversations')
+    return data.conversations || []
+  } catch {
+    return []
+  }
+}
+
+export async function fetchMessages(peerId) {
+  try {
+    const data = await http(`/api/chat/messages?peerId=${encodeURIComponent(peerId)}`)
+    return data.messages || []
+  } catch {
+    return []
+  }
+}
+
+export async function sendMessage(peerId, body) {
+  return http('/api/chat/messages', { method: 'POST', body: { peerId, body } })
+}
