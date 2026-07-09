@@ -148,15 +148,17 @@ export const logout = async () => {
 
 export const GetUserData = async () => {
   try {
-    const res = await api.get("/api/me");
+    // Official client uses GET /api/cn (NOT /api/me — that 404s on Dio)
+    // Response includes session.member_token required for storage presign
+    const res = await api.get("/api/cn");
     const data = res.data?.data ?? res.data;
-    // Official client: session.member_token → header X-LocketDio-Member
+    // Official: ws(userData.session) → X-LocketDio-Member
     try {
       const { saveMemberSession } = await import("@/utils/memberToken");
       if (data?.session) saveMemberSession(data.session);
-      else if (data?.member_token) saveMemberSession(data);
-      // nested plan shapes
+      if (data?.member_token) saveMemberSession(data);
       if (data?.plan_info?.session) saveMemberSession(data.plan_info.session);
+      if (res.data?.session) saveMemberSession(res.data.session);
     } catch (_) {
       /* ignore */
     }

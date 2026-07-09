@@ -123,7 +123,7 @@ async function proxyRequest(req, res, proxy) {
       "Access-Control-Allow-Methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
       "Access-Control-Allow-Headers":
         req.headers["access-control-request-headers"] ||
-        "content-type,authorization,x-api-key,x-app-author,x-app-name,x-app-client,x-app-api,x-app-env",
+        "content-type,authorization,x-api-key,x-app-author,x-app-name,x-app-client,x-app-api,x-app-env,x-locketdio-member",
       "Access-Control-Allow-Credentials": "true",
       "Access-Control-Max-Age": "86400",
     });

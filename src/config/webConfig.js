@@ -33,7 +33,8 @@ export const CONFIG = {
     // Align with production client so Dio backend accepts requests
     clientVersion: "Beta1.3.4",
     apiVersion: "v2.2.1", // Version API
-    env: import.meta.env.MODE, // development | production
+    // Official client hardcodes "production" — Dio may reject other env labels
+    env: "production",
     camera: {
       limits: {
         maxRecordTime: 60, // giây

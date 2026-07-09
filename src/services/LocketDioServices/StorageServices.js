@@ -58,10 +58,17 @@ export const uploadFileAndGetInfoR2 = async (
     "x-app-name": CONFIG.app.shortname,
     "x-app-client": CONFIG.app.clientVersion,
     "x-app-api": CONFIG.app.apiVersion,
-    "x-app-env": CONFIG.app.env,
+    "x-app-env": CONFIG.app.env || "production",
   };
-  // Official: X-LocketDio-Member header from session.member_token
+  // Official storage axios: Authorization + X-LocketDio-Member + x-app-*
   applyMemberHeader(headers);
+  if (!headers["X-LocketDio-Member"] && !Object.keys(headers).some((k) =>
+    k.toLowerCase() === "x-locketdio-member"
+  )) {
+    throw new Error(
+      "Thiếu member token (X-LocketDio-Member). Đăng xuất rồi đăng nhập lại để tải /api/cn."
+    );
+  }
 
   let res;
   try {
@@ -85,9 +92,19 @@ export const uploadFileAndGetInfoR2 = async (
     throw e;
   }
 
+  // Dio may return HTTP 200 with success:false + "Malformed request"
+  if (res.data?.success === false) {
+    const msg =
+      res.data?.message ||
+      res.data?.error?.message ||
+      (typeof res.data?.error === "string" ? res.data.error : null) ||
+      "Presign rejected";
+    throw new Error(typeof msg === "string" ? msg : JSON.stringify(msg));
+  }
+
   const data = res.data?.data || res.data;
-  // Official: PUT to uploadUrl (not public url)
-  const putUrl = data?.uploadUrl || data?.url;
+  // Official: PUT to uploadUrl only (never fall back to public url for PUT)
+  const putUrl = data?.uploadUrl;
   if (!putUrl) {
     console.error("Presign response missing uploadUrl:", res.data);
     throw new Error(

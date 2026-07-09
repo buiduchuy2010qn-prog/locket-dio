@@ -4,17 +4,22 @@ const DEFAULT_HEADER = "X-LocketDio-Member";
 
 /** Lưu member session từ API Dio (bắt buộc cho storage/upload) */
 export function saveMemberSession(session) {
-  if (!session) return;
+  if (!session || typeof session !== "object") return;
+  // Official only checks session.member_token; keep aliases as fallback
   const token =
     session.member_token ||
     session.memberToken ||
-    session.token ||
+    session.session?.member_token ||
+    session.session?.memberToken ||
     null;
-  if (!token) return;
+  if (!token || typeof token !== "string") return;
   localStorage.setItem(TOKEN_KEY, token);
   localStorage.setItem(
     HEADER_KEY,
-    session.header || session.memberHeader || DEFAULT_HEADER
+    session.header ||
+      session.memberHeader ||
+      session.session?.header ||
+      DEFAULT_HEADER
   );
 }
 

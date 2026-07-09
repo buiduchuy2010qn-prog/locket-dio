@@ -36,45 +36,27 @@ export const createRequestPayloadV5 = async (
       localId
     );
 
-    // Official: spread full storage response + type
+    // Official: mediaInfo = { ...presignResponse, type } only
     const mediaInfo = {
       ...uploaded,
       type: previewType,
-      // ensure url field for consumers
-      url:
-        uploaded.publicURL ||
-        uploaded.publicUrl ||
-        uploaded.url ||
-        uploaded.downloadURL,
-      path: uploaded.key || uploaded.path || uploaded.metadata?.path,
-      name: uploaded.metadata?.name || uploaded.name,
-      size: uploaded.metadata?.size || selectedFile?.size,
     };
-
-    // remove nested helpers that may confuse backend
+    // strip local helpers never sent by official client
     delete mediaInfo.metadata;
     delete mediaInfo.downloadURL;
 
+    // Official: optionsData = { ...overlayData, audience, recipients }
     const optionsData = {
-      caption: postOverlay?.caption || "",
-      overlay_id: postOverlay?.overlay_id || "standard",
-      type: postOverlay?.type || "default",
-      icon: postOverlay?.icon || "",
-      text_color: postOverlay?.text_color || "#FFFFFF",
-      color_top: postOverlay?.color_top || "",
-      color_bottom: postOverlay?.color_bottom || "",
+      ...(postOverlay || {}),
       audience: audience || "all",
       recipients: determineRecipients(audience, selectedRecipients, localId),
-      music: postOverlay?.music || "",
     };
 
     if (isStreakToday) {
       optionsData.streakData = isStreakToday;
-    } else {
-      optionsData.isStreaktoday = false;
     }
 
-    // Official field name: optionsData (not options)
+    // Official field name: optionsData
     return {
       model: "Version-UploadmediaV3.1",
       mediaInfo,
