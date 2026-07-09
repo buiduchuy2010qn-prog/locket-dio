@@ -165,6 +165,10 @@ export function sanitizeOptionsData(overlay = {}, opts = {}) {
   return optionsData;
 }
 
+/**
+ * Giữ gần như nguyên response storage (official: ...r.data.data + type).
+ * Chỉ bỏ helper local. Không whitelist hẹp — Dio có thể cần field phụ.
+ */
 export function sanitizeMediaInfo(raw, mediaType, fileSize) {
   let data = {};
   try {
@@ -176,46 +180,54 @@ export function sanitizeMediaInfo(raw, mediaType, fileSize) {
   delete data.metadata;
   delete data.downloadURL;
 
-  if (!data.url) {
-    data.url = data.publicURL || data.publicUrl || null;
+  const uploadUrl = typeof data.uploadUrl === "string" ? data.uploadUrl : "";
+
+  // url công khai — không để nhầm uploadUrl (PUT-only → 404 "Không thể tải media từ URL")
+  let url =
+    data.url ||
+    data.publicURL ||
+    data.publicUrl ||
+    data.downloadURL ||
+    data.downloadUrl ||
+    null;
+
+  if (url && uploadUrl && url === uploadUrl) {
+    url =
+      data.publicURL ||
+      data.publicUrl ||
+      data.downloadURL ||
+      data.downloadUrl ||
+      url;
   }
+
+  // Nếu url vẫn là presigned PUT (có Signature), thử field khác
+  if (
+    typeof url === "string" &&
+    /X-Amz-Signature|X-Amz-Credential/i.test(url) &&
+    uploadUrl &&
+    url === uploadUrl
+  ) {
+    // giữ nguyên — một số backend chỉ trả 1 URL (hiếm)
+  }
+
+  data.url = url;
   if (!data.path && data.key) data.path = data.key;
   if (!data.size && fileSize) data.size = fileSize;
   data.type = mediaType;
 
-  // Chỉ giữ primitive + object thuần an toàn
-  const allowed = [
-    "url",
-    "uploadUrl",
-    "key",
-    "path",
-    "name",
-    "size",
-    "type",
-    "expiresIn",
-    "contentType",
-    "publicURL",
-    "publicUrl",
-    "bucket",
-    "etag",
-  ];
-  const out = {};
-  for (const k of allowed) {
-    if (data[k] !== undefined) out[k] = data[k];
-  }
-  // giữ thêm field string/number từ storage (không object lồng sâu lạ)
-  for (const [k, v] of Object.entries(data)) {
-    if (out[k] !== undefined) continue;
-    if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") {
-      out[k] = v;
-    }
-  }
-
-  if (!out.url) {
+  if (!data.url || typeof data.url !== "string" || !data.url.startsWith("http")) {
     throw new Error(
       "Presign không trả URL công khai (url). Thử đăng xuất/đăng nhập lại."
     );
   }
 
-  return out;
+  // Cảnh báo dev: Dio GET vào uploadUrl sẽ 404
+  if (uploadUrl && data.url === uploadUrl) {
+    console.warn(
+      "[mediaInfo] url === uploadUrl — Dio có thể 404 khi tải media. Response keys:",
+      Object.keys(data)
+    );
+  }
+
+  return data;
 }

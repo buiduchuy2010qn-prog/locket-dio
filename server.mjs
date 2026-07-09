@@ -124,8 +124,11 @@ function isAllowedR2UploadUrl(urlStr) {
     return (
       h.endsWith(".r2.cloudflarestorage.com") ||
       h.endsWith(".cloudflarestorage.com") ||
+      h.endsWith(".r2.dev") ||
       h === "storage.locket-dio.com" ||
-      h.endsWith(".storage.locket-dio.com")
+      h.endsWith(".storage.locket-dio.com") ||
+      h.endsWith(".amazonaws.com") ||
+      h.includes("locket-dio")
     );
   } catch {
     return false;
@@ -139,7 +142,7 @@ async function proxyR2Put(req, res) {
       "Access-Control-Allow-Methods": "PUT,OPTIONS",
       "Access-Control-Allow-Headers":
         req.headers["access-control-request-headers"] ||
-        "content-type,x-upload-url",
+        "content-type,x-upload-url,x-upload-size",
       "Access-Control-Max-Age": "86400",
     });
   }
@@ -148,15 +151,26 @@ async function proxyR2Put(req, res) {
     return send(res, 405, "Method not allowed");
   }
 
-  const uploadUrl =
-    req.headers["x-upload-url"] ||
-    req.headers["x-r2-upload-url"] ||
-    "";
+  // Ưu tiên query ?url= (tránh header dài bị proxy cắt) → header backup
+  let uploadUrl = "";
+  try {
+    const u = new URL(req.url || "/", "http://localhost");
+    uploadUrl = u.searchParams.get("url") || "";
+  } catch {
+    /* ignore */
+  }
+  if (!uploadUrl) {
+    uploadUrl =
+      req.headers["x-upload-url"] ||
+      req.headers["x-r2-upload-url"] ||
+      "";
+  }
+
   if (!uploadUrl || !isAllowedR2UploadUrl(uploadUrl)) {
     return send(
       res,
       400,
-      "Missing or invalid X-Upload-Url (must be R2/storage presigned URL)"
+      "Missing or invalid upload URL (query ?url= or X-Upload-Url; must be R2/storage presigned)"
     );
   }
 
@@ -178,14 +192,30 @@ async function proxyR2Put(req, res) {
       body.length,
       expectedSize
     );
+    // Không fail cứng — một số browser không set size đúng; vẫn PUT
   }
 
-  const targetUrl = new URL(uploadUrl);
-  // Use client Content-Type as-is (must match what was signed in presign)
-  const contentType =
-    req.headers["content-type"] || "application/octet-stream";
+  let targetUrl;
+  try {
+    targetUrl = new URL(uploadUrl);
+  } catch {
+    return send(res, 400, "Invalid upload URL");
+  }
 
-  // Presigned PUT: only Content-Type is typically signed — avoid extra signed headers
+  // Content-Type phải khớp presign (client gửi lại qua header + ?ct=)
+  let contentType = req.headers["content-type"] || "";
+  try {
+    const u = new URL(req.url || "/", "http://localhost");
+    if (u.searchParams.get("ct")) contentType = u.searchParams.get("ct");
+  } catch {
+    /* ignore */
+  }
+  // Bỏ charset nếu browser tự thêm (làm lệch chữ ký)
+  contentType = String(contentType || "application/octet-stream")
+    .split(";")[0]
+    .trim();
+
+  // Chỉ Content-Type + Content-Length — không thêm header lạ (phá chữ ký R2)
   const headers = {
     "Content-Type": contentType,
     "Content-Length": String(body.length),
@@ -194,6 +224,7 @@ async function proxyR2Put(req, res) {
   console.log(
     "[r2-put] PUT",
     targetUrl.hostname,
+    targetUrl.pathname.slice(0, 60),
     "bytes=",
     body.length,
     "type=",
@@ -215,7 +246,15 @@ async function proxyR2Put(req, res) {
     upRes.on("data", (c) => chunks.push(c));
     upRes.on("end", () => {
       const buf = Buffer.concat(chunks);
-      console.log("[r2-put] status", upRes.statusCode, "respBytes", buf.length);
+      const text = buf.toString("utf8").slice(0, 200);
+      console.log(
+        "[r2-put] status",
+        upRes.statusCode,
+        "respBytes",
+        buf.length,
+        text
+      );
+      // R2/S3 thường 200/204 khi OK; 403 = chữ ký/Content-Type sai
       send(res, upRes.statusCode || 502, buf, {
         "Content-Type":
           upRes.headers["content-type"] || "text/plain; charset=utf-8",

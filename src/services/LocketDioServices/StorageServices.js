@@ -2,12 +2,13 @@ import axios from "axios";
 import { CONFIG } from "@/config/webConfig";
 import { getToken } from "@/utils";
 import { applyMemberHeader } from "@/utils/memberToken";
+import { formatApiError } from "@/utils/formatApiError";
 
 /**
  * Upload R2 — khớp client chính thức locket-dio.com:
  * POST {filename, contentType, type, size, uploadedAt} → /api/presignedV3
- * PUT file lên uploadUrl
- * return toàn bộ r.data.data
+ * PUT file lên uploadUrl (qua /dio-r2-put vì CORS onrender)
+ * return toàn bộ r.data.data (+ type)
  */
 export const uploadFileAndGetInfoR2 = async (
   file,
@@ -24,13 +25,15 @@ export const uploadFileAndGetInfoR2 = async (
     : safeType === "video"
       ? "mp4"
       : "jpg";
+
+  // Official: contentType = file.type (không fallback khác nhau giữa presign và PUT)
+  // Camera File luôn có type image/jpeg — nếu trống mới fallback
   const contentType =
-    file.type ||
+    (file.type && String(file.type).trim()) ||
     (safeType === "video" ? "video/mp4" : "image/jpeg");
 
   const fileName = `locketdio_${timestamp}_${localId}_cli${CONFIG.app.clientVersion}.${extension}`;
 
-  // Absolute same-origin path (proxy) — never nest under /dio-api
   const storageBase = (CONFIG.api.storage || "/dio-storage").replace(/\/$/, "");
   const presignUrl = storageBase.startsWith("http")
     ? `${storageBase}/api/presignedV3`
@@ -41,7 +44,6 @@ export const uploadFileAndGetInfoR2 = async (
     throw new Error("Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.");
   }
 
-  // CHỈ các field client chính thức gửi (tránh Malformed request)
   const body = {
     filename: fileName,
     contentType,
@@ -60,13 +62,13 @@ export const uploadFileAndGetInfoR2 = async (
     "x-app-api": CONFIG.app.apiVersion,
     "x-app-env": CONFIG.app.env || "production",
   };
-  // Official storage axios: Authorization + X-LocketDio-Member + x-app-*
   applyMemberHeader(headers);
-  if (!headers["X-LocketDio-Member"] && !Object.keys(headers).some((k) =>
-    k.toLowerCase() === "x-locketdio-member"
-  )) {
+  if (
+    !headers["X-LocketDio-Member"] &&
+    !Object.keys(headers).some((k) => k.toLowerCase() === "x-locketdio-member")
+  ) {
     throw new Error(
-      "Thiếu member token (X-LocketDio-Member). Đăng xuất rồi đăng nhập lại để tải /api/cn."
+      "Thiếu member token (X-LocketDio-Member). Đăng xuất rồi đăng nhập lại."
     );
   }
 
@@ -78,32 +80,18 @@ export const uploadFileAndGetInfoR2 = async (
       timeout: 60000,
     });
   } catch (err) {
-    const data = err?.response?.data;
-    const msg =
-      data?.message ||
-      data?.error?.message ||
-      (typeof data?.error === "string" ? data.error : null) ||
-      err.message ||
-      "Presign failed";
-    console.error("❌ Presign failed:", err?.response?.status, data);
-    const e = new Error(typeof msg === "string" ? msg : JSON.stringify(msg));
+    console.error("❌ Presign failed:", err?.response?.status, err?.response?.data);
+    const e = new Error(formatApiError(err, "Presign failed"));
     e.response = err.response;
     e.status = err?.response?.status;
     throw e;
   }
 
-  // Dio may return HTTP 200 with success:false + "Malformed request"
   if (res.data?.success === false) {
-    const msg =
-      res.data?.message ||
-      res.data?.error?.message ||
-      (typeof res.data?.error === "string" ? res.data.error : null) ||
-      "Presign rejected";
-    throw new Error(typeof msg === "string" ? msg : JSON.stringify(msg));
+    throw new Error(formatApiError({ response: res }, "Presign rejected"));
   }
 
   const data = res.data?.data || res.data;
-  // Official: PUT to uploadUrl only (never fall back to public url for PUT)
   const putUrl = data?.uploadUrl;
   if (!putUrl) {
     console.error("Presign response missing uploadUrl:", res.data);
@@ -112,22 +100,34 @@ export const uploadFileAndGetInfoR2 = async (
     );
   }
 
-  if (!file.size && !(file instanceof Blob)) {
+  const fileSize = file.size ?? (file instanceof Blob ? file.size : 0);
+  if (!fileSize) {
     throw new Error("File rỗng — không upload được lên storage.");
   }
 
-  // Browser PUT to R2 is CORS-blocked on non-locket-dio.com origins.
-  // Official client: fetch(uploadUrl, { method:"PUT", headers:{Content-Type:file.type}, body:file })
-  // We proxy via same-origin so onrender.com works.
+  // Public read URL — KHÔNG dùng uploadUrl (PUT-only → Dio GET sẽ 404)
+  const publicUrl = pickPublicMediaUrl(data);
+  if (!publicUrl) {
+    console.error("Presign missing public url:", data);
+    throw new Error(
+      "Presign không trả URL công khai (url). Thử đăng xuất/đăng nhập lại."
+    );
+  }
+
+  // Proxy R2: URL qua query (tránh header dài bị cắt) + header backup
+  // Content-Type PHẢI khớp đúng contentType đã presign
   let uploadRes;
   try {
-    uploadRes = await fetch("/dio-r2-put", {
+    const qs = new URLSearchParams({
+      url: putUrl,
+      ct: contentType,
+    });
+    uploadRes = await fetch(`/dio-r2-put?${qs.toString()}`, {
       method: "PUT",
       headers: {
-        // Match presign contentType exactly (signature often binds Content-Type)
         "Content-Type": contentType,
         "X-Upload-Url": putUrl,
-        "X-Upload-Size": String(file.size || 0),
+        "X-Upload-Size": String(fileSize),
       },
       body: file,
     });
@@ -141,32 +141,68 @@ export const uploadFileAndGetInfoR2 = async (
 
   if (!uploadRes.ok) {
     const t = await uploadRes.text().catch(() => "");
+    console.error("❌ R2 PUT failed", uploadRes.status, t.slice(0, 300));
     throw new Error(
       `Upload to R2 failed (${uploadRes.status})${t ? ": " + t.slice(0, 160) : ""}`
     );
   }
 
-  // Official returns full r.data.data as mediaInfo base
-  // (url, uploadUrl, key, expiresIn, …) + type
-  const publicUrl =
-    data.url || data.publicURL || data.publicUrl || data.downloadURL || null;
+  console.log("[storage] R2 OK", {
+    status: uploadRes.status,
+    bytes: fileSize,
+    contentType,
+    publicUrl: publicUrl.slice(0, 80),
+    key: data.key,
+  });
 
-  if (!publicUrl) {
-    console.warn("Presign missing public url field:", data);
-  }
-
+  // Official: mediaInfo = full r.data.data + type
+  // Đảm bảo url là public GET URL (không phải uploadUrl)
   return {
     ...data,
     url: publicUrl,
+    publicURL: data.publicURL || publicUrl,
+    publicUrl: data.publicUrl || publicUrl,
     type: safeType,
-    // helpers (stripped in PayloadServices before post)
+    size: data.size ?? fileSize,
+    contentType: data.contentType || contentType,
+    // helpers (bị strip trước post)
     downloadURL: publicUrl,
     metadata: {
       name: fileName,
-      size: file.size,
+      size: fileSize,
       type: contentType,
       uploadedAt: body.uploadedAt,
       path: data.key || data.path,
     },
   };
 };
+
+/** Chọn URL Dio có thể GET (không lấy presigned PUT) */
+function pickPublicMediaUrl(data) {
+  if (!data || typeof data !== "object") return null;
+  const candidates = [
+    data.url,
+    data.publicURL,
+    data.publicUrl,
+    data.downloadURL,
+    data.downloadUrl,
+    data.cdnUrl,
+    data.cdn_url,
+  ].filter((u) => typeof u === "string" && u.startsWith("http"));
+
+  const upload = typeof data.uploadUrl === "string" ? data.uploadUrl : "";
+
+  // Ưu tiên URL khác uploadUrl (GET public)
+  for (const u of candidates) {
+    if (upload && u === upload) continue;
+    // uploadUrl thường có X-Amz-Signature / query dài
+    if (/X-Amz-Signature|X-Amz-Credential|Signature=/i.test(u) && upload) {
+      continue;
+    }
+    return u;
+  }
+
+  // fallback: url dù trùng (một số API chỉ trả 1 field)
+  if (candidates.length) return candidates[0];
+  return null;
+}
