@@ -102,22 +102,15 @@ const MediaControls = () => {
         throw new Error("Không tạo được payload. Hủy tiến trình tải lên.");
       }
 
-      // Lưu payload vào memory
+      // Background queue (không hiện UI hàng đợi)
       await enqueuePayload(payload, setStreak);
 
-      // Kết thúc loading và hiển thị success
       setUploadLoading(false);
       setIsSuccess(true);
-      // Hiển thị thông báo thành công
-      SonnerSuccess(
-        "Thêm vào hàng đợi!", // Title
-        "Bài viết đang được xử lý..." // Body
-      );
+      SonnerSuccess("Đang đăng...", "Ảnh sẽ tự hiện trong feed sau khi xong");
 
-      // Cập nhật danh sách payloads từ IndexedDB
       const currentPayloads = await getQueuePayloads();
       setuploadPayloads(currentPayloads);
-      // Reset success state sau 1 giây
       setTimeout(() => {
         setIsSuccess(false);
         handleDelete();

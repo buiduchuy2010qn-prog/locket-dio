@@ -65,9 +65,19 @@ const BottomHomeScreen = () => {
     resetVisible(selectedFriendUid);
   }, [isBottomOpen, isHomeOpen, isProfileOpen, selectedFriendUid]);
 
-  // Fetch initial moments
+  // Fetch initial + auto-refresh feed while history screen is open
   useEffect(() => {
+    if (!user) return;
     fetchMoments(user, selectedFriendUid);
+
+    // Tự động làm mới danh sách ảnh (không cần nút / không hiện hàng đợi)
+    const autoRefresh = setInterval(() => {
+      if (document.visibilityState === "visible") {
+        fetchMoments(user, selectedFriendUid);
+      }
+    }, 25000);
+
+    return () => clearInterval(autoRefresh);
   }, [user, selectedFriendUid]);
 
   const handleClose = () => {
