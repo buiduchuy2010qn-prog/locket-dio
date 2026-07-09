@@ -1,153 +1,114 @@
 import { Link } from 'react-router-dom'
-import { Camera, Users, Flame, Sparkles, Shield, Zap, Star } from 'lucide-react'
+import { Camera, Download, Smartphone, Sparkles, Square, Share2 } from 'lucide-react'
 import Logo from '../components/Logo'
-import { GOLD_FEATURES } from '../data/constants'
 
 export default function Landing() {
   return (
-    <div className="min-h-screen bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100">
-      <header className="sticky top-0 z-40 glass border-b border-slate-100 dark:border-slate-800">
-        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
+    <div className="min-h-screen bg-white text-slate-900">
+      <header className="sticky top-0 z-40 bg-white/90 backdrop-blur border-b border-slate-100">
+        <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
           <Logo />
           <div className="flex items-center gap-2">
-            <Link to="/login" className="px-4 py-2 text-sm font-semibold text-slate-600 hover:text-slate-900 dark:text-slate-300">
-              Đăng nhập
-            </Link>
-            <Link to="/signup" className="px-4 py-2.5 rounded-xl gold-gradient text-white text-sm font-bold shadow-[var(--shadow-gold)]">
-              Get Started
+            <Link to="/login" className="px-4 py-2 text-sm font-semibold text-slate-600">Đăng nhập</Link>
+            <Link to="/signup" className="px-4 py-2.5 rounded-full gold-gradient text-white text-sm font-bold shadow-[var(--shadow-gold)]">
+              Bắt đầu
             </Link>
           </div>
         </div>
       </header>
 
-      {/* Hero */}
-      <section className="sparkle-bg border-b border-slate-100 dark:border-slate-800">
-        <div className="max-w-6xl mx-auto px-4 py-16 md:py-24 grid md:grid-cols-2 gap-12 items-center">
-          <div className="page-enter">
-            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-100 text-amber-800 text-xs font-bold mb-4">
-              <Sparkles size={12} /> Private · Close friends · Premium
-            </span>
-            <h1 className="text-4xl md:text-5xl lg:text-6xl font-extrabold tracking-tight leading-[1.1]">
-              Chia sẻ khoảnh khắc{' '}
-              <span className="gold-text">chỉ với bạn thân</span>
-            </h1>
-            <p className="mt-5 text-lg text-slate-500 dark:text-slate-400 max-w-lg">
-              Piclet Gold là mạng xã hội ảnh riêng tư — nhanh, ấm áp, tinh tế. Đăng moment, giữ streak, và nâng tầm trải nghiệm với Gold.
-            </p>
-            <div className="mt-8 flex flex-wrap gap-3">
-              <Link to="/signup" className="px-6 py-3.5 rounded-2xl gold-gradient text-white font-bold shadow-[var(--shadow-gold)]">
-                Get Started — miễn phí
-              </Link>
-              <Link to="/signup" className="px-6 py-3.5 rounded-2xl border-2 border-amber-300 text-amber-800 dark:text-amber-300 font-bold bg-amber-50/50 dark:bg-amber-500/10">
-                Upgrade to Gold
-              </Link>
-            </div>
-            <div className="mt-8 flex items-center gap-4 text-sm text-slate-400">
-              <span className="flex items-center gap-1"><Star size={14} className="text-amber-400" /> 4.9 rating</span>
-              <span>·</span>
-              <span>10k+ moments / ngày (demo)</span>
-            </div>
-          </div>
-
-          {/* Mockup */}
-          <div className="relative mx-auto w-full max-w-sm">
-            <div className="absolute -inset-6 bg-gradient-to-br from-amber-300/40 to-rose-300/30 blur-3xl rounded-full" />
-            <div className="relative rounded-[2.5rem] border-8 border-slate-900 dark:border-slate-700 bg-slate-900 shadow-2xl overflow-hidden aspect-[9/16]">
-              <div className="absolute inset-0 bg-gradient-to-b from-rose-200 via-amber-100 to-orange-200">
-                <img
-                  src="https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?w=600&q=80&auto=format&fit=crop"
-                  alt="Preview"
-                  className="w-full h-full object-cover opacity-90"
-                />
-              </div>
-              <div className="absolute inset-x-0 bottom-0 p-5 bg-gradient-to-t from-black/70 to-transparent text-white">
-                <p className="font-bold">Mina · 1 giờ trước</p>
-                <p className="text-sm opacity-90">Golden hour ✨</p>
-                <div className="mt-3 flex gap-2">
-                  <span className="px-3 py-1 rounded-full bg-white/20 text-sm backdrop-blur">❤️ 12</span>
-                  <span className="px-3 py-1 rounded-full bg-white/20 text-sm backdrop-blur">🔥 4</span>
-                </div>
-              </div>
-              <div className="absolute top-4 left-4 right-4 flex justify-between items-center">
-                <span className="text-white font-extrabold text-sm drop-shadow">Piclet</span>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-400 text-amber-950">GOLD</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Features */}
-      <section className="max-w-6xl mx-auto px-4 py-16">
-        <h2 className="text-3xl font-extrabold text-center mb-3">Đơn giản. Riêng tư. Cảm xúc.</h2>
-        <p className="text-center text-slate-500 mb-10 max-w-xl mx-auto">Mọi thứ bạn cần để giữ kết nối với circle nhỏ — không ồn ào feed công khai.</p>
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
-          {[
-            { icon: Camera, title: 'Moment tức thì', desc: 'Chụp hoặc tải ảnh/video, caption ngắn, đăng cho friends only.' },
-            { icon: Users, title: 'Circle bạn thân', desc: 'Thêm bạn theo username, close friends, chặn khi cần.' },
-            { icon: Flame, title: 'Streak ấm áp', desc: 'Giữ chuỗi ngày đăng với từng người — đừng để lửa tắt.' },
-            { icon: Shield, title: 'Riêng tư mặc định', desc: 'Mọi moment chỉ hiển thị với bạn bè đã kết nối.' },
-            { icon: Zap, title: 'Nhanh trên mọi thiết bị', desc: 'Desktop dashboard + mobile app-like, tablet adaptive.' },
-            { icon: Sparkles, title: 'Piclet Gold', desc: 'Theme, badge, video dài, unlimited friends, insights…' },
-          ].map((f) => (
-            <div key={f.title} className="p-6 rounded-3xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900 hover:shadow-[var(--shadow-card)] transition">
-              <div className="w-11 h-11 rounded-2xl bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300 flex items-center justify-center mb-4">
-                <f.icon size={20} />
-              </div>
-              <h3 className="font-bold text-lg">{f.title}</h3>
-              <p className="text-sm text-slate-500 mt-1">{f.desc}</p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* Gold section */}
-      <section className="bg-gradient-to-br from-amber-500 via-orange-500 to-rose-400 text-white py-16">
-        <div className="max-w-6xl mx-auto px-4">
-          <div className="text-center mb-10">
-            <h2 className="text-3xl md:text-4xl font-extrabold">Piclet Gold</h2>
-            <p className="mt-2 text-white/90 max-w-lg mx-auto">Trải nghiệm premium — không quảng cáo, không giới hạn, toàn bộ theme & insights.</p>
-          </div>
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {GOLD_FEATURES.slice(0, 6).map((g) => (
-              <div key={g.id} className="p-4 rounded-2xl bg-white/15 backdrop-blur border border-white/20">
-                <p className="font-bold">{g.title}</p>
-                <p className="text-sm text-white/85 mt-1">{g.desc}</p>
-              </div>
-            ))}
-          </div>
-          <div className="text-center mt-10">
-            <Link to="/signup" className="inline-flex px-8 py-3.5 rounded-2xl bg-white text-amber-800 font-extrabold shadow-lg">
-              Upgrade to Gold
+      {/* Hero — locket-dio.com style messaging */}
+      <section className="relative overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-b from-[#0b1526] via-[#12253f] to-[#0a1020]" />
+        <div className="absolute inset-0 opacity-40 bg-[radial-gradient(ellipse_at_top,_rgba(251,191,36,0.25),_transparent_55%)]" />
+        <div className="relative max-w-5xl mx-auto px-4 py-16 md:py-24 text-center text-white">
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/10 border border-white/15 text-xs font-bold mb-5">
+            <Sparkles size={12} className="text-amber-300" /> Web camera · 1:1 · Close friends
+          </span>
+          <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight leading-tight">
+            Chụp & đăng moment vuông
+            <br />
+            <span className="text-amber-300">dễ hơn bao giờ hết</span>
+          </h1>
+          <p className="mt-4 text-white/70 max-w-xl mx-auto text-base md:text-lg">
+            Locket Dio — web camera riêng tư. Chụp 1:1 trên trình duyệt, lưu circle bạn bè,
+            rồi tải / share sang điện thoại để đăng trên app Locket <strong className="text-white/90">thủ công</strong>.
+          </p>
+          <div className="mt-8 flex flex-wrap justify-center gap-3">
+            <Link to="/signup" className="px-7 py-3.5 rounded-full gold-gradient text-white font-bold shadow-lg active:scale-95">
+              Mở camera web
+            </Link>
+            <Link to="/login" className="px-7 py-3.5 rounded-full bg-white/10 border border-white/20 font-bold backdrop-blur active:scale-95">
+              Đăng nhập
             </Link>
           </div>
+          <p className="mt-4 text-[11px] text-white/45 max-w-md mx-auto">
+            Không yêu cầu mật khẩu Locket chính hãng · Không auto-sync trái phép · Original branding
+          </p>
+
+          {/* Phone mock */}
+          <div className="mt-14 mx-auto w-[min(280px,85vw)] aspect-[9/16] rounded-[2rem] border-[6px] border-white/20 bg-black/40 shadow-2xl overflow-hidden relative">
+            <div className="absolute top-4 inset-x-4 flex justify-between items-center z-10">
+              <span className="w-9 h-9 rounded-full bg-white/20 backdrop-blur" />
+              <span className="px-3 py-1.5 rounded-full bg-white/15 text-[10px] font-bold backdrop-blur">Tất cả bạn bè</span>
+              <span className="w-9 h-9 rounded-full bg-white/20 backdrop-blur" />
+            </div>
+            <div className="absolute inset-x-6 top-[22%] aspect-square rounded-3xl overflow-hidden ring-2 ring-white/30 shadow-xl">
+              <img
+                src="https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?w=500&q=80&auto=format&fit=crop"
+                alt=""
+                className="w-full h-full object-cover"
+              />
+            </div>
+            <div className="absolute bottom-10 inset-x-0 flex justify-center items-center gap-8">
+              <span className="w-10 h-10 rounded-full bg-white/15" />
+              <span className="w-16 h-16 rounded-full border-4 border-amber-300 bg-white shadow-lg" />
+              <span className="w-10 h-10 rounded-full bg-white/15" />
+            </div>
+          </div>
         </div>
       </section>
 
-      {/* Testimonials */}
-      <section className="max-w-6xl mx-auto px-4 py-16">
-        <h2 className="text-3xl font-extrabold text-center mb-10">Mọi người nói gì</h2>
+      {/* How it works 1+2 */}
+      <section className="max-w-5xl mx-auto px-4 py-16">
+        <h2 className="text-2xl md:text-3xl font-extrabold text-center mb-10">Cách dùng</h2>
         <div className="grid md:grid-cols-3 gap-5">
           {[
-            { name: 'An', q: 'Như nhật ký chung với besties. UI siêu mượt trên điện thoại.' },
-            { name: 'Bảo', q: 'Gold themes đẹp, streak restore cứu team mình không mất chuỗi 30 ngày.' },
-            { name: 'Chi', q: 'Thích cảm giác private — không algorithm ồn ào.' },
-          ].map((t) => (
-            <blockquote key={t.name} className="p-6 rounded-3xl border border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-[var(--shadow-soft)]">
-              <p className="text-slate-600 dark:text-slate-300">“{t.q}”</p>
-              <footer className="mt-4 font-bold text-sm">— {t.name}</footer>
-            </blockquote>
+            { icon: Camera, t: '1. Chụp trên web', d: 'Camera full-screen kiểu app, khung vuông 1:1, crop & caption.' },
+            { icon: Square, t: '2. Lưu trên Dio', d: 'Moment nằm trong circle bạn bè Locket Dio — app riêng của bạn.' },
+            { icon: Smartphone, t: '3. Đăng Locket (tay)', d: 'Tải / Share / QR sang điện thoại → mở app Locket → đăng.' },
+          ].map((x) => (
+            <div key={x.t} className="p-6 rounded-3xl border border-slate-100 bg-slate-50/50 hover:shadow-md transition">
+              <div className="w-11 h-11 rounded-2xl gold-gradient text-white flex items-center justify-center mb-4">
+                <x.icon size={20} />
+              </div>
+              <h3 className="font-bold text-lg">{x.t}</h3>
+              <p className="text-sm text-slate-500 mt-1">{x.d}</p>
+            </div>
           ))}
         </div>
       </section>
 
-      <footer className="border-t border-slate-100 dark:border-slate-800 py-10 text-center text-sm text-slate-400">
-        <Logo className="justify-center mb-3" />
-        <p>© 2026 Piclet Gold · Original branding · Not affiliated with any third-party lock-screen apps</p>
-        <div className="mt-3 flex justify-center gap-4">
-          <Link to="/login" className="hover:text-amber-600">Đăng nhập</Link>
-          <Link to="/signup" className="hover:text-amber-600">Đăng ký</Link>
+      <section className="bg-slate-50 border-y border-slate-100 py-14">
+        <div className="max-w-5xl mx-auto px-4 grid sm:grid-cols-2 md:grid-cols-4 gap-4 text-center">
+          {[
+            { icon: Download, t: 'Tải 1:1' },
+            { icon: Share2, t: 'Share sheet' },
+            { icon: Smartphone, t: 'QR điện thoại' },
+            { icon: Sparkles, t: 'Caption + crop' },
+          ].map((x) => (
+            <div key={x.t} className="p-4 rounded-2xl bg-white border border-slate-100">
+              <x.icon className="mx-auto text-amber-500 mb-2" size={22} />
+              <p className="text-sm font-bold">{x.t}</p>
+            </div>
+          ))}
         </div>
+      </section>
+
+      <footer className="py-10 text-center text-xs text-slate-400">
+        <Logo className="justify-center mb-3" />
+        <p>© Locket Dio · Original branding · Not affiliated with Locket Inc.</p>
+        <p className="mt-1">Không yêu cầu mật khẩu app Locket chính hãng.</p>
       </footer>
     </div>
   )

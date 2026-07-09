@@ -41,8 +41,7 @@ export default function Upload() {
   const [selected, setSelected] = useState(null)
   const [msg, setMsg] = useState('')
   const [audience, setAudience] = useState('FRIENDS') // FRIENDS | CLOSE_FRIENDS
-  const [syncOfficial, setSyncOfficial] = useState(false)
-  const [postResult, setPostResult] = useState(null) // { moment, mediaUrl, caption, sync }
+  const [postResult, setPostResult] = useState(null) // { moment, mediaUrl, caption }
   const [isDesktop, setIsDesktop] = useState(() => window.matchMedia('(min-width: 1024px)').matches)
 
   const liveRef = useRef(null)
@@ -60,7 +59,8 @@ export default function Upload() {
   useEffect(() => {
     api.fetchFriends().then((f) => {
       setFriendCount(f.length)
-      setFriendsLabel(f.length ? `Tất cả bạn bè · ${f.length}` : 'Tất cả bạn bè')
+      // Style giống web camera VN: "48 Bạn bè" / "Tất cả bạn bè"
+      setFriendsLabel(f.length > 0 ? `${f.length} Bạn bè` : 'Tất cả bạn bè')
     }).catch(() => {})
   }, [])
 
@@ -171,14 +171,13 @@ export default function Upload() {
         type,
         durationSec: duration,
         visibility: audience,
-        syncOfficial,
+        syncOfficial: false,
       })
-      toast('Đã lưu trên Locket Dio (1:1)')
+      toast('Đã lưu trên Locket Dio')
       setPostResult({
         moment: result,
         mediaUrl,
         caption,
-        sync: result.officialSync || null,
       })
       setSourceUrl(null)
       setCaption('')
@@ -392,17 +391,9 @@ export default function Upload() {
               ))}
             </div>
           </div>
-          <label className={`mt-3 flex items-start gap-2 text-xs ${isDesktop ? 'text-slate-600' : 'text-white/70'}`}>
-            <input
-              type="checkbox"
-              checked={syncOfficial}
-              onChange={(e) => setSyncOfficial(e.target.checked)}
-              className="mt-0.5 accent-amber-500"
-            />
-            <span>
-              Also try <strong>Official Locket Sync</strong> (OAuth/API only — never password). If unavailable, you will get export options.
-            </span>
-          </label>
+          <p className={`mt-2 text-[11px] ${isDesktop ? 'text-slate-400' : 'text-white/45'}`}>
+            Đăng trên Dio · Sau đó tải/share để đăng tay trên app Locket (không auto-sync).
+          </p>
           <div className="flex gap-2 mt-3">
             <button
               type="button"
@@ -415,9 +406,9 @@ export default function Upload() {
               type="button"
               disabled={loading}
               onClick={post}
-              className="flex-1 py-3 rounded-2xl gold-gradient text-white font-bold text-sm active:scale-95 disabled:opacity-50"
+              className="flex-1 py-3.5 rounded-2xl gold-gradient text-white font-bold text-sm active:scale-95 disabled:opacity-50 shadow-lg"
             >
-              {loading ? 'Đang đăng…' : 'Đăng 1:1'}
+              {loading ? 'Đang đăng…' : 'Đăng moment'}
             </button>
           </div>
         </div>
@@ -515,14 +506,14 @@ export default function Upload() {
             <Images size={20} />
           </GlassBtn>
 
-          {/* Capture — large circle */}
+          {/* Capture — yellow ring (Locket-like, original) */}
           <button
             type="button"
             onClick={capture}
-            className="relative w-[4.75rem] h-[4.75rem] rounded-full bg-white border-[5px] border-slate-300 shadow-2xl active:scale-90 transition flex items-center justify-center"
+            className="relative w-[5rem] h-[5rem] rounded-full bg-white border-[5px] border-amber-300 shadow-[0_8px_32px_rgba(251,191,36,0.45)] active:scale-90 transition flex items-center justify-center"
             aria-label="Chụp"
           >
-            <span className="w-[3.4rem] h-[3.4rem] rounded-full border-2 border-slate-800/80" />
+            <span className="w-[3.5rem] h-[3.5rem] rounded-full border-[3px] border-slate-900/80" />
           </button>
 
           <GlassBtn
@@ -574,12 +565,11 @@ export default function Upload() {
         open={!!postResult}
         onClose={() => {
           setPostResult(null)
-          setScreen('history')
+          setScreen('camera')
         }}
         moment={postResult?.moment}
         mediaUrl={postResult?.mediaUrl}
         caption={postResult?.caption}
-        syncResult={postResult?.sync}
       />
     </div>
   )

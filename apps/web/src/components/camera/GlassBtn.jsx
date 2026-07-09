@@ -42,16 +42,16 @@ export default function GlassBtn({
 export function FriendsPill({ text = 'Tất cả bạn bè', onClick, variant = 'dark' }) {
   const v =
     variant === 'light'
-      ? 'bg-white/90 text-slate-800 border-slate-200 shadow-md'
-      : 'bg-white/15 text-white border-white/25 shadow-lg'
+      ? 'bg-white/95 text-slate-800 border-slate-200/90 shadow-md'
+      : 'bg-black/25 text-white border-white/20 shadow-lg'
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`px-4 py-2.5 rounded-full border backdrop-blur-md text-sm font-semibold active:scale-95 transition flex items-center gap-1.5 max-w-[200px] truncate ${v}`}
+      className={`px-5 py-2.5 rounded-full border backdrop-blur-xl text-[13px] font-bold active:scale-95 transition flex items-center gap-1.5 max-w-[220px] truncate ${v}`}
     >
       <span className="truncate">{text}</span>
-      <span className="opacity-70 text-xs">▾</span>
+      <span className="opacity-60 text-[10px]">▾</span>
     </button>
   )
 }
