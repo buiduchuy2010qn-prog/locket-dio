@@ -1,7 +1,7 @@
 services:
   # MUST be Web Service (Docker) — Static Site cannot proxy API (CORS login fails)
   - type: web
-    name: locket-camera-huy-2026
+    name: huy-locket
     runtime: docker
     plan: free
     region: singapore
