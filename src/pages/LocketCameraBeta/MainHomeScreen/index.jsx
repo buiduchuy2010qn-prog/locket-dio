@@ -36,7 +36,7 @@ export default function MainHomeScreen() {
   return (
     <>
       <div
-        className={`relative transition-all duration-500 flex flex-col justify-center items-center w-full h-[100vh] text-base-content ${
+        className={`relative transition-all duration-500 flex flex-col justify-center items-center w-full h-[100dvh] h-screen text-base-content ${
           isProfileOpen
             ? "translate-x-full"
             : isHomeOpen

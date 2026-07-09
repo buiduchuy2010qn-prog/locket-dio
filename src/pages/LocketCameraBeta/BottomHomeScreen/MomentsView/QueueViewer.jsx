@@ -101,7 +101,7 @@ const QueueViewer = () => {
 
   return (
     <div
-      className={`fixed inset-0 z-50 flex flex-col justify-between items-center transition-all duration-300 ease-in-out bg-base-100 ${
+      className={`fixed inset-0 z-50 flex flex-col justify-between items-center transition-all duration-300 ease-in-out bg-gradient-to-b from-pink-100 via-pink-50 to-pink-200 h-[100dvh] ${
         isVisible && !isAnimating
           ? "opacity-100"
           : "opacity-0 pointer-events-none"
@@ -109,9 +109,9 @@ const QueueViewer = () => {
       // onClick={handleClose}
       tabIndex={0}
     >
-      <div className="flex-1 flex flex-col justify-center items-center w-full gap-2 pb-30">
+      <div className="flex-1 flex flex-col justify-center items-center w-full gap-2 px-2 pb-[max(5rem,env(safe-area-inset-bottom))] pt-[max(0.5rem,env(safe-area-inset-top))]">
         <div
-          className={`relative w-full max-w-md aspect-square bg-base-200 rounded-[64px] overflow-hidden transition-all duration-300 ease-in-out ${
+          className={`relative w-full max-w-[min(100%,520px)] aspect-square max-h-[min(92vw,calc(100dvh-11rem))] bg-black/10 rounded-[28px] sm:rounded-[40px] overflow-hidden shadow-xl shadow-pink-300/40 ring-1 ring-white/40 transition-all duration-300 ease-in-out ${
             isVisible && !isAnimating
               ? "opacity-100 scale-100"
               : "opacity-0 scale-90 pointer-events-none"
@@ -121,17 +121,17 @@ const QueueViewer = () => {
           {/* Nút đóng */}
           <button
             onClick={handleClose}
-            className="absolute top-4 right-4 z-50 p-2 bg-black/40 rounded-full hover:bg-black/60"
+            className="absolute top-3 right-3 z-50 p-2 bg-black/45 rounded-full hover:bg-black/60"
           >
             <X className="w-6 h-6 text-white" />
           </button>
 
-          {/* Nội dung media */}
-          <div className="h-full w-full flex items-center justify-center relative bg-gradient-to-br from-base-300/20 to-base-100/20">
+          {/* Nội dung media full khung */}
+          <div className="h-full w-full flex items-center justify-center relative">
             {mediaType === "video" ? (
               <video
                 src={mediaUrl}
-                className="max-h-full max-w-full object-contain rounded-2xl"
+                className="w-full h-full object-cover"
                 autoPlay
                 muted
                 loop
@@ -142,7 +142,7 @@ const QueueViewer = () => {
               <img
                 src={mediaUrl}
                 alt={caption}
-                className="max-h-full max-w-full object-contain rounded-2xl"
+                className="w-full h-full object-cover"
                 //   onLoad={() => setIsMediaLoading(false)}
               />
             )}

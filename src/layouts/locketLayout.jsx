@@ -1,21 +1,23 @@
 import Sidebar from "@/components/Sidebar";
+import SnowEffect from "@/components/Effects/SnowEffect";
 import React from "react";
 
-// const LocketLayout = ({ children }) => {
-//   return (
-//     <div className="overflow-hidden grid grid-rows-[auto_1fr_auto] bg-base-100 text-base-content">
-//       <main className="overflow-hidden">{children}</main>
-//       <Sidebar />
-//     </div>
-//   );
-// };
-
+/**
+ * Layout Locket: nền hồng + tuyết rơi mượt (full màn hình mobile).
+ */
 const LocketLayout = ({ children }) => {
   return (
-    <>
-      <main className="overflow-hidden text-base-content">{children}</main>
+    <div className="locket-shell">
+      <SnowEffect
+        snowflakeCount={48}
+        containerHeight={typeof window !== "undefined" ? window.innerHeight : 900}
+        className="fixed inset-0 z-[2]"
+      />
+      <main className="relative z-[3] overflow-hidden text-base-content min-h-[100dvh] min-h-screen">
+        {children}
+      </main>
       <Sidebar />
-    </>
+    </div>
   );
 };
 

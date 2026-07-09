@@ -10,6 +10,61 @@
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   /* --theme-color: #ffffff: */
+  --locket-pink-top: #ffe4f0;
+  --locket-pink-mid: #ffc4dd;
+  --locket-pink-bot: #ffb6d9;
+  --locket-pink-deep: #f9a8d4;
+}
+
+/* Nền hồng toàn app Locket + full viewport mobile (dvh) */
+html,
+body,
+#root {
+  min-height: 100%;
+  min-height: 100dvh;
+}
+
+body {
+  margin: 0;
+  background: linear-gradient(
+    165deg,
+    var(--locket-pink-top) 0%,
+    var(--locket-pink-mid) 45%,
+    var(--locket-pink-bot) 100%
+  );
+  background-attachment: fixed;
+}
+
+.locket-shell {
+  position: relative;
+  min-height: 100dvh;
+  min-height: 100vh;
+  width: 100%;
+  overflow: hidden;
+  background: linear-gradient(
+    165deg,
+    #fff0f6 0%,
+    #ffd6e8 38%,
+    #ffb8d9 72%,
+    #f9a8d4 100%
+  );
+  color: #1f2937;
+}
+
+.locket-shell::before {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 80% 50% at 20% 10%, rgba(255, 255, 255, 0.55), transparent 55%),
+    radial-gradient(ellipse 70% 45% at 90% 80%, rgba(255, 182, 217, 0.5), transparent 50%);
+  z-index: 0;
+}
+
+.locket-shell > * {
+  position: relative;
+  z-index: 1;
 }
 .no-save {
   pointer-events: none; /* Ngăn mọi tương tác chuột */

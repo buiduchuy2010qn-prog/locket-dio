@@ -131,11 +131,12 @@ const BottomHomeScreen = () => {
       {typeof selectedMoment === "number" ||
       typeof selectedQueue === "number" ? (
         <>
-          <div className="fixed z-50 inset-0 w-full flex flex-col justify-center h-full items-center">
+          {/* Full màn hình mobile: 100dvh + nền hồng mờ */}
+          <div className="fixed z-50 inset-0 w-full h-[100dvh] h-screen flex flex-col justify-center items-center bg-gradient-to-b from-pink-100/95 via-pink-50/95 to-pink-200/95 backdrop-blur-[2px]">
             {typeof selectedMoment === "number" && (
               <Swiper
                 direction="vertical"
-                className="w-full h-full max-w-md aspect-square flex flex-col justify-center items-center"
+                className="w-full h-full flex flex-col"
                 modules={[Virtual]}
                 onSwiper={setSwiperRef}
                 slidesPerView={1}
@@ -156,14 +157,13 @@ const BottomHomeScreen = () => {
                   <SwiperSlide
                     key={slideContent.id}
                     virtualIndex={index}
-                    className="h-full flex items-center justify-center"
+                    className="!h-full flex items-center justify-center"
                   >
-                    <div className="w-full h-full pb-26 flex items-center justify-center">
+                    <div className="w-full h-full pt-[max(0.5rem,env(safe-area-inset-top))] pb-[max(4.5rem,env(safe-area-inset-bottom))] flex items-center justify-center">
                       <MomentSlide
                         moment={slideContent}
                         me={user}
                         handleClose={handleClose}
-                        className="w-full max-w-3xl"
                       />
                     </div>
                   </SwiperSlide>

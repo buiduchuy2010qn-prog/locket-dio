@@ -5,7 +5,7 @@ export const applyTheme = (theme) => {
 
   const computedStyle = getComputedStyle(document.documentElement);
   const baseColor =
-    computedStyle.getPropertyValue("--color-base-100")?.trim() || "#ffffff";
+    computedStyle.getPropertyValue("--color-base-100")?.trim() || "#ffc4dd";
 
   let metaTheme = document.querySelector('meta[name="theme-color"]');
   if (!metaTheme) {
@@ -13,5 +13,6 @@ export const applyTheme = (theme) => {
     metaTheme.name = "theme-color";
     document.head.appendChild(metaTheme);
   }
-  metaTheme.setAttribute("content", baseColor);
+  // Ưu tiên hồng Locket cho thanh status điện thoại
+  metaTheme.setAttribute("content", baseColor || "#ffc4dd");
 };

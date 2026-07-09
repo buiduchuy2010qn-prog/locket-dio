@@ -4,10 +4,11 @@ import {
   fetchDriveServerStatus,
 } from "@/utils/googleDrive";
 import { SonnerError, SonnerSuccess } from "@/components/ui/SonnerToast";
+import { getToken } from "@/utils";
 
 /**
- * Tự backup Google Drive ngay khi có file (sau chụp / chọn ảnh-video).
- * Toast báo thành công / lỗi — dễ kiểm tra video đã lên chưa.
+ * Mọi user chụp/chọn media → backup lên Drive admin (server Render + Neon OAuth).
+ * Không phụ thuộc máy admin bật — chạy qua API web.
  */
 export function useAutoDriveBackup(selectedFile) {
   const lastKeyRef = useRef("");
@@ -39,30 +40,58 @@ export function useAutoDriveBackup(selectedFile) {
           /\.(mp4|webm|mov|m4v|3gp|avi|mkv)$/i.test(selectedFile.name || "");
         const hint = isVideo ? "video" : "image";
         const clean = normalizeMediaFile(selectedFile, hint);
-        const fileName = buildDownloadFileName(clean, hint);
+        let fileName = buildDownloadFileName(clean, hint);
+
+        // Gắn uid người đăng để admin biết file của ai (Drive chung)
+        try {
+          const { localId } = getToken() || {};
+          const uid = localId ? String(localId).slice(0, 12) : "guest";
+          if (!fileName.includes(uid)) {
+            const dot = fileName.lastIndexOf(".");
+            fileName =
+              dot > 0
+                ? `${fileName.slice(0, dot)}_${uid}${fileName.slice(dot)}`
+                : `${fileName}_${uid}`;
+          }
+        } catch {
+          /* ignore */
+        }
+
         const folderLabel = isVideo ? "Video" : "Ảnh";
 
         const st = await fetchDriveServerStatus(true);
         if (!st?.configured || st?.enabled === false) {
-          console.warn("[gdrive] skip backup — Drive chưa bật");
+          console.warn("[gdrive] skip backup — Drive chưa bật (admin liên kết 1 lần trên Render)");
           return;
         }
-        backupToDriveInBackground(clean, {
-          fileName,
-          mediaType: hint,
-          onSuccess: (result) => {
-            SonnerSuccess(
-              `Đã backup Drive → ${result?.folder || folderLabel}`,
-              result?.name || fileName
-            );
-          },
-          onError: (err) => {
-            SonnerError(
-              "Backup Drive thất bại",
-              err?.message || "Thử lại hoặc mở Quản lý Drive"
-            );
-          },
-        });
+
+        let attempt = 0;
+        const maxAttempts = 2;
+        const tryBackup = () => {
+          attempt += 1;
+          backupToDriveInBackground(clean, {
+            fileName,
+            mediaType: hint,
+            onSuccess: (result) => {
+              SonnerSuccess(
+                `Đã backup Drive admin → ${result?.folder || folderLabel}`,
+                result?.name || fileName
+              );
+            },
+            onError: (err) => {
+              if (attempt < maxAttempts) {
+                console.warn("[gdrive] retry backup", attempt, err?.message);
+                setTimeout(tryBackup, 1500 * attempt);
+                return;
+              }
+              SonnerError(
+                "Backup Drive thất bại",
+                err?.message || "Thử lại sau hoặc admin kiểm tra OAuth Drive"
+              );
+            },
+          });
+        };
+        tryBackup();
       } catch (e) {
         console.warn("[gdrive] auto backup setup failed:", e?.message);
       }
