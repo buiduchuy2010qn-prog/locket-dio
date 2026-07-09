@@ -20,12 +20,13 @@ export default function Upload() {
   const nav = useNavigate()
 
   const [screen, setScreen] = useState('camera')
+  // Photo first — video recording enables mic only when user presses record
   const [captureKind, setCaptureKind] = useState('photo')
-  // Desktop webcams usually only have "user" face camera — environment often fails
+  // Desktop webcams: prefer front camera (user). Mobile: environment.
   const [facing, setFacing] = useState(() =>
     typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches
       ? 'user'
-      : 'environment',
+      : 'user',
   )
   const [flash, setFlash] = useState(false)
   const [friendsLabel, setFriendsLabel] = useState('Tất cả bạn bè')
@@ -110,8 +111,6 @@ export default function Upload() {
     setCamReady(false)
   }, [stopRecorderOnly])
 
-  useEffect(() => () => stopLive(), [stopLive])
-
   const explainCamError = (err) => {
     const name = err?.name || ''
     const msg = String(err?.message || '')
@@ -136,38 +135,28 @@ export default function Upload() {
     return msg || 'Không mở được camera — thử Thư viện'
   }
 
-  const requestStream = async (withAudio, facingMode) => {
-    const attempts = []
-    // 1) preferred facing
-    if (facingMode) {
-      attempts.push({
+  /** Preview always video-only. Audio is added only when recording. */
+  const requestVideoStream = async (facingMode) => {
+    const attempts = [
+      // simplest — highest success on desktop Chrome
+      { video: true, audio: false },
+      { video: { facingMode: { ideal: facingMode || 'user' } }, audio: false },
+      { video: { facingMode: facingMode || 'user' }, audio: false },
+      {
         video: {
-          facingMode: { ideal: facingMode },
           width: { ideal: 1280 },
-          height: { ideal: 1280 },
+          height: { ideal: 720 },
         },
-        audio: withAudio,
-      })
-      attempts.push({
-        video: { facingMode },
-        audio: withAudio,
-      })
-    }
-    // 2) any camera (desktop)
-    attempts.push({
-      video: { width: { ideal: 1280 }, height: { ideal: 1280 } },
-      audio: withAudio,
-    })
-    attempts.push({ video: true, audio: withAudio })
-    // 3) video only if mic fails
-    if (withAudio) {
-      attempts.push({ video: true, audio: false })
-    }
+        audio: false,
+      },
+    ]
 
     let lastErr
     for (const constraints of attempts) {
       try {
-        return await navigator.mediaDevices.getUserMedia(constraints)
+        // eslint-disable-next-line no-await-in-loop
+        const s = await navigator.mediaDevices.getUserMedia(constraints)
+        return s
       } catch (e) {
         lastErr = e
       }
@@ -175,67 +164,104 @@ export default function Upload() {
     throw lastErr || new Error('getUserMedia failed')
   }
 
+  const waitForVideoEl = () =>
+    new Promise((resolve) => {
+      let n = 0
+      const tick = () => {
+        if (liveRef.current) resolve(liveRef.current)
+        else if (n++ > 40) resolve(null)
+        else requestAnimationFrame(tick)
+      }
+      tick()
+    })
+
   const attachStream = async (stream) => {
     streamRef.current = stream
-    const el = liveRef.current
-    if (el) {
-      el.srcObject = stream
-      el.muted = true
-      el.playsInline = true
-      el.setAttribute('playsinline', 'true')
+    const el = await waitForVideoEl()
+    if (!el) {
+      setCamError('Không gắn được preview. Bấm Thử lại.')
+      return false
+    }
+    // Reset before assign (Chrome quirk)
+    el.srcObject = null
+    el.muted = true
+    el.defaultMuted = true
+    el.playsInline = true
+    el.setAttribute('playsinline', 'true')
+    el.setAttribute('webkit-playsinline', 'true')
+    el.autoplay = true
+    el.srcObject = stream
+
+    await new Promise((resolve) => {
+      const done = () => resolve()
+      if (el.readyState >= 1) done()
+      else {
+        el.onloadedmetadata = done
+        setTimeout(done, 1200)
+      }
+    })
+
+    try {
+      await el.play()
+    } catch {
       try {
         await el.play()
-      } catch {
-        // autoplay blocked — still show first frame once metadata loads
-        await new Promise((resolve) => {
-          const onMeta = () => {
-            el.removeEventListener('loadedmetadata', onMeta)
-            el.play().catch(() => {})
-            resolve()
-          }
-          el.addEventListener('loadedmetadata', onMeta)
-          setTimeout(resolve, 800)
-        })
+      } catch (e) {
+        console.warn('[camera] play()', e)
       }
+    }
+
+    // Confirm we actually have frames
+    const track = stream.getVideoTracks()[0]
+    if (!track || track.readyState === 'ended') {
+      setCamError('Camera tắt ngay sau khi mở. Thử lại hoặc Thư viện.')
+      return false
     }
     setCamReady(true)
     setCamError('')
+    return true
   }
 
-  const startLive = useCallback(async (withAudio = false) => {
+  const startLive = useCallback(async () => {
     const gen = ++startGenRef.current
     setCamBusy(true)
     setCamError('')
+    setCamReady(false)
 
-    if (!window.isSecureContext && !/localhost|127\.0\.0\.1/i.test(window.location.hostname || '')) {
-      setCamReady(false)
-      setCamError('Camera cần HTTPS. Mở site bằng https:// hoặc chọn ảnh từ Thư viện.')
+    const host = window.location.hostname || ''
+    if (!window.isSecureContext && !/localhost|127\.0\.0\.1/i.test(host)) {
+      setCamError('Camera cần HTTPS. Mở https://… hoặc dùng Thư viện.')
       setCamBusy(false)
       return null
     }
 
     if (!navigator.mediaDevices?.getUserMedia) {
-      setCamReady(false)
       setCamError('Trình duyệt không hỗ trợ camera — dùng Thư viện')
       setCamBusy(false)
       return null
     }
 
     try {
+      // Stop previous tracks unless recording
       if (!recordingRef.current) {
         streamRef.current?.getTracks()?.forEach((t) => t.stop())
         streamRef.current = null
       }
 
-      const stream = await requestStream(withAudio, facing)
+      const stream = await requestVideoStream(facing)
       if (gen !== startGenRef.current) {
         stream.getTracks().forEach((t) => t.stop())
         return null
       }
-      await attachStream(stream)
+
+      const ok = await attachStream(stream)
+      if (!ok || gen !== startGenRef.current) {
+        if (gen !== startGenRef.current) stream.getTracks().forEach((t) => t.stop())
+        return null
+      }
       return stream
     } catch (err) {
-      console.warn('[camera]', err)
+      console.warn('[camera]', err?.name, err?.message, err)
       if (gen === startGenRef.current) {
         setCamReady(false)
         setCamError(explainCamError(err))
@@ -246,22 +272,34 @@ export default function Upload() {
     }
   }, [facing])
 
+  // Start camera only when entering camera screen / flip facing — NOT when toggling photo/video
   useEffect(() => {
     if (screen !== 'camera' || sourceUrl) {
-      if (screen !== 'camera' || sourceUrl) stopLive()
-      return
+      if (screen !== 'camera' || sourceUrl) {
+        if (!recordingRef.current) stopLive()
+      }
+      return undefined
     }
-    if (recordingRef.current) return
+    if (recordingRef.current) return undefined
+
     let cancelled = false
-    const t = setTimeout(() => {
-      if (cancelled) return
-      startLive(captureKind === 'video')
-    }, 50)
+    const t = window.setTimeout(() => {
+      if (!cancelled) startLive()
+    }, 100)
+
     return () => {
       cancelled = true
-      clearTimeout(t)
+      window.clearTimeout(t)
+      // Do NOT stop stream on React StrictMode re-run mid-start;
+      // generation token invalidates stale attaches. Full stop on unmount below.
     }
-  }, [screen, facing, captureKind, sourceUrl, startLive, stopLive])
+  }, [screen, facing, sourceUrl, startLive, stopLive])
+
+  // Full cleanup when leaving upload page
+  useEffect(() => () => {
+    startGenRef.current += 1
+    stopLive()
+  }, [stopLive])
 
   const capturePhoto = () => {
     const video = liveRef.current
@@ -303,11 +341,24 @@ export default function Upload() {
   const startRecording = async () => {
     try {
       let stream = streamRef.current
-      if (!stream || !stream.getAudioTracks().length) stream = await startLive(true)
-      if (!stream || typeof MediaRecorder === 'undefined') {
-        return toast('Không quay được — dùng Thư viện', 'error')
+      if (!stream || stream.getVideoTracks().every((t) => t.readyState !== 'live')) {
+        stream = await startLive()
       }
-      const mime = ['video/webm;codecs=vp9,opus', 'video/webm', 'video/mp4']
+      if (!stream || typeof MediaRecorder === 'undefined') {
+        return toast('Không quay được — mở camera hoặc dùng Thư viện', 'error')
+      }
+
+      // Optional mic — don't fail whole recording if mic denied
+      try {
+        if (!stream.getAudioTracks().length) {
+          const mic = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+          mic.getAudioTracks().forEach((t) => stream.addTrack(t))
+        }
+      } catch {
+        /* video-only recording ok */
+      }
+
+      const mime = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm', 'video/mp4']
         .find((m) => MediaRecorder.isTypeSupported?.(m)) || ''
       chunksRef.current = []
       const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined)
@@ -707,20 +758,28 @@ export default function Upload() {
               style={{ transform: facing === 'user' ? 'scaleX(-1)' : undefined }}
             />
             {(camBusy || (!camReady && !camError)) && (
-              <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 bg-[#0c1222]/90 text-white/70 text-sm font-medium">
+              <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 bg-[#0c1222]/92 text-white/70 text-sm font-medium">
                 <span className="w-8 h-8 rounded-full border-2 border-white/30 border-t-white animate-spin" />
                 Đang mở camera…
               </div>
             )}
-            {camError && !camBusy && (
-              <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-[#0c1222]/95 text-white text-sm p-5 text-center gap-3">
-                <p className="text-white/80 text-[13px] leading-relaxed max-w-[90%]">{camError}</p>
+            {!camBusy && !camReady && (
+              <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-[#0c1222] text-white text-sm p-5 text-center gap-3">
+                <div className="w-14 h-14 rounded-2xl bg-white/10 flex items-center justify-center mb-1">
+                  <Video size={28} className="text-white/50" />
+                </div>
+                <p className="text-white/85 text-[13px] leading-relaxed max-w-[92%] font-medium">
+                  {camError || 'Chưa có hình camera'}
+                </p>
+                <p className="text-white/45 text-[11px] max-w-[90%]">
+                  Cho phép Camera trong 🔒 thanh địa chỉ · Tắt Zoom/Meet nếu đang bật
+                </p>
                 <button
                   type="button"
-                  onClick={() => startLive(captureKind === 'video')}
+                  onClick={() => startLive()}
                   className="px-5 py-2.5 rounded-full dio-gradient text-white text-xs font-bold press shadow-[var(--shadow-dio)]"
                 >
-                  Thử lại camera
+                  Bật camera / Thử lại
                 </button>
                 <button
                   type="button"
