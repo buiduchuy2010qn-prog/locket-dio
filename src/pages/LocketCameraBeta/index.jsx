@@ -50,9 +50,6 @@ export default function LocketCameraBeta() {
       <canvas ref={canvasRef} className="hidden" />
       {/* Audio Music */}
       {postOverlay.music && <MusicPlayer music={postOverlay.music} />}
-      <span className="fixed pointer-events-none z-60 bottom-3 right-4 text-xs text-gray-400 select-none">
-        © Locket Dio
-      </span>
     </>
   );
 }
