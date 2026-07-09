@@ -260,7 +260,7 @@ const Sidebar = () => {
         <div>
           <p className="text-center text-xs pb-2 text-base-content/70">
             © {new Date().getFullYear()}{" "}
-            <span className="font-semibold font-lovehouse">Dio</span>. All
+            <span className="font-semibold font-lovehouse">Bùi Đức Huy</span>. All
             rights reserved.
           </p>
         </div>

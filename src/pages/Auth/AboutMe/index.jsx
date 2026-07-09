@@ -4,9 +4,6 @@ import ImageMarquee from "@/components/ui/Marquee/LanguageMarquee";
 import {
   FaReact,
   FaGithub,
-  FaFacebook,
-  FaInstagram,
-  FaTiktok,
   FaNodeJs,
 } from "react-icons/fa";
 import { RiTailwindCssFill, RiVercelFill } from "react-icons/ri";
@@ -19,31 +16,31 @@ const AboutMe = () => {
         {/* Avatar + Name */}
         <div className="flex flex-col items-center mb-10 px-4">
           <img
-            src="https://cdn.locket-dio.com/v1/images/avt/avtdio.webp" // đổi thành avatar của bạn
-            alt="Dio Avatar"
+            src="https://cdn.locket-dio.com/v1/images/avt/avtdio.webp"
+            alt="Bùi Đức Huy"
             className="w-32 h-32 md:w-40 md:h-40 rounded-full border-4 border-white shadow-lg mb-4"
             loading="lazy"
           />
           <h1 className="text-3xl md:text-4xl font-semibold text-center">
-            Đào Văn Đôi (Dio)
+            Bùi Đức Huy
           </h1>
           <p className="text-lg md:text-xl mt-2">
-            Web Developer | Thích sáng tạo và học hỏi
+            Quản trị web | Locket Dio
           </p>
         </div>
 
         {/* About */}
         <div className="max-w-3xl text-left mb-12 px-4">
           <p className="text-lg leading-relaxed">
-            Mình là sinh viên năm cuối ngành CNTT, đam mê lập trình web và xây
-            dựng sản phẩm thực tế.
+            Mình là Bùi Đức Huy — vận hành và hỗ trợ bản web Locket Dio.
+            Liên hệ hỗ trợ qua email bên dưới.
           </p>
         </div>
 
         {/* Skills */}
         <div className="w-full mb-5">
           <h2 className="text-2xl md:text-3xl font-semibold text-center mb-8 flex justify-center items-center gap-2">
-            <Code2 className="w-6 h-6 md:w-8 md:h-8" /> Công nghệ mình dùng
+            <Code2 className="w-6 h-6 md:w-8 md:h-8" /> Công nghệ sử dụng
           </h2>
           <div className="flex flex-wrap justify-center gap-6 text-sm md:text-lg">
             <div className="flex items-center gap-2">
@@ -82,59 +79,15 @@ const AboutMe = () => {
         {/* Contact */}
         <div className="text-center">
           <h2 className="text-2xl md:text-3xl font-semibold mb-5 flex justify-center items-center gap-2">
-            <Globe /> Liên hệ & Mạng xã hội
+            <Globe /> Liên hệ
           </h2>
-          <div className="flex justify-center gap-4 text-2xl md:text-3xl">
-            {/* Existing Social Links */}
+          <div className="flex flex-col items-center gap-3">
             <a
-              href="https://github.com/doi2523"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="transition"
+              href="mailto:buiduchuy2010qn@gmail.com"
+              className="flex items-center gap-2 text-lg transition hover:text-primary"
             >
-              <FaGithub className="w-6 h-6 text-black" />
-            </a>
-            <a
-              href="mailto:doibncm2003@gmail.com"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="transition"
-            >
-              <Mail className="w-6 h-6 text-black" />
-            </a>
-
-            {/* New Social Links */}
-            <a
-              href="https://facebook.com/daovandoi2003"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="hover:text-blue-600 transition"
-            >
-              <FaFacebook className="w-6 h-6 text-blue-600" />
-            </a>
-            <a
-              href="https://instagram.com/_am.dio"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="hover:text-pink-500 transition"
-            >
-              <FaInstagram className="w-6 h-6 text-pink-500" />
-            </a>
-            <a
-              href="https://tiktok.com/@amdio25"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="hover:text-black transition"
-            >
-              <FaTiktok className="w-6 h-6 text-black" />
-            </a>
-            <a
-              href="https://locket.cam/diodio"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="hover:text-black transition"
-            >
-              <img src="/prvlocket.png" className="w-6 h-6 rounded-md" />
+              <Mail className="w-6 h-6" />
+              buiduchuy2010qn@gmail.com
             </a>
           </div>
         </div>

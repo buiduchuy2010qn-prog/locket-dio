@@ -206,7 +206,7 @@ const ScreenCustomeStudio = () => {
             onSelect={handleCustomeSelect}
           />
           <ThemesCustomes
-            title="🎨 Decorative by Dio"
+            title="🎨 Decorative by Bùi Đức Huy"
             presets={captionThemes.custome}
             onSelect={handleCustomeSelect}
           />

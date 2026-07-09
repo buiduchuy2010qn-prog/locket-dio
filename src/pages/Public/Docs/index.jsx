@@ -4,7 +4,7 @@ const Docs = () => {
   return (
     <div className="min-h-screen px-4 flex flex-col items-center py-5">
       <h1 className="text-3xl font-semibold mb-5">
-        Hướng Dẫn Sử Dụng Trang Web Locket Dio by Dio
+        Hướng Dẫn Sử Dụng Trang Web Locket Dio by Bùi Đức Huy
       </h1>
 
       <div className="max-w-3xl text-left mb-12">
@@ -107,9 +107,8 @@ const Docs = () => {
             trong tương lai.
           </li>
           <li>
-            <b>Người sáng lập Locket Dio là ai?</b> Locket Dio được phát triển
-            bởi Đào Văn Đôi (Dio), sinh viên năm cuối ngành Công nghệ Thông tin,
-            với đam mê tạo ra sản phẩm sáng tạo và hữu ích.
+            <b>Người quản trị Locket Dio là ai?</b> Bản web này được vận hành
+            bởi Bùi Đức Huy, với email hỗ trợ buiduchuy2010qn@gmail.com.
           </li>
           <li>
             <b>Gói thành viên là gì?</b> Gói thành viên là các gói dịch vụ giúp
@@ -175,8 +174,8 @@ const Docs = () => {
         <p className="text-sm">
           Nếu bạn có bất kỳ câu hỏi hoặc vấn đề gì, vui lòng liên hệ với tôi qua
           email:{" "}
-          <a href="mailto:doibncm2003@gmail.com" className="text-blue-500">
-            doibncm2003@gmail.com
+          <a href="mailto:buiduchuy2010qn@gmail.com" className="text-blue-500">
+            buiduchuy2010qn@gmail.com
           </a>
           .
         </p>

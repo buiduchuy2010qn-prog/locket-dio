@@ -440,7 +440,7 @@ Khi báo cáo lỗi, vui lòng bao gồm:
 
 ### 📧 Thông Tin Liên Hệ
 
-- **Email**: doibncm2003@gmail.com
+- **Email**: buiduchuy2010qn@gmail.com
 - **Website**: [https://locket-dio.com](https://locket-dio.com)
 - **Telegram**: [@ddevdio](https://t.me/ddevdio)
 - **GitHub**: [@doi2523](https://github.com/doi2523)

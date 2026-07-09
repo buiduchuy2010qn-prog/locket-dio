@@ -91,7 +91,7 @@ export default function GeneralThemes({ title }) {
         music,
       });
       const musicType = formType === "apple" ? "Apple Music" : "Spotify";
-      SonnerSuccess(`${musicType} by Dio`,"Lấy nhạc thành công");
+      SonnerSuccess(`${musicType} by Bùi Đức Huy`, "Lấy nhạc thành công");
       closeMusicForm();
     } catch {
       SonnerError("Không thể lấy thông tin bài hát");

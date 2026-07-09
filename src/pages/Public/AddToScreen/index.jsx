@@ -357,7 +357,7 @@ const AddToHomeScreenGuide = () => {
 
         {/* Footer */}
         <div className="text-center mt-8 text-gray-500">
-          <p className="text-sm">Cần hỗ trợ? Liên hệ: doibncm2003@gmail.com</p>
+          <p className="text-sm">Cần hỗ trợ? Liên hệ: buiduchuy2010qn@gmail.com</p>
         </div>
       </div>
     </div>

@@ -64,7 +64,7 @@ export default function ToolsLocket() {
     <div className="flex flex-col min-h-[84vh] w-full p-3">
       {/* Title */}
       <h1 className="text-3xl font-bold text-primary text-center">
-        🧰 ToolsLocket by Dio
+        🧰 ToolsLocket by Bùi Đức Huy
       </h1>
 
       {/* Layout */}

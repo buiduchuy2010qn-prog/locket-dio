@@ -76,7 +76,7 @@ export const CONFIG = {
       loadMoreLimit: 30,
     },
     contact: {
-      supportEmail: "doibncm2003@gmail.com",
+      supportEmail: "buiduchuy2010qn@gmail.com",
       supportNumber: "1800-123-456",
     },
     community: {
