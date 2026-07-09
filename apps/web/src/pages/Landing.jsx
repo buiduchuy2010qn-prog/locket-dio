@@ -1,10 +1,12 @@
 import { Link } from 'react-router-dom'
 import { Camera, Users, Sparkles, Square, Shield, ArrowRight } from 'lucide-react'
 import Logo from '../components/Logo'
+import BackgroundScene from '../effects/BackgroundScene'
 
 export default function Landing() {
   return (
-    <div className="min-h-dvh bg-[#0c1222] text-white overflow-x-hidden">
+    <div className="min-h-dvh bg-[#0c1222] text-white overflow-x-hidden relative">
+      <BackgroundScene variant="full" className="fixed inset-0 z-0" />
       {/* Nav */}
       <header className="relative z-20 max-w-5xl mx-auto px-4 py-5 flex items-center justify-between">
         <Logo light />
@@ -22,7 +24,7 @@ export default function Landing() {
       </header>
 
       {/* Hero */}
-      <section className="relative max-w-5xl mx-auto px-4 pt-8 pb-20 md:pt-16 md:pb-28 text-center">
+      <section className="relative z-10 max-w-5xl mx-auto px-4 pt-8 pb-20 md:pt-16 md:pb-28 text-center">
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[min(900px,120%)] h-[420px] bg-[radial-gradient(ellipse_at_center,rgba(69,99,245,0.35),transparent_65%)] pointer-events-none" />
 
         <div className="relative">
@@ -86,7 +88,7 @@ export default function Landing() {
       </section>
 
       {/* Features */}
-      <section className="relative bg-[#f4f6fb] text-slate-900 py-16 md:py-20">
+      <section className="relative z-10 bg-[#f4f6fb] text-slate-900 py-16 md:py-20">
         <div className="max-w-5xl mx-auto px-4">
           <h2 className="font-display font-extrabold text-2xl md:text-3xl text-center mb-10">
             Đơn giản. Riêng tư. Vuông.
@@ -112,7 +114,7 @@ export default function Landing() {
         </div>
       </section>
 
-      <footer className="bg-[#0c1222] text-white/40 text-center text-xs py-8 px-4">
+      <footer className="relative z-10 bg-[#0c1222]/90 backdrop-blur text-white/40 text-center text-xs py-8 px-4">
         <p className="font-display font-bold text-white/70 text-sm mb-1">Locket Dio</p>
         <p>Independent product · Original branding · Not affiliated with Locket</p>
       </footer>

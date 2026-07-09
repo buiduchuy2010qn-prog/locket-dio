@@ -5,6 +5,8 @@ import {
 } from '../data/constants'
 import { BadgePreview } from '../components/GoldBadge'
 import Avatar from '../components/Avatar'
+import EffectSelector from '../effects/EffectSelector'
+import BackgroundScene from '../effects/BackgroundScene'
 
 export default function GoldCustomize() {
   const { user, updateUser, toast } = useApp()
@@ -15,12 +17,21 @@ export default function GoldCustomize() {
   }
 
   return (
-    <div className="px-4 md:px-0 max-w-2xl mx-auto space-y-6 pb-8">
-      <div>
-        <Link to="/app/settings" className="text-sm font-semibold text-amber-600">← Cài đặt</Link>
-        <h1 className="text-2xl font-extrabold mt-1">Tuỳ chỉnh</h1>
-        <p className="text-sm text-slate-500">Icon, theme camera, badge, profile — free cho mọi người</p>
+    <div className="px-4 md:px-0 max-w-2xl mx-auto space-y-6 pb-8 relative">
+      <div className="fixed inset-0 pointer-events-none -z-10 opacity-50">
+        <BackgroundScene variant="subtle" showGlass={false} />
       </div>
+      <div>
+        <Link to="/app/settings" className="text-sm font-semibold text-indigo-600">← Cài đặt</Link>
+        <h1 className="font-display text-2xl font-extrabold mt-1">Tuỳ chỉnh</h1>
+        <p className="text-sm text-slate-500">Theme, badge, profile & hiệu ứng nền</p>
+      </div>
+
+      <section className="relative z-10">
+        <h2 className="font-display font-bold mb-3">Background Effects</h2>
+        <p className="text-xs text-slate-500 mb-3">Mưa, sao, sparkles… — preview ngay bên dưới</p>
+        <EffectSelector />
+      </section>
 
       <div className={`rounded-3xl p-5 bg-gradient-to-br ${(PROFILE_BACKGROUNDS.find((b) => b.id === user?.profileBg) || PROFILE_BACKGROUNDS[0]).className} border border-white/40 shadow-[var(--shadow-card)]`}>
         <div className="flex items-center gap-3 bg-white/80 dark:bg-slate-900/80 backdrop-blur rounded-2xl p-4">

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import Logo from '../components/Logo'
 import { useApp } from '../context/AppContext'
+import BackgroundScene from '../effects/BackgroundScene'
 
 export default function Login() {
   const { login } = useApp()
@@ -27,10 +28,11 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-dvh sparkle-bg flex items-center justify-center p-4">
-      <div className="w-full max-w-[400px] page-enter">
+    <div className="min-h-dvh sparkle-bg flex items-center justify-center p-4 relative overflow-hidden">
+      <BackgroundScene variant="full" className="fixed inset-0" />
+      <div className="w-full max-w-[400px] page-enter relative z-10">
         <Logo size="lg" className="justify-center mb-8" />
-        <div className="card-surface p-6 sm:p-8">
+        <div className="card-surface p-6 sm:p-8 backdrop-blur-xl bg-white/90 dark:bg-slate-900/90">
           <h1 className="font-display font-extrabold text-2xl">Chào mừng lại</h1>
           <p className="text-sm text-slate-500 mt-1 mb-6">Đăng nhập Locket Dio</p>
           <form onSubmit={submit} className="space-y-4">

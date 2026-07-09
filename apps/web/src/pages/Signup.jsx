@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import Logo from '../components/Logo'
 import { useApp } from '../context/AppContext'
+import BackgroundScene from '../effects/BackgroundScene'
 
 export default function Signup() {
   const { signup } = useApp()
@@ -40,10 +41,11 @@ export default function Signup() {
   }
 
   return (
-    <div className="min-h-dvh sparkle-bg flex items-center justify-center p-4 py-10">
-      <div className="w-full max-w-[400px] page-enter">
+    <div className="min-h-dvh sparkle-bg flex items-center justify-center p-4 py-10 relative overflow-hidden">
+      <BackgroundScene variant="full" className="fixed inset-0" />
+      <div className="w-full max-w-[400px] page-enter relative z-10">
         <Logo className="justify-center mb-6" />
-        <div className="card-surface p-6 sm:p-8">
+        <div className="card-surface p-6 sm:p-8 backdrop-blur-xl bg-white/90 dark:bg-slate-900/90">
           <h1 className="font-display font-extrabold text-2xl">Tạo tài khoản</h1>
           <p className="text-sm text-slate-500 mt-1 mb-5">Miễn phí · Full tính năng</p>
           <form onSubmit={submit} className="space-y-3">

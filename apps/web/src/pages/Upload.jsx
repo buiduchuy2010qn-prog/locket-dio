@@ -14,6 +14,7 @@ import GlassBtn, { FriendsPill } from '../components/camera/GlassBtn'
 import PostSuccessModal from '../components/camera/PostSuccessModal'
 import Avatar from '../components/Avatar'
 import { timeAgo } from '../utils/storage'
+import BackgroundScene from '../effects/BackgroundScene'
 
 export default function Upload() {
   const { user, toast, unreadCount } = useApp()
@@ -757,13 +758,19 @@ export default function Upload() {
     <div
       className={`page-enter ${
         isDesktop
-          ? 'min-h-dvh bg-white relative flex flex-col'
-          : 'fixed inset-0 z-30 bg-gradient-to-b from-[#152038] via-[#0e1628] to-[#070b14] flex flex-col'
+          ? 'min-h-dvh bg-white relative flex flex-col overflow-hidden'
+          : 'fixed inset-0 z-30 bg-gradient-to-b from-[#152038] via-[#0e1628] to-[#070b14] flex flex-col overflow-hidden'
       }`}
     >
+      {/* Animated bg: subtle on desktop white, richer on mobile dark */}
+      <BackgroundScene
+        variant={isDesktop ? 'camera-desktop' : 'subtle'}
+        className="fixed inset-0 z-0"
+        showGlass={false}
+      />
       <TopChrome dark={!isDesktop} />
 
-      <div className={`flex-1 flex flex-col items-center justify-center px-4 ${isDesktop ? 'pt-10 pb-10' : 'pt-16 pb-6'}`}>
+      <div className={`relative z-10 flex-1 flex flex-col items-center justify-center px-4 ${isDesktop ? 'pt-10 pb-10' : 'pt-16 pb-6'}`}>
         {/* Mode chips */}
         <div className="mb-3 flex flex-col items-center gap-2 z-20">
           <div className={`inline-flex p-1 rounded-full border ${

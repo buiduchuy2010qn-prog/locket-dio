@@ -1,5 +1,6 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { AppProvider, useApp } from './context/AppContext'
+import { BackgroundEffectProvider } from './effects/BackgroundEffectProvider'
 import ProtectedRoute from './components/ProtectedRoute'
 import AppLayout from './layouts/AppLayout'
 import Landing from './pages/Landing'
@@ -32,45 +33,47 @@ function PublicOnly({ children }) {
 export default function App() {
   return (
     <AppProvider>
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Landing />} />
-          <Route path="/login" element={<PublicOnly><Login /></PublicOnly>} />
-          <Route path="/signup" element={<PublicOnly><Signup /></PublicOnly>} />
-          <Route path="/forgot" element={<ForgotPassword />} />
-          <Route path="/verify-email" element={<VerifyEmail />} />
+      <BackgroundEffectProvider>
+        <BrowserRouter>
+          <Routes>
+            <Route path="/" element={<Landing />} />
+            <Route path="/login" element={<PublicOnly><Login /></PublicOnly>} />
+            <Route path="/signup" element={<PublicOnly><Signup /></PublicOnly>} />
+            <Route path="/forgot" element={<ForgotPassword />} />
+            <Route path="/verify-email" element={<VerifyEmail />} />
 
-          <Route
-            path="/app"
-            element={
-              <ProtectedRoute>
-                <AppLayout />
-              </ProtectedRoute>
-            }
-          >
-            <Route index element={<Navigate to="upload" replace />} />
-            <Route path="feed" element={<Feed />} />
-            <Route path="upload" element={<Upload />} />
-            <Route path="camera" element={<Navigate to="/app/upload" replace />} />
-            <Route path="friends" element={<Friends />} />
-            <Route path="friends/requests" element={<FriendRequests />} />
-            <Route path="notifications" element={<Notifications />} />
-            <Route path="gallery" element={<Gallery />} />
-            <Route path="streaks" element={<Streaks />} />
-            <Route path="profile" element={<Profile />} />
-            <Route path="settings" element={<Settings />} />
-            <Route path="gold" element={<Gold />} />
-            <Route path="gold/customize" element={<GoldCustomize />} />
-            <Route path="connect-locket" element={<ConnectLocket />} />
-            <Route path="official-sync" element={<ConnectLocket />} />
-            <Route path="chat" element={<Chat />} />
-            <Route path="messages" element={<Chat />} />
-            <Route path="admin" element={<AdminDebug />} />
-          </Route>
+            <Route
+              path="/app"
+              element={
+                <ProtectedRoute>
+                  <AppLayout />
+                </ProtectedRoute>
+              }
+            >
+              <Route index element={<Navigate to="upload" replace />} />
+              <Route path="feed" element={<Feed />} />
+              <Route path="upload" element={<Upload />} />
+              <Route path="camera" element={<Navigate to="/app/upload" replace />} />
+              <Route path="friends" element={<Friends />} />
+              <Route path="friends/requests" element={<FriendRequests />} />
+              <Route path="notifications" element={<Notifications />} />
+              <Route path="gallery" element={<Gallery />} />
+              <Route path="streaks" element={<Streaks />} />
+              <Route path="profile" element={<Profile />} />
+              <Route path="settings" element={<Settings />} />
+              <Route path="gold" element={<Gold />} />
+              <Route path="gold/customize" element={<GoldCustomize />} />
+              <Route path="connect-locket" element={<ConnectLocket />} />
+              <Route path="official-sync" element={<ConnectLocket />} />
+              <Route path="chat" element={<Chat />} />
+              <Route path="messages" element={<Chat />} />
+              <Route path="admin" element={<AdminDebug />} />
+            </Route>
 
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </BrowserRouter>
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </BrowserRouter>
+      </BackgroundEffectProvider>
     </AppProvider>
   )
 }

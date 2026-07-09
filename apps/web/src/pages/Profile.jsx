@@ -4,6 +4,7 @@ import { useApp } from '../context/AppContext'
 import Avatar from '../components/Avatar'
 import { PROFILE_BACKGROUNDS } from '../data/constants'
 import { Settings, Palette, Flame, Images } from 'lucide-react'
+import BackgroundScene from '../effects/BackgroundScene'
 
 export default function Profile() {
   const { user, updateUser, toast } = useApp()
@@ -27,8 +28,12 @@ export default function Profile() {
   }
 
   return (
-    <div className="px-4 md:px-0 max-w-xl mx-auto pb-4">
-      <div className={`rounded-[1.75rem] overflow-hidden border border-slate-100 dark:border-white/5 shadow-[var(--shadow-card)] bg-gradient-to-br ${bg.className}`}>
+    <div className="px-4 md:px-0 max-w-xl mx-auto pb-4 relative">
+      <div className="absolute -inset-x-4 -top-4 h-48 rounded-b-3xl overflow-hidden pointer-events-none -z-0 opacity-80">
+        <BackgroundScene variant="subtle" showGlass={false} className="!absolute inset-0" />
+        <div className="absolute inset-0 bg-gradient-to-b from-transparent to-[var(--color-canvas)] dark:to-[#070b14]" />
+      </div>
+      <div className={`relative z-10 rounded-[1.75rem] overflow-hidden border border-slate-100 dark:border-white/5 shadow-[var(--shadow-card)] bg-gradient-to-br ${bg.className}`}>
         <div className="h-28 md:h-32" />
         <div className="bg-white/95 dark:bg-slate-900/95 backdrop-blur px-5 pb-5 -mt-12 relative">
           <div className="flex justify-between items-end">
@@ -66,11 +71,11 @@ export default function Profile() {
         </div>
       </div>
 
-      <div className="mt-4 flex gap-2">
+      <div className="relative z-10 mt-4 flex gap-2">
         <button
           type="button"
           onClick={() => setEditing((v) => !v)}
-          className="flex-1 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 font-bold text-sm press"
+          className="flex-1 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 font-bold text-sm press bg-white/80 dark:bg-slate-900/80 backdrop-blur"
         >
           {editing ? 'Đóng' : 'Sửa profile'}
         </button>
@@ -83,7 +88,7 @@ export default function Profile() {
       </div>
 
       {editing && (
-        <div className="mt-4 card-surface p-4 space-y-3 page-enter">
+        <div className="relative z-10 mt-4 card-surface p-4 space-y-3 page-enter">
           {['displayName', 'username', 'bio'].map((k) => (
             <div key={k}>
               <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">{k}</label>
