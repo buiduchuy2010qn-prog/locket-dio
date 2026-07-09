@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { useApp } from "@/context/AppContext";
 import { Loader2 } from "lucide-react"; // Cần: npm install lucide-react
+import GoogleDriveBackup from "./GoogleDriveBackup";
 
 function ImageWithLoader({ src, alt }) {
   const [loaded, setLoaded] = useState(false);
@@ -86,6 +87,9 @@ export default function SettingView() {
           </div>
         </div>
       </div>
+
+      {/* Backup Google Drive — không phụ thuộc laptop */}
+      <GoogleDriveBackup />
     </div>
   );
 }

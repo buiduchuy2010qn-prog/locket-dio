@@ -1,12 +1,42 @@
+import { useState } from "react";
 import { useApp } from "@/context/AppContext";
-import { Download } from "lucide-react";
+import { CloudUpload, Download } from "lucide-react";
+import {
+  isDriveAutoBackupEnabled,
+  isDriveConnected,
+  uploadFileToGoogleDrive,
+} from "@/utils/googleDrive";
+import { SonnerError, SonnerSuccess } from "@/components/ui/SonnerToast";
 
 const HeaderAfterCapture = ({ selectedFile }) => {
   const { navigation } = useApp();
   const { setIsSidebarOpen, setFriendsTabOpen } = navigation;
+  const [savingDrive, setSavingDrive] = useState(false);
 
-  const handleDownload = () => {
+  const handleDownload = async () => {
     if (!selectedFile) return;
+
+    if (isDriveConnected() && isDriveAutoBackupEnabled()) {
+      setSavingDrive(true);
+      try {
+        const extension = selectedFile.type?.split("/")[1] || "jpg";
+        const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+        const defaultName = `locketdio-${timestamp}.${extension}`;
+        const res = await uploadFileToGoogleDrive(selectedFile, {
+          fileName: defaultName,
+          interactive: true,
+        });
+        SonnerSuccess(
+          "Đã lưu Google Drive",
+          res?.name || "Folder “Locket Dio”"
+        );
+      } catch (err) {
+        SonnerError(err?.message || "Lưu Drive thất bại");
+      } finally {
+        setSavingDrive(false);
+      }
+      return;
+    }
 
     const url = URL.createObjectURL(selectedFile);
 
@@ -39,9 +69,14 @@ const HeaderAfterCapture = ({ selectedFile }) => {
       <div className="flex items-center gap-3">
         <button
           onClick={handleDownload}
-          className="w-11 h-11 flex items-center justify-center hover:bg-base-300 rounded-full transition"
+          disabled={savingDrive}
+          className="w-11 h-11 flex items-center justify-center hover:bg-base-300 rounded-full transition disabled:opacity-50"
         >
-          <Download size={28} strokeWidth={2} />
+          {isDriveConnected() && isDriveAutoBackupEnabled() ? (
+            <CloudUpload size={28} strokeWidth={2} />
+          ) : (
+            <Download size={28} strokeWidth={2} />
+          )}
         </button>
       </div>
     </div>

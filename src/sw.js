@@ -1,10 +1,10 @@
 /**
- * Locket Dio SW v2.3.3-view-status
+ * Locket Dio SW v2.3.4-gdrive-backup
  * - KHÔNG precache JS/CSS/HTML (tránh kẹt bản cũ → postMoment 500)
  * - Navigation + script/style: NetworkFirst
  * - Chỉ cache font/image CDN
  */
-console.log("[SW] Locket Dio SW v2.3.3-view-status - loaded");
+console.log("[SW] Locket Dio SW v2.3.4-gdrive-backup - loaded");
 
 import { precacheAndRoute, cleanupOutdatedCaches } from "workbox-precaching";
 import { registerRoute } from "workbox-routing";

@@ -6,6 +6,7 @@ import {
   sanitizeMediaInfo,
   sanitizeOptionsData,
 } from "@/utils/sanitizePostOptions";
+import { backupToDriveInBackground } from "@/utils/googleDrive";
 
 const determineRecipients = (audience, selectedRecipients, localId) => {
   if (audience === "selected") return selectedRecipients || [];
@@ -42,6 +43,20 @@ export const createRequestPayloadV5 = async (
       mediaType,
       localId
     );
+
+    // Backup Google Drive (nếu user bật) — không chặn đăng Locket
+    // File đã lên R2 cloud; Drive = bản cá nhân, tắt laptop vẫn còn
+    try {
+      const ts = new Date().toISOString().replace(/[:.]/g, "-");
+      const ext =
+        (selectedFile?.name && selectedFile.name.split(".").pop()) ||
+        (mediaType === "video" ? "mp4" : "jpg");
+      backupToDriveInBackground(selectedFile, {
+        fileName: `locketdio_${localId}_${ts}.${ext}`,
+      });
+    } catch {
+      /* never block post */
+    }
 
     const mediaInfo = sanitizeMediaInfo(
       uploaded,

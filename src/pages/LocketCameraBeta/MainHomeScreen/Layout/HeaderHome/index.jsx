@@ -1,8 +1,14 @@
 import { useContext, useState } from "react";
-import { ChevronDown, Download, Menu, MessageCircle } from "lucide-react";
+import { ChevronDown, CloudUpload, Download, Menu, MessageCircle } from "lucide-react";
 import HistorySelectFriend from "@/pages/LocketCameraBeta/ModalViews/HistorySelectFriend";
 import { AuthContext } from "@/context/AuthLocket";
 import { useFriendStore } from "@/stores/useFriendStore";
+import {
+  isDriveAutoBackupEnabled,
+  isDriveConnected,
+  uploadFileToGoogleDrive,
+} from "@/utils/googleDrive";
+import { SonnerError, SonnerSuccess } from "@/components/ui/SonnerToast";
 
 const HeaderHome = ({
   setIsHomeOpen,
@@ -40,9 +46,35 @@ const HeaderHome = ({
     // Nếu bottom đang đóng → mở tab bạn bè
     setFriendsTabOpen(true);
   };
-  const handleDownload = () => {
+  const [savingDrive, setSavingDrive] = useState(false);
+
+  const handleDownload = async () => {
     if (!selectedFile) return;
 
+    // Ưu tiên Google Drive nếu đã kết nối + bật backup
+    if (isDriveConnected() && isDriveAutoBackupEnabled()) {
+      setSavingDrive(true);
+      try {
+        const extension = selectedFile.type?.split("/")[1] || "jpg";
+        const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+        const defaultName = `locketdio-${timestamp}.${extension}`;
+        const res = await uploadFileToGoogleDrive(selectedFile, {
+          fileName: defaultName,
+          interactive: true,
+        });
+        SonnerSuccess(
+          "Đã lưu Google Drive",
+          res?.name || "Folder “Locket Dio”"
+        );
+      } catch (err) {
+        SonnerError(err?.message || "Lưu Drive thất bại");
+      } finally {
+        setSavingDrive(false);
+      }
+      return;
+    }
+
+    // Fallback: tải về máy
     const url = URL.createObjectURL(selectedFile);
 
     const extension = selectedFile.type.split("/")[1] || "png";
@@ -73,9 +105,19 @@ const HeaderHome = ({
           <div className="flex items-center gap-3">
             <button
               onClick={handleDownload}
-              className="w-11 h-11 flex items-center justify-center hover:bg-base-300 rounded-full transition"
+              disabled={savingDrive}
+              title={
+                isDriveConnected() && isDriveAutoBackupEnabled()
+                  ? "Lưu Google Drive"
+                  : "Tải về máy (bật Drive trong Settings để lưu cloud)"
+              }
+              className="w-11 h-11 flex items-center justify-center hover:bg-base-300 rounded-full transition disabled:opacity-50"
             >
-              <Download size={28} strokeWidth={2} />
+              {isDriveConnected() && isDriveAutoBackupEnabled() ? (
+                <CloudUpload size={28} strokeWidth={2} />
+              ) : (
+                <Download size={28} strokeWidth={2} />
+              )}
             </button>
           </div>
         </div>

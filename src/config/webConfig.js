@@ -20,6 +20,8 @@ export const CONFIG = {
   keys: {
     vapidPublicKey: import.meta.env.VITE_VAPID_PUBLIC_KEY, // Push notification
     turnstileKey: import.meta.env.VITE_TURNSTILE_SITE_KEY, // Cloudflare Turnstile
+    // Google OAuth Web Client — backup Drive (optional; cũng lưu được trong Settings)
+    googleClientId: import.meta.env.VITE_GOOGLE_CLIENT_ID || "",
 
     // Must match official client key or storage returns Malformed / denied
     apiKey:
