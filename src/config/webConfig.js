@@ -12,13 +12,17 @@ export const CONFIG = {
     exportApi: import.meta.env.VITE_EXPORTS_API_URL, // API export data pdf, excel,...
     convertApi: import.meta.env.VITE_CONVERTS_API_URL,
     extenApi: import.meta.env.VITE_EXTENS_API_URL,
+    authUrl: import.meta.env.VITE_AUTH_API_URL, // auth service
   },
 
   keys: {
     vapidPublicKey: import.meta.env.VITE_VAPID_PUBLIC_KEY, // Push notification
     turnstileKey: import.meta.env.VITE_TURNSTILE_SITE_KEY, // Cloudflare Turnstile
 
-    apiKey: import.meta.env.VITE_PUBLIC_API_KEY,
+    // Must match official client key or storage returns Malformed / denied
+    apiKey:
+      import.meta.env.VITE_PUBLIC_API_KEY ||
+      "LKD-LOCKETDIO-AB02F55KYM55DD02MM03YY25-LKD",
   },
 
   app: {
@@ -26,7 +30,8 @@ export const CONFIG = {
     author: "dio",
     shortname: "locketdio",
     fullName: "Locket Dio - Đăng ảnh & Video lên Locket", // Tên đầy đủ
-    clientVersion: "Beta2.5.5.2", // Version client
+    // Align with production client so Dio backend accepts requests
+    clientVersion: "Beta1.3.4",
     apiVersion: "v2.2.1", // Version API
     env: import.meta.env.MODE, // development | production
     camera: {

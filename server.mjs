@@ -14,11 +14,13 @@ const PUBLIC_DIR = path.join(__dirname, "public");
 
 const PROXIES = [
   { prefix: "/dio-api", target: "https://api.locket-dio.com" },
+  { prefix: "/dio-auth", target: "https://auth.locket-dio.com" },
   { prefix: "/dio-data", target: "https://data.locket-dio.com" },
   { prefix: "/dio-storage", target: "https://storage.locket-dio.com" },
   { prefix: "/dio-media", target: "https://media.locket-dio.com" },
   { prefix: "/dio-export", target: "https://export.locket-dio.com" },
   { prefix: "/dio-cdn", target: "https://cdn.locket-dio.com" },
+  { prefix: "/dio-payment", target: "https://payment.locket-dio.com" },
 ];
 
 const ALLOWED_ORIGIN_SPOOF = "https://locket-dio.com";
