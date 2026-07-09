@@ -10,6 +10,7 @@ import {
 import { showInfo } from "../components/Toast";
 import { CONFIG } from "@/config";
 import { parseJwt } from "@/utils/auth";
+import { formatApiError } from "@/utils/formatApiError";
 import { applyMemberHeader, clearMemberSession } from "@/utils/memberToken";
 
 /** Đọc idToken từ localStorage HOẶC sessionStorage (saveToken dùng cả hai). */
@@ -18,20 +19,13 @@ function readIdToken() {
 }
 
 // ==== Kiểm tra token sắp hết hạn (dưới 5 phút) ====
-let cachedExp = null;
+// Không cache exp global — tránh stale khi đổi account / token mới
 function isTokenExpired(token) {
   if (!token) return true;
-
-  const now = Math.floor(Date.now() / 1000);
-
-  if (!cachedExp) {
-    const payload = parseJwt(token);
-    if (!payload) return true;
-    cachedExp = payload.exp;
-  }
-
-  const timeLeft = cachedExp - now;
-
+  const payload = parseJwt(token);
+  // Không parse được JWT → vẫn gửi token (đừng ép refresh/logout)
+  if (!payload || typeof payload.exp !== "number") return false;
+  const timeLeft = payload.exp - Math.floor(Date.now() / 1000);
   return timeLeft < 300; // < 5 phút thì coi là sắp hết hạn
 }
 
@@ -56,7 +50,6 @@ async function refreshIdToken() {
       // Đồng bộ cả localStorage để code cũ không miss
       localStorage.setItem("idToken", newToken);
       if (newLocalId) localStorage.setItem("localId", newLocalId);
-      cachedExp = null;
       return newToken;
     }
 
@@ -81,7 +74,6 @@ async function refreshIdToken() {
 function handleLogout() {
   isRefreshing = false;
   refreshPromise = null;
-  cachedExp = null;
 
   clearLocalData();
   removeUser();
@@ -183,10 +175,7 @@ api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const status = error.response?.status || error.status;
-    const message =
-      error.response?.data?.message ||
-      error.response?.data?.error ||
-      error.response?.data?.error?.message;
+    const message = formatApiError(error, "");
 
     const originalRequest = error.config;
 

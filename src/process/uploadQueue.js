@@ -5,6 +5,7 @@ import {
 } from "@/components/ui/SonnerToast";
 import { PostMoments } from "@/services";
 import { normalizeMoment } from "@/utils";
+import { formatApiError } from "@/utils/formatApiError";
 import { fetchStreak } from "@/utils/SyncData/streakUtils";
 import Dexie from "dexie";
 
@@ -151,22 +152,27 @@ export const processQueue = async (setStreak) => {
         console.error("❌ Lỗi khi upload:", err);
         // Bỏ qua bài này, tiếp bài tiếp theo
         await updatePayloadStatus(payload.id, "failed");
-        const detail =
-          err?.response?.data?.message ||
-          err?.response?.data?.error?.message ||
-          (typeof err?.response?.data?.error === "string"
-            ? err.response.data.error
-            : null) ||
-          err?.message ||
-          "";
-        SonnerError(
-          "Đăng tải thất bại!",
-          detail
-            ? String(detail).slice(0, 160)
-            : `Không thể tải ${
-                payload.contentType === "video" ? "video" : "ảnh"
-              } lên. Bài tiếp theo sẽ được xử lý.`
+        const detail = formatApiError(
+          err,
+          `Không thể tải ${
+            payload.contentType === "video" ? "video" : "ảnh"
+          } lên. Bài tiếp theo sẽ được xử lý.`
         );
+        // Lưu lỗi cuối để debug (Application → Local Storage)
+        try {
+          localStorage.setItem(
+            "lastUploadError",
+            JSON.stringify({
+              at: new Date().toISOString(),
+              detail,
+              status: err?.response?.status || err?.status || null,
+              data: err?.response?.data ?? null,
+            })
+          );
+        } catch {
+          /* ignore */
+        }
+        SonnerError("Đăng tải thất bại!", detail);
       }
     }
   } finally {

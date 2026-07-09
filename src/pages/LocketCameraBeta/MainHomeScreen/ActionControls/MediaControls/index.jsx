@@ -118,9 +118,23 @@ const MediaControls = () => {
       setUploadLoading(false);
       setIsSuccess(false);
 
-      const errorMessage =
-        error?.response?.data?.message || error.message || "Lỗi không xác định";
-      SonnerError("Tạo payload thất bại!", `${errorMessage}`);
+      const { formatApiError } = await import("@/utils/formatApiError");
+      const errorMessage = formatApiError(error, "Lỗi không xác định");
+      try {
+        localStorage.setItem(
+          "lastUploadError",
+          JSON.stringify({
+            at: new Date().toISOString(),
+            phase: "createPayload",
+            detail: errorMessage,
+            status: error?.response?.status || null,
+            data: error?.response?.data ?? null,
+          })
+        );
+      } catch {
+        /* ignore */
+      }
+      SonnerError("Tạo payload thất bại!", errorMessage);
 
       console.error("❌ Tạo payload thất bại:", error);
     }

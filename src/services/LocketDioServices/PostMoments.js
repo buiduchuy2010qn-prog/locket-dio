@@ -1,6 +1,7 @@
 import axios from "axios";
 import * as utils from "@/utils";
 import api from "@/lib/axios";
+import { formatApiError } from "@/utils/formatApiError";
 
 export const uploadMedia = async (formData, setUploadProgress) => {
   let timeOutId;
@@ -149,43 +150,25 @@ export const PostMoments = async (payload) => {
 
     // Dio đôi khi trả HTTP 200 + success:false
     if (response.data?.success === false) {
-      const msg =
-        response.data?.message ||
-        response.data?.error?.message ||
-        (typeof response.data?.error === "string"
-          ? response.data.error
-          : null) ||
-        "postMoment bị từ chối";
-      const err = new Error(typeof msg === "string" ? msg : JSON.stringify(msg));
+      const msg = formatApiError(
+        { response, message: "postMoment bị từ chối" },
+        "postMoment bị từ chối"
+      );
+      const err = new Error(msg);
       err.response = response;
+      err.status = response.status;
       throw err;
     }
 
     console.log("✅ Upload thành công:", response.data);
     return response.data;
   } catch (error) {
-    console.error("❌ Lỗi khi upload:", error.response?.data || error.message);
+    const pretty = formatApiError(error, "Lỗi khi đăng moment");
+    console.error("❌ Lỗi khi upload:", pretty, error.response?.data || error);
 
-    if (error.response) {
-      console.error("📡 Server Error:", error.response);
-    } else {
-      console.error("🌐 Network Error:", error.message);
-    }
-
-    // Bọc message API rõ ràng để toast queue hiển thị
-    const apiMsg =
-      error?.response?.data?.message ||
-      error?.response?.data?.error?.message ||
-      (typeof error?.response?.data?.error === "string"
-        ? error.response.data.error
-        : null);
-    if (apiMsg && !error.message?.includes(String(apiMsg))) {
-      const e = new Error(String(apiMsg));
-      e.response = error.response;
-      e.status = error?.response?.status;
-      throw e;
-    }
-
-    throw error;
+    const e = new Error(pretty);
+    e.response = error.response;
+    e.status = error?.response?.status || error?.status;
+    throw e;
   }
 };
