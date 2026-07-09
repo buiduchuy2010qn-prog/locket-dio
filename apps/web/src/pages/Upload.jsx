@@ -58,8 +58,38 @@ export default function Upload() {
   const chunksRef = useRef([])
   const recTimerRef = useRef(null)
   const recordingRef = useRef(false)
+  const recSecRef = useRef(0)
   const startGenRef = useRef(0)
   const maxVideo = GOLD_VIDEO_MAX_SEC
+
+  /** MediaRecorder webm often reports duration = Infinity */
+  const safeDuration = (sec, fallback = 1) => {
+    const n = Number(sec)
+    if (!Number.isFinite(n) || n <= 0) return Math.max(1, Math.round(Number(fallback) || 1))
+    return Math.min(Math.round(n), maxVideo)
+  }
+
+  const resolveVideoDuration = (videoEl, fallbackSec) =>
+    new Promise((resolve) => {
+      const fin = (d) => resolve(safeDuration(d, fallbackSec))
+      if (Number.isFinite(videoEl.duration) && videoEl.duration > 0) {
+        fin(videoEl.duration)
+        return
+      }
+      // Force Chrome to compute duration for webm blobs
+      const onTime = () => {
+        videoEl.removeEventListener('timeupdate', onTime)
+        fin(videoEl.duration)
+        try { videoEl.currentTime = 0 } catch { /* ignore */ }
+      }
+      videoEl.addEventListener('timeupdate', onTime)
+      try {
+        videoEl.currentTime = 1e101
+      } catch {
+        fin(fallbackSec)
+      }
+      setTimeout(() => fin(fallbackSec), 1500)
+    })
 
   useEffect(() => {
     const mq = window.matchMedia('(min-width: 1024px)')
@@ -367,17 +397,21 @@ export default function Upload() {
       rec.onstop = () => {
         const blob = new Blob(chunksRef.current, { type: rec.mimeType || 'video/webm' })
         if (!blob.size) return toast('Video rỗng', 'error')
+        const recordedSec = recSecRef.current || 1
         const url = URL.createObjectURL(blob)
         const v = document.createElement('video')
-        v.onloadedmetadata = () => {
-          setDuration(Math.round(v.duration) || recSec || 1)
+        v.preload = 'metadata'
+        v.muted = true
+        v.onloadedmetadata = async () => {
+          const sec = await resolveVideoDuration(v, recordedSec)
+          setDuration(sec)
           setSourceUrl(url)
           setType('video')
           setScreen('compose')
           stopLive()
         }
         v.onerror = () => {
-          setDuration(recSec || 1)
+          setDuration(safeDuration(recordedSec))
           setSourceUrl(url)
           setType('video')
           setScreen('compose')
@@ -389,10 +423,13 @@ export default function Upload() {
       recordingRef.current = true
       setRecording(true)
       setRecSec(0)
+      recSecRef.current = 0
       recTimerRef.current = setInterval(() => {
         setRecSec((s) => {
-          if (s + 1 >= maxVideo) stopRecording()
-          return s + 1
+          const next = s + 1
+          recSecRef.current = next
+          if (next >= maxVideo) stopRecording()
+          return next
         })
       }, 1000)
     } catch {
@@ -412,8 +449,22 @@ export default function Upload() {
     if (mediaType === 'video') {
       const url = URL.createObjectURL(file)
       const v = document.createElement('video')
-      v.onloadedmetadata = () => {
-        setDuration(Math.round(v.duration) || 1)
+      v.preload = 'metadata'
+      v.muted = true
+      v.onloadedmetadata = async () => {
+        const sec = await resolveVideoDuration(v, 1)
+        if (sec > maxVideo) {
+          toast(`Video tối đa ${maxVideo}s — chọn clip ngắn hơn`, 'error')
+          URL.revokeObjectURL(url)
+          return
+        }
+        setDuration(sec)
+        setSourceUrl(url)
+        setType('video')
+        setScreen('compose')
+      }
+      v.onerror = () => {
+        setDuration(1)
         setSourceUrl(url)
         setType('video')
         setScreen('compose')
@@ -435,7 +486,16 @@ export default function Upload() {
 
   const post = async () => {
     if (!sourceUrl) return
-    if (type === 'video' && duration > maxVideo) return toast(`Video tối đa ${maxVideo}s`, 'error')
+    const sec = safeDuration(duration, recSecRef.current || 1)
+    if (type === 'video') {
+      if (!Number.isFinite(Number(duration)) || Number(duration) <= 0) {
+        setDuration(sec)
+      }
+      if (sec > maxVideo) {
+        toast(`Video tối đa ${maxVideo}s`, 'error')
+        return
+      }
+    }
     setLoading(true)
     try {
       let mediaUrl = sourceUrl
@@ -450,7 +510,11 @@ export default function Upload() {
         })
       }
       const result = await api.uploadMoment({
-        mediaUrl, caption, type, durationSec: duration, visibility: audience,
+        mediaUrl,
+        caption,
+        type,
+        durationSec: type === 'video' ? sec : duration,
+        visibility: audience,
       })
       toast('Đã lưu moment!')
       setPostResult({ moment: result, mediaUrl: result.mediaUrl || mediaUrl, caption })
@@ -629,7 +693,7 @@ export default function Upload() {
           </div>
           {type === 'video' && (
             <p className={`mt-2 text-xs font-semibold ${isDesktop ? 'text-slate-500' : 'text-white/50'}`}>
-              Video · {duration}s / max {maxVideo}s
+              Video · {safeDuration(duration, recSecRef.current || 1)}s / max {maxVideo}s
             </p>
           )}
           <textarea
