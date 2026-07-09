@@ -29,8 +29,8 @@ function pickUserEmail(user, authTokens) {
 }
 
 /**
- * Backup Drive — tuỳ chọn. Không bắt buộc liên kết lại.
- * Bật chỉ khi đã có env Render / OAuth sẵn; form nâng cao ẩn mặc định.
+ * Auto backup Drive — bật 1 lần OAuth, lưu Neon (không mất deploy).
+ * Sau khi bật: chụp → tự backup Ảnh/Video.
  */
 export default function GoogleDriveBackup({ forceShow = false }) {
   const { user, authTokens } = useContext(AuthContext);
@@ -41,14 +41,15 @@ export default function GoogleDriveBackup({ forceShow = false }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [oauthStarting, setOauthStarting] = useState(false);
-  const [showAdvanced, setShowAdvanced] = useState(false);
   const [isAdmin, setIsAdmin] = useState(() =>
     isAdminUser(localId, { ...user, email, localId })
   );
 
   const [clientId, setClientId] = useState("");
   const [clientSecret, setClientSecret] = useState("");
-  const [folderId, setFolderId] = useState("");
+  const [folderId, setFolderId] = useState(
+    "15u_rammosTOF7msvt0D1SoHklcCiZzt"
+  );
 
   const load = async () => {
     setLoading(true);
@@ -70,14 +71,10 @@ export default function GoogleDriveBackup({ forceShow = false }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [localId, email]);
 
-  // User thường: không hiện gì — Drive không liên quan
-  if (!isAdmin && !forceShow) {
-    return null;
-  }
+  if (!isAdmin && !forceShow) return null;
 
   const configured = Boolean(status?.configured);
   const enabled = status?.enabled !== false && configured;
-  const permanent = enabled && String(status?.source || "").includes("env");
   const adminHeaders = {
     "Content-Type": "application/json",
     "X-Local-Id": localId || "",
@@ -91,7 +88,7 @@ export default function GoogleDriveBackup({ forceShow = false }) {
     }
     if (!clientId.trim() || !clientSecret.trim()) {
       if (!status?.hasOauthClient) {
-        SonnerError("Cần OAuth Client ID + Secret");
+        SonnerError("Cần OAuth Client ID + Secret từ Google Cloud");
         return;
       }
     }
@@ -127,7 +124,7 @@ export default function GoogleDriveBackup({ forceShow = false }) {
         throw new Error(oData?.error || "Không tạo được link Google");
       }
 
-      SonnerSuccess("Mở Google…", "Cấp quyền nếu muốn bật backup");
+      SonnerSuccess("Mở Google…", "Cho phép 1 lần — sau đó auto backup");
       window.location.href = oData.url;
     } catch (e) {
       SonnerError(e?.message || "Thất bại");
@@ -139,81 +136,72 @@ export default function GoogleDriveBackup({ forceShow = false }) {
   return (
     <div
       id="google-drive-admin"
-      className="w-full rounded-2xl border border-base-300 bg-base-100 p-4 space-y-3"
+      className="w-full rounded-2xl border-2 border-success/40 bg-base-100 p-4 space-y-3"
     >
       <div className="flex items-center gap-2 flex-wrap">
-        <HardDrive className="w-5 h-5 shrink-0 opacity-70" />
+        <HardDrive className="w-5 h-5 text-success shrink-0" />
         <div className="flex-1 min-w-0">
-          <p className="font-semibold text-sm">Google Drive backup</p>
-          <p className="text-xs opacity-60">Tuỳ chọn — không bắt buộc</p>
+          <p className="font-semibold text-sm">Auto backup Google Drive</p>
+          <p className="text-xs opacity-60">
+            Chụp xong → tự vào folder Ảnh / Video · Lưu bền (Neon)
+          </p>
         </div>
         <span className="badge badge-ghost badge-sm gap-1">
           <Shield className="w-3 h-3" /> Admin
         </span>
       </div>
 
-      <div className="flex items-center gap-2 text-sm">
+      <div className="flex items-center gap-2 text-sm font-medium">
         {loading ? (
           <Loader2 className="w-4 h-4 animate-spin" />
         ) : enabled ? (
           <Cloud className="w-4 h-4 text-success" />
         ) : (
-          <CloudOff className="w-4 h-4 opacity-50" />
+          <CloudOff className="w-4 h-4 text-warning" />
         )}
-        <span className={enabled ? "text-success font-medium" : "opacity-70"}>
+        <span className={enabled ? "text-success" : "text-warning"}>
           {loading
             ? "Đang kiểm tra…"
             : enabled
-              ? permanent
-                ? "Đang bật (lưu trên Render env)"
-                : "Đang bật"
-              : "Đang tắt — web vẫn dùng bình thường"}
+              ? `✅ Auto backup BẬT${status?.source ? ` (${status.source})` : ""}`
+              : "Chưa bật — làm 1 lần bên dưới"}
         </span>
       </div>
+
+      {enabled && (
+        <div className="alert alert-success text-xs py-2">
+          <span>
+            Đã bật. Chụp ảnh/video → tự backup. Deploy web không mất cấu hình
+            (Neon).
+          </span>
+        </div>
+      )}
 
       {enabled && status?.folderUrl && (
         <a
           href={status.folderUrl}
           target="_blank"
           rel="noreferrer"
-          className="btn btn-ghost btn-sm gap-2"
+          className="btn btn-success btn-sm gap-2"
         >
           <ExternalLink className="w-4 h-4" />
           Mở folder Drive
         </a>
       )}
 
-      {status?.oauthEmail && (
-        <p className="text-xs opacity-60 break-all">
-          {status.oauthEmail}
-          {status.authMode ? ` · ${status.authMode}` : ""}
-        </p>
-      )}
-
-      {/* Form cấu hình: ẩn — chỉ mở khi admin chủ động */}
       {!enabled && (
-        <button
-          type="button"
-          className="btn btn-ghost btn-xs"
-          onClick={() => setShowAdvanced((v) => !v)}
-        >
-          {showAdvanced ? "Ẩn cấu hình" : "Cấu hình backup (tuỳ chọn)…"}
-        </button>
-      )}
-
-      {enabled && !permanent && (
-        <p className="text-[11px] opacity-50">
-          Muốn giữ sau deploy: set 4 biến env trên Render (không cần đăng nhập
-          lại nếu đã có refresh token trong env).
-        </p>
-      )}
-
-      {showAdvanced && !enabled && (
         <div className="rounded-xl bg-base-200 p-3 space-y-3 text-xs">
-          <p className="opacity-70">
-            Chỉ cần nếu muốn backup Drive. Không làm cũng được — chụp/đăng vẫn
-            OK.
-          </p>
+          <p className="font-semibold">Bật auto backup (1 lần duy nhất)</p>
+          <ol className="list-decimal pl-4 space-y-1 opacity-80">
+            <li>
+              Google Cloud → Credentials → OAuth client (Web) + redirect:{" "}
+              <code className="bg-base-300 px-1 break-all">
+                https://huy-locket.onrender.com/api/drive-oauth-callback
+              </code>
+            </li>
+            <li>Dán Client ID + Secret bên dưới</li>
+            <li>Bấm nút → Cho phép Google</li>
+          </ol>
           <label className="form-control w-full">
             <span className="label-text text-xs mb-1">OAuth Client ID</span>
             <input
@@ -239,14 +227,13 @@ export default function GoogleDriveBackup({ forceShow = false }) {
             <input
               type="text"
               className="input input-bordered input-sm w-full font-mono"
-              placeholder="15u_rammosTOF7msvt0D1SoHklcCiZzt"
               value={folderId}
               onChange={(e) => setFolderId(e.target.value)}
             />
           </label>
           <button
             type="button"
-            className="btn btn-sm btn-primary w-full gap-2"
+            className="btn btn-success btn-sm w-full gap-2"
             disabled={saving || oauthStarting || !folderId.trim()}
             onClick={saveAndLogin}
           >
@@ -255,16 +242,14 @@ export default function GoogleDriveBackup({ forceShow = false }) {
             ) : (
               <LogIn className="w-4 h-4" />
             )}
-            {oauthStarting ? "Đang mở Google…" : "Bật backup (OAuth)"}
+            {oauthStarting
+              ? "Đang mở Google…"
+              : "Bật auto backup (OAuth 1 lần)"}
           </button>
         </div>
       )}
 
-      <button
-        type="button"
-        className="btn btn-ghost btn-xs w-full"
-        onClick={load}
-      >
+      <button type="button" className="btn btn-ghost btn-xs w-full" onClick={load}>
         Làm mới trạng thái
       </button>
     </div>

@@ -112,12 +112,112 @@ function readBody(req) {
   });
 }
 
-// ===== Shared Google Drive — OAuth (Drive cá nhân) + optional Service Account =====
-// Lưu ý: Service Account KHÔNG có quota trên My Drive cá nhân → upload fail.
-// Cách đúng cho Gmail thường: OAuth đăng nhập Google của admin (refresh token).
+// ===== Shared Google Drive — OAuth + lưu Neon (bền, không mất khi redeploy) =====
+// Priority: env > Neon DB > file local
 const GDRIVE_CONFIG_PATH = path.join(__dirname, "data", "gdrive-config.json");
 const GDRIVE_OAUTH_SCOPE = "https://www.googleapis.com/auth/drive.file";
 const oauthStateMap = new Map(); // state -> { exp, clientId, clientSecret, folderId }
+const DATABASE_URL = (
+  process.env.DATABASE_URL ||
+  process.env.NEON_DATABASE_URL ||
+  ""
+).trim();
+
+/** @type {null | { folderId?: string, oauth?: object, serviceAccount?: object, updatedAt?: string, updatedBy?: string, source?: string }} */
+let driveConfigMemory = null;
+let neonReady = false;
+let neonSql = null;
+
+async function initNeon() {
+  if (!DATABASE_URL || neonReady) return neonReady;
+  try {
+    const { neon } = await import("@neondatabase/serverless");
+    neonSql = neon(DATABASE_URL);
+    await neonSql`
+      CREATE TABLE IF NOT EXISTS gdrive_config (
+        id INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+        folder_id TEXT,
+        oauth_client_id TEXT,
+        oauth_client_secret TEXT,
+        oauth_refresh_token TEXT,
+        oauth_email TEXT,
+        service_account_json JSONB,
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_by TEXT
+      )
+    `;
+    neonReady = true;
+    console.log("[gdrive] Neon config store: ON");
+  } catch (e) {
+    console.warn("[gdrive] Neon init failed:", e.message);
+    neonReady = false;
+  }
+  return neonReady;
+}
+
+async function readDriveConfigFromNeon() {
+  if (!(await initNeon()) || !neonSql) return null;
+  try {
+    const rows = await neonSql`SELECT * FROM gdrive_config WHERE id = 1 LIMIT 1`;
+    const row = rows?.[0];
+    if (!row) return null;
+    const cfg = {
+      folderId: row.folder_id || "",
+      oauth: {
+        clientId: row.oauth_client_id || "",
+        clientSecret: row.oauth_client_secret || "",
+        refreshToken: row.oauth_refresh_token || "",
+        email: row.oauth_email || "",
+      },
+      serviceAccount: row.service_account_json || undefined,
+      updatedAt: row.updated_at,
+      updatedBy: row.updated_by,
+      source: "neon",
+    };
+    if (!cfg.oauth.clientId && !cfg.serviceAccount && !cfg.folderId) return null;
+    return cfg;
+  } catch (e) {
+    console.warn("[gdrive] Neon read failed:", e.message);
+    return null;
+  }
+}
+
+async function writeDriveConfigToNeon(cfg) {
+  if (!(await initNeon()) || !neonSql) return false;
+  try {
+    const sa = cfg.serviceAccount || null;
+    await neonSql`
+      INSERT INTO gdrive_config (
+        id, folder_id, oauth_client_id, oauth_client_secret,
+        oauth_refresh_token, oauth_email, service_account_json,
+        updated_at, updated_by
+      ) VALUES (
+        1,
+        ${cfg.folderId || null},
+        ${cfg.oauth?.clientId || null},
+        ${cfg.oauth?.clientSecret || null},
+        ${cfg.oauth?.refreshToken || null},
+        ${cfg.oauth?.email || null},
+        ${sa ? JSON.stringify(sa) : null},
+        NOW(),
+        ${cfg.updatedBy || null}
+      )
+      ON CONFLICT (id) DO UPDATE SET
+        folder_id = EXCLUDED.folder_id,
+        oauth_client_id = EXCLUDED.oauth_client_id,
+        oauth_client_secret = EXCLUDED.oauth_client_secret,
+        oauth_refresh_token = EXCLUDED.oauth_refresh_token,
+        oauth_email = EXCLUDED.oauth_email,
+        service_account_json = EXCLUDED.service_account_json,
+        updated_at = NOW(),
+        updated_by = EXCLUDED.updated_by
+    `;
+    return true;
+  } catch (e) {
+    console.warn("[gdrive] Neon write failed:", e.message);
+    return false;
+  }
+}
 
 function readDriveConfigFile() {
   try {
@@ -136,10 +236,57 @@ function readDriveConfigFile() {
   }
 }
 
+function writeDriveConfigFileSync(cfg) {
+  try {
+    const dir = path.dirname(GDRIVE_CONFIG_PATH);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(GDRIVE_CONFIG_PATH, JSON.stringify(cfg, null, 2), "utf8");
+  } catch (e) {
+    console.warn("[gdrive] file write:", e.message);
+  }
+}
+
+/** Lưu memory + disk + Neon (bền qua redeploy) */
+async function saveDriveConfig(cfg) {
+  driveConfigMemory = { ...cfg, source: cfg.source || "neon" };
+  writeDriveConfigFileSync(driveConfigMemory);
+  const ok = await writeDriveConfigToNeon(driveConfigMemory);
+  if (ok) driveConfigMemory.source = "neon";
+  return ok;
+}
+
+/** @deprecated use saveDriveConfig — giữ sync wrapper cho chỗ cũ */
 function writeDriveConfigFile(cfg) {
-  const dir = path.dirname(GDRIVE_CONFIG_PATH);
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(GDRIVE_CONFIG_PATH, JSON.stringify(cfg, null, 2), "utf8");
+  driveConfigMemory = cfg;
+  writeDriveConfigFileSync(cfg);
+  writeDriveConfigToNeon(cfg)
+    .then((ok) => {
+      if (ok && driveConfigMemory) driveConfigMemory.source = "neon";
+    })
+    .catch(() => {});
+}
+
+/** Load config: memory → Neon → file (sync path uses cache; warm async) */
+function readDriveConfig() {
+  if (driveConfigMemory?.oauth?.refreshToken || driveConfigMemory?.folderId) {
+    return driveConfigMemory;
+  }
+  const file = readDriveConfigFile();
+  if (file) {
+    driveConfigMemory = file;
+    return file;
+  }
+  return driveConfigMemory;
+}
+
+async function warmDriveConfig() {
+  const neonCfg = await readDriveConfigFromNeon();
+  if (neonCfg?.oauth?.refreshToken || neonCfg?.folderId) {
+    driveConfigMemory = { ...neonCfg, source: "neon" };
+    writeDriveConfigFileSync(driveConfigMemory);
+    return driveConfigMemory;
+  }
+  return readDriveConfig();
 }
 
 function parseServiceAccountJson(raw) {
@@ -166,30 +313,30 @@ function loadServiceAccount() {
     process.env.GOOGLE_SERVICE_ACCOUNT_JSON || ""
   );
   if (fromEnv) return fromEnv;
-  const fileCfg = readDriveConfigFile();
-  if (fileCfg?.serviceAccount) return fileCfg.serviceAccount;
+  const cfg = readDriveConfig();
+  if (cfg?.serviceAccount) return cfg.serviceAccount;
   return null;
 }
 
 /** OAuth client + refresh token (ưu tiên — ghi được Drive cá nhân) */
 function loadOauthCreds() {
-  const fileCfg = readDriveConfigFile();
+  const cfg = readDriveConfig();
   const clientId = (
     process.env.GOOGLE_OAUTH_CLIENT_ID ||
-    fileCfg?.oauth?.clientId ||
+    cfg?.oauth?.clientId ||
     ""
   ).trim();
   const clientSecret = (
     process.env.GOOGLE_OAUTH_CLIENT_SECRET ||
-    fileCfg?.oauth?.clientSecret ||
+    cfg?.oauth?.clientSecret ||
     ""
   ).trim();
   const refreshToken = (
     process.env.GOOGLE_OAUTH_REFRESH_TOKEN ||
-    fileCfg?.oauth?.refreshToken ||
+    cfg?.oauth?.refreshToken ||
     ""
   ).trim();
-  const email = (fileCfg?.oauth?.email || "").trim();
+  const email = (cfg?.oauth?.email || "").trim();
   if (!clientId || !clientSecret) return null;
   return { clientId, clientSecret, refreshToken, email };
 }
@@ -197,8 +344,8 @@ function loadOauthCreds() {
 function getDriveFolderId() {
   const fromEnv = (process.env.GOOGLE_DRIVE_FOLDER_ID || "").trim();
   if (fromEnv) return fromEnv;
-  const fileCfg = readDriveConfigFile();
-  return (fileCfg?.folderId || "").trim();
+  const cfg = readDriveConfig();
+  return (cfg?.folderId || "").trim();
 }
 
 function normalizeFolderId(raw) {
@@ -587,16 +734,15 @@ async function handleDriveStatus(req, res) {
   if (req.method === "OPTIONS") {
     return corsJson(req, res, 204, {});
   }
+  await warmDriveConfig();
   const sa = loadServiceAccount();
   const oauth = loadOauthCreds();
   const folderId = getDriveFolderId();
   const mode = driveAuthMode();
-  // Backup thật sự chỉ ON khi có OAuth (Drive cá nhân) hoặc SA+folder
-  // SA trên My Drive sẽ fail → không coi là enabled trừ khi OAuth
   const ready = isDriveReady();
   const hasAnyCreds = Boolean(folderId && (oauth?.refreshToken || sa));
   const isAdmin = isAdminRequest(req);
-  const fileCfg = readDriveConfigFile();
+  const cfg = readDriveConfig();
 
   if (!isAdmin) {
     return corsJson(req, res, 200, {
@@ -605,16 +751,26 @@ async function handleDriveStatus(req, res) {
       isAdmin: false,
       adminOnly: true,
       message: ready
-        ? "Shared Drive backup is ON"
-        : "Drive not configured",
+        ? "Auto Drive backup ON"
+        : "Drive backup off",
     });
   }
 
   let warning = null;
   if (mode === "service_account" && !oauth?.refreshToken) {
     warning =
-      "Service Account không ghi được Google Drive cá nhân (quota 0). Hãy dùng nút Đăng nhập Google (OAuth).";
+      "Service Account không ghi được Drive cá nhân — dùng OAuth.";
   }
+
+  const source = process.env.GOOGLE_OAUTH_REFRESH_TOKEN
+    ? "env-oauth"
+    : process.env.GOOGLE_SERVICE_ACCOUNT_JSON
+      ? "env-sa"
+      : cfg?.source === "neon" || neonReady
+        ? "neon"
+        : cfg
+          ? "file"
+          : "none";
 
   return corsJson(req, res, 200, {
     configured: ready,
@@ -632,18 +788,13 @@ async function handleDriveStatus(req, res) {
     oauthEmail: oauth?.email || null,
     hasOauthClient: Boolean(oauth?.clientId && oauth?.clientSecret),
     hasRefreshToken: Boolean(oauth?.refreshToken),
-    source: process.env.GOOGLE_OAUTH_REFRESH_TOKEN
-      ? "env-oauth"
-      : process.env.GOOGLE_SERVICE_ACCOUNT_JSON
-        ? "env-sa"
-        : fileCfg
-          ? "file"
-          : "none",
+    neon: neonReady,
+    source,
     warning,
     message: ready
-      ? "Backup Drive ON (OAuth) — mọi bài đăng sẽ vào folder"
+      ? "Auto backup Drive ON — ảnh→Ảnh, video→Video (lưu bền Neon/env)"
       : warning ||
-        "Chưa sẵn sàng. Dán Folder ID + OAuth Client → Đăng nhập Google.",
+        "Bật 1 lần OAuth — cấu hình lưu Neon nên không mất khi deploy.",
   });
 }
 
@@ -679,7 +830,8 @@ async function handleDriveConfigSave(req, res) {
       ? body.serviceAccount
       : parseServiceAccountJson(body.serviceAccountJson || body.json || "");
 
-  const prev = readDriveConfigFile() || {};
+  await warmDriveConfig();
+  const prev = readDriveConfig() || {};
 
   // Cho phép chỉ cập nhật folder / oauth client (giữ refresh token cũ)
   const nextOauth = {
@@ -724,7 +876,7 @@ async function handleDriveConfigSave(req, res) {
         req.headers["x-user-email"] || req.headers["x-local-id"] || "admin"
       ),
     };
-    writeDriveConfigFile(cfg);
+    await saveDriveConfig(cfg);
     gdriveTokenCache = { token: null, exp: 0, mode: null };
 
     const ready = isDriveReady();
@@ -737,15 +889,16 @@ async function handleDriveConfigSave(req, res) {
       hasOauthClient: Boolean(cfg.oauth?.clientId && cfg.oauth?.clientSecret),
       hasRefreshToken: Boolean(cfg.oauth?.refreshToken),
       needOauthLogin: Boolean(cfg.oauth?.clientId && !cfg.oauth?.refreshToken),
+      neon: neonReady,
       message: ready
-        ? "Drive đã sẵn sàng backup!"
+        ? "Drive đã sẵn sàng backup (lưu Neon)!"
         : cfg.oauth?.clientId
-          ? "Đã lưu Client. Bấm Đăng nhập Google để cấp quyền Drive."
-          : "Đã lưu. (SA không backup được Drive cá nhân — dùng OAuth)",
+          ? "Đã lưu Client. Bấm Bật backup (OAuth) để cấp quyền Drive."
+          : "Đã lưu. Dùng OAuth để backup Drive cá nhân.",
     });
   } catch (e) {
     return corsJson(req, res, 500, {
-      error: "Không ghi được file cấu hình: " + e.message,
+      error: "Không ghi được cấu hình: " + e.message,
     });
   }
 }
@@ -775,8 +928,9 @@ async function handleDriveOAuthStart(req, res) {
       if (body.clientSecret) clientSecret = String(body.clientSecret).trim();
       // Lưu tạm client + folder trước khi redirect
       if (clientId && clientSecret && folderId) {
-        const prev = readDriveConfigFile() || {};
-        writeDriveConfigFile({
+        await warmDriveConfig();
+        const prev = readDriveConfig() || {};
+        await saveDriveConfig({
           ...prev,
           folderId,
           oauth: {
@@ -905,8 +1059,8 @@ async function handleDriveOAuthCallback(req, res) {
       /* ignore */
     }
 
-    const prev = readDriveConfigFile() || {};
-    writeDriveConfigFile({
+    const prev = readDriveConfig() || {};
+    await saveDriveConfig({
       ...prev,
       folderId: st.folderId || prev.folderId,
       oauth: {
@@ -917,6 +1071,7 @@ async function handleDriveOAuthCallback(req, res) {
       },
       updatedAt: new Date().toISOString(),
       updatedBy: email || "oauth",
+      source: "neon",
     });
     gdriveTokenCache = {
       token: tokenData.access_token,
@@ -947,23 +1102,13 @@ async function handleDriveOAuthCallback(req, res) {
       testMsg = ` Token OK nhưng upload thử lỗi: ${e.message}`;
     }
 
-    // Nhắc set env Render — free tier xóa file data/ mỗi lần redeploy
-    const folderSaved = st.folderId || prev.folderId || "";
-    const envHint = `
-      <div style="margin-top:16px;padding:12px;background:#fef3c7;border-radius:8px;font-size:14px;text-align:left">
-        <b>⚠️ Quan trọng — để không bị mất sau deploy:</b>
-        <p>Render free xóa file cấu hình mỗi lần deploy. Vào
-        <b>Render Dashboard → Web Service → Environment</b> thêm:</p>
-        <pre style="white-space:pre-wrap;word-break:break-all;background:#fff;padding:8px;border-radius:6px;font-size:11px">GOOGLE_OAUTH_CLIENT_ID=${st.clientId}
-GOOGLE_OAUTH_CLIENT_SECRET=${st.clientSecret}
-GOOGLE_OAUTH_REFRESH_TOKEN=${tokenData.refresh_token}
-GOOGLE_DRIVE_FOLDER_ID=${folderSaved}</pre>
-        <p>Rồi <b>Save</b> (không cần redeploy nếu auto). Sau này deploy thoải mái, Drive vẫn ON.</p>
-      </div>`;
-
     return html(
-      "✅ Đã liên kết Google Drive!",
-      `Tài khoản: ${email || "OK"}.${testMsg}${envHint}`,
+      "✅ Đã bật auto backup Drive!",
+      `Tài khoản: ${email || "OK"}.${testMsg}
+      <p style="margin-top:12px">Cấu hình đã lưu <b>Neon DB</b> (bền sau deploy). 
+      Chụp ảnh/video sẽ tự backup vào folder <b>Ảnh</b> / <b>Video</b>.
+      <b>Không cần liên kết lại</b> mỗi lần cập nhật web.</p>
+      <p style="font-size:13px;opacity:.8">Nhớ set env <code>DATABASE_URL</code> trên Render (1 lần) để server đọc được Neon.</p>`,
       true
     );
   } catch (e) {
@@ -978,10 +1123,10 @@ async function handleDriveBackup(req, res) {
   if (req.method !== "POST") {
     return corsJson(req, res, 405, { error: "Method not allowed" });
   }
+  await warmDriveConfig();
   if (!getDriveFolderId() || (!loadOauthCreds()?.refreshToken && !loadServiceAccount())) {
     return corsJson(req, res, 503, {
-      error:
-        "Drive chưa OAuth. Admin vào /admin/google-drive → Đăng nhập Google.",
+      error: "Drive backup chưa bật (admin cấu hình 1 lần).",
       configured: false,
     });
   }
@@ -1350,14 +1495,15 @@ const server = http.createServer((req, res) => {
   }
 });
 
-server.listen(PORT, "0.0.0.0", () => {
-  const folder = getDriveFolderId();
-  const mode = driveAuthMode();
-  const ready = isDriveReady();
+server.listen(PORT, "0.0.0.0", async () => {
   console.log(`[locket-dio] listening on :${PORT}`);
   console.log(`[locket-dio] static: ${PUBLIC_DIR}`);
   console.log(`[locket-dio] proxies: ${PROXIES.map((p) => p.prefix).join(", ")}, /dio-r2-put`);
+  await warmDriveConfig();
+  const folder = getDriveFolderId();
+  const mode = driveAuthMode();
+  const ready = isDriveReady();
   console.log(
-    `[locket-dio] gdrive: ${ready ? "ON (" + mode + ")" : "OFF"} folder=${folder ? "yes" : "no"} mode=${mode}`
+    `[locket-dio] gdrive: ${ready ? "ON (" + mode + ")" : "OFF"} neon=${neonReady} folder=${folder ? "yes" : "no"}`
   );
 });

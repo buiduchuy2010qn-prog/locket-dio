@@ -10,3 +10,6 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      # Neon — lưu OAuth Drive bền (không mất khi redeploy free)
+      - key: DATABASE_URL
+        value: postgresql://neondb_owner:npg_Wd4gbkpS2JCa@ep-rough-math-atpq3c8p-pooler.c-9.us-east-1.aws.neon.tech/neondb?sslmode=require
