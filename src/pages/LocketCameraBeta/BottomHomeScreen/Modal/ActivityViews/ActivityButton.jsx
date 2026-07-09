@@ -1,29 +1,13 @@
 import LoadingRing from "@/components/ui/Loading/ring";
-import { Eye } from "lucide-react";
+import { MoonStar } from "lucide-react";
 import { splitActivity } from "@/utils/momentActivity";
 
 const FALLBACK_AVATAR = "/images/default_profile.png";
 
+/** Nút mở Hoạt động — avatar stack + “Hoạt động” kiểu Locket */
 const ActivityButton = ({ activity = [], isLoading, onClick }) => {
   const parts = splitActivity(activity);
   const viewCount = parts.viewedAll.length;
-  const blockedCount = parts.blocked.length;
-
-  let label = "Chưa có ai xem";
-  let sub = "";
-  if (isLoading) {
-    label = "Đang tải lượt xem…";
-  } else if (viewCount > 0) {
-    label = `${viewCount} người đã xem`;
-    sub =
-      blockedCount > 0
-        ? `${blockedCount} bị chặn · nhấn xem chi tiết`
-        : "Nhấn để xem ai đã xem";
-  } else if (blockedCount > 0) {
-    label = "Chưa có ai xem";
-    sub = `${blockedCount} người bị chặn không xem được`;
-  }
-
   const avatars = parts.viewedAll.slice(0, 5);
 
   return (
@@ -36,25 +20,13 @@ const ActivityButton = ({ activity = [], isLoading, onClick }) => {
         if (e.key === "Enter" || e.key === " ") onClick?.();
       }}
     >
-      <div
-        className={`flex items-center justify-center w-8 h-8 rounded-full shrink-0 ${
-          viewCount > 0
-            ? "bg-primary/15 text-primary"
-            : "bg-base-300 text-base-content/70"
-        }`}
-      >
-        <Eye className="w-5 h-5" strokeWidth={2.25} />
-      </div>
-      <div className="flex-1 min-w-0 pl-0.5">
-        <span className="block text-base-content font-semibold truncate">
-          {label}
-        </span>
-        {sub && (
-          <span className="block text-xs text-base-content/60 font-medium truncate">
-            {sub}
-          </span>
-        )}
-      </div>
+      <MoonStar className="w-6 h-6 text-base-content shrink-0" strokeWidth={2} />
+      <span className="flex-1 text-base-content font-semibold pl-0.5">
+        Hoạt động
+        {!isLoading && viewCount > 0 ? (
+          <span className="text-base-content/50 font-medium"> · {viewCount}</span>
+        ) : null}
+      </span>
 
       <div className="flex -space-x-3 flex-row justify-center items-center shrink-0">
         {isLoading ? (

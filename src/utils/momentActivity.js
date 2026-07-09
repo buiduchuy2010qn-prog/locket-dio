@@ -114,7 +114,7 @@ export async function buildFullMomentActivity({
     });
   }
 
-  // Reaction cũng = đã xem (có thể API không ghi riêng view)
+  // Reaction cũng = đã xem; gom nhiều emoji / user (UI Locket: 💛🔥😍)
   for (const r of reactions) {
     if (!r?.user) continue;
     if (myLocalId && r.user === myLocalId) continue;
@@ -122,10 +122,21 @@ export async function buildFullMomentActivity({
       userId: r.user,
       viewedAt: r.createdAt || null,
       reaction: null,
+      emojis: [],
       status: "viewed",
     };
+    const emoji = r.emoji || r.reaction || "💛";
+    if (!existing.emojis) existing.emojis = [];
+    if (!existing.emojis.includes(emoji)) {
+      existing.emojis.push(emoji);
+    }
+    // intensity cao → có thể lặp emoji kiểu Locket (tối đa 3)
+    const intensity = Number(r.intensity) || 0;
+    if (intensity >= 50 && existing.emojis.filter((e) => e === emoji).length < 2) {
+      // giữ unique list; UI chỉ hiện emoji khác nhau
+    }
     existing.reaction = {
-      emoji: r.emoji,
+      emoji,
       intensity: r.intensity,
       createdAt: r.createdAt,
     };
@@ -177,6 +188,7 @@ export async function buildFullMomentActivity({
       user: await resolveUser(item.userId, friendsById),
       viewedAt: item.viewedAt,
       reaction: item.reaction,
+      emojis: item.emojis || (item.reaction?.emoji ? [item.reaction.emoji] : []),
       status: item.status,
     }))
   );
