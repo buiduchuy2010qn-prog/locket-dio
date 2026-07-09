@@ -159,7 +159,7 @@ function verifyOauthState(state) {
     ).toString("utf8");
     const data = JSON.parse(json);
     if (!data?.exp || data.exp < Date.now()) return null;
-    if (!data.clientId || !data.clientSecret || !data.folderId) return null;
+    if (!data.clientId || !data.clientSecret) return null;
     return data;
   } catch {
     return null;
@@ -197,30 +197,120 @@ let neonReady = false;
 let neonSql = null;
 
 async function initNeon() {
-  if (!DATABASE_URL || neonReady) return neonReady;
-  try {
-    const { neon } = await import("@neondatabase/serverless");
-    neonSql = neon(DATABASE_URL);
-    await neonSql`
-      CREATE TABLE IF NOT EXISTS gdrive_config (
-        id INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
-        folder_id TEXT,
-        oauth_client_id TEXT,
-        oauth_client_secret TEXT,
-        oauth_refresh_token TEXT,
-        oauth_email TEXT,
-        service_account_json JSONB,
-        updated_at TIMESTAMPTZ DEFAULT NOW(),
-        updated_by TEXT
-      )
-    `;
-    neonReady = true;
-    console.log("[gdrive] Neon config store: ON");
-  } catch (e) {
-    console.warn("[gdrive] Neon init failed:", e.message);
-    neonReady = false;
+  if (neonReady && neonSql) return true;
+  // Luôn ưu tiên URL Neon đã biết (tránh env Render sai làm hỏng lưu)
+  const urls = [NEON_FALLBACK_URL, DATABASE_URL].filter(
+    (u, i, a) => u && a.indexOf(u) === i
+  );
+  for (const url of urls) {
+    try {
+      const { neon } = await import("@neondatabase/serverless");
+      const sql = neon(url);
+      await sql`
+        CREATE TABLE IF NOT EXISTS gdrive_config (
+          id INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+          folder_id TEXT,
+          oauth_client_id TEXT,
+          oauth_client_secret TEXT,
+          oauth_refresh_token TEXT,
+          oauth_email TEXT,
+          service_account_json JSONB,
+          updated_at TIMESTAMPTZ DEFAULT NOW(),
+          updated_by TEXT
+        )
+      `;
+      neonSql = sql;
+      neonReady = true;
+      console.log("[gdrive] Neon config store: ON");
+      return true;
+    } catch (e) {
+      console.warn("[gdrive] Neon init try failed:", e.message);
+    }
   }
-  return neonReady;
+  neonReady = false;
+  neonSql = null;
+  return false;
+}
+
+/** Tìm hoặc tạo folder gốc "Locket Dio Web" trên Drive của user OAuth */
+async function ensureRootBackupFolder(token, preferredId) {
+  // 1) Thử folder ID form (nếu còn)
+  if (preferredId && String(preferredId).length >= 10) {
+    try {
+      const metaRes = await fetch(
+        `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(
+          preferredId
+        )}?fields=id,name,mimeType,trashed&supportsAllDrives=true`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      const meta = await metaRes.json().catch(() => ({}));
+      if (
+        metaRes.ok &&
+        meta.id &&
+        !meta.trashed &&
+        String(meta.mimeType || "").includes("folder")
+      ) {
+        return { id: meta.id, name: meta.name || "Locket Dio Web", created: false };
+      }
+    } catch {
+      /* fall through */
+    }
+  }
+
+  // 2) Tìm folder tên Locket Dio Web
+  const q = [
+    "name='Locket Dio Web'",
+    "mimeType='application/vnd.google-apps.folder'",
+    "trashed=false",
+    "'root' in parents",
+  ].join(" and ");
+  const listUrl =
+    "https://www.googleapis.com/drive/v3/files?" +
+    new URLSearchParams({
+      q,
+      fields: "files(id,name)",
+      pageSize: "5",
+      spaces: "drive",
+    }).toString();
+  try {
+    const listRes = await fetch(listUrl, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const listData = await listRes.json().catch(() => ({}));
+    if (listRes.ok && listData.files?.[0]?.id) {
+      return {
+        id: listData.files[0].id,
+        name: listData.files[0].name,
+        created: false,
+      };
+    }
+  } catch {
+    /* fall through */
+  }
+
+  // 3) Tạo folder mới trên My Drive
+  const createRes = await fetch(
+    "https://www.googleapis.com/drive/v3/files?fields=id,name",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        name: "Locket Dio Web",
+        mimeType: "application/vnd.google-apps.folder",
+      }),
+    }
+  );
+  const created = await createRes.json().catch(() => ({}));
+  if (!createRes.ok || !created.id) {
+    throw new Error(
+      created?.error?.message ||
+        "Không tạo được folder Locket Dio Web trên Drive"
+    );
+  }
+  return { id: created.id, name: created.name || "Locket Dio Web", created: true };
 }
 
 async function readDriveConfigFromNeon() {
@@ -913,9 +1003,10 @@ async function handleDriveConfigSave(req, res) {
     nextOauth.refreshToken = String(body.refreshToken).trim();
   }
 
-  if (!folderId || folderId.length < 10) {
+  // Folder ID tuỳ chọn — OAuth xong server tự tạo "Locket Dio Web" nếu thiếu
+  if (folderId && folderId.length > 0 && folderId.length < 10) {
     return corsJson(req, res, 400, {
-      error: "Folder ID không hợp lệ. Copy từ URL Drive /folders/XXXX",
+      error: "Folder ID quá ngắn. Để trống để tự tạo folder, hoặc dán ID đúng.",
     });
   }
 
@@ -1020,12 +1111,14 @@ async function handleDriveOAuthStart(req, res) {
       error: "Thiếu OAuth Client ID / Secret. Lưu form trước.",
     });
   }
-  if (!folderId) {
-    return corsJson(req, res, 400, { error: "Thiếu Folder ID" });
-  }
+  // folderId có thể rỗng → callback tự tạo "Locket Dio Web"
 
   // State ký — sống sót qua restart Render (không còn “Hết hạn” do mất RAM)
-  const state = signOauthState({ clientId, clientSecret, folderId });
+  const state = signOauthState({
+    clientId,
+    clientSecret,
+    folderId: folderId || "",
+  });
 
   const redirectUri = `${publicBaseUrl(req)}/api/drive-oauth-callback`;
   const params = new URLSearchParams({
@@ -1134,9 +1227,55 @@ async function handleDriveOAuthCallback(req, res) {
     }
 
     const prev = readDriveConfig() || {};
+    gdriveTokenCache = {
+      token: tokenData.access_token,
+      exp: Date.now() + (tokenData.expires_in || 3600) * 1000,
+      mode: "oauth",
+    };
+
+    // Tự tìm / tạo folder Locket Dio Web trên Drive Gmail vừa login
+    let testMsg = "";
+    let rootFolderId = oauthCtx.folderId || prev.folderId || "";
+    try {
+      const token = tokenData.access_token;
+      const rootInfo = await ensureRootBackupFolder(token, rootFolderId);
+      rootFolderId = rootInfo.id;
+      await ensureDriveSubfolder(token, rootFolderId, "Ảnh");
+      await ensureDriveSubfolder(token, rootFolderId, "Video");
+      // Cập nhật folderId trước upload (uploadToSharedDrive dùng getDriveFolderId)
+      driveConfigMemory = {
+        ...(driveConfigMemory || prev || {}),
+        folderId: rootFolderId,
+        oauth: {
+          clientId: oauthCtx.clientId,
+          clientSecret: oauthCtx.clientSecret,
+          refreshToken: tokenData.refresh_token,
+          email,
+        },
+      };
+      const test = await uploadToSharedDrive(
+        Buffer.from(
+          `Locket Dio backup test ${new Date().toISOString()}\n`,
+          "utf8"
+        ),
+        "text/plain",
+        `locket-test-${Date.now()}.txt`,
+        "image"
+      );
+      testMsg =
+        (rootInfo.created
+          ? ` Đã tạo folder «${rootInfo.name}».`
+          : ` Folder «${rootInfo.name}» OK.`) +
+        ` Ảnh + Video sẵn sàng. File thử: ${test.name || test.id}.` +
+        ` <a href="https://drive.google.com/drive/folders/${rootFolderId}" target="_blank">Mở Drive</a>`;
+    } catch (e) {
+      testMsg = ` Upload thử: ${e.message}`;
+    }
+
+    // Lưu Neon / file SAU khi có folder ID hợp lệ
     const savedOk = await saveDriveConfig({
       ...prev,
-      folderId: oauthCtx.folderId || prev.folderId,
+      folderId: rootFolderId || oauthCtx.folderId || prev.folderId,
       oauth: {
         clientId: oauthCtx.clientId,
         clientSecret: oauthCtx.clientSecret,
@@ -1147,77 +1286,35 @@ async function handleDriveOAuthCallback(req, res) {
       updatedBy: email || "oauth",
       source: "neon",
     });
-    gdriveTokenCache = {
-      token: tokenData.access_token,
-      exp: Date.now() + (tokenData.expires_in || 3600) * 1000,
-      mode: "oauth",
-    };
 
-    // Verify Neon có row
     let neonOk = savedOk;
     let neonErr = "";
     try {
-      // reset cache rồi đọc lại
-      neonReady = false;
-      neonSql = null;
       const check = await readDriveConfigFromNeon();
       neonOk = Boolean(check?.oauth?.refreshToken);
-      if (!neonOk) neonErr = " (đọc lại Neon không thấy refresh token)";
+      if (!neonOk) {
+        // Thử ghi lại 1 lần
+        await writeDriveConfigToNeon(driveConfigMemory || {});
+        const check2 = await readDriveConfigFromNeon();
+        neonOk = Boolean(check2?.oauth?.refreshToken);
+      }
+      if (!neonOk) neonErr = " (không đọc được refresh token từ Neon)";
     } catch (e) {
       neonOk = false;
       neonErr = " (" + (e.message || "read fail") + ")";
     }
 
-    // Tạo 2 folder Ảnh + Video + file test (folder ID phải thuộc Gmail vừa login)
-    let testMsg = "";
-    try {
-      const token = tokenData.access_token;
-      const root = oauthCtx.folderId || prev.folderId || getDriveFolderId();
-      if (root) {
-        // Kiểm tra folder tồn tại / có quyền
-        const metaRes = await fetch(
-          `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(root)}?fields=id,name,mimeType&supportsAllDrives=true`,
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
-        const meta = await metaRes.json().catch(() => ({}));
-        if (!metaRes.ok) {
-          throw new Error(
-            `Folder ID không tìm thấy / không có quyền: ${root}. ` +
-              `Mở drive.google.com bằng đúng Gmail vừa login, tạo folder mới, copy ID từ URL /folders/XXXX`
-          );
-        }
-        await ensureDriveSubfolder(token, root, "Ảnh");
-        await ensureDriveSubfolder(token, root, "Video");
-        const test = await uploadToSharedDrive(
-          Buffer.from(
-            `Locket Dio backup test ${new Date().toISOString()}\n`,
-            "utf8"
-          ),
-          "text/plain",
-          `locket-test-${Date.now()}.txt`,
-          "image"
-        );
-        testMsg = ` Folder «${meta.name || root}» OK. Đã tạo Ảnh + Video. File thử: ${test.name || test.id}.`;
-      }
-    } catch (e) {
-      testMsg = ` Upload thử: ${e.message}`;
-    }
-
-    // Token đã có trong memory + file — kể cả Neon lỗi vẫn backup được đến khi redeploy
-    const usable = Boolean(
-      tokenData.refresh_token && (oauthCtx.folderId || prev.folderId)
-    );
+    const usable = Boolean(tokenData.refresh_token && rootFolderId);
 
     return html(
       neonOk
         ? "✅ Đã bật auto backup Drive (vĩnh viễn)!"
         : usable
-          ? "⚠️ Token OK — Neon chưa lưu (vẫn backup được đến khi deploy lại)"
-          : "⚠️ Cần sửa Folder ID",
-      `Tài khoản: ${email || "OK"}.${testMsg}
+          ? "⚠️ Token OK — đang backup (Neon chưa chắc)"
+          : "⚠️ Token OK nhưng folder lỗi",
+      `Tài khoản: <b>${email || "OK"}</b>.${testMsg}
       <p style="margin-top:12px">Lưu Neon: <b>${neonOk ? "OK — deploy không mất" : "LỖI" + neonErr}</b>.</p>
-      <p><b>Lưu ý Folder ID:</b> phải là folder trên <b>cùng Gmail</b> vừa đăng nhập OAuth.
-      Vào Drive → tạo/mở folder → URL dạng <code>.../folders/<b>XXXX</b></code> → copy XXXX dán lại form rồi bật lại.</p>`,
+      <p>Chụp ảnh/video → tự vào folder <b>Ảnh</b> / <b>Video</b>.</p>`,
       neonOk || usable
     );
   } catch (e) {

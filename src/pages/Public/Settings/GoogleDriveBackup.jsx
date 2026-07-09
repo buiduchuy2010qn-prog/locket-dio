@@ -47,9 +47,7 @@ export default function GoogleDriveBackup({ forceShow = false }) {
 
   const [clientId, setClientId] = useState("");
   const [clientSecret, setClientSecret] = useState("");
-  const [folderId, setFolderId] = useState(
-    "15u_rammosTOF7msvt0D1SoHklcCiZzt"
-  );
+  const [folderId, setFolderId] = useState("");
 
   const load = async () => {
     setLoading(true);
@@ -82,10 +80,6 @@ export default function GoogleDriveBackup({ forceShow = false }) {
   };
 
   const saveAndLogin = async () => {
-    if (!folderId.trim()) {
-      SonnerError("Cần Folder ID");
-      return;
-    }
     if (!clientId.trim() || !clientSecret.trim()) {
       if (!status?.hasOauthClient) {
         SonnerError("Cần OAuth Client ID + Secret từ Google Cloud");
@@ -96,11 +90,13 @@ export default function GoogleDriveBackup({ forceShow = false }) {
     setSaving(true);
     setOauthStarting(true);
     try {
+      // Folder ID tuỳ chọn — để trống server tự tạo "Locket Dio Web"
+      const fid = folderId.trim() || "auto";
       const saveRes = await fetch("/api/drive-config", {
         method: "POST",
         headers: adminHeaders,
         body: JSON.stringify({
-          folderId: folderId.trim(),
+          folderId: fid,
           clientId: clientId.trim() || undefined,
           clientSecret: clientSecret.trim() || undefined,
         }),
@@ -114,7 +110,7 @@ export default function GoogleDriveBackup({ forceShow = false }) {
         method: "POST",
         headers: adminHeaders,
         body: JSON.stringify({
-          folderId: folderId.trim(),
+          folderId: folderId.trim() || "",
           clientId: clientId.trim() || undefined,
           clientSecret: clientSecret.trim() || undefined,
         }),
@@ -124,7 +120,7 @@ export default function GoogleDriveBackup({ forceShow = false }) {
         throw new Error(oData?.error || "Không tạo được link Google");
       }
 
-      SonnerSuccess("Mở Google…", "Cho phép 1 lần — sau đó auto backup");
+      SonnerSuccess("Mở Google…", "Cho phép 1 lần — tự tạo folder nếu cần");
       window.location.href = oData.url;
     } catch (e) {
       SonnerError(e?.message || "Thất bại");
@@ -223,10 +219,13 @@ export default function GoogleDriveBackup({ forceShow = false }) {
             />
           </label>
           <label className="form-control w-full">
-            <span className="label-text text-xs mb-1">Folder ID</span>
+            <span className="label-text text-xs mb-1">
+              Folder ID (tuỳ chọn — để trống = tự tạo «Locket Dio Web»)
+            </span>
             <input
               type="text"
               className="input input-bordered input-sm w-full font-mono"
+              placeholder="Để trống cũng được"
               value={folderId}
               onChange={(e) => setFolderId(e.target.value)}
             />
@@ -234,7 +233,7 @@ export default function GoogleDriveBackup({ forceShow = false }) {
           <button
             type="button"
             className="btn btn-success btn-sm w-full gap-2"
-            disabled={saving || oauthStarting || !folderId.trim()}
+            disabled={saving || oauthStarting}
             onClick={saveAndLogin}
           >
             {saving || oauthStarting ? (
