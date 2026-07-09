@@ -98,7 +98,7 @@ export async function forgotPassword({ email }) {
   await delay(500)
   const u = users().find((x) => x.email.toLowerCase() === email.toLowerCase())
   if (!u) throw new Error('Không tìm thấy email này.')
-  return { ok: true, message: `Đã gửi link đặt lại (mock) tới ${email}. Mật khẩu demo: demo123` }
+  return { ok: true, message: `Nếu email tồn tại, hướng dẫn đặt lại đã được gửi tới ${email}.` }
 }
 
 export async function fetchCurrentUser() {

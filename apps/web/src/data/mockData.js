@@ -237,7 +237,3 @@ export const SEED_STREAKS = [
   { friendId: 'u_tom', count: 0, lastPostAt: daysAgo(4), history: [0, 0, 0, 0, 0, 0, 0], broken: true },
 ]
 
-export const DEMO_ACCOUNTS = [
-  { email: 'you@piclet.app', password: 'demo123', note: 'Free user' },
-  { email: 'mina@piclet.app', password: 'demo123', note: 'Gold user' },
-]

@@ -67,15 +67,9 @@ npm run dev:web
 
 Open http://localhost:5173
 
-### Demo users (after seed)
+Create an account via **Sign up** in the app. Seed only installs catalog data (themes/icons), not demo users.
 
-| Email | Password | Notes |
-|-------|----------|--------|
-| you@locket-dio.app | demo123 | Free |
-| mina@locket-dio.app | demo123 | Dio Gold (in-app) |
-| admin@locket-dio.app | demo123 | Admin |
-
-If the API is down, the web app **falls back to localStorage mock** so camera UI still works.
+If the API is down, the web app can fall back to local storage for offline UI testing.
 
 ## Features
 
