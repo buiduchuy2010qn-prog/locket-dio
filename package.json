@@ -2,41 +2,20 @@
   "name": "locket-dio",
   "version": "1.0.0",
   "private": true,
-  "description": "Locket Dio — private close-friends photo & video sharing (full-stack)",
-  "workspaces": [
-    "apps/*",
-    "packages/*"
-  ],
+  "description": "Locket Dio — private close-friends photo & video sharing",
   "scripts": {
-    "dev": "concurrently -n api,web -c blue,magenta \"npm run dev -w @locket-dio/api\" \"npm run dev -w @locket-dio/web\"",
-    "dev:api": "npm run dev -w @locket-dio/api",
-    "dev:web": "npm run dev -w @locket-dio/web",
-    "build": "npm run build -w @locket-dio/web && node scripts/copy-web-dist.mjs",
-    "build:web": "npm run build -w @locket-dio/web && node scripts/copy-web-dist.mjs",
-    "build:all": "npm run build -w @locket-dio/shared && npm run build -w @locket-dio/api && npm run build -w @locket-dio/web && node scripts/copy-web-dist.mjs",
-    "build:api": "npm run build -w @locket-dio/api",
-    "start:api": "npm run start -w @locket-dio/api",
-    "db:generate": "prisma generate --schema=prisma/schema.prisma",
-    "db:migrate": "prisma migrate dev --schema=prisma/schema.prisma",
-    "db:migrate:deploy": "prisma migrate deploy --schema=prisma/schema.prisma",
-    "db:push": "prisma db push --schema=prisma/schema.prisma",
-    "db:seed": "node prisma/seed.js",
-    "db:studio": "prisma studio --schema=prisma/schema.prisma",
-    "postinstall": "node -e \"try{require('child_process').execSync('npx prisma generate --schema=prisma/schema.prisma',{stdio:'inherit'})}catch(e){console.warn('[postinstall] prisma generate skipped')}\""
-  },
-  "devDependencies": {
-    "concurrently": "^9.1.2",
-    "prisma": "^6.5.0"
-  },
-  "dependencies": {
-    "@prisma/client": "^6.5.0",
-    "bcryptjs": "^3.0.2"
-  },
-  "prisma": {
-    "schema": "prisma/schema.prisma",
-    "seed": "node prisma/seed.js"
+    "dev": "npm run dev --prefix apps/web",
+    "dev:web": "npm run dev --prefix apps/web",
+    "dev:api": "npm run dev --prefix apps/api",
+    "build": "npm install --prefix apps/web && npm run build --prefix apps/web && node scripts/copy-web-dist.mjs",
+    "build:web": "npm install --prefix apps/web && npm run build --prefix apps/web && node scripts/copy-web-dist.mjs",
+    "build:api": "npm install --prefix apps/api && npm run build --prefix apps/api",
+    "start:api": "npm run start --prefix apps/api",
+    "db:generate": "npx prisma generate --schema=prisma/schema.prisma",
+    "db:push": "npx prisma db push --schema=prisma/schema.prisma",
+    "db:seed": "node prisma/seed.js"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=18"
   }
 }

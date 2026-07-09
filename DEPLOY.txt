@@ -1,24 +1,13 @@
-Locket Dio — Render Static Site (frontend)
+﻿Locket Dio — Render Static (Blueprint)
 
-Service URL example: https://locket-dio-ly9t.onrender.com
+URL: https://locket-dio-ly9t.onrender.com
 
-════════════════════════════════════════════════════════════
-NẾU DEPLOY FAIL — set tay trong Render → Settings:
-════════════════════════════════════════════════════════════
+Build (render.yaml):
+  cd apps/web && npm install && npm run build && cd ../.. && node scripts/copy-web-dist.mjs
 
-  Build Command:
-    npm install && npm run build
+Publish:
+  dist
 
-  Publish Directory:
-    dist
+If Blueprint still fails, open Settings (if editable) or re-sync Blueprint.
 
-  (hoặc: public  — script build copy sang cả 2)
-
-SPA rewrite:
-  /* → /index.html
-
-════════════════════════════════════════════════════════════
-Sau push main → Auto-Deploy sẽ chạy lại.
-════════════════════════════════════════════════════════════
-
-Full-stack (API + Postgres) = service riêng, xem README.md
+Manual Deploy → Deploy latest commit after push.

@@ -1,11 +1,9 @@
-# Static frontend (matches existing locket-dio Static Site on Render)
-# For full API + Postgres, add a separate Web Service later.
-
 services:
   - type: web
     name: locket-dio
     runtime: static
-    buildCommand: npm install && npm run build
+    # Install ONLY frontend (avoid apps/api native deps like sharp on static builders)
+    buildCommand: cd apps/web && npm install && npm run build && cd ../.. && node scripts/copy-web-dist.mjs
     staticPublishPath: ./dist
     routes:
       - type: rewrite
