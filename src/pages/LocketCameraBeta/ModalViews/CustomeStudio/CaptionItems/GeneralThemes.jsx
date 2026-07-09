@@ -52,14 +52,35 @@ export default function GeneralThemes({ title }) {
 
   // === Overlay Apply ===
   const handleCustomeSelect = (data) => {
+    const type = data.type || "default";
+    // default: icon = {} (object); type khác: icon string/number
+    let icon = data.icon;
+    if (type === "default") {
+      icon =
+        data.icon && typeof data.icon === "object" ? data.icon : data.icon || {};
+    } else if (icon == null) {
+      icon = type === "review" ? 0 : "";
+    }
+    const caption =
+      typeof data.caption === "string"
+        ? data.caption
+        : data.caption == null
+          ? ""
+          : typeof data.caption === "number"
+            ? String(data.caption)
+            : "";
+
     setPostOverlay({
       overlay_id: data.preset_id || "standard",
       color_top: data.color_top || "",
       color_bottom: data.color_bottom || "",
       text_color: data.text_color || "#FFFFFF",
-      icon: data.icon || "",
-      caption: data.caption || "",
-      type: data.type || "default",
+      icon,
+      caption,
+      text: caption,
+      type,
+      background: { colors: [] },
+      payload: {},
       ...(data.music && { music: data.music }),
     });
     setIsFilterOpen(false);
@@ -131,7 +152,17 @@ export default function GeneralThemes({ title }) {
   const handleClick = (id) => {
     switch (id) {
       case "default":
-        handleCustomeSelect({ type: "default" });
+        // Khôi phục caption mặc định sạch (không object, placeholder "Nhập tin nhắn...")
+        handleCustomeSelect({
+          preset_id: "standard",
+          caption: "",
+          text: "",
+          icon: {},
+          type: "default",
+          color_top: "",
+          color_bottom: "",
+          text_color: "#FFFFFF",
+        });
         break;
       case "music":
         openMusicForm("spotify");

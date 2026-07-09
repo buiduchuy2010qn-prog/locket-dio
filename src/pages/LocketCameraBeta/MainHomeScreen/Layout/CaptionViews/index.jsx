@@ -269,7 +269,7 @@ const HeartOverlay = ({ postOverlay }) => {
   return (
     <div className="flex items-center bg-white/50 backdrop-blur-2xl gap-1 py-2 px-4 rounded-4xl absolute bottom-2 left-1/2 transform -translate-x-1/2 text-white font-semibold">
       <img src="./svg/heart-icon.svg" alt="" className="w-6 h-6" />
-      <span>{postOverlay.caption}</span>
+      <span>{captionToText(postOverlay.caption)}</span>
     </div>
   );
 };
@@ -334,7 +334,7 @@ const TimeOverlay = ({ postOverlay, formattedTime }) => {
   return (
     <div className="flex items-center bg-white/50 backdrop-blur-2xl gap-1 py-2 px-4 rounded-4xl absolute bottom-2 left-1/2 transform -translate-x-1/2 text-white font-semibold">
       <PiClockFill className="w-6 h-6 rotate-270" />
-      <span>{postOverlay.caption || formattedTime}</span>
+      <span>{captionToText(postOverlay.caption) || formattedTime}</span>
     </div>
   );
 };
@@ -362,7 +362,7 @@ const ReviewOverlay = ({ postOverlay }) => {
         </span>
 
         <span className="inline-block text-lg font-semibold text-white max-w-full overflow-hidden text-ellipsis whitespace-nowrap">
-          {postOverlay.caption}
+          {captionToText(postOverlay.caption)}
         </span>
       </div>
     </div>
@@ -378,6 +378,7 @@ const CustomeOverlay = ({
 }) => {
   const textareaRef = useRef(null);
   const capText = captionToText(postOverlay.caption);
+  // chỉ emoji/string icon mới ghép prefix — object {} không được
   const iconText =
     typeof postOverlay.icon === "string" ? postOverlay.icon : "";
   const combinedText = iconText
@@ -396,19 +397,19 @@ const CustomeOverlay = ({
 
   const handleChange = (e) => {
     const inputValue = e.target.value;
-    const icon = postOverlay.icon || "";
-    const prefix = icon ? `${icon} ` : "";
+    const prefix = iconText ? `${iconText} ` : "";
 
-    if (inputValue.startsWith(prefix)) {
-      const newCaption = inputValue.slice(prefix.length);
+    if (prefix && inputValue.startsWith(prefix)) {
       setPostOverlay((prev) => ({
         ...prev,
-        caption: newCaption,
+        caption: inputValue.slice(prefix.length),
+        text: inputValue.slice(prefix.length),
       }));
     } else {
       setPostOverlay((prev) => ({
         ...prev,
         caption: inputValue,
+        text: inputValue,
       }));
     }
   };
@@ -442,9 +443,12 @@ const SpecialOverlay = ({
   parentRef,
 }) => {
   const textareaRef = useRef(null);
-  const combinedText = postOverlay.icon
-    ? `${postOverlay.icon} ${postOverlay.caption || ""}`.trim()
-    : postOverlay.caption || "";
+  const iconText =
+    typeof postOverlay.icon === "string" ? postOverlay.icon : "";
+  const capText = captionToText(postOverlay.caption);
+  const combinedText = iconText
+    ? `${iconText} ${capText}`.trim()
+    : capText;
 
   const { width, shouldWrap } = useTextMeasurement(
     combinedText,
@@ -458,19 +462,19 @@ const SpecialOverlay = ({
 
   const handleChange = (e) => {
     const inputValue = e.target.value;
-    const icon = postOverlay.icon || "";
-    const prefix = icon ? `${icon} ` : "";
+    const prefix = iconText ? `${iconText} ` : "";
 
-    if (inputValue.startsWith(prefix)) {
-      const newCaption = inputValue.slice(prefix.length);
+    if (prefix && inputValue.startsWith(prefix)) {
       setPostOverlay((prev) => ({
         ...prev,
-        caption: newCaption,
+        caption: inputValue.slice(prefix.length),
+        text: inputValue.slice(prefix.length),
       }));
     } else {
       setPostOverlay((prev) => ({
         ...prev,
         caption: inputValue,
+        text: inputValue,
       }));
     }
   };
@@ -519,9 +523,11 @@ const DefaultOverlay = ({
   parentRef,
 }) => {
   const textareaRef = useRef(null);
-  const combinedText = postOverlay.icon
-    ? `${postOverlay.icon} ${postOverlay.caption || ""}`.trim()
-    : postOverlay.caption || "";
+  // icon mặc định là {} (object) — KHÔNG được `${icon}` → "[object Object]"
+  const iconText =
+    typeof postOverlay.icon === "string" ? postOverlay.icon : "";
+  const capText = captionToText(postOverlay.caption);
+  const combinedText = iconText ? `${iconText} ${capText}`.trim() : capText;
 
   const { width, shouldWrap } = useTextMeasurement(
     combinedText,
@@ -535,23 +541,24 @@ const DefaultOverlay = ({
 
   const handleChange = (e) => {
     const inputValue = e.target.value;
-    const icon = postOverlay.icon || "";
-    const prefix = icon ? `${icon} ` : "";
+    const prefix = iconText ? `${iconText} ` : "";
 
-    if (inputValue.startsWith(prefix)) {
-      const newCaption = inputValue.slice(prefix.length);
+    if (prefix && inputValue.startsWith(prefix)) {
       setPostOverlay((prev) => ({
         ...prev,
-        caption: newCaption,
+        caption: inputValue.slice(prefix.length),
+        text: inputValue.slice(prefix.length),
       }));
     } else {
       setPostOverlay((prev) => ({
         ...prev,
         caption: inputValue,
+        text: inputValue,
       }));
     }
   };
 
+  // Mặc định: không có chữ → hiện placeholder "Nhập tin nhắn..." (không badge [object Object])
   return (
     <textarea
       ref={textareaRef}
@@ -579,7 +586,38 @@ const AutoResizeCaption = () => {
   const placeholder = "Nhập tin nhắn...";
   const isEditable = !["decorative", "custome"].includes(postOverlay?.type);
 
-  // Get formatted time (assuming it exists in the original context)
+  // Khôi phục mặc định nếu state hỏng (caption/icon object → UI [object Object])
+  useEffect(() => {
+    const cap = postOverlay?.caption;
+    const ic = postOverlay?.icon;
+    const captionBad = cap != null && typeof cap === "object";
+    // icon {} là hợp lệ cho default — không reset vì object rỗng
+    const iconBadStringified =
+      ic != null &&
+      typeof ic === "object" &&
+      !Array.isArray(ic) &&
+      Object.keys(ic).length > 0 &&
+      !ic.data &&
+      !ic.url &&
+      !ic.type &&
+      postOverlay?.type === "default";
+
+    if (captionBad || iconBadStringified) {
+      setPostOverlay({
+        overlay_id: "standard",
+        text: "",
+        text_color: "#FFFFFF",
+        icon: {},
+        type: "default",
+        background: { colors: [] },
+        payload: {},
+        caption: captionBad ? captionToText(cap) : typeof cap === "string" ? cap : "",
+        color_top: "",
+        color_bottom: "",
+      });
+    }
+  }, [postOverlay?.caption, postOverlay?.icon, postOverlay?.type, setPostOverlay]);
+
   const formattedTime = new Date().toLocaleTimeString("vi-VN", {
     hour: "2-digit",
     minute: "2-digit",
