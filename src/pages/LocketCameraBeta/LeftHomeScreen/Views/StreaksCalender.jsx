@@ -51,6 +51,7 @@ function parseCustomDate(str) {
 // Tạo key tháng từ chuỗi date
 function getMonthKeyFromCustomDate(str) {
   const d = parseCustomDate(str);
+  if (!d || isNaN(d)) return null;
   return `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, "0")}`;
 }
 
@@ -94,6 +95,7 @@ const MonthCalendar = ({ monthKey, postsInMonth }) => {
     const map = {};
     postsInMonth.forEach((post) => {
       const d = parseCustomDate(post.date);
+      if (!d || isNaN(d)) return;
       const key = `${d.getFullYear()}-${(d.getMonth() + 1)
         .toString()
         .padStart(2, "0")}-${d.getDate().toString().padStart(2, "0")}`;
@@ -280,6 +282,7 @@ const StreaksCalender = ({ recentPosts = [] }) => {
     const map = {};
     recentPosts.forEach((post) => {
       const monthKey = getMonthKeyFromCustomDate(post.date);
+      if (!monthKey) return;
       if (!map[monthKey]) map[monthKey] = [];
       map[monthKey].push(post);
     });
@@ -303,14 +306,20 @@ const StreaksCalender = ({ recentPosts = [] }) => {
 
   if (recentPosts.length === 0) {
     return (
-      <div className="w-full h-full flex items-center justify-center text-lg text-base-content font-semibold">
-        Không có gì ở đây :(
+      <div className="w-full h-full flex flex-col items-center justify-center text-base-content font-semibold gap-1 px-4 text-center">
+        <span className="text-lg">Chưa có bài đăng</span>
+        <span className="text-sm font-normal opacity-60">
+          Bài đăng của bạn sẽ hiện theo từng ngày trên lịch
+        </span>
       </div>
     );
   }
 
   return (
-    <div>
+    <div className="pb-24">
+      <p className="text-center text-xs text-base-content/50 py-2 px-3">
+        {recentPosts.length} bài đăng · sắp xếp theo ngày
+      </p>
       {monthsSorted.map((monthKey, idx) => {
         const isLast = idx === monthsSorted.length - 1;
         return (

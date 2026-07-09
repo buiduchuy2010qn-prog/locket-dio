@@ -1,24 +1,29 @@
-import React, { lazy, useContext, useEffect } from "react";
+import React, { lazy, useContext, useEffect, useState } from "react";
 import { AuthContext } from "@/context/AuthLocket";
-import { ChevronRight, Link } from "lucide-react";
+import { ChevronRight, Copy, Link } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import BadgePlan from "../ExtendPage/Badge";
 import BottomStreak from "./BottomStreak";
 const StreaksCalender = lazy(() => import("./Views/StreaksCalender"));
 import LoadingRing from "@/components/ui/Loading/ring";
-import { getPostedMoments } from "@/process/uploadQueue";
+import { getMyLocalId } from "@/utils/auth/getMyLocalId";
+import { loadAllMyPosts } from "@/utils/moment/loadMyPosts";
+import { SonnerSuccess } from "@/components/ui/SonnerToast";
 
 const LeftHomeScreen = () => {
-  const { user } = useContext(AuthContext);
+  const { user, authTokens } = useContext(AuthContext);
   const { navigation, useloading, post } = useApp();
-  const {
-    isProfileOpen,
-    setIsProfileOpen,
-    isSettingTabOpen,
-    setSettingTabOpen,
-  } = navigation;
+  const { isProfileOpen, setIsProfileOpen } = navigation;
   const { imageLoaded, setImageLoaded } = useloading;
   const { recentPosts, setRecentPosts } = post;
+  const [loadingPosts, setLoadingPosts] = useState(false);
+
+  const myId = getMyLocalId(user, authTokens);
+  const email =
+    user?.email ||
+    localStorage.getItem("email") ||
+    sessionStorage.getItem("email") ||
+    "";
 
   useEffect(() => {
     document.body.classList.toggle("overflow-hidden", isProfileOpen);
@@ -26,14 +31,34 @@ const LeftHomeScreen = () => {
   }, [isProfileOpen]);
 
   useEffect(() => {
+    if (!isProfileOpen || !myId) return;
+    let cancelled = false;
     const fetchData = async () => {
-      // Lấy các post đã đăng
-      const posted = await getPostedMoments();
-      setRecentPosts(posted);
+      setLoadingPosts(true);
+      try {
+        const mine = await loadAllMyPosts(myId);
+        if (!cancelled) setRecentPosts(mine);
+      } catch (e) {
+        console.error(e);
+      } finally {
+        if (!cancelled) setLoadingPosts(false);
+      }
     };
-
     fetchData();
-  }, [isProfileOpen]); // chỉ chạy 1 lần khi component mount
+    return () => {
+      cancelled = true;
+    };
+  }, [isProfileOpen, myId, setRecentPosts]);
+
+  const copyId = async () => {
+    if (!myId) return;
+    try {
+      await navigator.clipboard.writeText(myId);
+      SonnerSuccess("Đã copy User ID");
+    } catch {
+      prompt("User ID:", myId);
+    }
+  };
 
   return (
     <div
@@ -41,7 +66,6 @@ const LeftHomeScreen = () => {
         isProfileOpen ? "translate-x-0" : "-translate-x-full"
       }`}
     >
-      {/* Header sticky */}
       <div className="sticky top-0 z-10 bg-base-100 shadow-lg">
         <div className="flex items-center justify-between px-4 py-2">
           <BadgePlan />
@@ -53,23 +77,39 @@ const LeftHomeScreen = () => {
           </button>
         </div>
 
-        {/* User info với hiệu ứng thu gọn */}
-        <div
-          className={`overflow-hidden transition-all duration-300 ease-in-out`}
-        >
-          <div className="flex flex-row justify-between items-center px-4 pb-2">
-            <div className="flex flex-col items-start space-y-1">
-              <p className="text-2xl font-semibold whitespace-nowrap">
+        <div className="overflow-hidden transition-all duration-300 ease-in-out">
+          <div className="flex flex-row justify-between items-center px-4 pb-2 gap-3">
+            <div className="flex flex-col items-start space-y-1 min-w-0 flex-1">
+              <p className="text-2xl font-semibold whitespace-nowrap truncate max-w-full">
                 {user?.displayName || "Name"}
               </p>
-              <a
-                href={`https://locket.cam/${user?.username}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="link underline font-semibold flex items-center"
-              >
-                @{user?.username} <Link className="ml-2" size={18} />
-              </a>
+              {user?.username && (
+                <a
+                  href={`https://locket.cam/${user.username}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="link underline font-semibold flex items-center"
+                >
+                  @{user.username} <Link className="ml-2" size={18} />
+                </a>
+              )}
+              {email && (
+                <p className="text-xs text-base-content/60 truncate max-w-full">
+                  {email}
+                </p>
+              )}
+              {myId && (
+                <button
+                  type="button"
+                  onClick={copyId}
+                  className="flex items-center gap-1 text-[11px] font-mono text-base-content/70 hover:text-primary max-w-full"
+                  title="Copy User ID"
+                >
+                  <span className="opacity-60 shrink-0">ID:</span>
+                  <span className="truncate">{myId}</span>
+                  <Copy className="w-3 h-3 shrink-0" />
+                </button>
+              )}
             </div>
             <div className="avatar w-18 h-18 disable-select flex-shrink-0">
               <div className="rounded-full shadow-md border-4 border-amber-400 p-1">
@@ -90,22 +130,17 @@ const LeftHomeScreen = () => {
             </div>
           </div>
         </div>
+        {loadingPosts && (
+          <p className="text-center text-xs text-base-content/50 pb-1">
+            Đang tải bài đăng…
+          </p>
+        )}
       </div>
 
-      {/* Nội dung cuộn */}
       <div className="flex-1 overflow-y-auto px-4 py-6 bg-base-200">
-        <p>
-          Lưu ý: Chuỗi trên web là lấy từ trên máy chủ Locket nên sẽ hiển thị
-          nhanh hơn trên app. Khi đăng ảnh/video trên web thành công thì chuỗi
-          sẽ nhảy lên 1 số là chuỗi sẽ được giữ.
-        </p>
-        <p>
-          Về phần hiển thị chuỗi ví dụ trên web hiển thị là 5 mà trên app không
-          có {"=>"} app bị lỗi chỉ cần đăng một ảnh/video trên app Locket thì
-          chuỗi sẽ tự động hiển thị lại số chuỗi tương ứng.
-        </p>
-        <p className="mb-5">
-          Số Locket là số bài đăng trên web khác với thực tế
+        <p className="text-sm mb-2">
+          Lưu ý: Chuỗi lấy từ máy chủ Locket. Số bài trên lịch là bài của bạn
+          (web + cache).
         </p>
         <StreaksCalender recentPosts={recentPosts} />
         <BottomStreak recentPosts={recentPosts} />

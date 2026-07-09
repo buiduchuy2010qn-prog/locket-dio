@@ -1,48 +1,47 @@
-import React, { lazy ,useContext, useEffect, useState } from "react";
+import React, { useContext, useEffect, useState } from "react";
 import { AuthContext } from "@/context/AuthLocket";
 import { useApp } from "@/context/AppContext";
-import { getPostedMoments } from "@/process/uploadQueue";
 import HeaderOne from "./Layout/HeaderOne";
 import InfoUser from "./Layout/InfoUser";
 import SegmentedToggle from "./Layout/SegmentedToggle";
 import RollcallsPost from "./Views/RollcallsPage";
 import StreakLocket from "./Views/StreakLocket";
+import { getMyLocalId } from "@/utils/auth/getMyLocalId";
+import { loadAllMyPosts } from "@/utils/moment/loadMyPosts";
 
 const LeftHomeScreen = ({ setIsProfileOpen }) => {
-  const { user } = useContext(AuthContext);
+  const { user, authTokens } = useContext(AuthContext);
   const { navigation, post } = useApp();
   const { isProfileOpen } = navigation;
   const { recentPosts, setRecentPosts } = post;
   const [posts, setPosts] = useState([]);
+  const [loadingPosts, setLoadingPosts] = useState(false);
 
   const [active, setActive] = useState("lockets"); // 'rollcall' | 'lockets'
+  const myId = getMyLocalId(user, authTokens);
 
-  // useEffect(() => {
-  //   document.body.classList.toggle("overflow-hidden", isProfileOpen);
-  //   return () => document.body.classList.remove("overflow-hidden");
-  // }, [isProfileOpen]);
-
+  // Tải TẤT CẢ bài của mình theo ngày khi mở profile
   useEffect(() => {
+    if (!isProfileOpen || !myId) return;
+
+    let cancelled = false;
     const fetchData = async () => {
-      const posted = await getPostedMoments();
-      const posted2 = [
-        {
-          date: 1756640580302,
-          thumbnailUrl: "expam",
-          user: "EuAN2PILlzXjDhMDsJ00teABZiI2",
-        },
-        {
-          date: 1756745780303,
-          thumbnailUrl: "expam",
-          user: "EuAN2PILlzXjDhMDsJ00teABZiI2",
-        },
-      ];
-      setRecentPosts(posted);
+      setLoadingPosts(true);
+      try {
+        const mine = await loadAllMyPosts(myId);
+        if (!cancelled) setRecentPosts(mine);
+      } catch (e) {
+        console.error("Load my posts failed:", e);
+      } finally {
+        if (!cancelled) setLoadingPosts(false);
+      }
     };
     fetchData();
-  }, [isProfileOpen]);
+    return () => {
+      cancelled = true;
+    };
+  }, [isProfileOpen, myId, setRecentPosts]);
 
-  // handle toggle bằng true/false
   const handleToggle = (tab) => {
     setActive(tab);
   };
@@ -53,20 +52,28 @@ const LeftHomeScreen = ({ setIsProfileOpen }) => {
         isProfileOpen ? "translate-x-0" : "-translate-x-full"
       }`}
     >
-      {/* ==== Header (sticky) ==== */}
       <div className="relative shadow-md">
         <HeaderOne setIsProfileOpen={setIsProfileOpen} />
-        <InfoUser user={user} />
+        <InfoUser user={user} authTokens={authTokens} />
+        {loadingPosts && (
+          <p className="text-center text-xs text-base-content/50 pb-1">
+            Đang tải bài đăng…
+          </p>
+        )}
       </div>
 
-      {/* ==== Nội dung chính ==== */}
       <div className="flex bg-base-200 overflow-y-auto">
         {active === "rollcall" && (
-          <RollcallsPost active={active} posts={posts} setPosts={setPosts} isProfileOpen={isProfileOpen}/>
+          <RollcallsPost
+            active={active}
+            posts={posts}
+            setPosts={setPosts}
+            isProfileOpen={isProfileOpen}
+          />
         )}
         {active === "lockets" && <StreakLocket recentPosts={recentPosts} />}
       </div>
-      {/* ==== Bottom Segmented Toggle ==== */}
+
       <div className="fixed z-60 bottom-4 w-full select-none">
         <SegmentedToggle active={active} setActive={handleToggle} />
       </div>
