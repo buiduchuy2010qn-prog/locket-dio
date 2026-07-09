@@ -3,6 +3,7 @@ import { API_URL, clearLocalData, removeToken, removeUser } from "../utils";
 import { showInfo } from "../components/Toast";
 import { CONFIG } from "@/config";
 import { parseJwt } from "@/utils/auth";
+import { applyMemberHeader, clearMemberSession } from "@/utils/memberToken";
 
 // ==== Kiểm tra token sắp hết hạn (dưới 5 phút) ====
 let cachedExp = null;
@@ -76,6 +77,7 @@ function handleLogout() {
   clearLocalData();
   removeUser();
   removeToken();
+  clearMemberSession();
   localStorage.removeItem("idToken");
   localStorage.removeItem("localId");
 
@@ -111,6 +113,8 @@ api.interceptors.request.use(
     config.headers["x-app-client"] = CONFIG.app.clientVersion;
     config.headers["x-app-api"] = CONFIG.app.apiVersion;
     config.headers["x-app-env"] = CONFIG.app.env;
+    // Official client: X-LocketDio-Member (member_token) required for storage/upload
+    applyMemberHeader(config.headers);
 
     // Bỏ qua nếu đang ở trang login hoặc là request refresh-token
     if (

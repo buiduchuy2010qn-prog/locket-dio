@@ -12,6 +12,10 @@ import { GetUserData, updateUserInfo } from "@/services";
 import { fetchStreak } from "@/utils/SyncData/streakUtils";
 import { useFriendStore } from "@/stores/useFriendStore";
 import { showDevWarning } from "@/utils/logging/devConsole";
+import {
+  clearMemberSession,
+  saveMemberSession,
+} from "@/utils/memberToken";
 
 export const AuthContext = createContext();
 
@@ -49,11 +53,19 @@ export const AuthProvider = ({ children }) => {
     if (!user || !authTokens?.idToken || !authTokens?.localId) return;
 
     const init = async () => {
-      if (!hasFetchedPlan.current) {
+      try {
+        // Always refresh plan + member_token (required for storage/upload)
         const userData = await GetUserData();
-        setUserPlan(userData);
-        setUploadStats(userData?.upload_stats);
+        if (userData) {
+          setUserPlan(userData);
+          setUploadStats(userData?.upload_stats);
+          if (userData?.session) saveMemberSession(userData.session);
+          if (userData?.member_token) saveMemberSession(userData);
+        }
+        hasFetchedPlan.current = true;
         fetchStreak(setStreak);
+      } catch (e) {
+        console.error("GetUserData failed:", e);
       }
       await updateUserInfo(user);
     };
@@ -73,6 +85,7 @@ export const AuthProvider = ({ children }) => {
 
     utils.removeUser();
     utils.removeToken();
+    clearMemberSession();
     localStorage.removeItem("friendsList");
     localStorage.removeItem("userPlan");
     localStorage.removeItem("uploadStats");

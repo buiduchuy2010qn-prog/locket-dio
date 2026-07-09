@@ -1,6 +1,7 @@
 //Chủ yếu dùng cho các yêu cầu của khách truy cập và lấy dữ liệu xem trước
 import { CONFIG } from "@/config";
 import { getToken } from "@/utils";
+import { applyMemberHeader } from "@/utils/memberToken";
 import axios from "axios";
 
 const BASE_URL = CONFIG.api.baseUrl;
@@ -26,13 +27,16 @@ export const instanceMain = axios.create({
   },
 });
 
-// Thêm interceptor để cập nhật Authorization trước mỗi request
+// Thêm interceptor: Bearer + member token (official Dio client)
 instanceMain.interceptors.request.use(
   (config) => {
+    config.headers = config.headers || {};
     const { idToken } = getToken();
     if (idToken) {
       config.headers["Authorization"] = `Bearer ${idToken}`;
     }
+    applyMemberHeader(config.headers);
+    Object.assign(config.headers, APP_META);
     return config;
   },
   (error) => Promise.reject(error)

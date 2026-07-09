@@ -1,6 +1,7 @@
 import axios from "axios";
 import { CONFIG } from "@/config/webConfig";
 import { getToken } from "@/utils";
+import { applyMemberHeader } from "@/utils/memberToken";
 
 /**
  * Upload R2 — khớp client chính thức locket-dio.com:
@@ -49,19 +50,23 @@ export const uploadFileAndGetInfoR2 = async (
     uploadedAt: new Date().toISOString(),
   };
 
+  const headers = {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${idToken}`,
+    "x-api-key": CONFIG.keys.apiKey,
+    "x-app-author": CONFIG.app.author,
+    "x-app-name": CONFIG.app.shortname,
+    "x-app-client": CONFIG.app.clientVersion,
+    "x-app-api": CONFIG.app.apiVersion,
+    "x-app-env": CONFIG.app.env,
+  };
+  // Official: X-LocketDio-Member header from session.member_token
+  applyMemberHeader(headers);
+
   let res;
   try {
     res = await axios.post(presignUrl, body, {
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${idToken}`,
-        "x-api-key": CONFIG.keys.apiKey,
-        "x-app-author": CONFIG.app.author,
-        "x-app-name": CONFIG.app.shortname,
-        "x-app-client": CONFIG.app.clientVersion,
-        "x-app-api": CONFIG.app.apiVersion,
-        "x-app-env": CONFIG.app.env,
-      },
+      headers,
       withCredentials: true,
       timeout: 60000,
     });

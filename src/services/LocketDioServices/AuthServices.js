@@ -35,6 +35,17 @@ export const loginV2 = async ({ email, password, captchaToken }) => {
       throw err;
     }
 
+    // Lưu member token nếu login trả về session
+    try {
+      const { saveMemberSession } = await import("@/utils/memberToken");
+      const root = payload.data || payload;
+      if (root?.session) saveMemberSession(root.session);
+      if (root?.member_token) saveMemberSession(root);
+      if (payload?.session) saveMemberSession(payload.session);
+    } catch (_) {
+      /* ignore */
+    }
+
     // Chuẩn hóa: một số bản API bọc trong .data, một số trả phẳng
     if (payload.data?.idToken || payload.data?.localId) {
       return payload;
@@ -138,7 +149,18 @@ export const logout = async () => {
 export const GetUserData = async () => {
   try {
     const res = await api.get("/api/me");
-    return res.data?.data;
+    const data = res.data?.data ?? res.data;
+    // Official client: session.member_token → header X-LocketDio-Member
+    try {
+      const { saveMemberSession } = await import("@/utils/memberToken");
+      if (data?.session) saveMemberSession(data.session);
+      else if (data?.member_token) saveMemberSession(data);
+      // nested plan shapes
+      if (data?.plan_info?.session) saveMemberSession(data.plan_info.session);
+    } catch (_) {
+      /* ignore */
+    }
+    return data;
   } catch (error) {
     console.error(
       "❌ Lỗi khi lấy thông tin người dùng:",
