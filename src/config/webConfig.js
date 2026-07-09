@@ -82,8 +82,8 @@ export const CONFIG = {
       telegram: "https://t.me/ddevdio",
       messenger: "https://m.me/cm/AbYPtgRiGe2fInEf",
     },
-    // Ủng hộ — MBBank BUI DUC HUY
-    // VietQR BIN MB: 970422
+    // Ủng hộ — STK của Huy (MBBank)
+    // VietQR BIN MB: 970422 | STK: 0394709137 | CTK: BUI DUC HUY
     sponsors: {
       bankName: "Ngân hàng MBBank (MB)",
       accountNumber: "0394709137",

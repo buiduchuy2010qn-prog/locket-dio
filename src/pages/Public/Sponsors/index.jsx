@@ -1,8 +1,16 @@
 import React, { useEffect, useState } from "react";
 import { Heart, Gift, CreditCard, Coffee, UsersRound } from "lucide-react";
 import { Link } from "react-router-dom";
-import { SPONSORS_CONFIG } from "@/config";
 import { getListDonates } from "@/services";
+
+/** STK ủng hộ — BUI DUC HUY / MBBank (hardcoded để không bị config/CDN cũ) */
+const BANK = {
+  bankName: "Ngân hàng MBBank (MB)",
+  accountNumber: "0394709137",
+  accountName: "BUI DUC HUY",
+  urlImg:
+    "https://img.vietqr.io/image/970422-0394709137-compact2.png?accountName=BUI%20DUC%20HUY",
+};
 
 const DonatePage = () => {
   const [donations, setDonations] = useState([]);
@@ -99,20 +107,22 @@ const DonatePage = () => {
                 <Coffee className="w-5 h-5 text-amber-500" /> Give me a coffee
               </div>
               <img
-                src={SPONSORS_CONFIG.urlImg}
-                alt="QR Code Donate"
+                src={BANK.urlImg}
+                alt="QR Code Donate MBBank 0394709137"
                 className="w-52 h-52 mx-auto rounded-lg shadow-sm"
+                loading="eager"
+                referrerPolicy="no-referrer"
               />
             </div>
             <div className="mt-4 space-y-2 text-sm text-base-content">
               <div className="p-3 border border-base-300 rounded">
-                NH: <span className="font-semibold">{SPONSORS_CONFIG.bankName}</span>
+                NH: <span className="font-semibold">{BANK.bankName}</span>
               </div>
               <div className="p-3 border border-base-300 rounded">
-                STK: <span className="font-semibold">{SPONSORS_CONFIG.accountNumber}</span>
+                STK: <span className="font-semibold">{BANK.accountNumber}</span>
               </div>
               <div className="p-3 border border-base-300 rounded">
-                CTK: <span className="font-semibold">{SPONSORS_CONFIG.accountName}</span>
+                CTK: <span className="font-semibold">{BANK.accountName}</span>
               </div>
             </div>
             <p className="mt-4 text-base-content text-sm text-left">
