@@ -11,8 +11,12 @@ import ActivitySection from "../Modal/ActivityViews/ActivityModal";
 import { markMomentViewedOnce } from "@/cache/viewedMomentDB";
 
 const InputForMoment = () => {
-  const { user } = useContext(AuthContext);
-  const localId = user?.localId || null;
+  const { user, authTokens } = useContext(AuthContext);
+  const localId =
+    user?.localId ||
+    user?.uid ||
+    authTokens?.localId ||
+    null;
 
   const {
     reactionInfo,

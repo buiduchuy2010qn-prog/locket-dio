@@ -7,8 +7,19 @@ import {
   getAllMoments,
   getMomentsByUser,
 } from "@/cache/momentDB";
+import { getMyLocalId } from "@/utils/auth/getMyLocalId";
 
 const { initialVisible, loadMoreLimit } = MOMENTS_CONFIG;
+
+/** Chỉ giữ moment của đúng owner (khi filter Bạn / 1 friend) */
+function filterByOwner(list, ownerId) {
+  if (!ownerId || !Array.isArray(list)) return list || [];
+  return list.filter((m) => {
+    const owner =
+      m.user || m.userUid || m.owner || m.owner_uid || m.uid || null;
+    return owner === ownerId;
+  });
+}
 
 /* --------------------------------------------------
  * Default bucket
@@ -48,6 +59,8 @@ export const useMomentsStoreV2 = create((set, get) => ({
   fetchMoments: async (user, selectedFriendUid = null) => {
     if (!user) return;
 
+    const myId = getMyLocalId(user);
+    // selectedFriendUid = null → all; = myId → chỉ bài mình; = friend uid → bạn đó
     const key = selectedFriendUid ?? "all";
     get().ensureBucket(key);
 
@@ -69,9 +82,19 @@ export const useMomentsStoreV2 = create((set, get) => ({
 
     try {
       /* ---------- Local DB ---------- */
-      const localData = selectedFriendUid
+      let localData = selectedFriendUid
         ? await getMomentsByUser(selectedFriendUid)
         : await getAllMoments();
+
+      // Cache cũ có thể lưu user field lệch — lọc lại nếu filter 1 người
+      if (selectedFriendUid) {
+        localData = filterByOwner(localData, selectedFriendUid);
+        // fallback: nếu IndexedDB key "user" không match, quét all rồi filter
+        if (!localData?.length) {
+          const all = await getAllMoments();
+          localData = filterByOwner(all, selectedFriendUid);
+        }
+      }
 
       if (localData?.length) {
         set((state) => {
@@ -82,7 +105,7 @@ export const useMomentsStoreV2 = create((set, get) => ({
               [key]: {
                 ...bucket,
                 items: [...localData].sort(
-                  (a, b) => b.createTime - a.createTime
+                  (a, b) => (b.createTime || 0) - (a.createTime || 0)
                 ),
               },
             },
@@ -91,11 +114,21 @@ export const useMomentsStoreV2 = create((set, get) => ({
       }
 
       /* ---------- API sync ---------- */
-      const apiData = await GetAllMoments({
+      // Dio: friendId = uid người cần xem (kể cả chính mình = localId)
+      let apiData = await GetAllMoments({
         timestamp: Math.floor(Date.now() / 1000),
         friendId: selectedFriendUid,
         limit: initialVisible,
       });
+
+      // API đôi khi trả mixed feed — lọc client khi đang filter 1 người / Bạn
+      if (selectedFriendUid && apiData?.length) {
+        const filtered = filterByOwner(apiData, selectedFriendUid);
+        // Nếu API bỏ qua friendId và trả full feed, dùng bản đã lọc
+        if (filtered.length || myId === selectedFriendUid) {
+          apiData = filtered;
+        }
+      }
 
       if (apiData?.length) {
         set((state) => {
@@ -105,7 +138,7 @@ export const useMomentsStoreV2 = create((set, get) => ({
           const merged = [
             ...bucket.items,
             ...apiData.filter((i) => !existingIds.has(i.id)),
-          ].sort((a, b) => b.createTime - a.createTime);
+          ].sort((a, b) => (b.createTime || 0) - (a.createTime || 0));
 
           return {
             momentsByUser: {
@@ -169,11 +202,15 @@ export const useMomentsStoreV2 = create((set, get) => ({
     try {
       const lastCreateTime = bucket.items[bucket.items.length - 1].createTime;
 
-      const older = await GetAllMoments({
+      let older = await GetAllMoments({
         timestamp: lastCreateTime,
         friendId: selectedFriendUid,
         limit: loadMoreLimit,
       });
+
+      if (selectedFriendUid && older?.length) {
+        older = filterByOwner(older, selectedFriendUid);
+      }
 
       if (!older?.length) {
         set((state) => {

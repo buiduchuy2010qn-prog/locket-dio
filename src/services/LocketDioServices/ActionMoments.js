@@ -13,11 +13,16 @@ const normalizeMoment = (m) => {
     m.createTime ||
     m.date?._seconds ||
     (typeof m.date === "number" ? m.date : null) ||
-    (m.date ? Math.floor(new Date(m.date).getTime() / 1000) : 0);
+    (m.date ? Math.floor(new Date(m.date).getTime() / 1000) : 0) ||
+    0;
+  // user = owner localId — dùng để filter "Bạn"
+  const owner =
+    m.user || m.userUid || m.owner || m.owner_uid || m.uid || null;
   return {
     ...m,
-    createTime,
-    user: m.user || m.userUid || m.owner || m.uid,
+    createTime: Number(createTime) || 0,
+    user: owner,
+    userUid: m.userUid || owner,
     thumbnail_url:
       m.thumbnail_url || m.thumbnailUrl || m.image_url || m.imageUrl,
     image_url: m.image_url || m.imageUrl || m.thumbnail_url,

@@ -7,10 +7,11 @@ import Avatar from "../../ExtendPage/Badge/Avatar";
 import { useFriendStore } from "@/stores/useFriendStore";
 import { useMomentsStoreV2 } from "@/stores/useMomentsStoreV2";
 import { SonnerSuccess, SonnerError } from "@/components/ui/SonnerToast";
+import { getMyLocalId } from "@/utils/auth/getMyLocalId";
 
 const HeaderHistory = () => {
   const { friendDetails, loading, setFriendDetails } = useFriendStore();
-  const { user } = useContext(AuthContext);
+  const { user, authTokens } = useContext(AuthContext);
   const {
     selectedFriendUid,
     setSelectedFriendUid,
@@ -24,6 +25,9 @@ const HeaderHistory = () => {
   const [friendName, setFriendName] = useState("Mọi người");
   const [refreshing, setRefreshing] = useState(false);
   const fetchMoments = useMomentsStoreV2((s) => s.fetchMoments);
+
+  // Acc đang login = localId (không phải user.uid)
+  const myId = getMyLocalId(user, authTokens);
 
   const truncateName = (name, length = 10) => {
     return name.length > length ? name.slice(0, length) + "..." : name;
@@ -47,7 +51,8 @@ const HeaderHistory = () => {
   });
 
   const handleSelectFriend = (uid, name) => {
-    setSelectedFriendUid(uid);
+    // null = Mọi người; string = friend uid hoặc myId (Bạn)
+    setSelectedFriendUid(uid || null);
     setFriendName(name || "Mọi người");
     setIsOpen(false);
     setSelectedMoment(null);
@@ -161,66 +166,70 @@ const HeaderHistory = () => {
               </svg>
             </div>
             <div className="space-y-3 max-h-90 overflow-y-auto pt-4">
-              {filteredFriends && filteredFriends.length > 0 ? (
-                <>
-                  {/* Mọi người */}
-                  <div
-                    onClick={() => handleSelectFriend(null, "Mọi người")}
-                    className="flex items-center justify-between hover:bg-base-200 px-3 py-2 rounded-lg transition cursor-pointer pt-2 mt-2"
-                  >
-                    <div className="flex items-center gap-3">
-                      <HiUsers className="w-11 h-11 rounded-full border-[2.5px] p-2 border-amber-400 object-cover" />
-                      <span className="text-base font-medium">Mọi người</span>
-                    </div>
-                    <ChevronRight className="w-5 h-5 text-base-content" />
-                  </div>
+              {/* Mọi người — luôn hiện */}
+              <div
+                onClick={() => handleSelectFriend(null, "Mọi người")}
+                className="flex items-center justify-between hover:bg-base-200 px-3 py-2 rounded-lg transition cursor-pointer pt-2 mt-2"
+              >
+                <div className="flex items-center gap-3">
+                  <HiUsers className="w-11 h-11 rounded-full border-[2.5px] p-2 border-amber-400 object-cover" />
+                  <span className="text-base font-medium">Mọi người</span>
+                </div>
+                <ChevronRight className="w-5 h-5 text-base-content" />
+              </div>
 
-                  {/* Danh sách bạn bè */}
-                  {filteredFriends.map((friend) => (
-                    <div
-                      key={friend.uid}
-                      onClick={() =>
-                        handleSelectFriend(
-                          friend.uid,
-                          `${friend.firstName || ""} ${
-                            friend.lastName || ""
-                          }`.trim()
-                        )
+              {/* Bạn = acc đang login (localId) */}
+              {myId ? (
+                <div
+                  onClick={() => handleSelectFriend(myId, "Bạn")}
+                  className="flex items-center justify-between hover:bg-base-200 px-3 py-2 rounded-lg transition cursor-pointer"
+                >
+                  <div className="flex items-center gap-3">
+                    <img
+                      src={
+                        user?.profilePicture ||
+                        user?.profilePic ||
+                        "./prvlocket.png"
                       }
-                      className="flex items-center justify-between hover:bg-base-200 px-3 py-2 rounded-lg transition cursor-pointer"
-                    >
-                      <div className="flex items-center gap-3">
-                        <img
-                          src={friend.profilePic || "/default-avatar.png"}
-                          alt={friend.name || "avatar"}
-                          className="w-11 h-11 rounded-full border-[2.5px] p-0.5 border-amber-400 object-cover"
-                        />
-                        <span className="text-base font-medium">
-                          {friend.firstName} {friend.lastName}
-                        </span>
-                      </div>
-                      <ChevronRight className="w-5 h-5 text-base-content" />
-                    </div>
-                  ))}
+                      alt="Bạn"
+                      className="w-11 h-11 rounded-full border-[2.5px] p-0.5 border-base-300 object-cover"
+                    />
+                    <span className="text-base font-medium">Bạn</span>
+                  </div>
+                  <ChevronRight className="w-5 h-5 text-base-content" />
+                </div>
+              ) : null}
 
-                  {/* Bạn */}
+              {/* Danh sách bạn bè */}
+              {filteredFriends && filteredFriends.length > 0 ? (
+                filteredFriends.map((friend) => (
                   <div
-                    onClick={() => handleSelectFriend(user?.uid, "Bạn")}
-                    className="flex items-center justify-between hover:bg-base-200 px-3 py-2 rounded-lg transition cursor-pointer pt-2 mt-2"
+                    key={friend.uid}
+                    onClick={() =>
+                      handleSelectFriend(
+                        friend.uid,
+                        `${friend.firstName || ""} ${
+                          friend.lastName || ""
+                        }`.trim()
+                      )
+                    }
+                    className="flex items-center justify-between hover:bg-base-200 px-3 py-2 rounded-lg transition cursor-pointer"
                   >
                     <div className="flex items-center gap-3">
                       <img
-                        src={user?.profilePicture}
-                        alt="Bạn"
-                        className="w-11 h-11 rounded-full border-[2.5px] p-0.5 border-base-300 object-cover"
+                        src={friend.profilePic || "/default-avatar.png"}
+                        alt={friend.name || "avatar"}
+                        className="w-11 h-11 rounded-full border-[2.5px] p-0.5 border-amber-400 object-cover"
                       />
-                      <span className="text-base font-medium">Bạn</span>
+                      <span className="text-base font-medium">
+                        {friend.firstName} {friend.lastName}
+                      </span>
                     </div>
                     <ChevronRight className="w-5 h-5 text-base-content" />
                   </div>
-                </>
+                ))
               ) : (
-                <div className="text-gray-400 italic text-sm text-center mt-6">
+                <div className="text-gray-400 italic text-sm text-center mt-4 pb-2">
                   Không có bạn bè
                 </div>
               )}

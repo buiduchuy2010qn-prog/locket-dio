@@ -1,12 +1,15 @@
 import { getFriendDetail } from "@/cache/friendsDB";
 import { formatTimeAgo } from "@/utils";
 import React, { useEffect, useState } from "react";
+import { getMyLocalId } from "@/utils/auth/getMyLocalId";
 
 const UserInfo = ({ user, me, date }) => {
   const [displayUser, setDisplayUser] = useState(user);
+  const myId = getMyLocalId(me) || me?.localId || me?.uid;
+  const isMe = !user || (myId && user === myId);
 
   useEffect(() => {
-    if (!user || user === me.uid) return; // chính mình → bỏ qua DB
+    if (isMe) return; // chính mình → bỏ qua DB
 
     let mounted = true;
     getFriendDetail(user).then((detail) => {
@@ -16,16 +19,16 @@ const UserInfo = ({ user, me, date }) => {
     return () => {
       mounted = false;
     };
-  }, [user, me.uid]);
+  }, [user, isMe]);
 
   // Nếu là chính mình
-  if (!user || user === me.uid) {
+  if (isMe) {
     return (
       <div className="flex items-center gap-2 text-md text-muted-foreground">
         <div className="flex items-center gap-2">
           <img
-            src={me?.profilePicture || "./prvlocket.png"}
-            alt={me?.fullName}
+            src={me?.profilePicture || me?.profilePic || "./prvlocket.png"}
+            alt={me?.fullName || "Bạn"}
             className="w-10 h-10 rounded-full object-cover"
           />
           <span className="truncate max-w-[80px] text-base text-base-content font-semibold">
