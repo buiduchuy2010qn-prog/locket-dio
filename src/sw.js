@@ -4,7 +4,7 @@
  * - Navigation + script/style: NetworkFirst
  * - Chỉ cache font/image CDN
  */
-console.log("[SW] Locket Dio SW v2.3.1-netfirst - loaded");
+console.log("[SW] Locket Dio SW v2.3.2-ban-localid - loaded");
 
 import { precacheAndRoute, cleanupOutdatedCaches } from "workbox-precaching";
 import { registerRoute } from "workbox-routing";

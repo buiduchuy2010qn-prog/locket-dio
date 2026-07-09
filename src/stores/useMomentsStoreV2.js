@@ -60,11 +60,13 @@ export const useMomentsStoreV2 = create((set, get) => ({
     if (!user) return;
 
     const myId = getMyLocalId(user);
-    // selectedFriendUid = null → all; = myId → chỉ bài mình; = friend uid → bạn đó
-    const key = selectedFriendUid ?? "all";
+    // null → all; myId → chỉ bài mình ("Bạn"); friend.uid → bạn đó
+    const ownerFilter = selectedFriendUid || null;
+    const key = ownerFilter ?? "all";
+    const viewingSelf = !!(myId && ownerFilter && ownerFilter === myId);
+
     get().ensureBucket(key);
 
-    // loading = true
     set((state) => {
       const bucket = state.momentsByUser[key] ?? defaultBucket();
       return {
@@ -82,17 +84,15 @@ export const useMomentsStoreV2 = create((set, get) => ({
 
     try {
       /* ---------- Local DB ---------- */
-      let localData = selectedFriendUid
-        ? await getMomentsByUser(selectedFriendUid)
+      let localData = ownerFilter
+        ? await getMomentsByUser(ownerFilter)
         : await getAllMoments();
 
-      // Cache cũ có thể lưu user field lệch — lọc lại nếu filter 1 người
-      if (selectedFriendUid) {
-        localData = filterByOwner(localData, selectedFriendUid);
-        // fallback: nếu IndexedDB key "user" không match, quét all rồi filter
+      if (ownerFilter) {
+        localData = filterByOwner(localData, ownerFilter);
         if (!localData?.length) {
           const all = await getAllMoments();
-          localData = filterByOwner(all, selectedFriendUid);
+          localData = filterByOwner(all, ownerFilter);
         }
       }
 
@@ -114,30 +114,60 @@ export const useMomentsStoreV2 = create((set, get) => ({
       }
 
       /* ---------- API sync ---------- */
-      // Dio: friendId = uid người cần xem (kể cả chính mình = localId)
+      // Xem "Bạn": Dio đôi khi ignore friendId=localId → lấy feed rồi lọc client
       let apiData = await GetAllMoments({
         timestamp: Math.floor(Date.now() / 1000),
-        friendId: selectedFriendUid,
-        limit: initialVisible,
+        friendId: viewingSelf ? null : ownerFilter,
+        limit: viewingSelf ? Math.max(initialVisible * 3, 60) : initialVisible,
       });
 
-      // API đôi khi trả mixed feed — lọc client khi đang filter 1 người / Bạn
-      if (selectedFriendUid && apiData?.length) {
-        const filtered = filterByOwner(apiData, selectedFriendUid);
-        // Nếu API bỏ qua friendId và trả full feed, dùng bản đã lọc
-        if (filtered.length || myId === selectedFriendUid) {
-          apiData = filtered;
+      // BẮT BUỘC lọc theo owner khi filter 1 người (Bạn hoặc 1 friend)
+      // Không bao giờ giữ feed full khi đã chọn ownerFilter
+      if (ownerFilter) {
+        apiData = filterByOwner(apiData || [], ownerFilter);
+
+        // "Bạn" mà API trả rỗng: thử gọi với friendId = myId
+        if (viewingSelf && !apiData.length) {
+          const retry = await GetAllMoments({
+            timestamp: Math.floor(Date.now() / 1000),
+            friendId: myId,
+            limit: initialVisible,
+          });
+          apiData = filterByOwner(retry || [], myId);
         }
       }
 
-      if (apiData?.length) {
+      // Replace bucket items for filtered views (không merge với rác feed "all")
+      if (ownerFilter) {
+        const fromLocal = localData || [];
+        const existingIds = new Set(fromLocal.map((i) => i.id));
+        const merged = [
+          ...fromLocal,
+          ...(apiData || []).filter((i) => i?.id && !existingIds.has(i.id)),
+        ].sort((a, b) => (b.createTime || 0) - (a.createTime || 0));
+
+        set((state) => {
+          const bucket = state.momentsByUser[key] ?? defaultBucket();
+          return {
+            momentsByUser: {
+              ...state.momentsByUser,
+              [key]: {
+                ...bucket,
+                items: merged,
+              },
+            },
+          };
+        });
+
+        if (apiData?.length) await bulkAddMoments(apiData);
+      } else if (apiData?.length) {
         set((state) => {
           const bucket = state.momentsByUser[key] ?? defaultBucket();
           const existingIds = new Set(bucket.items.map((i) => i.id));
 
           const merged = [
             ...bucket.items,
-            ...apiData.filter((i) => !existingIds.has(i.id)),
+            ...apiData.filter((i) => i?.id && !existingIds.has(i.id)),
           ].sort((a, b) => (b.createTime || 0) - (a.createTime || 0));
 
           return {

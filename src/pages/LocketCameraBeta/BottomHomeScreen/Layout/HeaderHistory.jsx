@@ -51,13 +51,26 @@ const HeaderHistory = () => {
   });
 
   const handleSelectFriend = (uid, name) => {
-    // null = Mọi người; string = friend uid hoặc myId (Bạn)
-    setSelectedFriendUid(uid || null);
+    // null = Mọi người; string = friend.uid hoặc myId (Bạn = localId)
+    const next = uid || null;
+    console.log("[HeaderHistory] filter", {
+      name,
+      next,
+      myId,
+      isSelf: next && myId && next === myId,
+    });
+    setSelectedFriendUid(next);
     setFriendName(name || "Mọi người");
     setIsOpen(false);
     setSelectedMoment(null);
     setSelectedQueue(null);
     setTimeout(() => setIsVisible(false), 500);
+    // Fetch ngay — không chờ effect (tránh race)
+    if (user) {
+      fetchMoments(user, next).catch((err) =>
+        console.error("fetchMoments after select", err)
+      );
+    }
   };
 
   const handleRefresh = async (e) => {
@@ -65,7 +78,14 @@ const HeaderHistory = () => {
     if (refreshing || !user) return;
     setRefreshing(true);
     try {
-      await fetchMoments(user, selectedFriendUid);
+      const id = getMyLocalId(user, authTokens);
+      // Nếu đang xem "Bạn" mà selectedFriendUid lệch, ép lại myId
+      const filter =
+        friendName === "Bạn" && id ? id : selectedFriendUid;
+      if (friendName === "Bạn" && id && selectedFriendUid !== id) {
+        setSelectedFriendUid(id);
+      }
+      await fetchMoments(user, filter);
       SonnerSuccess("Đã làm mới", "Đã tải lại ảnh/video mới nhất");
     } catch (err) {
       console.error(err);
@@ -178,27 +198,38 @@ const HeaderHistory = () => {
                 <ChevronRight className="w-5 h-5 text-base-content" />
               </div>
 
-              {/* Bạn = acc đang login (localId) */}
-              {myId ? (
-                <div
-                  onClick={() => handleSelectFriend(myId, "Bạn")}
-                  className="flex items-center justify-between hover:bg-base-200 px-3 py-2 rounded-lg transition cursor-pointer"
-                >
-                  <div className="flex items-center gap-3">
-                    <img
-                      src={
-                        user?.profilePicture ||
-                        user?.profilePic ||
-                        "./prvlocket.png"
-                      }
-                      alt="Bạn"
-                      className="w-11 h-11 rounded-full border-[2.5px] p-0.5 border-base-300 object-cover"
-                    />
-                    <span className="text-base font-medium">Bạn</span>
-                  </div>
-                  <ChevronRight className="w-5 h-5 text-base-content" />
+              {/* Bạn = acc đang login — LUÔN hiện; id = localId */}
+              <div
+                onClick={() => {
+                  const id = getMyLocalId(user, authTokens);
+                  if (!id) {
+                    SonnerError(
+                      "Chưa có ID tài khoản",
+                      "Đăng xuất rồi đăng nhập lại."
+                    );
+                    return;
+                  }
+                  handleSelectFriend(id, "Bạn");
+                }}
+                className="flex items-center justify-between hover:bg-base-200 px-3 py-2 rounded-lg transition cursor-pointer"
+              >
+                <div className="flex items-center gap-3">
+                  <img
+                    src={
+                      user?.profilePicture ||
+                      user?.profilePic ||
+                      "./prvlocket.png"
+                    }
+                    alt="Bạn"
+                    className="w-11 h-11 rounded-full border-[2.5px] p-0.5 border-base-300 object-cover"
+                    onError={(e) => {
+                      e.currentTarget.src = "./prvlocket.png";
+                    }}
+                  />
+                  <span className="text-base font-medium">Bạn</span>
                 </div>
-              ) : null}
+                <ChevronRight className="w-5 h-5 text-base-content" />
+              </div>
 
               {/* Danh sách bạn bè */}
               {filteredFriends && filteredFriends.length > 0 ? (
