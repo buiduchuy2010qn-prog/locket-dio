@@ -1,8 +1,10 @@
-﻿services:
+services:
   - type: web
     name: locket-dio
     runtime: static
-    buildCommand: "(npm install && npm run build && node scripts/prepare-static.mjs) || echo 'Using prebuilt public/'"
+    # Prebuilt SPA is committed under public/ — do not run npm on Render
+    # (npm build fails on Render free static; public/ already has production files)
+    buildCommand: echo "Deploying prebuilt Client-Locket-Dio from public/"
     staticPublishPath: ./public
     routes:
       - type: rewrite
