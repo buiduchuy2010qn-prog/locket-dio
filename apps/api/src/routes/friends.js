@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { authRequired, toPublic } from '../lib/auth.js'
-import { asyncHandler } from '../lib/errors.js'
+import { asyncHandler, AppError } from '../lib/errors.js'
 import {
   listFriends, sendFriendRequest, acceptFriendRequest, declineFriendRequest,
   removeFriend, blockUser, countFriends,
@@ -46,6 +46,25 @@ router.post('/requests/:id/accept', authRequired, asyncHandler(async (req, res) 
 
 router.post('/requests/:id/decline', authRequired, asyncHandler(async (req, res) => {
   res.json(await declineFriendRequest(req.user, req.params.id))
+}))
+
+/** Spec aliases */
+router.post('/accept', authRequired, asyncHandler(async (req, res) => {
+  const id = req.body.requestId || req.body.id
+  if (!id) throw new AppError('requestId required')
+  res.json(await acceptFriendRequest(req.user, id))
+}))
+
+router.post('/decline', authRequired, asyncHandler(async (req, res) => {
+  const id = req.body.requestId || req.body.id
+  if (!id) throw new AppError('requestId required')
+  res.json(await declineFriendRequest(req.user, id))
+}))
+
+router.get('/search', authRequired, asyncHandler(async (req, res) => {
+  // proxy to users search semantics
+  const q = String(req.query.q || '').trim()
+  res.redirect(307, `/api/users/search?q=${encodeURIComponent(q)}`)
 }))
 
 router.delete('/:friendId', authRequired, asyncHandler(async (req, res) => {

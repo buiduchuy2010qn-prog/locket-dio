@@ -212,7 +212,7 @@ export default function Upload() {
         />
       </div>
       <div className="pointer-events-auto relative">
-        <GlassBtn size="md" variant={dark ? 'dark' : 'light'} label="Chat" onClick={() => nav('/app/notifications')}>
+        <GlassBtn size="md" variant={dark ? 'dark' : 'light'} label="Chat" onClick={() => nav('/app/chat')}>
           <MessageCircle size={20} />
         </GlassBtn>
         {unreadCount > 0 && (

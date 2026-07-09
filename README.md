@@ -1,128 +1,146 @@
 # Locket Dio
 
-**Private close-friends photo & video sharing** — full-stack production app.
+**Private square-moment camera web app** for close friends.
 
-Original branding and UI. **Not affiliated with Locket.** We never ask for third-party passwords; “Connect Locket” only works via **official OAuth** when credentials are provided.
+- Original branding, icons, and UI (inspired by close-friends camera apps, **not** the official Locket product).
+- Full-stack: React web + Express API + PostgreSQL + Prisma.
+- **Official Locket sync only via official OAuth/API.** Never passwords, never private endpoints.
 
 ## Stack
 
 | Layer | Tech |
 |-------|------|
-| Web | React 19, Vite, Tailwind v4, React Router |
+| Web | React, Vite, Tailwind CSS, React Router |
 | API | Node.js, Express, Socket.IO, Zod, Helmet, rate-limit |
 | DB | PostgreSQL + Prisma |
-| Media | Cloudinary (or local disk fallback) + Sharp |
-| Payments | Stripe (optional; mock activate if unset) |
-| Deploy | Docker Compose, Nginx |
+| Media | Cloudinary (or local disk) + Sharp |
+| Deploy | Docker Compose, Nginx, Render static+API |
 
-## Monorepo layout
+> Note: Production code is JavaScript ESM for faster deploy. Structure matches a monorepo ready for gradual TypeScript migration.
+
+## Monorepo
 
 ```
-apps/web          # React SPA
-apps/api          # Express REST + WebSocket
-packages/shared   # Shared constants / publicUser helper
-prisma/           # Schema + seed
-docker/           # Dockerfiles + nginx
-docs/
+locket-dio/
+  apps/web/          # Camera UI (mobile immersive + desktop white minimal)
+  apps/api/          # REST + WebSocket
+  packages/shared/   # Shared constants
+  prisma/            # Schema + seed
+  docker/
+  docs/
+  docker-compose.yml
+  .env.example
 ```
 
 ## Quick start (local)
 
-### 1. Prerequisites
+### Prerequisites
 
-- Node.js 20+
+- Node.js 18+
 - PostgreSQL 16 (or Docker)
 
-### 2. Environment
+### Setup
 
 ```bash
 cp .env.example .env
 # Edit DATABASE_URL, JWT_SECRET
-```
 
-### 3. Database
+docker compose up -d db          # optional
+npm install --prefix apps/web
+npm install --prefix apps/api
+npm install                      # root tools (prisma)
 
-```bash
-# Start Postgres (example)
-docker compose up -d db
-
-npm install
+npx prisma generate --schema=prisma/schema.prisma
 npx prisma db push --schema=prisma/schema.prisma
-npm run db:seed
+npm run db:seed                  # if seed deps installed
 ```
 
-### 4. Run
+### Run
 
 ```bash
-# Terminal A — API :4000
+# API :4000
 npm run dev:api
 
-# Terminal B — Web :5173
+# Web :5173
 npm run dev:web
-
-# Or both:
-npm run dev
 ```
 
 Open http://localhost:5173
 
-### Demo accounts (after seed)
+### Demo users (after seed)
 
-| Email | Password | Role |
-|-------|----------|------|
-| you@locket-dio.app | demo123 | Free user |
-| mina@locket-dio.app | demo123 | Gold |
+| Email | Password | Notes |
+|-------|----------|--------|
+| you@locket-dio.app | demo123 | Free |
+| mina@locket-dio.app | demo123 | Dio Gold (in-app) |
 | admin@locket-dio.app | demo123 | Admin |
 
-If the API is offline, the web app **auto-falls back** to localStorage mock mode.
+If the API is down, the web app **falls back to localStorage mock** so camera UI still works.
 
-## API overview
+## Features
 
-| Area | Prefix |
-|------|--------|
-| Auth | `POST /api/auth/signup\|login\|logout`, `GET /api/auth/me` |
-| Users | `PATCH /api/users/me`, `GET /api/users/search` |
-| Friends | `/api/friends/*` |
-| Moments | `/api/moments/*` (multipart upload) |
-| Notifications | `/api/notifications/*` |
-| Gold | `/api/gold/*` |
-| Streaks | `/api/streaks/*` |
-| Locket OAuth module | `/api/locket/*` |
-| Admin | `/api/admin/*` |
-| Health | `GET /health`, `GET /api/status` |
+### Camera (1:1)
 
-## Connect Locket (safe module)
+- Square camera preview PC + mobile  
+- Capture / upload / crop pan+zoom  
+- Audience: all friends / close friends  
+- Mobile: dark/blue immersive Locket-style chrome  
+- Desktop: white minimal centered square  
 
-Implemented endpoints (no password collection):
+### Social
 
-- `GET /api/locket/status` → `fetchLocketConnectionStatus`
-- `POST /api/locket/connect` → `connectLocketAccount` (official OAuth only)
-- `POST /api/locket/disconnect`
-- `POST /api/locket/sync`
+- Feed, gallery 3-col grid, photo detail  
+- Friends, requests, block  
+- Reactions, notifications, streaks  
+- **Dio Gold** = in-app premium only (**not** official Locket Gold)  
 
-Set in `.env` only when you have **official** docs/credentials:
+### Official Locket Sync
+
+See [docs/OFFICIAL_LOCKET_SYNC.md](docs/OFFICIAL_LOCKET_SYNC.md).
+
+Default = **export-only** (download / share / QR / manual post).
+
+## API map (high level)
+
+**Auth:** `POST /api/auth/signup|login|logout|forgot-password|reset-password` · `GET /api/auth/me`  
+
+**Moments:** `POST /api/moments` · `GET feed|gallery` · `GET/DELETE :id` · `POST :id/react` · `GET :id/seen-by`  
+
+**Friends:** `GET /api/friends` · `POST request|accept|decline` · `DELETE :id` · `POST :id/block`  
+
+**Notifications / Streaks / Gold:** under `/api/notifications`, `/api/streaks`, `/api/gold`  
+
+**Official Locket:** `/api/integrations/locket/*` and `/api/locket/*`  
+
+**Export:** `GET /api/export/download/:momentId` · `GET /api/export/qr/:momentId`  
+
+**Health:** `GET /health` · `GET /api/status`  
+
+## Environment
+
+Copy `.env.example`. Critical keys:
 
 ```
-LOCKET_OAUTH_ENABLED=true
-LOCKET_CLIENT_ID=...
-LOCKET_CLIENT_SECRET=...
-LOCKET_AUTH_URL=...
-LOCKET_TOKEN_URL=...
+DATABASE_URL=
+JWT_SECRET=
+CORS_ORIGIN=http://localhost:5173
+APP_URL=http://localhost:5173
+API_URL=http://localhost:4000
+VITE_API_URL=http://localhost:4000
+
+# Optional media
+CLOUDINARY_CLOUD_NAME=
+CLOUDINARY_API_KEY=
+CLOUDINARY_API_SECRET=
+
+# Official Locket (only if Locket provides partner access)
+LOCKET_OAUTH_ENABLED=false
+LOCKET_CLIENT_ID=
+LOCKET_CLIENT_SECRET=
+LOCKET_AUTH_URL=
+LOCKET_TOKEN_URL=
+LOCKET_UPLOAD_URL=
 ```
-
-## Media
-
-- Images compressed with **Sharp**
-- **Cloudinary** when `CLOUDINARY_*` set
-- Otherwise files stored under `/uploads` and served at `/media/local/...`
-- Video duration limits: free 5s / Gold 30s (configurable)
-- Camera-roll source requires Gold
-
-## Gold / Stripe
-
-- Without Stripe keys: `POST /api/gold/activate` (mock subscription for staging)
-- With Stripe: `POST /api/gold/checkout` returns Checkout URL
-- Webhook: configure Stripe → store `ACTIVE` on `GoldSubscription`
 
 ## Docker production
 
@@ -134,24 +152,22 @@ docker compose up -d --build
 - Web: http://localhost:8080  
 - API: http://localhost:4000  
 
-## Render / VPS notes
+## Render
 
-1. Provision **PostgreSQL**
-2. Deploy **API** web service (`apps/api`, start: `npx prisma migrate deploy && node apps/api/src/index.js`)
-3. Deploy **static web** (`apps/web` build, env `VITE_API_URL=https://your-api...`)
-4. Set secrets: `DATABASE_URL`, `JWT_SECRET`, Cloudinary, Stripe as needed
+Static frontend (existing):
 
-## Security checklist
+- Build: `cd apps/web && npm install && npm run build && cd ../.. && node scripts/copy-web-dist.mjs`  
+- Publish: `public` (or `dist`)  
 
-- [x] bcrypt password hashing  
-- [x] JWT + HTTP-only cookie option  
-- [x] Helmet, CORS, rate limits  
-- [x] Zod validation on auth  
-- [x] Upload size / video duration limits  
-- [x] No Locket password fields  
-- [x] Audit log hooks  
-- [x] Friends-only feed filter  
+Full stack: add **PostgreSQL** + **Web Service** for API (`node apps/api/src/index.js` after `prisma db push`).
+
+## Security notes
+
+- No Locket password fields anywhere  
+- bcrypt passwords · JWT cookies · Helmet · CORS · rate limits  
+- OAuth tokens AES-sealed with app secret when official mode on  
+- Audit + SyncLog + ExportLog  
 
 ## License
 
-Private project — original Locket Dio branding.
+Private project — **Locket Dio** original branding. Not affiliated with Locket.

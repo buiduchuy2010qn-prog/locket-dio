@@ -19,6 +19,8 @@ import notificationRoutes from './routes/notifications.js'
 import goldRoutes from './routes/gold.js'
 import streakRoutes from './routes/streaks.js'
 import locketRoutes from './routes/locket.js'
+import integrationsLocketRoutes from './routes/integrationsLocket.js'
+import exportRoutes from './routes/export.js'
 import adminRoutes from './routes/admin.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -89,6 +91,8 @@ app.use('/api/notifications', notificationRoutes)
 app.use('/api/gold', goldRoutes)
 app.use('/api/streaks', streakRoutes)
 app.use('/api/locket', locketRoutes)
+app.use('/api/integrations/locket', integrationsLocketRoutes)
+app.use('/api/export', exportRoutes)
 app.use('/api/admin', adminRoutes)
 
 app.use(errorMiddleware)

@@ -20,6 +20,7 @@ import GoldCustomize from './pages/GoldCustomize'
 import AdminDebug from './pages/AdminDebug'
 import ConnectLocket from './pages/ConnectLocket'
 import VerifyEmail from './pages/VerifyEmail'
+import Chat from './pages/Chat'
 
 function PublicOnly({ children }) {
   const { user, booting } = useApp()
@@ -61,6 +62,9 @@ export default function App() {
             <Route path="gold" element={<Gold />} />
             <Route path="gold/customize" element={<GoldCustomize />} />
             <Route path="connect-locket" element={<ConnectLocket />} />
+            <Route path="official-sync" element={<ConnectLocket />} />
+            <Route path="chat" element={<Chat />} />
+            <Route path="messages" element={<Chat />} />
             <Route path="admin" element={<AdminDebug />} />
           </Route>
 

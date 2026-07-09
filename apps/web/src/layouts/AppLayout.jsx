@@ -1,6 +1,6 @@
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import {
-  Home, Camera, Users, Images, Flame, Bell, Crown, User, Settings, LogOut, Sparkles, Link2,
+  Home, Camera, Users, Images, Flame, Bell, Crown, User, Settings, LogOut, Sparkles, Link2, MessageCircle,
 } from 'lucide-react'
 import Logo from '../components/Logo'
 import Avatar from '../components/Avatar'
@@ -18,8 +18,9 @@ const nav = [
   { to: '/app/gallery', label: 'Gallery', icon: Images },
   { to: '/app/streaks', label: 'Streaks', icon: Flame },
   { to: '/app/notifications', label: 'Notifications', icon: Bell, badge: true },
-  { to: '/app/gold', label: 'Gold', icon: Crown },
-  { to: '/app/connect-locket', label: 'Connect Locket', icon: Link2 },
+  { to: '/app/gold', label: 'Dio Gold', icon: Crown },
+  { to: '/app/chat', label: 'Chat', icon: MessageCircle },
+  { to: '/app/official-sync', label: 'Official Sync', icon: Link2 },
   { to: '/app/profile', label: 'Profile', icon: User },
   { to: '/app/settings', label: 'Settings', icon: Settings },
 ]
@@ -176,10 +177,12 @@ export default function AppLayout() {
             <div className="rounded-3xl gold-gradient p-4 text-white shadow-[var(--shadow-gold)]">
               <p className="text-xs font-semibold opacity-90">Trạng thái Gold</p>
               <p className="font-extrabold text-lg mt-0.5">
-                {user?.isGold ? 'Piclet Gold đang bật' : 'Gói Free'}
+                {user?.isGold ? 'Locket Dio Gold (in-app)' : 'Gói Free'}
               </p>
               <p className="text-xs opacity-90 mt-1">
-                {user?.isGold ? 'Ad-free · Unlimited friends · Themes' : 'Nâng cấp để mở toàn bộ tính năng'}
+                {user?.isGold
+                  ? 'In-app only — not official Locket Gold'
+                  : 'Nâng cấp Dio Gold (không liên quan Locket Gold)'}
               </p>
               {!user?.isGold && (
                 <button

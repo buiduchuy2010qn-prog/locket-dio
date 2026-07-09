@@ -150,6 +150,11 @@ router.post('/:id/seen', authRequired, asyncHandler(async (req, res) => {
   res.json(await markSeen(req.user.id, req.params.id))
 }))
 
+/** Spec alias: GET seen-by list (Gold insights) */
+router.get('/:id/seen-by', authRequired, asyncHandler(async (req, res) => {
+  res.json(await getInsights(req.user, req.params.id))
+}))
+
 router.get('/:id/insights', authRequired, asyncHandler(async (req, res) => {
   res.json(await getInsights(req.user, req.params.id))
 }))
