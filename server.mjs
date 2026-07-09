@@ -342,24 +342,37 @@ async function readDriveConfigFromNeon() {
 
 async function writeDriveConfigToNeon(cfg) {
   if (!(await initNeon()) || !neonSql) {
-    console.warn("[gdrive] Neon write skipped — not ready, url set=", Boolean(DATABASE_URL));
+    console.warn(
+      "[gdrive] Neon write skipped — not ready. Check Docker has @neondatabase/serverless"
+    );
     return false;
   }
   try {
-    // Không ghi JSONB null qua param lỗi — dùng text rồi cast
+    const folderId = String(cfg.folderId || "");
+    const clientId = String(cfg.oauth?.clientId || "");
+    const clientSecret = String(cfg.oauth?.clientSecret || "");
+    const refreshToken = String(cfg.oauth?.refreshToken || "");
+    const oauthEmail = String(cfg.oauth?.email || "");
+    const updatedBy = String(cfg.updatedBy || "");
+
+    if (!refreshToken) {
+      console.warn("[gdrive] Neon write skipped — empty refresh token");
+      return false;
+    }
+
     await neonSql`
       INSERT INTO gdrive_config (
         id, folder_id, oauth_client_id, oauth_client_secret,
         oauth_refresh_token, oauth_email, updated_at, updated_by
       ) VALUES (
         1,
-        ${String(cfg.folderId || "")},
-        ${String(cfg.oauth?.clientId || "")},
-        ${String(cfg.oauth?.clientSecret || "")},
-        ${String(cfg.oauth?.refreshToken || "")},
-        ${String(cfg.oauth?.email || "")},
+        ${folderId},
+        ${clientId},
+        ${clientSecret},
+        ${refreshToken},
+        ${oauthEmail},
         NOW(),
-        ${String(cfg.updatedBy || "")}
+        ${updatedBy}
       )
       ON CONFLICT (id) DO UPDATE SET
         folder_id = EXCLUDED.folder_id,
@@ -370,6 +383,16 @@ async function writeDriveConfigToNeon(cfg) {
         updated_at = NOW(),
         updated_by = EXCLUDED.updated_by
     `;
+
+    // Xác nhận ngay
+    const rows =
+      await neonSql`SELECT LENGTH(oauth_refresh_token) AS n FROM gdrive_config WHERE id = 1`;
+    const n = Number(rows?.[0]?.n || 0);
+    if (n < 10) {
+      console.error("[gdrive] Neon write verify failed, length=", n);
+      return false;
+    }
+    console.log("[gdrive] Neon write OK, refresh token length=", n);
     return true;
   } catch (e) {
     console.error("[gdrive] Neon write failed:", e.message, e);

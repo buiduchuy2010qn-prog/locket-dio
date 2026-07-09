@@ -2,7 +2,10 @@
 FROM node:20-alpine
 WORKDIR /app
 
-# Only need runtime files (prebuilt public/ + proxy)
+# Cần package Neon để lưu OAuth Drive bền (không mất khi redeploy)
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev --ignore-scripts
+
 COPY public ./public
 COPY server.mjs ./server.mjs
 
