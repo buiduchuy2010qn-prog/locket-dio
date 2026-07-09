@@ -70,12 +70,12 @@ const BottomHomeScreen = () => {
     if (!user) return;
     fetchMoments(user, selectedFriendUid);
 
-    // Tự động làm mới danh sách ảnh (không cần nút / không hiện hàng đợi)
+    // Auto-refresh feed only when tab visible (less CPU when on camera page elsewhere)
     const autoRefresh = setInterval(() => {
-      if (document.visibilityState === "visible") {
+      if (document.visibilityState === "visible" && !document.hidden) {
         fetchMoments(user, selectedFriendUid);
       }
-    }, 25000);
+    }, 45000);
 
     return () => clearInterval(autoRefresh);
   }, [user, selectedFriendUid]);

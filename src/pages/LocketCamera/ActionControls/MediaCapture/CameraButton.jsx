@@ -322,29 +322,15 @@ const CameraButton = () => {
     }, 100);
   };
 
-  const handleRotateCamera = async () => {
+  // Flip front/back — MediaPreview owns getUserMedia restart
+  const handleRotateCamera = () => {
+    if (uploadLoading || preview) return;
     setRotation((prev) => prev - 180);
     const newMode = cameraMode === "user" ? "environment" : "user";
-    setCameraMode(newMode);
-    // ✅ Reset deviceId để tránh bị giữ lại cam cũ (zoom cam)
     setZoomLevel("1x");
     setDeviceId(null);
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
-    }
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: newMode },
-        audio: false,
-      });
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-      }
-    } catch (error) {
-      console.error("Lỗi khi đổi camera:", error);
-    }
+    setCameraMode(newMode);
+    if (!cameraActive) setCameraActive(true);
   };
 
   // Cleanup khi component unmount

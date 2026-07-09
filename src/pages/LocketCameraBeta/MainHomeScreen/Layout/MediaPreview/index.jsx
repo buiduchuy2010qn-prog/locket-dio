@@ -1,16 +1,19 @@
-import React, { lazy, Suspense, useEffect, useRef } from "react";
+import React, { lazy, Suspense, useCallback, useEffect, useRef } from "react";
 
 import MediaSizeInfo from "@/components/ui/MediaSizeInfo";
 import { showInfo } from "@/components/Toast";
 import { getAvailableCameras } from "@/utils";
 const AutoResizeCaption = lazy(() => import("../CaptionViews"));
 import { useApp } from "@/context/AppContext";
-import { CONFIG } from "@/config";
 import BorderProgress from "../../Widgets/SquareProgress";
+import {
+  openCameraStream,
+  stopMediaStream,
+} from "@/utils/device/cameraStream";
 
 const MediaPreview = ({ capturedMedia }) => {
   const { post, useloading, camera } = useApp();
-  const { selectedFile, preview, isSizeMedia } = post;
+  const { selectedFile, preview } = post;
   const {
     streamRef,
     videoRef,
@@ -23,169 +26,162 @@ const MediaPreview = ({ capturedMedia }) => {
     setDeviceId,
     selectedFrame,
   } = camera;
-  const { setSendLoading } = useloading;
 
-  const cameraInitialized = useRef(false);
-  const lastCameraMode = useRef(cameraMode);
+  const startingRef = useRef(false);
+  const mountedRef = useRef(true);
 
-  const stopCamera = () => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
-      streamRef.current = null;
-    }
+  const stopCamera = useCallback(() => {
+    stopMediaStream(streamRef.current);
+    streamRef.current = null;
     if (videoRef.current) {
       videoRef.current.srcObject = null;
     }
-    cameraInitialized.current = false;
-  };
+    startingRef.current = false;
+  }, [streamRef, videoRef]);
 
-  const startCamera = async () => {
+  const startCamera = useCallback(async () => {
+    if (!cameraActive || preview || selectedFile) return;
+    if (startingRef.current) return;
+    startingRef.current = true;
+
     try {
-      if (
-        cameraInitialized.current &&
-        streamRef.current &&
-        lastCameraMode.current === cameraMode
-      ) {
-        if (videoRef.current && !videoRef.current.srcObject) {
-          videoRef.current.srcObject = streamRef.current;
-        }
+      // Always release previous stream before new one (flip camera)
+      stopMediaStream(streamRef.current);
+      streamRef.current = null;
+
+      const stream = await openCameraStream({
+        facingMode: cameraMode || "user",
+        deviceId: deviceId || null,
+      });
+
+      if (!mountedRef.current) {
+        stopMediaStream(stream);
         return;
       }
 
-      if (streamRef.current && lastCameraMode.current !== cameraMode) {
-        stopCamera();
-      }
-
-      let videoConstraints = {
-        deviceId: deviceId ? { exact: deviceId } : undefined,
-        facingMode: cameraMode || "user",
-      };
-
-      const isUser = cameraMode === "user";
-      const isZoom05 = zoomLevel === "0.5x";
-
-      if (!(isUser && isZoom05)) {
-        videoConstraints = {
-          ...videoConstraints,
-          ...CONFIG.app.camera.constraints.default,
-        };
-      }
-
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: videoConstraints,
-        audio: false,
-      });
-
       streamRef.current = stream;
-      cameraInitialized.current = true;
-      lastCameraMode.current = cameraMode;
-
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
+        // Ensure playback (iOS / some Android)
+        const p = videoRef.current.play?.();
+        if (p?.catch) p.catch(() => {});
       }
     } catch (err) {
+      console.error("startCamera failed:", err);
       setCameraActive(false);
-      cameraInitialized.current = false;
+    } finally {
+      startingRef.current = false;
     }
-  };
+  }, [
+    cameraActive,
+    cameraMode,
+    deviceId,
+    preview,
+    selectedFile,
+    setCameraActive,
+    streamRef,
+    videoRef,
+  ]);
 
   useEffect(() => {
-    if (!cameraActive) return;
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
-    if (!preview && !selectedFile) {
-      startCamera();
-    } else {
+  // Start / restart when mode, device, or preview state changes
+  useEffect(() => {
+    if (!cameraActive || preview || selectedFile) {
       stopCamera();
+      return;
     }
 
+    startCamera();
+
+    // Only fully stop on unmount or when leaving live view
+    return () => {
+      // Don't stop if only re-running for same live session race —
+      // startCamera always stops previous itself when reopening.
+    };
+  }, [
+    cameraActive,
+    cameraMode,
+    deviceId,
+    preview,
+    selectedFile,
+    startCamera,
+    stopCamera,
+  ]);
+
+  // Cleanup on unmount
+  useEffect(() => {
     return () => {
       stopCamera();
     };
-  }, [cameraActive, cameraMode, preview, selectedFile]);
-
-  // useEffect(() => {
-  //   if (cameraActive && !preview && !selectedFile) {
-  //     startCamera();
-  //   } else if (!cameraActive || preview || selectedFile) {
-  //     if (streamRef.current && (preview || selectedFile)) {
-  //       stopCamera();
-  //     }
-  //   }
-
-  //   return () => {
-  //     if (!preview && !selectedFile) {
-  //       stopCamera();
-  //     }
-  //   };
-  // }, [cameraActive, cameraMode, preview, selectedFile]);
-
-  // useEffect(() => {
-  //   if (!preview && !selectedFile && !cameraActive) {
-  //     setCameraActive(true);
-  //   }
-  // }, [preview, selectedFile, cameraActive]);
+  }, [stopCamera]);
 
   const handleCycleZoomCamera = async () => {
-    const cameras = await getAvailableCameras();
-    const isBackCamera = cameraMode === "environment";
-    const isFrontCamera = cameraMode === "user";
+    try {
+      const cameras = await getAvailableCameras();
+      const isBackCamera = cameraMode === "environment";
+      const isFrontCamera = cameraMode === "user";
 
-    let newZoom = "1x";
-    let newDeviceId = null;
+      let newZoom = "1x";
+      let newDeviceId = null;
 
-    if (isFrontCamera) {
-      newZoom = zoomLevel === "1x" ? "0.5x" : "1x";
-      newDeviceId = cameras?.frontCameras?.[0]?.deviceId;
-    } else if (isBackCamera) {
-      if (zoomLevel === "1x") {
-        newZoom = "0.5x";
-        newDeviceId = cameras?.backUltraWideCamera?.deviceId;
-      } else if (zoomLevel === "0.5x") {
-        newZoom = "3x";
-        newDeviceId = cameras?.backZoomCamera?.deviceId;
-      } else if (zoomLevel === "3x") {
-        newZoom = "1x";
-        newDeviceId = cameras?.backNormalCamera?.deviceId;
+      if (isFrontCamera) {
+        newZoom = zoomLevel === "1x" ? "0.5x" : "1x";
+        newDeviceId = cameras?.frontCameras?.[0]?.deviceId;
+      } else if (isBackCamera) {
+        if (zoomLevel === "1x") {
+          newZoom = "0.5x";
+          newDeviceId = cameras?.backUltraWideCamera?.deviceId;
+        } else if (zoomLevel === "0.5x") {
+          newZoom = "3x";
+          newDeviceId = cameras?.backZoomCamera?.deviceId;
+        } else if (zoomLevel === "3x") {
+          newZoom = "1x";
+          newDeviceId = cameras?.backNormalCamera?.deviceId;
+        }
+
+        if (!newDeviceId && zoomLevel !== "1x") {
+          newZoom = "1x";
+          newDeviceId =
+            cameras?.backNormalCamera?.deviceId ||
+            cameras?.backCameras?.[0]?.deviceId;
+        }
       }
 
-      if (!newDeviceId && zoomLevel !== "1x") {
-        newZoom = "1x";
-        newDeviceId =
-          cameras?.backNormalCamera?.deviceId ||
-          cameras?.backCameras?.[0]?.deviceId;
+      if (newDeviceId) {
+        setZoomLevel(newZoom);
+        setDeviceId(newDeviceId);
+      } else {
+        // No multi-lens — soft digital zoom toggle is not supported
+        showInfo("Thiết bị không hỗ trợ đổi zoom camera");
       }
-    }
-
-    if (newDeviceId) {
-      setZoomLevel(newZoom);
-      setDeviceId(newDeviceId);
-      setCameraActive(false);
-      setTimeout(() => setCameraActive(true), 300);
-    } else {
-      showInfo("Không tìm thấy camera phù hợp để chuyển zoom");
+    } catch (e) {
+      console.error(e);
+      showInfo("Không đổi được zoom camera");
     }
   };
 
+  const showLive =
+    !preview && !selectedFile && !capturedMedia && cameraActive;
+
   return (
     <>
-      <div
-        className={`relative w-full max-w-md aspect-square bg-gray-800 rounded-[65px] overflow-hidden transition-transform duration-500 `}
-      >
-        {!preview && !selectedFile && !capturedMedia && cameraActive && (
+      <div className="relative w-full max-w-md aspect-square bg-gray-800 rounded-[65px] overflow-hidden">
+        {showLive && (
           <video
             ref={videoRef}
             autoPlay
             playsInline
             muted
-            className={`
-              w-full h-full object-cover transition-all duration-500 ease-in-out
-              ${cameraMode === "user" ? "scale-x-[-1]" : ""}
-              ${
-                cameraActive
-                  ? "opacity-100 scale-100"
-                  : "opacity-0 scale-95 pointer-events-none"
-              }
-            `}
+            // no heavy CSS transition — smoother on mid phones
+            className={`w-full h-full object-cover ${
+              cameraMode === "user" ? "scale-x-[-1]" : ""
+            }`}
           />
         )}
 
@@ -193,6 +189,7 @@ const MediaPreview = ({ capturedMedia }) => {
           <>
             <div className="absolute inset-0 top-7 px-7 z-30 pointer-events-none flex justify-between text-base-content text-xs font-semibold">
               <button
+                type="button"
                 onClick={() => showInfo("Chức năng này sẽ sớm có mặt!")}
                 className="pointer-events-auto w-7 h-7 p-1.5 rounded-full bg-white/30 backdrop-blur-md flex items-center justify-center"
               >
@@ -200,6 +197,7 @@ const MediaPreview = ({ capturedMedia }) => {
               </button>
 
               <button
+                type="button"
                 onClick={handleCycleZoomCamera}
                 className="pointer-events-auto w-6 h-6 text-primary-content font-semibold rounded-full bg-white/30 backdrop-blur-md p-3.5 flex items-center justify-center"
               >
@@ -212,6 +210,8 @@ const MediaPreview = ({ capturedMedia }) => {
                   src={selectedFrame.imageSrc}
                   alt="Khung viền camera"
                   className="w-full h-full object-cover"
+                  loading="lazy"
+                  decoding="async"
                 />
               </div>
             )}
@@ -225,9 +225,7 @@ const MediaPreview = ({ capturedMedia }) => {
             loop
             muted
             playsInline
-            className={`w-full h-full object-cover ${
-              preview ? "opacity-100" : "opacity-0"
-            }`}
+            className="w-full h-full object-cover"
           />
         )}
 
@@ -235,18 +233,16 @@ const MediaPreview = ({ capturedMedia }) => {
           <img
             src={preview.data}
             alt="Preview"
-            className={`w-full h-full object-cover select-none transition-all duration-300 ${
-              preview ? "opacity-100" : "opacity-0"
-            }`}
+            className="w-full h-full object-cover select-none"
+            decoding="async"
           />
         )}
 
         <div
-          className={`absolute z-10 inset-x-0 bottom-0 px-4 pb-4 transform transition-all duration-300 
-          ${
+          className={`absolute z-10 inset-x-0 bottom-0 px-4 pb-4 transform transition-opacity duration-200 ${
             preview && selectedFile
               ? "opacity-100"
-              : "opacity-0 scale-95 pointer-events-none"
+              : "opacity-0 pointer-events-none"
           }`}
         >
           <Suspense fallback={null}>

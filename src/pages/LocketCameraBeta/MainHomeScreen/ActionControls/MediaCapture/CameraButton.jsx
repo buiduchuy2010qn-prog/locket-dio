@@ -42,9 +42,8 @@ const CameraButton = () => {
 
   const MAX_RECORD_TIME = getVideoRecordLimit();
 
-  const stopCamera = () => {
-    console.log("Hello đang test camera à babi");
-  };
+  // Stream lifecycle is owned by MediaPreview (start/stop on mode change)
+
 
   const startHold = (e) => {
     // Prevent default để tránh conflict trên iOS
@@ -312,7 +311,7 @@ const CameraButton = () => {
         }
       },
       "image/jpeg",
-      1.0
+      0.88
     );
 
     // Fix iOS
@@ -322,29 +321,16 @@ const CameraButton = () => {
     }, 100);
   };
 
-  const handleRotateCamera = async () => {
+  // Flip front/back — only update state; MediaPreview restarts stream safely
+  const handleRotateCamera = () => {
+    if (uploadLoading || preview) return;
     setRotation((prev) => prev - 180);
     const newMode = cameraMode === "user" ? "environment" : "user";
-    setCameraMode(newMode);
-    // ✅ Reset deviceId để tránh bị giữ lại cam cũ (zoom cam)
+    // Clear deviceId so we don't stick to wrong physical lens after flip
     setZoomLevel("1x");
     setDeviceId(null);
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
-    }
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: newMode },
-        audio: false,
-      });
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-      }
-    } catch (error) {
-      console.error("Lỗi khi đổi camera:", error);
-    }
+    setCameraMode(newMode);
+    if (!cameraActive) setCameraActive(true);
   };
 
   // Cleanup khi component unmount

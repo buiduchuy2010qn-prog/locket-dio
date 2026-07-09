@@ -50,13 +50,15 @@ export const CONFIG = {
         videoResolutionPx: 1080,
       },
       constraints: {
+        // Preview-friendly (smooth on mobile); capture still uses canvas
         default: {
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
+          width: { ideal: 1280, max: 1920 },
+          height: { ideal: 720, max: 1080 },
+          frameRate: { ideal: 24, max: 30 },
         },
         ultraHD: {
-          width: { ideal: 3840 },
-          height: { ideal: 2160 },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
         },
       },
     },

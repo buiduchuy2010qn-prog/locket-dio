@@ -1,7 +1,21 @@
 export const getAvailableCameras = async () => {
-  await navigator.mediaDevices.getUserMedia({ video: true });
-  const devices = await navigator.mediaDevices.enumerateDevices();
-  const videoDevices = devices.filter((d) => d.kind === "videoinput");
+  // Prefer enumerate without extra stream if labels already available
+  let devices = await navigator.mediaDevices.enumerateDevices();
+  let videoDevices = devices.filter((d) => d.kind === "videoinput");
+  const needPermission = videoDevices.some((d) => !d.label);
+  if (needPermission) {
+    try {
+      const tmp = await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: false,
+      });
+      tmp.getTracks().forEach((t) => t.stop());
+      devices = await navigator.mediaDevices.enumerateDevices();
+      videoDevices = devices.filter((d) => d.kind === "videoinput");
+    } catch (_) {
+      /* ignore */
+    }
+  }
 
   const frontCameras = [];
   const backCameras = [];
