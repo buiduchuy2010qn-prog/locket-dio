@@ -322,7 +322,7 @@ const CameraButton = () => {
     }, 100);
   };
 
-  // Flip front/back — MediaPreview owns getUserMedia restart
+  // Flip front/back — MediaDisplay owns getUserMedia restart
   const handleRotateCamera = () => {
     if (uploadLoading || preview) return;
     setRotation((prev) => prev - 180);
@@ -330,7 +330,7 @@ const CameraButton = () => {
     setZoomLevel("1x");
     setDeviceId(null);
     setCameraMode(newMode);
-    if (!cameraActive) setCameraActive(true);
+    setCameraActive(true);
   };
 
   // Cleanup khi component unmount

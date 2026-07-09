@@ -322,17 +322,17 @@ const CameraButton = () => {
     }, 100);
   };
 
-  // Flip front/back — only update state; MediaPreview restarts stream safely
+  // Flip front/back — MediaPreview restarts stream (do not open stream here)
   const handleRotateCamera = () => {
     if (uploadLoading || preview) return;
     setRotation((prev) => prev - 180);
     const newMode = cameraMode === "user" ? "environment" : "user";
-    // Reset zoom to 1x when flipping cameras
     setZoomLevel("1x");
     setZoomFactor?.(1);
+    // Clear deviceId first so we don't keep front lens id when going to back
     setDeviceId(null);
     setCameraMode(newMode);
-    if (!cameraActive) setCameraActive(true);
+    setCameraActive(true);
   };
 
   // Cleanup khi component unmount

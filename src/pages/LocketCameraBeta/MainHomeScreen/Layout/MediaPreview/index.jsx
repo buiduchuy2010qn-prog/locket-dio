@@ -45,8 +45,10 @@ const MediaPreview = ({ capturedMedia }) => {
   } = camera;
 
   const startingRef = useRef(false);
+  const startGenRef = useRef(0);
   const mountedRef = useRef(true);
   const camerasCacheRef = useRef(null);
+  const prevModeRef = useRef(cameraMode);
   const [digitalScale, setDigitalScale] = useState(1);
 
   const stopCamera = useCallback(() => {
@@ -80,35 +82,35 @@ const MediaPreview = ({ capturedMedia }) => {
 
   const startCamera = useCallback(async () => {
     if (!cameraActive || preview || selectedFile) return;
-    if (startingRef.current) return;
+
+    const gen = ++startGenRef.current;
     startingRef.current = true;
 
     try {
+      // Fully release old stream before opening new facing (required on many phones)
       stopMediaStream(streamRef.current);
       streamRef.current = null;
+      if (videoRef.current) videoRef.current.srcObject = null;
 
-      const opticalZoom =
-        zoomFactor > 1 && (!deviceId || zoomLevel !== "0.5x")
-          ? zoomFactor
-          : null;
+      // Small yield so OS releases camera lock
+      await new Promise((r) => setTimeout(r, 80));
+      if (gen !== startGenRef.current || !mountedRef.current) return;
 
       const stream = await openCameraStream({
         facingMode: cameraMode || "user",
         deviceId: deviceId || null,
-        zoom: opticalZoom && opticalZoom <= 1.01 ? null : null,
       });
 
-      if (!mountedRef.current) {
+      if (gen !== startGenRef.current || !mountedRef.current) {
         stopMediaStream(stream);
         return;
       }
 
       streamRef.current = stream;
 
-      // Apply native track zoom when step is optical (same lens)
       if (zoomFactor > 1.01) {
         const ok = await applyTrackZoom(stream, zoomFactor);
-        setDigitalScale(ok ? 1 : zoomFactor); // digital CSS fallback
+        setDigitalScale(ok ? 1 : zoomFactor);
       } else {
         setDigitalScale(1);
       }
@@ -121,10 +123,23 @@ const MediaPreview = ({ capturedMedia }) => {
 
       await refreshZoomSteps(stream);
     } catch (err) {
-      console.error("startCamera failed:", err);
-      setCameraActive(false);
+      console.error("startCamera failed:", err?.name, err?.message || err);
+      if (gen !== startGenRef.current) return;
+
+      // Flip to back failed → keep front instead of turning camera off
+      if (cameraMode === "environment") {
+        showInfo(
+          "Không mở được camera sau. Dùng Chrome, cấp quyền Camera, thử lại."
+        );
+        setDeviceId(null);
+        setCameraMode("user");
+        return;
+      }
+      showInfo("Không mở được camera. Kiểm tra quyền trình duyệt.");
     } finally {
-      startingRef.current = false;
+      if (gen === startGenRef.current) {
+        startingRef.current = false;
+      }
     }
   }, [
     cameraActive,
@@ -132,11 +147,11 @@ const MediaPreview = ({ capturedMedia }) => {
     deviceId,
     preview,
     selectedFile,
-    setCameraActive,
+    setCameraMode,
+    setDeviceId,
     streamRef,
     videoRef,
     zoomFactor,
-    zoomLevel,
     refreshZoomSteps,
   ]);
 
@@ -144,18 +159,21 @@ const MediaPreview = ({ capturedMedia }) => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      startGenRef.current += 1;
     };
   }, []);
 
-  // Rebuild zoom steps when flipping camera
+  // When facing flips: clear lens device + zoom (don't fight startCamera)
   useEffect(() => {
+    if (prevModeRef.current === cameraMode) return;
+    prevModeRef.current = cameraMode;
     camerasCacheRef.current = null;
     setZoomLevel("1x");
     setZoomFactor(1);
-    setDeviceId(null);
     setDigitalScale(1);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cameraMode]);
+    // Clear deviceId so openCameraStream picks correct facing
+    setDeviceId(null);
+  }, [cameraMode, setDeviceId, setZoomFactor, setZoomLevel]);
 
   useEffect(() => {
     if (!cameraActive || preview || selectedFile) {
