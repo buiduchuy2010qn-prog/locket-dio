@@ -39,6 +39,8 @@ const CameraButton = () => {
   const intervalRef = useRef(null);
   const isTryingToRecordRef = useRef(false);
   const isRecordingRef = useRef(false);
+  /** true chỉ khi đã mousedown/touchstart trên nút chụp */
+  const pressActiveRef = useRef(false);
 
   const MAX_RECORD_TIME = getVideoRecordLimit();
 
@@ -49,7 +51,9 @@ const CameraButton = () => {
   const startHold = (e) => {
     // Prevent default để tránh conflict trên iOS
     e.preventDefault();
+    if (e.type === "mousedown" && e.button !== 0) return;
 
+    pressActiveRef.current = true;
     isTryingToRecordRef.current = true;
     isRecordingRef.current = false; // Reset recording state
     holdStartTimeRef.current = Date.now();
@@ -227,40 +231,65 @@ const CameraButton = () => {
     }, 600);
   };
 
+  /** Chuột rời nút — hủy, không chụp */
+  const cancelHold = (e) => {
+    if (e?.preventDefault) e.preventDefault();
+    if (!pressActiveRef.current) return;
+
+    clearTimeout(holdTimeoutRef.current);
+    clearInterval(intervalRef.current);
+    isTryingToRecordRef.current = false;
+
+    if (
+      isRecordingRef.current &&
+      mediaRecorderRef.current?.state === "recording"
+    ) {
+      mediaRecorderRef.current.stop();
+      pressActiveRef.current = false;
+      setIsHolding(false);
+      return;
+    }
+
+    pressActiveRef.current = false;
+    isRecordingRef.current = false;
+    setIsHolding(false);
+  };
+
   const endHold = (e) => {
-    // Prevent default để tránh conflict trên iOS
-    e.preventDefault();
+    if (e?.preventDefault) e.preventDefault();
+
+    // Chưa từng nhấn nút (chỉ di chuột / mouseleave) → không chụp
+    if (!pressActiveRef.current) return;
+    pressActiveRef.current = false;
 
     const heldTime = Date.now() - (holdStartTimeRef.current || Date.now());
 
-    // Clear timeouts
     clearTimeout(holdTimeoutRef.current);
     clearInterval(intervalRef.current);
     setHoldTime(heldTime);
 
-    // Đánh dấu không còn trying to record
     isTryingToRecordRef.current = false;
 
-    // Nếu đang trong quá trình recording
     if (
       isRecordingRef.current &&
       mediaRecorderRef.current?.state === "recording"
     ) {
       console.log("📹 Stopping video recording manually");
       mediaRecorderRef.current.stop();
-      return; // Không chụp ảnh
+      setIsHolding(false);
+      return;
     }
 
-    // Nếu đã timeout và đang holding nhưng chưa bắt đầu record
     if (isHolding && !isRecordingRef.current) {
       setIsHolding(false);
       return;
     }
 
-    // Nếu không quay video (nhấn giữ < 600ms), tiến hành chụp ảnh
+    // Chỉ chụp khi thả nút sau khi đã nhấn
     if (!isRecordingRef.current) {
       captureImage();
     }
+    setIsHolding(false);
   };
 
   const captureImage = () => {
@@ -349,14 +378,14 @@ const CameraButton = () => {
       <div className="flex gap-4 w-full h-25 max-w-md justify-evenly items-center">
         <UploadFile />
         <button
+          type="button"
           onMouseDown={startHold}
           onMouseUp={endHold}
-          onMouseLeave={endHold}
+          onMouseLeave={cancelHold}
           onTouchStart={startHold}
           onTouchEnd={endHold}
-          // Thêm các event cho iOS
-          onTouchCancel={endHold}
-          onContextMenu={(e) => e.preventDefault()} // Prevent long press menu on iOS
+          onTouchCancel={cancelHold}
+          onContextMenu={(e) => e.preventDefault()}
           className="relative flex items-center justify-center w-22 h-22"
           style={{
             touchAction: "manipulation", // Improve touch response on iOS
