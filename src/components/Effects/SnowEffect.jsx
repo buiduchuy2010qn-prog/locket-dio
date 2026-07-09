@@ -1,58 +1,91 @@
-import React, { useMemo } from "react";
+import React, { useEffect, useRef } from "react";
 
 /**
- * Tuyết rơi mượt — CSS animation, không re-render mỗi frame.
- * pointer-events: none để không chặn bấm UI.
+ * Tuyết rơi kiểu ❄ — spawn liên tục giống demo HTML user.
+ * pointer-events: none, tự remove sau khi rơi xong.
  */
+const SNOW_CHARS = ["❄", "❅", "❆", "·"];
+
 const SnowEffect = ({
-  snowflakeCount = 42,
-  containerHeight = 900,
+  /** ms giữa mỗi bông (nhỏ = dày hơn). Mặc định ~mẫu HTML 80ms */
+  intervalMs = 90,
+  /** tối đa bông trên màn (tránh lag mobile) */
+  maxFlakes = 60,
   className = "",
+  /** giữ API cũ (caption widgets) — không còn dùng dots */
+  snowflakeCount,
+  containerHeight,
 }) => {
-  const snowflakes = useMemo(() => {
-    return Array.from({ length: snowflakeCount }, (_, i) => {
-      const size = 2 + (i % 7) * 0.9 + (i % 3) * 0.4;
-      return {
-        id: i,
-        size,
-        left: ((i * 37 + 13) % 100) + (i % 5) * 0.3,
-        duration: 7 + (i % 9) * 1.1,
-        delay: -((i * 1.7) % 12),
-        drift: ((i % 11) - 5) * 8,
-        opacity: 0.35 + (i % 5) * 0.1,
-        blur: size > 5 ? 1.2 : 0.4,
-        startY: -((i * 23) % 80) - 10,
-      };
-    });
-  }, [snowflakeCount]);
+  const layerRef = useRef(null);
+  const countRef = useRef(0);
+
+  // API cũ: snowflakeCount cao → rơi dày hơn
+  const spawnEvery =
+    typeof snowflakeCount === "number" && snowflakeCount > 0
+      ? Math.max(50, Math.min(200, Math.round(5000 / snowflakeCount)))
+      : intervalMs;
+
+  useEffect(() => {
+    const layer = layerRef.current;
+    if (!layer) return;
+
+    let alive = true;
+    let timer = null;
+
+    const spawn = () => {
+      if (!alive || !layer) return;
+      if (countRef.current >= maxFlakes) return;
+
+      const el = document.createElement("span");
+      el.className = "snowflake-emoji";
+      el.textContent =
+        SNOW_CHARS[Math.floor(Math.random() * SNOW_CHARS.length)];
+      el.setAttribute("aria-hidden", "true");
+
+      const size = 10 + Math.random() * 20;
+      const duration = 3 + Math.random() * 5;
+      const left = Math.random() * 100;
+      const opacity = 0.4 + Math.random() * 0.55;
+      const drift = (Math.random() - 0.5) * 80;
+
+      el.style.left = `${left}%`;
+      el.style.fontSize = `${size}px`;
+      el.style.opacity = String(opacity);
+      el.style.animationDuration = `${duration}s`;
+      el.style.setProperty("--drift", `${drift}px`);
+
+      layer.appendChild(el);
+      countRef.current += 1;
+
+      const life = Math.ceil(duration * 1000) + 400;
+      window.setTimeout(() => {
+        el.remove();
+        countRef.current = Math.max(0, countRef.current - 1);
+      }, life);
+    };
+
+    // Seed vài bông ngay khi mount
+    for (let i = 0; i < 8; i++) {
+      window.setTimeout(spawn, i * 40);
+    }
+
+    timer = window.setInterval(spawn, spawnEvery);
+
+    return () => {
+      alive = false;
+      if (timer) clearInterval(timer);
+      if (layer) layer.innerHTML = "";
+      countRef.current = 0;
+    };
+  }, [spawnEvery, maxFlakes]);
 
   return (
     <div
-      className={`pointer-events-none absolute inset-0 overflow-hidden ${className}`}
+      ref={layerRef}
+      className={`snow-layer pointer-events-none fixed inset-0 overflow-hidden ${className}`}
       aria-hidden="true"
-    >
-      {snowflakes.map((flake) => (
-        <div
-          key={flake.id}
-          className="absolute rounded-full bg-white will-change-transform"
-          style={{
-            width: `${flake.size}px`,
-            height: `${flake.size}px`,
-            left: `${flake.left}%`,
-            top: `${flake.startY}px`,
-            opacity: flake.opacity,
-            filter: `blur(${flake.blur}px)`,
-            boxShadow:
-              flake.size > 4
-                ? "0 0 6px rgba(255,255,255,0.55)"
-                : "0 0 2px rgba(255,255,255,0.35)",
-            animation: `snow-fall ${flake.duration}s linear ${flake.delay}s infinite`,
-            ["--drift"]: `${flake.drift}px`,
-            ["--fall-distance"]: `${containerHeight + Math.abs(flake.startY) + 40}px`,
-          }}
-        />
-      ))}
-    </div>
+      style={{ zIndex: 9999 }}
+    />
   );
 };
 

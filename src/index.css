@@ -10,10 +10,10 @@
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   /* --theme-color: #ffffff: */
-  --locket-pink-top: #ffe4f0;
-  --locket-pink-mid: #ffc4dd;
-  --locket-pink-bot: #ffb6d9;
-  --locket-pink-deep: #f9a8d4;
+  --locket-pink-top: #ff9ecf;
+  --locket-pink-mid: #ffcce6;
+  --locket-pink-bot: #ffe6f2;
+  --locket-pink-deep: #ff9ecf;
 }
 
 /* Nền hồng toàn app Locket + full viewport mobile (dvh) */
@@ -27,9 +27,9 @@ body,
 body {
   margin: 0;
   background: linear-gradient(
-    165deg,
+    180deg,
     var(--locket-pink-top) 0%,
-    var(--locket-pink-mid) 45%,
+    var(--locket-pink-mid) 50%,
     var(--locket-pink-bot) 100%
   );
   background-attachment: fixed;
@@ -41,13 +41,8 @@ body {
   min-height: 100vh;
   width: 100%;
   overflow: hidden;
-  background: linear-gradient(
-    165deg,
-    #fff0f6 0%,
-    #ffd6e8 38%,
-    #ffb8d9 72%,
-    #f9a8d4 100%
-  );
+  /* Khớp demo tuyết: #ff9ecf → #ffcce6 → #ffe6f2 */
+  background: linear-gradient(180deg, #ff9ecf 0%, #ffcce6 48%, #ffe6f2 100%);
   color: #1f2937;
 }
 

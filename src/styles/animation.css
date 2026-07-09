@@ -87,6 +87,37 @@
   }
 }
 
+/* ❄ rơi — khớp demo HTML user */
+.snow-layer {
+  pointer-events: none;
+  z-index: 9999;
+}
+
+.snowflake-emoji {
+  position: absolute;
+  top: -24px;
+  color: #fff;
+  user-select: none;
+  pointer-events: none;
+  line-height: 1;
+  will-change: transform, opacity;
+  text-shadow: 0 0 8px rgba(255, 255, 255, 0.85);
+  animation-name: snowflake-fall;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+
+@keyframes snowflake-fall {
+  0% {
+    transform: translate3d(0, 0, 0) rotate(0deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(var(--drift, 0px), 105vh, 0) rotate(360deg);
+    opacity: 0;
+  }
+}
+
 @keyframes spin-slow {
   0% {
     transform: rotate(0deg);
