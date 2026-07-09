@@ -1,34 +1,12 @@
-# Full-stack on Render: create Web Service for API + Static for web, or use Docker.
-# This blueprint deploys the API; web should point VITE_API_URL at the API URL.
+# Static frontend (matches existing locket-dio Static Site on Render)
+# For full API + Postgres, add a separate Web Service later.
 
 services:
   - type: web
-    name: locket-dio-api
-    runtime: node
-    plan: free
-    buildCommand: npm install && npx prisma generate --schema=prisma/schema.prisma
-    startCommand: npx prisma db push --schema=prisma/schema.prisma && node apps/api/src/index.js
-    envVars:
-      - key: NODE_ENV
-        value: production
-      - key: DATABASE_URL
-        fromDatabase:
-          name: locket-dio-db
-          property: connectionString
-      - key: JWT_SECRET
-        generateValue: true
-      - key: CORS_ORIGIN
-        sync: false
-      - key: APP_URL
-        sync: false
-      - key: API_URL
-        sync: false
-
-  - type: web
-    name: locket-dio-web
+    name: locket-dio
     runtime: static
-    buildCommand: npm install && npm run build -w @locket-dio/web
-    staticPublishPath: ./apps/web/dist
+    buildCommand: npm install && npm run build
+    staticPublishPath: ./dist
     routes:
       - type: rewrite
         source: /*
@@ -37,7 +15,6 @@ services:
       - path: /*
         name: X-Frame-Options
         value: DENY
-
-databases:
-  - name: locket-dio-db
-    plan: free
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
