@@ -117,12 +117,31 @@ function readBody(req) {
 const GDRIVE_CONFIG_PATH = path.join(__dirname, "data", "gdrive-config.json");
 const GDRIVE_OAUTH_SCOPE = "https://www.googleapis.com/auth/drive.file";
 const oauthStateMap = new Map(); // state -> { exp, clientId, clientSecret, folderId }
-// Env Render ưu tiên; fallback Neon project huy-locket-drive (bền qua redeploy free)
-const DATABASE_URL = (
-  process.env.DATABASE_URL ||
-  process.env.NEON_DATABASE_URL ||
-  "postgresql://neondb_owner:npg_Wd4gbkpS2JCa@ep-rough-math-atpq3c8p-pooler.c-9.us-east-1.aws.neon.tech/neondb?sslmode=require"
-).trim();
+// Neon project huy-locket-drive — bền qua redeploy free
+const NEON_FALLBACK_URL =
+  "postgresql://neondb_owner:npg_Wd4gbkpS2JCa@ep-rough-math-atpq3c8p-pooler.c-9.us-east-1.aws.neon.tech/neondb?sslmode=require";
+
+/** Chọn URL Neon hợp lệ (env Render hay thiếu @ thì dùng fallback) */
+function resolveDatabaseUrl() {
+  const candidates = [
+    process.env.DATABASE_URL,
+    process.env.NEON_DATABASE_URL,
+    NEON_FALLBACK_URL,
+  ];
+  for (const raw of candidates) {
+    const u = String(raw || "").trim();
+    if (!u) continue;
+    // URL sai thường dính password@host thành passwordhost
+    if (!u.includes("@") || !u.startsWith("postgres")) {
+      console.warn("[gdrive] skip invalid DATABASE_URL (missing @ or scheme)");
+      continue;
+    }
+    return u;
+  }
+  return NEON_FALLBACK_URL;
+}
+
+const DATABASE_URL = resolveDatabaseUrl();
 
 /** @type {null | { folderId?: string, oauth?: object, serviceAccount?: object, updatedAt?: string, updatedBy?: string, source?: string }} */
 let driveConfigMemory = null;
@@ -184,24 +203,25 @@ async function readDriveConfigFromNeon() {
 }
 
 async function writeDriveConfigToNeon(cfg) {
-  if (!(await initNeon()) || !neonSql) return false;
+  if (!(await initNeon()) || !neonSql) {
+    console.warn("[gdrive] Neon write skipped — not ready, url set=", Boolean(DATABASE_URL));
+    return false;
+  }
   try {
-    const sa = cfg.serviceAccount || null;
+    // Không ghi JSONB null qua param lỗi — dùng text rồi cast
     await neonSql`
       INSERT INTO gdrive_config (
         id, folder_id, oauth_client_id, oauth_client_secret,
-        oauth_refresh_token, oauth_email, service_account_json,
-        updated_at, updated_by
+        oauth_refresh_token, oauth_email, updated_at, updated_by
       ) VALUES (
         1,
-        ${cfg.folderId || null},
-        ${cfg.oauth?.clientId || null},
-        ${cfg.oauth?.clientSecret || null},
-        ${cfg.oauth?.refreshToken || null},
-        ${cfg.oauth?.email || null},
-        ${sa ? JSON.stringify(sa) : null},
+        ${String(cfg.folderId || "")},
+        ${String(cfg.oauth?.clientId || "")},
+        ${String(cfg.oauth?.clientSecret || "")},
+        ${String(cfg.oauth?.refreshToken || "")},
+        ${String(cfg.oauth?.email || "")},
         NOW(),
-        ${cfg.updatedBy || null}
+        ${String(cfg.updatedBy || "")}
       )
       ON CONFLICT (id) DO UPDATE SET
         folder_id = EXCLUDED.folder_id,
@@ -209,13 +229,12 @@ async function writeDriveConfigToNeon(cfg) {
         oauth_client_secret = EXCLUDED.oauth_client_secret,
         oauth_refresh_token = EXCLUDED.oauth_refresh_token,
         oauth_email = EXCLUDED.oauth_email,
-        service_account_json = EXCLUDED.service_account_json,
         updated_at = NOW(),
         updated_by = EXCLUDED.updated_by
     `;
     return true;
   } catch (e) {
-    console.warn("[gdrive] Neon write failed:", e.message);
+    console.error("[gdrive] Neon write failed:", e.message, e);
     return false;
   }
 }
@@ -1082,44 +1101,68 @@ async function handleDriveOAuthCallback(req, res) {
 
     // Verify Neon có row
     let neonOk = savedOk;
+    let neonErr = "";
     try {
+      // reset cache rồi đọc lại
+      neonReady = false;
+      neonSql = null;
       const check = await readDriveConfigFromNeon();
       neonOk = Boolean(check?.oauth?.refreshToken);
-    } catch {
+      if (!neonOk) neonErr = " (đọc lại Neon không thấy refresh token)";
+    } catch (e) {
       neonOk = false;
+      neonErr = " (" + (e.message || "read fail") + ")";
     }
 
-    // Tạo 2 folder Ảnh + Video + file test trong Ảnh
+    // Tạo 2 folder Ảnh + Video + file test (folder ID phải thuộc Gmail vừa login)
     let testMsg = "";
     try {
       const token = tokenData.access_token;
       const root = st.folderId || prev.folderId || getDriveFolderId();
       if (root) {
+        // Kiểm tra folder tồn tại / có quyền
+        const metaRes = await fetch(
+          `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(root)}?fields=id,name,mimeType&supportsAllDrives=true`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        const meta = await metaRes.json().catch(() => ({}));
+        if (!metaRes.ok) {
+          throw new Error(
+            `Folder ID không tìm thấy / không có quyền: ${root}. ` +
+              `Mở drive.google.com bằng đúng Gmail vừa login, tạo folder mới, copy ID từ URL /folders/XXXX`
+          );
+        }
         await ensureDriveSubfolder(token, root, "Ảnh");
         await ensureDriveSubfolder(token, root, "Video");
+        const test = await uploadToSharedDrive(
+          Buffer.from(
+            `Locket Dio backup test ${new Date().toISOString()}\n`,
+            "utf8"
+          ),
+          "text/plain",
+          `locket-test-${Date.now()}.txt`,
+          "image"
+        );
+        testMsg = ` Folder «${meta.name || root}» OK. Đã tạo Ảnh + Video. File thử: ${test.name || test.id}.`;
       }
-      const test = await uploadToSharedDrive(
-        Buffer.from(
-          `Locket Dio backup test ${new Date().toISOString()}\n`,
-          "utf8"
-        ),
-        "text/plain",
-        `locket-test-${Date.now()}.txt`,
-        "image"
-      );
-      testMsg = ` Đã tạo folder Ảnh + Video. File thử: ${test.name || test.id} (trong Ảnh).`;
     } catch (e) {
-      testMsg = ` Token OK nhưng upload thử lỗi: ${e.message}`;
+      testMsg = ` Upload thử: ${e.message}`;
     }
+
+    // Token đã có trong memory + file — kể cả Neon lỗi vẫn backup được đến khi redeploy
+    const usable = Boolean(tokenData.refresh_token && (st.folderId || prev.folderId));
 
     return html(
       neonOk
         ? "✅ Đã bật auto backup Drive (vĩnh viễn)!"
-        : "⚠️ Token OK nhưng chưa lưu Neon",
+        : usable
+          ? "⚠️ Token OK — Neon chưa lưu (vẫn backup được đến khi deploy lại)"
+          : "⚠️ Cần sửa Folder ID",
       `Tài khoản: ${email || "OK"}.${testMsg}
-      <p style="margin-top:12px">Lưu Neon: <b>${neonOk ? "OK — deploy không mất" : "LỖI — báo admin"}</b>.
-      Chụp → auto backup folder <b>Ảnh</b> / <b>Video</b>.</p>`,
-      neonOk
+      <p style="margin-top:12px">Lưu Neon: <b>${neonOk ? "OK — deploy không mất" : "LỖI" + neonErr}</b>.</p>
+      <p><b>Lưu ý Folder ID:</b> phải là folder trên <b>cùng Gmail</b> vừa đăng nhập OAuth.
+      Vào Drive → tạo/mở folder → URL dạng <code>.../folders/<b>XXXX</b></code> → copy XXXX dán lại form rồi bật lại.</p>`,
+      neonOk || usable
     );
   } catch (e) {
     return html("Lỗi", e.message || "OAuth callback failed", false);
