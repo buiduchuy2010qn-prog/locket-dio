@@ -3,14 +3,17 @@ import { getToken } from "@/utils";
 import { uploadFileAndGetInfoR2 } from "./StorageServices";
 import { getStreakToday } from "@/utils/moment/streak";
 
-// Hàm con xác định recipients
 const determineRecipients = (audience, selectedRecipients, localId) => {
   if (audience === "selected") return selectedRecipients || [];
   if (audience === "private") return localId ? [localId] : [];
-  // Trường hợp public hoặc khác trả về mảng rỗng
   return [];
 };
-//Bản chính mới nhất
+
+/**
+ * Khớp payload client chính thức locket-dio.com:
+ * { model, mediaInfo, contentType, optionsData }
+ * mediaInfo = { ...presignResponse, type }
+ */
 export const createRequestPayloadV5 = async (
   selectedFile,
   previewType,
@@ -26,48 +29,60 @@ export const createRequestPayloadV5 = async (
       showError("Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.");
       return null;
     }
-    // Upload file & chuẩn bị thông tin media
-    const fileInfo = await uploadFileAndGetInfoR2(
+
+    const uploaded = await uploadFileAndGetInfoR2(
       selectedFile,
       previewType,
       localId
     );
-    // console.log(fileInfo);
 
+    // Official: spread full storage response + type
     const mediaInfo = {
-      url: fileInfo.downloadURL,
-      path: fileInfo.metadata.path, // đường dẫn đầy đủ trong Storage
-      name: fileInfo.metadata.name, // tên file
-      size: fileInfo.metadata.size, // kích thước file (bytes)
-      uploadedAt: fileInfo.metadata.uploadedAt, // thời gian tạo
+      ...uploaded,
       type: previewType,
+      // ensure url field for consumers
+      url:
+        uploaded.publicURL ||
+        uploaded.publicUrl ||
+        uploaded.url ||
+        uploaded.downloadURL,
+      path: uploaded.key || uploaded.path || uploaded.metadata?.path,
+      name: uploaded.metadata?.name || uploaded.name,
+      size: uploaded.metadata?.size || selectedFile?.size,
     };
 
-    // Chuẩn bị dữ liệu tùy chọn (caption, overlay, v.v.)
+    // remove nested helpers that may confuse backend
+    delete mediaInfo.metadata;
+    delete mediaInfo.downloadURL;
+
     const optionsData = {
-      caption: postOverlay.caption,
-      overlay_id: postOverlay.overlay_id,
-      type: postOverlay.type,
-      icon: postOverlay.icon,
-      text_color: postOverlay.text_color,
-      color_top: postOverlay.color_top,
-      color_bottom: postOverlay.color_bottom,
-      audience, // Gắn audience vào options luôn
+      caption: postOverlay?.caption || "",
+      overlay_id: postOverlay?.overlay_id || "standard",
+      type: postOverlay?.type || "default",
+      icon: postOverlay?.icon || "",
+      text_color: postOverlay?.text_color || "#FFFFFF",
+      color_top: postOverlay?.color_top || "",
+      color_bottom: postOverlay?.color_bottom || "",
+      audience: audience || "all",
       recipients: determineRecipients(audience, selectedRecipients, localId),
       music: postOverlay?.music || "",
-      isStreaktoday: isStreakToday, //False khi chưa có đăng chuỗi ngày hôm nay
     };
 
-    // Tạo payload cuối cùng
-    const payload = {
-      // userData: { idToken: idToken, localId },
-      options: optionsData,
+    if (isStreakToday) {
+      optionsData.streakData = isStreakToday;
+    } else {
+      optionsData.isStreaktoday = false;
+    }
+
+    // Official field name: optionsData (not options)
+    return {
       model: "Version-UploadmediaV3.1",
       mediaInfo,
       contentType: previewType,
+      optionsData,
+      // keep options alias for any legacy queue code
+      options: optionsData,
     };
-
-    return payload;
   } catch (error) {
     console.error("Lỗi khi tạo payload:", error);
     throw error;
@@ -82,58 +97,20 @@ export const createRequestPayloadV4 = async (
   audience,
   selectedRecipients
 ) => {
-  try {
-    const { localId } = getToken() || {};
-    const isStreakToday = getStreakToday();
-
-    if (!localId) {
-      showError("Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.");
-      return null;
-    }
-    // Upload file & chuẩn bị thông tin media
-    const fileInfo = await uploadFileAndGetInfoR2(
-      selectedFile,
-      previewType,
-      localId
-    );
-    // console.log(fileInfo);
-
-    const mediaInfo = {
-      url: fileInfo.downloadURL,
-      path: fileInfo.metadata.path, // đường dẫn đầy đủ trong Storage
-      name: fileInfo.metadata.name, // tên file
-      size: fileInfo.metadata.size, // kích thước file (bytes)
-      uploadedAt: fileInfo.metadata.uploadedAt, // thời gian tạo
-      type: previewType,
-    };
-
-    // Chuẩn bị dữ liệu tùy chọn (caption, overlay, v.v.)
-    const optionsData = {
-      caption: postOverlay.caption,
-      overlay_id: postOverlay.overlay_id,
-      type: postOverlay.type,
-      icon: postOverlay.icon,
-      text_color: postOverlay.text_color,
-      color_top: postOverlay.color_top,
-      color_bottom: postOverlay.color_bottom,
-      audience, // Gắn audience vào options luôn
-      recipients: determineRecipients(audience, selectedRecipients, localId),
-      music: postOverlay?.music || "",
+  const base = await createRequestPayloadV5(
+    selectedFile,
+    previewType,
+    postOverlay,
+    audience,
+    selectedRecipients
+  );
+  if (!base) return null;
+  if (restoreStreak) {
+    base.optionsData = {
+      ...base.optionsData,
       restoreStreakDate: restoreStreak,
     };
-
-    // Tạo payload cuối cùng
-    const payload = {
-      // userData: { idToken: idToken, localId },
-      options: optionsData,
-      model: "Version-UploadmediaV3.1",
-      mediaInfo,
-      contentType: previewType,
-    };
-
-    return payload;
-  } catch (error) {
-    console.error("Lỗi khi tạo payload:", error);
-    throw error;
+    base.options = base.optionsData;
   }
+  return base;
 };

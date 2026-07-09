@@ -88,11 +88,30 @@ function handleLogout() {
 const api = axios.create({
   baseURL: CONFIG.api.baseUrl,
   withCredentials: true,
+  headers: {
+    "Content-Type": "application/json",
+    "x-api-key": CONFIG.keys.apiKey,
+    "x-app-author": CONFIG.app.author,
+    "x-app-name": CONFIG.app.shortname,
+    "x-app-client": CONFIG.app.clientVersion,
+    "x-app-api": CONFIG.app.apiVersion,
+    "x-app-env": CONFIG.app.env,
+  },
 });
 
 // ==== Request Interceptor ====
 api.interceptors.request.use(
   async (config) => {
+    // Always attach API key / app meta (in case defaults were overridden)
+    config.headers = config.headers || {};
+    config.headers["x-api-key"] =
+      config.headers["x-api-key"] || CONFIG.keys.apiKey;
+    config.headers["x-app-author"] = CONFIG.app.author;
+    config.headers["x-app-name"] = CONFIG.app.shortname;
+    config.headers["x-app-client"] = CONFIG.app.clientVersion;
+    config.headers["x-app-api"] = CONFIG.app.apiVersion;
+    config.headers["x-app-env"] = CONFIG.app.env;
+
     // Bỏ qua nếu đang ở trang login hoặc là request refresh-token
     if (
       window.location.pathname === "/login" ||

@@ -2,29 +2,11 @@ import axios from "axios";
 import { CONFIG } from "@/config/webConfig";
 import { getToken } from "@/utils";
 
-function guessExt(file, previewType) {
-  const fromName = file?.name?.includes(".")
-    ? file.name.split(".").pop()?.toLowerCase()
-    : "";
-  if (fromName && fromName.length <= 5) return fromName;
-  if (previewType === "video") return "mp4";
-  const t = (file?.type || "").toLowerCase();
-  if (t.includes("png")) return "png";
-  if (t.includes("webp")) return "webp";
-  if (t.includes("gif")) return "gif";
-  if (t.includes("mp4")) return "mp4";
-  if (t.includes("webm")) return "webm";
-  return "jpg";
-}
-
-function resolveContentType(file, previewType) {
-  if (file?.type) return file.type;
-  return previewType === "video" ? "video/mp4" : "image/jpeg";
-}
-
 /**
- * Upload file lên R2 qua presigned URL.
- * Dùng path /dio-storage (absolute) — không qua axios baseURL /dio-api.
+ * Upload R2 — khớp client chính thức locket-dio.com:
+ * POST {filename, contentType, type, size, uploadedAt} → /api/presignedV3
+ * PUT file lên uploadUrl
+ * return toàn bộ r.data.data
  */
 export const uploadFileAndGetInfoR2 = async (
   file,
@@ -33,39 +15,38 @@ export const uploadFileAndGetInfoR2 = async (
 ) => {
   if (!file) throw new Error("No file provided");
 
-  const safeType =
-    previewType === "video" || previewType === "image"
-      ? previewType
-      : (file.type || "").startsWith("video")
-        ? "video"
-        : "image";
-
+  const safeType = String(previewType || "other").toLowerCase();
   const timestamp = Date.now();
-  const extension = guessExt(file, safeType);
-  const contentType = resolveContentType(file, safeType);
+  const rawName = file.name || `capture_${timestamp}.jpg`;
+  const extension = rawName.includes(".")
+    ? rawName.split(".").pop()
+    : safeType === "video"
+      ? "mp4"
+      : "jpg";
+  const contentType =
+    file.type ||
+    (safeType === "video" ? "video/mp4" : "image/jpeg");
+
   const fileName = `locketdio_${timestamp}_${localId}_cli${CONFIG.app.clientVersion}.${extension}`;
 
+  // Absolute same-origin path (proxy) — never nest under /dio-api
   const storageBase = (CONFIG.api.storage || "/dio-storage").replace(/\/$/, "");
   const presignUrl = storageBase.startsWith("http")
     ? `${storageBase}/api/presignedV3`
-    : `/${storageBase.replace(/^\//, "")}/api/presignedV3`;
+    : `${storageBase.startsWith("/") ? storageBase : "/" + storageBase}/api/presignedV3`;
 
   const { idToken } = getToken() || {};
   if (!idToken) {
     throw new Error("Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.");
   }
 
+  // CHỈ các field client chính thức gửi (tránh Malformed request)
   const body = {
     filename: fileName,
-    fileName,
     contentType,
-    content_type: contentType,
-    mimeType: contentType,
     type: safeType,
-    size: Number(file.size) || 0,
+    size: file.size,
     uploadedAt: new Date().toISOString(),
-    userId: localId,
-    localId,
   };
 
   let res;
@@ -74,7 +55,7 @@ export const uploadFileAndGetInfoR2 = async (
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${idToken}`,
-        "x-api-key": CONFIG.keys.apiKey || "",
+        "x-api-key": CONFIG.keys.apiKey,
         "x-app-author": CONFIG.app.author,
         "x-app-name": CONFIG.app.shortname,
         "x-app-client": CONFIG.app.clientVersion,
@@ -85,62 +66,56 @@ export const uploadFileAndGetInfoR2 = async (
       timeout: 60000,
     });
   } catch (err) {
+    const data = err?.response?.data;
     const msg =
-      err?.response?.data?.message ||
-      err?.response?.data?.error ||
-      err?.message ||
+      data?.message ||
+      data?.error?.message ||
+      (typeof data?.error === "string" ? data.error : null) ||
+      err.message ||
       "Presign failed";
-    const status = err?.response?.status;
-    console.error("❌ Presign failed:", status, err?.response?.data || err.message);
-    const e = new Error(
-      typeof msg === "string" ? msg : JSON.stringify(msg)
-    );
+    console.error("❌ Presign failed:", err?.response?.status, data);
+    const e = new Error(typeof msg === "string" ? msg : JSON.stringify(msg));
     e.response = err.response;
-    e.status = status;
+    e.status = err?.response?.status;
     throw e;
   }
 
-  const payload = res.data?.data || res.data;
-  const url = payload?.url || payload?.uploadUrl || payload?.signedUrl;
-  const publicURL =
-    payload?.publicURL ||
-    payload?.publicUrl ||
-    payload?.downloadURL ||
-    payload?.downloadUrl;
-  const key = payload?.key || payload?.path || payload?.filePath;
-
-  if (!url || !publicURL) {
-    console.error("Presign response:", res.data);
+  const data = res.data?.data || res.data;
+  // Official: PUT to uploadUrl (not public url)
+  const putUrl = data?.uploadUrl || data?.url;
+  if (!putUrl) {
+    console.error("Presign response missing uploadUrl:", res.data);
     throw new Error(
-      res.data?.message ||
-        res.data?.error ||
-        "Không nhận được presigned URL từ storage."
+      res.data?.message || "Không nhận được uploadUrl từ storage."
     );
   }
 
-  const uploadRes = await fetch(url, {
+  const uploadRes = await fetch(putUrl, {
     method: "PUT",
-    headers: {
-      "Content-Type": contentType,
-    },
+    headers: { "Content-Type": contentType },
     body: file,
   });
 
   if (!uploadRes.ok) {
     const t = await uploadRes.text().catch(() => "");
     throw new Error(
-      `Upload to R2 failed (${uploadRes.status})${t ? ": " + t.slice(0, 120) : ""}`
+      `Upload to R2 failed (${uploadRes.status})${t ? ": " + t.slice(0, 100) : ""}`
     );
   }
 
+  // Official returns full presign payload as mediaInfo base
   return {
-    downloadURL: publicURL,
+    ...data,
+    type: safeType,
+    // helpers for older code paths
+    downloadURL:
+      data.publicURL || data.publicUrl || data.url || data.downloadURL,
     metadata: {
       name: fileName,
       size: file.size,
       type: contentType,
-      uploadedAt: new Date().toISOString(),
-      path: key,
+      uploadedAt: body.uploadedAt,
+      path: data.key || data.path,
     },
   };
 };
