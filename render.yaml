@@ -1,7 +1,7 @@
 services:
   # MUST be Web Service (Docker) — Static Site cannot proxy API (CORS login fails)
   - type: web
-    name: locket-dio-web
+    name: locket-dio-app
     runtime: docker
     plan: free
     region: singapore
