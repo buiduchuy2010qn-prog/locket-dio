@@ -112,8 +112,12 @@ function readBody(req) {
   });
 }
 
-// ===== Shared Google Drive (service account) — 1 folder cho cả web =====
+// ===== Shared Google Drive — OAuth (Drive cá nhân) + optional Service Account =====
+// Lưu ý: Service Account KHÔNG có quota trên My Drive cá nhân → upload fail.
+// Cách đúng cho Gmail thường: OAuth đăng nhập Google của admin (refresh token).
 const GDRIVE_CONFIG_PATH = path.join(__dirname, "data", "gdrive-config.json");
+const GDRIVE_OAUTH_SCOPE = "https://www.googleapis.com/auth/drive.file";
+const oauthStateMap = new Map(); // state -> { exp, clientId, clientSecret, folderId }
 
 function readDriveConfigFile() {
   try {
@@ -158,15 +162,36 @@ function parseServiceAccountJson(raw) {
 }
 
 function loadServiceAccount() {
-  // 1) Env Render
   const fromEnv = parseServiceAccountJson(
     process.env.GOOGLE_SERVICE_ACCOUNT_JSON || ""
   );
   if (fromEnv) return fromEnv;
-  // 2) File cấu hình từ form admin trên web
   const fileCfg = readDriveConfigFile();
   if (fileCfg?.serviceAccount) return fileCfg.serviceAccount;
   return null;
+}
+
+/** OAuth client + refresh token (ưu tiên — ghi được Drive cá nhân) */
+function loadOauthCreds() {
+  const fileCfg = readDriveConfigFile();
+  const clientId = (
+    process.env.GOOGLE_OAUTH_CLIENT_ID ||
+    fileCfg?.oauth?.clientId ||
+    ""
+  ).trim();
+  const clientSecret = (
+    process.env.GOOGLE_OAUTH_CLIENT_SECRET ||
+    fileCfg?.oauth?.clientSecret ||
+    ""
+  ).trim();
+  const refreshToken = (
+    process.env.GOOGLE_OAUTH_REFRESH_TOKEN ||
+    fileCfg?.oauth?.refreshToken ||
+    ""
+  ).trim();
+  const email = (fileCfg?.oauth?.email || "").trim();
+  if (!clientId || !clientSecret) return null;
+  return { clientId, clientSecret, refreshToken, email };
 }
 
 function getDriveFolderId() {
@@ -176,7 +201,44 @@ function getDriveFolderId() {
   return (fileCfg?.folderId || "").trim();
 }
 
-let gdriveTokenCache = { token: null, exp: 0 };
+function normalizeFolderId(raw) {
+  return String(raw || "")
+    .trim()
+    .replace(/^.*\/folders\//, "")
+    .replace(/[?#].*$/, "");
+}
+
+function publicBaseUrl(req) {
+  const proto = (req.headers["x-forwarded-proto"] || "https")
+    .toString()
+    .split(",")[0]
+    .trim();
+  const host = (
+    req.headers["x-forwarded-host"] ||
+    req.headers.host ||
+    "localhost"
+  )
+    .toString()
+    .split(",")[0]
+    .trim();
+  return `${proto}://${host}`;
+}
+
+/** Drive “sẵn sàng backup” = có folder + OAuth refresh (SA chỉ cảnh báo) */
+function isDriveReady() {
+  const folderId = getDriveFolderId();
+  const oauth = loadOauthCreds();
+  return Boolean(folderId && oauth?.refreshToken);
+}
+
+function driveAuthMode() {
+  const oauth = loadOauthCreds();
+  if (oauth?.refreshToken) return "oauth";
+  if (loadServiceAccount()) return "service_account";
+  return "none";
+}
+
+let gdriveTokenCache = { token: null, exp: 0, mode: null };
 
 function b64url(input) {
   return Buffer.from(input)
@@ -186,16 +248,34 @@ function b64url(input) {
     .replace(/\//g, "_");
 }
 
-async function getGoogleAccessToken(sa) {
-  if (gdriveTokenCache.token && Date.now() < gdriveTokenCache.exp - 60_000) {
-    return gdriveTokenCache.token;
+async function getAccessTokenFromRefresh(oauth) {
+  const body = new URLSearchParams({
+    client_id: oauth.clientId,
+    client_secret: oauth.clientSecret,
+    refresh_token: oauth.refreshToken,
+    grant_type: "refresh_token",
+  });
+  const res = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: body.toString(),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.access_token) {
+    throw new Error(
+      data.error_description || data.error || "OAuth refresh token failed"
+    );
   }
+  return data;
+}
+
+async function getAccessTokenFromServiceAccount(sa) {
   const now = Math.floor(Date.now() / 1000);
   const header = b64url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
   const claim = b64url(
     JSON.stringify({
       iss: sa.client_email,
-      scope: "https://www.googleapis.com/auth/drive.file",
+      scope: GDRIVE_OAUTH_SCOPE,
       aud: "https://oauth2.googleapis.com/token",
       iat: now,
       exp: now + 3600,
@@ -226,25 +306,59 @@ async function getGoogleAccessToken(sa) {
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.access_token) {
     throw new Error(
-      data.error_description || data.error || "Google token failed"
+      data.error_description || data.error || "Google SA token failed"
     );
   }
-  gdriveTokenCache = {
-    token: data.access_token,
-    exp: Date.now() + (data.expires_in || 3600) * 1000,
-  };
-  return data.access_token;
+  return data;
+}
+
+/** Ưu tiên OAuth user (Drive cá nhân), fallback SA (Shared Drive / Workspace) */
+async function getGoogleAccessToken() {
+  if (gdriveTokenCache.token && Date.now() < gdriveTokenCache.exp - 60_000) {
+    return gdriveTokenCache.token;
+  }
+
+  const oauth = loadOauthCreds();
+  if (oauth?.refreshToken) {
+    const data = await getAccessTokenFromRefresh(oauth);
+    gdriveTokenCache = {
+      token: data.access_token,
+      exp: Date.now() + (data.expires_in || 3600) * 1000,
+      mode: "oauth",
+    };
+    return data.access_token;
+  }
+
+  const sa = loadServiceAccount();
+  if (sa) {
+    const data = await getAccessTokenFromServiceAccount(sa);
+    gdriveTokenCache = {
+      token: data.access_token,
+      exp: Date.now() + (data.expires_in || 3600) * 1000,
+      mode: "service_account",
+    };
+    return data.access_token;
+  }
+
+  throw new Error(
+    "Chưa liên kết Google. Admin: đăng nhập OAuth trên /admin/google-drive"
+  );
 }
 
 async function uploadToSharedDrive(fileBuf, contentType, filename) {
-  const sa = loadServiceAccount();
   const folderId = getDriveFolderId();
-  if (!sa || !folderId) {
-    const err = new Error("Drive not configured");
+  if (!folderId) {
+    const err = new Error("Drive not configured (thiếu Folder ID)");
     err.code = "NOT_CONFIGURED";
     throw err;
   }
-  const token = await getGoogleAccessToken(sa);
+  if (!loadOauthCreds()?.refreshToken && !loadServiceAccount()) {
+    const err = new Error("Drive not configured (chưa OAuth / SA)");
+    err.code = "NOT_CONFIGURED";
+    throw err;
+  }
+
+  const token = await getGoogleAccessToken();
   const boundary = "----LocketDioDrive" + Date.now();
   const meta = JSON.stringify({
     name: filename || `locketdio-${Date.now()}.bin`,
@@ -262,7 +376,7 @@ async function uploadToSharedDrive(fileBuf, contentType, filename) {
   const body = Buffer.concat([preamble, fileBuf, closing]);
 
   const res = await fetch(
-    "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink",
+    "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true&fields=id,name,webViewLink",
     {
       method: "POST",
       headers: {
@@ -275,9 +389,14 @@ async function uploadToSharedDrive(fileBuf, contentType, filename) {
   );
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error(
-      data?.error?.message || `Drive upload ${res.status}`
-    );
+    const msg = data?.error?.message || `Drive upload ${res.status}`;
+    // Gợi ý rõ lỗi quota SA
+    if (/storage quota|Service Accounts do not have storage/i.test(msg)) {
+      throw new Error(
+        "Service Account không ghi được Drive cá nhân. Vào /admin/google-drive → Đăng nhập Google (OAuth)."
+      );
+    }
+    throw new Error(msg);
   }
   return data;
 }
@@ -360,27 +479,39 @@ async function handleDriveStatus(req, res) {
     return corsJson(req, res, 204, {});
   }
   const sa = loadServiceAccount();
+  const oauth = loadOauthCreds();
   const folderId = getDriveFolderId();
-  const configured = Boolean(sa && folderId);
+  const mode = driveAuthMode();
+  // Backup thật sự chỉ ON khi có OAuth (Drive cá nhân) hoặc SA+folder
+  // SA trên My Drive sẽ fail → không coi là enabled trừ khi OAuth
+  const ready = isDriveReady();
+  const hasAnyCreds = Boolean(folderId && (oauth?.refreshToken || sa));
   const isAdmin = isAdminRequest(req);
   const fileCfg = readDriveConfigFile();
 
-  // User thường: chỉ biết bật/tắt (không lộ email SA / hướng dẫn)
   if (!isAdmin) {
     return corsJson(req, res, 200, {
-      configured,
-      enabled: configured,
+      configured: ready,
+      enabled: ready,
       isAdmin: false,
       adminOnly: true,
-      message: configured
+      message: ready
         ? "Shared Drive backup is ON"
         : "Drive not configured",
     });
   }
 
+  let warning = null;
+  if (mode === "service_account" && !oauth?.refreshToken) {
+    warning =
+      "Service Account không ghi được Google Drive cá nhân (quota 0). Hãy dùng nút Đăng nhập Google (OAuth).";
+  }
+
   return corsJson(req, res, 200, {
-    configured,
-    enabled: configured,
+    configured: ready,
+    enabled: ready,
+    hasPartialConfig: hasAnyCreds && !ready,
+    authMode: mode,
     isAdmin: true,
     adminOnly: true,
     folderId: folderId || null,
@@ -389,18 +520,25 @@ async function handleDriveStatus(req, res) {
       ? `https://drive.google.com/drive/folders/${folderId}`
       : null,
     serviceEmail: sa?.client_email || null,
-    source: process.env.GOOGLE_SERVICE_ACCOUNT_JSON
-      ? "env"
-      : fileCfg
-        ? "file"
-        : "none",
-    message: configured
-      ? "Shared Drive backup is ON for all posts"
-      : "Dán Service Account JSON + Folder ID bên dưới (hoặc set env Render)",
+    oauthEmail: oauth?.email || null,
+    hasOauthClient: Boolean(oauth?.clientId && oauth?.clientSecret),
+    hasRefreshToken: Boolean(oauth?.refreshToken),
+    source: process.env.GOOGLE_OAUTH_REFRESH_TOKEN
+      ? "env-oauth"
+      : process.env.GOOGLE_SERVICE_ACCOUNT_JSON
+        ? "env-sa"
+        : fileCfg
+          ? "file"
+          : "none",
+    warning,
+    message: ready
+      ? "Backup Drive ON (OAuth) — mọi bài đăng sẽ vào folder"
+      : warning ||
+        "Chưa sẵn sàng. Dán Folder ID + OAuth Client → Đăng nhập Google.",
   });
 }
 
-/** Admin lưu cấu hình Drive từ form web → data/gdrive-config.json */
+/** Admin lưu OAuth client + Folder ID (chưa có refresh → cần /api/drive-oauth-start) */
 async function handleDriveConfigSave(req, res) {
   if (req.method === "OPTIONS") {
     return corsJson(req, res, 204, {});
@@ -422,65 +560,284 @@ async function handleDriveConfigSave(req, res) {
     return corsJson(req, res, 400, { error: "JSON body không hợp lệ" });
   }
 
-  const folderId = String(body.folderId || "")
-    .trim()
-    .replace(/^.*\/folders\//, "")
-    .replace(/[?#].*$/, "");
+  const folderId = normalizeFolderId(body.folderId || "");
+  const clientId = String(body.clientId || body.oauthClientId || "").trim();
+  const clientSecret = String(
+    body.clientSecret || body.oauthClientSecret || ""
+  ).trim();
   const sa =
     typeof body.serviceAccount === "object"
       ? body.serviceAccount
       : parseServiceAccountJson(body.serviceAccountJson || body.json || "");
 
-  if (!sa) {
-    return corsJson(req, res, 400, {
-      error:
-        "Service Account JSON sai. Dán cả file .json (có client_email + private_key).",
-    });
+  const prev = readDriveConfigFile() || {};
+
+  // Cho phép chỉ cập nhật folder / oauth client (giữ refresh token cũ)
+  const nextOauth = {
+    clientId: clientId || prev.oauth?.clientId || "",
+    clientSecret: clientSecret || prev.oauth?.clientSecret || "",
+    refreshToken: prev.oauth?.refreshToken || "",
+    email: prev.oauth?.email || "",
+  };
+
+  if (body.refreshToken) {
+    nextOauth.refreshToken = String(body.refreshToken).trim();
   }
+
   if (!folderId || folderId.length < 10) {
     return corsJson(req, res, 400, {
       error: "Folder ID không hợp lệ. Copy từ URL Drive /folders/XXXX",
     });
   }
 
+  // Cần OAuth client HOẶC SA
+  if (!nextOauth.clientId && !sa && !prev.serviceAccount) {
+    return corsJson(req, res, 400, {
+      error:
+        "Cần OAuth Client ID + Secret (khuyến nghị) hoặc Service Account JSON.",
+    });
+  }
+  if (clientId && !clientSecret && !prev.oauth?.clientSecret) {
+    return corsJson(req, res, 400, {
+      error: "Thiếu OAuth Client Secret",
+    });
+  }
+
   try {
-    writeDriveConfigFile({
+    const cfg = {
       folderId,
-      serviceAccount: sa,
+      oauth: nextOauth.clientId
+        ? nextOauth
+        : prev.oauth || undefined,
+      serviceAccount: sa || prev.serviceAccount || undefined,
       updatedAt: new Date().toISOString(),
       updatedBy: String(
         req.headers["x-user-email"] || req.headers["x-local-id"] || "admin"
       ),
-    });
-    gdriveTokenCache = { token: null, exp: 0 };
+    };
+    writeDriveConfigFile(cfg);
+    gdriveTokenCache = { token: null, exp: 0, mode: null };
 
-    // Test token ngay
-    try {
-      await getGoogleAccessToken(sa);
-    } catch (e) {
-      return corsJson(req, res, 400, {
-        error:
-          "Lưu được nhưng Google từ chối token: " +
-          (e.message || "check private_key"),
-        saved: true,
-      });
-    }
-
+    const ready = isDriveReady();
     return corsJson(req, res, 200, {
       ok: true,
-      configured: true,
-      serviceEmail: sa.client_email,
+      configured: ready,
+      authMode: driveAuthMode(),
       folderId,
       folderUrl: `https://drive.google.com/drive/folders/${folderId}`,
-      message:
-        "Đã liên kết Drive! Nhớ Share folder cho " +
-        sa.client_email +
-        " (Editor).",
+      hasOauthClient: Boolean(cfg.oauth?.clientId && cfg.oauth?.clientSecret),
+      hasRefreshToken: Boolean(cfg.oauth?.refreshToken),
+      needOauthLogin: Boolean(cfg.oauth?.clientId && !cfg.oauth?.refreshToken),
+      message: ready
+        ? "Drive đã sẵn sàng backup!"
+        : cfg.oauth?.clientId
+          ? "Đã lưu Client. Bấm Đăng nhập Google để cấp quyền Drive."
+          : "Đã lưu. (SA không backup được Drive cá nhân — dùng OAuth)",
     });
   } catch (e) {
     return corsJson(req, res, 500, {
       error: "Không ghi được file cấu hình: " + e.message,
     });
+  }
+}
+
+/** Bắt đầu OAuth — redirect Google */
+async function handleDriveOAuthStart(req, res) {
+  if (req.method === "OPTIONS") {
+    return corsJson(req, res, 204, {});
+  }
+  if (req.method !== "GET" && req.method !== "POST") {
+    return corsJson(req, res, 405, { error: "Method not allowed" });
+  }
+  if (!isAdminRequest(req)) {
+    return corsJson(req, res, 403, { error: "Chỉ admin" });
+  }
+
+  let folderId = getDriveFolderId();
+  let clientId = loadOauthCreds()?.clientId || "";
+  let clientSecret = loadOauthCreds()?.clientSecret || "";
+
+  if (req.method === "POST") {
+    try {
+      const raw = await readBody(req);
+      const body = JSON.parse(raw.toString("utf8") || "{}");
+      if (body.folderId) folderId = normalizeFolderId(body.folderId);
+      if (body.clientId) clientId = String(body.clientId).trim();
+      if (body.clientSecret) clientSecret = String(body.clientSecret).trim();
+      // Lưu tạm client + folder trước khi redirect
+      if (clientId && clientSecret && folderId) {
+        const prev = readDriveConfigFile() || {};
+        writeDriveConfigFile({
+          ...prev,
+          folderId,
+          oauth: {
+            clientId,
+            clientSecret,
+            refreshToken: prev.oauth?.refreshToken || "",
+            email: prev.oauth?.email || "",
+          },
+          updatedAt: new Date().toISOString(),
+        });
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  if (!clientId || !clientSecret) {
+    return corsJson(req, res, 400, {
+      error: "Thiếu OAuth Client ID / Secret. Lưu form trước.",
+    });
+  }
+  if (!folderId) {
+    return corsJson(req, res, 400, { error: "Thiếu Folder ID" });
+  }
+
+  const state = crypto.randomBytes(16).toString("hex");
+  oauthStateMap.set(state, {
+    exp: Date.now() + 15 * 60_000,
+    clientId,
+    clientSecret,
+    folderId,
+  });
+
+  const redirectUri = `${publicBaseUrl(req)}/api/drive-oauth-callback`;
+  const params = new URLSearchParams({
+    client_id: clientId,
+    redirect_uri: redirectUri,
+    response_type: "code",
+    scope: GDRIVE_OAUTH_SCOPE,
+    access_type: "offline",
+    prompt: "consent",
+    state,
+  });
+
+  const url = `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
+  if (req.method === "POST") {
+    return corsJson(req, res, 200, { ok: true, url, redirectUri });
+  }
+  res.writeHead(302, { Location: url });
+  res.end();
+}
+
+/** OAuth callback — lưu refresh_token */
+async function handleDriveOAuthCallback(req, res) {
+  const u = new URL(req.url || "/", "http://localhost");
+  const code = u.searchParams.get("code");
+  const state = u.searchParams.get("state");
+  const err = u.searchParams.get("error");
+
+  const html = (title, msg, ok) => {
+    send(
+      res,
+      ok ? 200 : 400,
+      `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>${title}</title>
+      <meta name="viewport" content="width=device-width,initial-scale=1"/>
+      <style>body{font-family:system-ui;max-width:520px;margin:40px auto;padding:16px;line-height:1.5}
+      .ok{color:#15803d}.err{color:#b91c1c}a{color:#2563eb}</style></head>
+      <body><h1 class="${ok ? "ok" : "err"}">${title}</h1><p>${msg}</p>
+      <p><a href="/admin/google-drive">← Về trang cấu hình Drive</a></p>
+      <script>try{localStorage.removeItem("gdrive_server_status");localStorage.removeItem("gdrive_server_status_at")}catch(e){}</script>
+      </body></html>`,
+      { "Content-Type": "text/html; charset=utf-8" }
+    );
+  };
+
+  if (err) {
+    return html("OAuth thất bại", `Google trả lỗi: ${err}`, false);
+  }
+
+  const st = state ? oauthStateMap.get(state) : null;
+  if (!st || st.exp < Date.now()) {
+    return html(
+      "Hết hạn",
+      "Link đăng nhập đã hết hạn. Vào /admin/google-drive bấm Đăng nhập lại.",
+      false
+    );
+  }
+  oauthStateMap.delete(state);
+
+  if (!code) {
+    return html("Thiếu code", "Google không trả authorization code.", false);
+  }
+
+  const redirectUri = `${publicBaseUrl(req)}/api/drive-oauth-callback`;
+  try {
+    const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        code,
+        client_id: st.clientId,
+        client_secret: st.clientSecret,
+        redirect_uri: redirectUri,
+        grant_type: "authorization_code",
+      }).toString(),
+    });
+    const tokenData = await tokenRes.json().catch(() => ({}));
+    if (!tokenRes.ok || !tokenData.refresh_token) {
+      const detail =
+        tokenData.error_description ||
+        tokenData.error ||
+        "Không nhận được refresh_token (thử prompt=consent lại)";
+      return html("Không lấy được token", detail, false);
+    }
+
+    // Lấy email user
+    let email = "";
+    try {
+      const ui = await fetch(
+        "https://www.googleapis.com/oauth2/v2/userinfo",
+        { headers: { Authorization: `Bearer ${tokenData.access_token}` } }
+      );
+      const uj = await ui.json().catch(() => ({}));
+      email = uj.email || "";
+    } catch {
+      /* ignore */
+    }
+
+    const prev = readDriveConfigFile() || {};
+    writeDriveConfigFile({
+      ...prev,
+      folderId: st.folderId || prev.folderId,
+      oauth: {
+        clientId: st.clientId,
+        clientSecret: st.clientSecret,
+        refreshToken: tokenData.refresh_token,
+        email,
+      },
+      updatedAt: new Date().toISOString(),
+      updatedBy: email || "oauth",
+    });
+    gdriveTokenCache = {
+      token: tokenData.access_token,
+      exp: Date.now() + (tokenData.expires_in || 3600) * 1000,
+      mode: "oauth",
+    };
+
+    // Upload file test ngay
+    let testMsg = "";
+    try {
+      const test = await uploadToSharedDrive(
+        Buffer.from(
+          `Locket Dio backup test ${new Date().toISOString()}\n`,
+          "utf8"
+        ),
+        "text/plain",
+        `locket-test-${Date.now()}.txt`
+      );
+      testMsg = ` Đã tạo file thử: ${test.name || test.id}. Mở folder Drive để xem.`;
+    } catch (e) {
+      testMsg = ` Token OK nhưng upload thử lỗi: ${e.message}`;
+    }
+
+    return html(
+      "✅ Đã liên kết Google Drive!",
+      `Tài khoản: ${email || "OK"}.${testMsg}`,
+      true
+    );
+  } catch (e) {
+    return html("Lỗi", e.message || "OAuth callback failed", false);
   }
 }
 
@@ -491,9 +848,10 @@ async function handleDriveBackup(req, res) {
   if (req.method !== "POST") {
     return corsJson(req, res, 405, { error: "Method not allowed" });
   }
-  if (!loadServiceAccount() || !getDriveFolderId()) {
+  if (!getDriveFolderId() || (!loadOauthCreds()?.refreshToken && !loadServiceAccount())) {
     return corsJson(req, res, 503, {
-      error: "Drive not configured by admin",
+      error:
+        "Drive chưa OAuth. Admin vào /admin/google-drive → Đăng nhập Google.",
       configured: false,
     });
   }
@@ -813,12 +1171,18 @@ const server = http.createServer((req, res) => {
   try {
     const urlPath = (req.url || "/").split("?")[0];
 
-    // Shared Google Drive (admin) — 1 Drive cho cả web
+    // Shared Google Drive (admin) — OAuth + backup
     if (urlPath === "/api/drive-status") {
       return handleDriveStatus(req, res);
     }
     if (urlPath === "/api/drive-config") {
       return handleDriveConfigSave(req, res);
+    }
+    if (urlPath === "/api/drive-oauth-start") {
+      return handleDriveOAuthStart(req, res);
+    }
+    if (urlPath === "/api/drive-oauth-callback") {
+      return handleDriveOAuthCallback(req, res);
     }
     if (urlPath === "/api/drive-backup") {
       return handleDriveBackup(req, res);
@@ -841,12 +1205,13 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(PORT, "0.0.0.0", () => {
-  const sa = loadServiceAccount();
   const folder = getDriveFolderId();
+  const mode = driveAuthMode();
+  const ready = isDriveReady();
   console.log(`[locket-dio] listening on :${PORT}`);
   console.log(`[locket-dio] static: ${PUBLIC_DIR}`);
   console.log(`[locket-dio] proxies: ${PROXIES.map((p) => p.prefix).join(", ")}, /dio-r2-put`);
   console.log(
-    `[locket-dio] gdrive: ${sa && folder ? "ON shared folder" : "OFF (set GOOGLE_SERVICE_ACCOUNT_JSON + GOOGLE_DRIVE_FOLDER_ID)"}`
+    `[locket-dio] gdrive: ${ready ? "ON (" + mode + ")" : "OFF"} folder=${folder ? "yes" : "no"} mode=${mode}`
   );
 });
