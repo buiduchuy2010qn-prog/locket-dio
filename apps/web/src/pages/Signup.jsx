@@ -15,7 +15,6 @@ export default function Signup() {
   })
   const [err, setErr] = useState('')
   const [loading, setLoading] = useState(false)
-
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }))
 
   const submit = async (e) => {
@@ -32,7 +31,7 @@ export default function Signup() {
     setLoading(true)
     try {
       await signup(form)
-      nav('/app/feed', { replace: true })
+      nav('/app/upload', { replace: true })
     } catch (ex) {
       setErr(ex.message)
     } finally {
@@ -41,43 +40,43 @@ export default function Signup() {
   }
 
   return (
-    <div className="min-h-screen sparkle-bg flex items-center justify-center p-4 py-10">
-      <div className="w-full max-w-md">
+    <div className="min-h-dvh sparkle-bg flex items-center justify-center p-4 py-10">
+      <div className="w-full max-w-[400px] page-enter">
         <Logo className="justify-center mb-6" />
-        <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-[var(--shadow-card)] border border-slate-100 dark:border-slate-800 p-6 sm:p-8 page-enter">
-          <h1 className="text-2xl font-extrabold mb-1">Tạo tài khoản</h1>
-          <p className="text-sm text-slate-500 mb-6">Miễn phí · Avatar tự sinh · Setup username</p>
+        <div className="card-surface p-6 sm:p-8">
+          <h1 className="font-display font-extrabold text-2xl">Tạo tài khoản</h1>
+          <p className="text-sm text-slate-500 mt-1 mb-5">Miễn phí · Full tính năng</p>
           <form onSubmit={submit} className="space-y-3">
             {[
               ['displayName', 'Tên hiển thị', 'text', 'Tên của bạn'],
-              ['username', 'Username', 'text', 'vd: mina.rose'],
+              ['username', 'Username', 'text', 'vd: huy.dio'],
               ['email', 'Email', 'email', 'you@email.com'],
               ['password', 'Mật khẩu', 'password', 'Tối thiểu 6 ký tự'],
-              ['confirm', 'Xác nhận mật khẩu', 'password', 'Nhập lại'],
+              ['confirm', 'Xác nhận', 'password', 'Nhập lại'],
             ].map(([k, label, type, ph]) => (
               <div key={k}>
-                <label className="text-xs font-bold text-slate-500 uppercase">{label}</label>
+                <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">{label}</label>
                 <input
                   type={type}
                   value={form[k]}
                   onChange={set(k)}
                   placeholder={ph}
                   required
-                  className="mt-1 w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                  className="mt-1 w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent"
                 />
               </div>
             ))}
-            {err && <p className="text-sm text-red-600 bg-red-50 rounded-xl px-3 py-2">{err}</p>}
+            {err && <p className="text-sm text-rose-600 bg-rose-50 rounded-xl px-3 py-2">{err}</p>}
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-3.5 rounded-xl gold-gradient text-white font-bold shadow-[var(--shadow-gold)] disabled:opacity-60"
+              className="w-full py-3.5 rounded-2xl dio-gradient text-white font-bold shadow-[var(--shadow-dio)] disabled:opacity-60 press mt-1"
             >
-              {loading ? 'Đang tạo…' : 'Đăng ký'}
+              {loading ? 'Đang tạo…' : 'Đăng ký & mở camera'}
             </button>
           </form>
           <p className="text-center text-sm text-slate-500 mt-5">
-            Đã có tài khoản? <Link to="/login" className="font-bold text-amber-600">Đăng nhập</Link>
+            Đã có tài khoản? <Link to="/login" className="font-bold text-indigo-600">Đăng nhập</Link>
           </p>
         </div>
       </div>

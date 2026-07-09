@@ -5,28 +5,31 @@ import * as api from '../api/index.js'
 import Avatar from '../components/Avatar'
 import EmptyState from '../components/EmptyState'
 import { useApp } from '../context/AppContext'
+
 export default function Friends() {
   const { toast } = useApp()
   const [list, setList] = useState([])
   const [q, setQ] = useState('')
   const [results, setResults] = useState([])
   const [username, setUsername] = useState('')
-  const [tab, setTab] = useState('all') // all | close
+  const [tab, setTab] = useState('all')
 
-  const load = () => api.fetchFriends().then(setList)
+  const load = () => api.fetchFriends().then(setList).catch(() => setList([]))
   useEffect(() => { load() }, [])
 
   useEffect(() => {
     if (!q.trim()) { setResults([]); return }
-    const t = setTimeout(() => api.searchUsers(q).then(setResults), 250)
+    const t = setTimeout(() => api.searchUsers(q).then(setResults).catch(() => setResults([])), 250)
     return () => clearTimeout(t)
   }, [q])
 
   const add = async (uname) => {
     try {
       const r = await api.addFriend(uname)
-      toast(r.message || 'Đã gửi / kết bạn')
+      toast(r.message || 'Đã kết bạn')
       setUsername('')
+      setQ('')
+      setResults([])
       load()
     } catch (e) {
       toast(e.message, 'error')
@@ -40,37 +43,30 @@ export default function Friends() {
     load()
   }
 
-  const block = async (id) => {
-    if (!confirm('Chặn người dùng này?')) return
-    await api.blockUser(id)
-    toast('Đã chặn')
-    load()
-  }
-
   const shown = tab === 'close' ? list.filter((f) => f.close) : list
 
   return (
-    <div className="px-4 md:px-0 max-w-2xl mx-auto space-y-4">
+    <div className="px-4 md:px-0 max-w-2xl mx-auto space-y-4 pb-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-extrabold">Bạn bè</h1>
-          <p className="text-sm text-slate-500">{list.length} người · chỉ hiện bạn thật đã kết nối</p>
+          <h1 className="font-display font-extrabold text-2xl">Bạn bè</h1>
+          <p className="text-sm text-slate-500">{list.length} người trong circle</p>
         </div>
-        <Link to="/app/friends/requests" className="text-sm font-bold text-amber-600">
+        <Link to="/app/friends/requests" className="text-sm font-bold text-indigo-600">
           Lời mời →
         </Link>
       </div>
 
-      <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-100 dark:border-slate-800 p-4 shadow-[var(--shadow-soft)] space-y-3">
-        <label className="text-xs font-bold text-slate-500 uppercase">Thêm bạn bằng username</label>
+      <div className="card-surface p-4 space-y-3">
+        <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Thêm bằng username</label>
         <div className="flex gap-2">
           <input
             value={username}
             onChange={(e) => setUsername(e.target.value)}
-            placeholder="username thật"
-            className="flex-1 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2.5 text-sm focus:ring-2 focus:ring-amber-400 focus:outline-none"
+            placeholder="@username"
+            className="flex-1 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-indigo-400"
           />
-          <button type="button" onClick={() => add(username)} className="px-4 py-2.5 rounded-xl gold-gradient text-white font-bold text-sm flex items-center gap-1">
+          <button type="button" onClick={() => add(username)} className="px-4 py-2.5 rounded-xl dio-gradient text-white font-bold text-sm flex items-center gap-1 press">
             <UserPlus size={16} /> Thêm
           </button>
         </div>
@@ -80,7 +76,7 @@ export default function Friends() {
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Tìm user…"
-            className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 pl-9 pr-3 py-2.5 text-sm focus:ring-2 focus:ring-amber-400 focus:outline-none"
+            className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 pl-9 pr-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-indigo-400"
           />
         </div>
         {results.length > 0 && (
@@ -95,7 +91,9 @@ export default function Friends() {
                 {u.isFriend ? (
                   <span className="text-xs text-slate-400">Đã kết bạn</span>
                 ) : (
-                  <button type="button" onClick={() => add(u.username)} className="text-xs font-bold text-amber-600">+ Kết bạn</button>
+                  <button type="button" onClick={() => add(u.username)} className="text-xs font-bold text-indigo-600 press">
+                    + Kết bạn
+                  </button>
                 )}
               </div>
             ))}
@@ -104,39 +102,46 @@ export default function Friends() {
       </div>
 
       <div className="flex gap-2">
-        {['all', 'close'].map((t) => (
+        {[
+          ['all', 'Tất cả'],
+          ['close', 'Close friends'],
+        ].map(([k, l]) => (
           <button
-            key={t}
+            key={k}
             type="button"
-            onClick={() => setTab(t)}
-            className={`px-4 py-2 rounded-full text-sm font-semibold ${tab === t ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900' : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700'}`}
+            onClick={() => setTab(k)}
+            className={`px-4 py-2 rounded-full text-xs font-bold press ${
+              tab === k ? 'dio-gradient text-white' : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-600'
+            }`}
           >
-            {t === 'all' ? 'Tất cả' : 'Close friends'}
+            {l}
           </button>
         ))}
       </div>
 
       {shown.length === 0 ? (
-        <EmptyState icon="👋" title="Chưa có bạn" desc="Tìm username và gửi lời mời kết bạn." />
+        <EmptyState icon="👋" title="Chưa có bạn bè" desc="Tìm username và kết bạn để chia sẻ moment." />
       ) : (
         <div className="space-y-2">
           {shown.map((f) => (
-            <div key={f.userId} className="flex items-center gap-3 p-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800">
-              <div className="relative">
-                <Avatar user={f.user} />
-                {f.user?.online && <span className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-400 rounded-full border-2 border-white dark:border-slate-900" />}
+            <div key={f.userId || f.user?.id} className="card-surface p-3.5 flex items-center gap-3">
+              <Avatar user={f.user} />
+              <div className="flex-1 min-w-0">
+                <p className="font-bold text-sm truncate">{f.user?.displayName}</p>
+                <p className="text-xs text-slate-400">@{f.user?.username}</p>
               </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5">
-                  <p className="font-bold text-sm truncate">{f.user?.displayName}</p>
-                </div>
-                <p className="text-xs text-slate-400">@{f.user?.username} · {f.user?.online ? 'Online' : 'Recent'}</p>
-              </div>
-              {f.streak > 0 && (
-                <span className="text-sm font-bold text-orange-500 flex items-center gap-0.5"><Flame size={14} /> {f.streak}</span>
+              {(f.streak > 0) && (
+                <span className="text-xs font-bold text-orange-500 flex items-center gap-0.5">
+                  <Flame size={12} /> {f.streak}
+                </span>
               )}
-              <button type="button" onClick={() => remove(f.userId)} className="text-xs text-slate-400 hover:text-red-500">Xóa</button>
-              <button type="button" onClick={() => block(f.userId)} className="text-xs text-slate-400 hover:text-red-600">Chặn</button>
+              <button
+                type="button"
+                onClick={() => remove(f.userId || f.user?.id)}
+                className="text-xs font-semibold text-rose-500 px-2 py-1 press"
+              >
+                Xóa
+              </button>
             </div>
           ))}
         </div>

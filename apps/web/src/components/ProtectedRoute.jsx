@@ -7,10 +7,10 @@ export default function ProtectedRoute({ children }) {
 
   if (booting) {
     return (
-      <div className="min-h-screen flex items-center justify-center sparkle-bg">
-        <div className="text-center">
-          <div className="w-14 h-14 mx-auto rounded-2xl gold-gradient animate-pulse mb-3" />
-          <p className="text-sm text-slate-500 font-medium">Đang tải Locket Dio…</p>
+      <div className="min-h-dvh flex items-center justify-center sparkle-bg">
+        <div className="text-center page-enter">
+          <div className="w-14 h-14 mx-auto rounded-2xl dio-gradient shadow-[var(--shadow-dio)] animate-pulse mb-3" />
+          <p className="text-sm text-slate-500 font-semibold">Locket Dio</p>
         </div>
       </div>
     )

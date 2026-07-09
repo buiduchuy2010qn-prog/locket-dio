@@ -2,22 +2,22 @@ export default function GlassBtn({
   children,
   onClick,
   className = '',
-  size = 'md', // sm | md | lg | xl
-  variant = 'dark', // dark (mobile) | light (desktop)
+  size = 'md',
+  variant = 'dark',
   label,
   active,
   disabled,
 }) {
   const sizes = {
-    sm: 'w-10 h-10 text-sm',
-    md: 'w-12 h-12 text-base',
-    lg: 'w-14 h-14 text-lg',
-    xl: 'w-[4.5rem] h-[4.5rem] text-xl',
+    sm: 'w-10 h-10',
+    md: 'w-12 h-12',
+    lg: 'w-14 h-14',
+    xl: 'w-[4.5rem] h-[4.5rem]',
   }
   const variants = {
-    dark: 'bg-white/15 text-white border-white/20 hover:bg-white/25 backdrop-blur-md shadow-lg',
-    light: 'bg-white/90 text-slate-800 border-slate-200/80 hover:bg-white shadow-[0_8px_24px_rgba(15,23,42,0.08)] backdrop-blur-md',
-    solid: 'bg-white text-slate-900 border-white shadow-xl',
+    dark: 'glass-dark text-white hover:bg-white/15',
+    light: 'bg-white/95 text-slate-800 border border-slate-200/80 shadow-[var(--shadow-soft)] hover:shadow-md',
+    solid: 'bg-white text-slate-900 border border-white shadow-xl',
   }
   return (
     <button
@@ -25,10 +25,10 @@ export default function GlassBtn({
       disabled={disabled}
       onClick={onClick}
       className={[
-        'inline-flex flex-col items-center justify-center rounded-full border transition active:scale-90 disabled:opacity-40',
+        'inline-flex items-center justify-center rounded-full press disabled:opacity-40',
         sizes[size] || sizes.md,
         variants[variant] || variants.dark,
-        active ? 'ring-2 ring-amber-400' : '',
+        active ? 'ring-2 ring-indigo-400' : '',
         className,
       ].join(' ')}
       aria-label={label}
@@ -42,16 +42,17 @@ export default function GlassBtn({
 export function FriendsPill({ text = 'Tất cả bạn bè', onClick, variant = 'dark' }) {
   const v =
     variant === 'light'
-      ? 'bg-white/95 text-slate-800 border-slate-200/90 shadow-md'
-      : 'bg-black/25 text-white border-white/20 shadow-lg'
+      ? 'bg-white text-slate-800 border-slate-200 shadow-md'
+      : 'glass-dark text-white'
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`px-5 py-2.5 rounded-full border backdrop-blur-xl text-[13px] font-bold active:scale-95 transition flex items-center gap-1.5 max-w-[220px] truncate ${v}`}
+      className={`px-4 py-2.5 rounded-full border text-[13px] font-semibold press flex items-center gap-1.5 max-w-[220px] ${v}`}
     >
+      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
       <span className="truncate">{text}</span>
-      <span className="opacity-60 text-[10px]">▾</span>
+      <span className="opacity-50 text-[10px]">▾</span>
     </button>
   )
 }

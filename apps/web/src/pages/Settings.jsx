@@ -19,10 +19,10 @@ export default function Settings() {
   }
 
   return (
-    <div className="px-4 md:px-0 max-w-xl mx-auto space-y-4">
-      <h1 className="text-2xl font-extrabold">Settings</h1>
+    <div className="px-4 md:px-0 max-w-xl mx-auto space-y-4 pb-4">
+      <h1 className="font-display font-extrabold text-2xl">Cài đặt</h1>
 
-      <section className="rounded-3xl bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 overflow-hidden">
+      <section className="card-surface overflow-hidden">
         <h2 className="px-4 pt-4 text-xs font-bold text-slate-400 uppercase">Giao diện</h2>
         <button type="button" onClick={toggleTheme} className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-slate-50 dark:hover:bg-slate-800">
           {theme === 'dark' ? <Moon size={18} /> : <Sun size={18} />}

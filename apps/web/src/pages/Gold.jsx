@@ -6,10 +6,10 @@ export default function Gold() {
   return (
     <div className="px-4 md:px-0 max-w-lg mx-auto py-8 space-y-6">
       <div className="text-center">
-        <div className="w-14 h-14 mx-auto rounded-2xl gold-gradient text-white flex items-center justify-center shadow-lg mb-3">
+        <div className="w-14 h-14 mx-auto rounded-2xl dio-gradient text-white flex items-center justify-center shadow-[var(--shadow-dio)] mb-3">
           <Sparkles size={28} />
         </div>
-        <h1 className="text-2xl font-extrabold">Full tính năng</h1>
+        <h1 className="font-display text-2xl font-extrabold">Full tính năng</h1>
         <p className="text-sm text-slate-500 mt-2">
           Không cần nâng cấp Gold. Mọi tài khoản đều dùng được chụp ảnh, quay video, thư viện, bạn bè và tuỳ chỉnh.
         </p>
@@ -33,7 +33,7 @@ export default function Gold() {
       <div className="flex flex-col sm:flex-row gap-2">
         <Link
           to="/app/upload"
-          className="flex-1 py-3.5 rounded-2xl gold-gradient text-white font-bold text-center text-sm"
+          className="flex-1 py-3.5 rounded-2xl dio-gradient text-white font-bold text-center text-sm press shadow-[var(--shadow-dio)]"
         >
           Mở camera
         </Link>

@@ -1,115 +1,129 @@
 import { Link } from 'react-router-dom'
-import { Camera, Download, Smartphone, Sparkles, Square, Share2 } from 'lucide-react'
+import { Camera, Users, Sparkles, Square, Shield, ArrowRight } from 'lucide-react'
 import Logo from '../components/Logo'
 
 export default function Landing() {
   return (
-    <div className="min-h-screen bg-white text-slate-900">
-      <header className="sticky top-0 z-40 bg-white/90 backdrop-blur border-b border-slate-100">
-        <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
-          <Logo />
-          <div className="flex items-center gap-2">
-            <Link to="/login" className="px-4 py-2 text-sm font-semibold text-slate-600">Đăng nhập</Link>
-            <Link to="/signup" className="px-4 py-2.5 rounded-full gold-gradient text-white text-sm font-bold shadow-[var(--shadow-gold)]">
-              Bắt đầu
-            </Link>
-          </div>
+    <div className="min-h-dvh bg-[#0c1222] text-white overflow-x-hidden">
+      {/* Nav */}
+      <header className="relative z-20 max-w-5xl mx-auto px-4 py-5 flex items-center justify-between">
+        <Logo light />
+        <div className="flex items-center gap-2">
+          <Link to="/login" className="px-4 py-2 text-sm font-semibold text-white/80 hover:text-white">
+            Đăng nhập
+          </Link>
+          <Link
+            to="/signup"
+            className="px-5 py-2.5 rounded-full bg-white text-slate-900 text-sm font-bold press shadow-lg"
+          >
+            Bắt đầu
+          </Link>
         </div>
       </header>
 
-      {/* Hero — locket-dio.com style messaging */}
-      <section className="relative overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-b from-[#0b1526] via-[#12253f] to-[#0a1020]" />
-        <div className="absolute inset-0 opacity-40 bg-[radial-gradient(ellipse_at_top,_rgba(251,191,36,0.25),_transparent_55%)]" />
-        <div className="relative max-w-5xl mx-auto px-4 py-16 md:py-24 text-center text-white">
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/10 border border-white/15 text-xs font-bold mb-5">
-            <Sparkles size={12} className="text-amber-300" /> Web camera · 1:1 · Close friends
+      {/* Hero */}
+      <section className="relative max-w-5xl mx-auto px-4 pt-8 pb-20 md:pt-16 md:pb-28 text-center">
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[min(900px,120%)] h-[420px] bg-[radial-gradient(ellipse_at_center,rgba(69,99,245,0.35),transparent_65%)] pointer-events-none" />
+
+        <div className="relative">
+          <span className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-white/10 border border-white/10 text-xs font-semibold text-white/80 mb-6">
+            <Sparkles size={12} className="text-indigo-300" />
+            App camera riêng · 1:1 · Close friends
           </span>
-          <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight leading-tight">
-            Chụp & đăng moment vuông
+
+          <h1 className="font-display font-extrabold text-4xl sm:text-5xl md:text-6xl tracking-tight leading-[1.08] max-w-3xl mx-auto">
+            Chụp moment vuông
             <br />
-            <span className="text-amber-300">dễ hơn bao giờ hết</span>
+            <span className="bg-gradient-to-r from-indigo-300 via-violet-300 to-rose-300 bg-clip-text text-transparent">
+              chỉ với circle của bạn
+            </span>
           </h1>
-          <p className="mt-4 text-white/70 max-w-xl mx-auto text-base md:text-lg">
-            Locket Dio — web camera riêng tư. Chụp 1:1 trên trình duyệt, lưu circle bạn bè,
-            rồi tải / share sang điện thoại để đăng trên app Locket <strong className="text-white/90">thủ công</strong>.
+
+          <p className="mt-5 text-base md:text-lg text-white/55 max-w-lg mx-auto leading-relaxed">
+            Locket Dio — web app độc lập. Camera full-screen, feed bạn bè, streak & chat.
+            Không liên kết app Locket chính hãng.
           </p>
+
           <div className="mt-8 flex flex-wrap justify-center gap-3">
-            <Link to="/signup" className="px-7 py-3.5 rounded-full gold-gradient text-white font-bold shadow-lg active:scale-95">
-              Mở camera web
+            <Link
+              to="/signup"
+              className="inline-flex items-center gap-2 px-7 py-3.5 rounded-full dio-gradient font-bold shadow-[var(--shadow-dio)] press"
+            >
+              Tạo tài khoản <ArrowRight size={18} />
             </Link>
-            <Link to="/login" className="px-7 py-3.5 rounded-full bg-white/10 border border-white/20 font-bold backdrop-blur active:scale-95">
-              Đăng nhập
+            <Link
+              to="/login"
+              className="px-7 py-3.5 rounded-full bg-white/10 border border-white/15 font-bold press hover:bg-white/15"
+            >
+              Đã có tài khoản
             </Link>
           </div>
-          <p className="mt-4 text-[11px] text-white/45 max-w-md mx-auto">
-            Không yêu cầu mật khẩu Locket chính hãng · Không auto-sync trái phép · Original branding
-          </p>
 
           {/* Phone mock */}
-          <div className="mt-14 mx-auto w-[min(280px,85vw)] aspect-[9/16] rounded-[2rem] border-[6px] border-white/20 bg-black/40 shadow-2xl overflow-hidden relative">
-            <div className="absolute top-4 inset-x-4 flex justify-between items-center z-10">
-              <span className="w-9 h-9 rounded-full bg-white/20 backdrop-blur" />
-              <span className="px-3 py-1.5 rounded-full bg-white/15 text-[10px] font-bold backdrop-blur">Tất cả bạn bè</span>
-              <span className="w-9 h-9 rounded-full bg-white/20 backdrop-blur" />
-            </div>
-            <div className="absolute inset-x-6 top-[22%] aspect-square rounded-3xl overflow-hidden ring-2 ring-white/30 shadow-xl">
-              <img
-                src="https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?w=500&q=80&auto=format&fit=crop"
-                alt=""
-                className="w-full h-full object-cover"
-              />
-            </div>
-            <div className="absolute bottom-10 inset-x-0 flex justify-center items-center gap-8">
-              <span className="w-10 h-10 rounded-full bg-white/15" />
-              <span className="w-16 h-16 rounded-full border-4 border-amber-300 bg-white shadow-lg" />
-              <span className="w-10 h-10 rounded-full bg-white/15" />
+          <div className="mt-16 mx-auto w-[min(280px,82vw)] float-soft">
+            <div className="aspect-[9/17] rounded-[2.25rem] border-[5px] border-white/15 bg-gradient-to-b from-[#152038] to-[#0a0f1c] shadow-2xl overflow-hidden relative">
+              <div className="absolute top-5 inset-x-5 flex justify-between items-center z-10">
+                <span className="w-10 h-10 rounded-full bg-white/15 backdrop-blur" />
+                <span className="px-3.5 py-1.5 rounded-full bg-white/12 text-[10px] font-bold backdrop-blur border border-white/10">
+                  Tất cả bạn bè
+                </span>
+                <span className="w-10 h-10 rounded-full bg-white/15 backdrop-blur" />
+              </div>
+              <div className="absolute inset-x-6 top-[20%] aspect-square rounded-[1.5rem] overflow-hidden ring-2 ring-white/20 shadow-2xl">
+                <div className="w-full h-full bg-gradient-to-br from-indigo-500 via-violet-500 to-rose-400" />
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <Camera className="text-white/40" size={48} />
+                </div>
+              </div>
+              <div className="absolute bottom-12 inset-x-0 flex justify-center items-center gap-10">
+                <span className="w-11 h-11 rounded-full bg-white/10 border border-white/10" />
+                <span className="w-[4.25rem] h-[4.25rem] rounded-full border-[4px] border-indigo-300 bg-white shadow-lg" />
+                <span className="w-11 h-11 rounded-full bg-white/10 border border-white/10" />
+              </div>
             </div>
           </div>
         </div>
       </section>
 
-      {/* How it works 1+2 */}
-      <section className="max-w-5xl mx-auto px-4 py-16">
-        <h2 className="text-2xl md:text-3xl font-extrabold text-center mb-10">Cách dùng</h2>
-        <div className="grid md:grid-cols-3 gap-5">
-          {[
-            { icon: Camera, t: '1. Chụp trên web', d: 'Camera full-screen kiểu app, khung vuông 1:1, crop & caption.' },
-            { icon: Square, t: '2. Lưu trên Dio', d: 'Moment nằm trong circle bạn bè Locket Dio — app riêng của bạn.' },
-            { icon: Smartphone, t: '3. Đăng Locket (tay)', d: 'Tải / Share / QR sang điện thoại → mở app Locket → đăng.' },
-          ].map((x) => (
-            <div key={x.t} className="p-6 rounded-3xl border border-slate-100 bg-slate-50/50 hover:shadow-md transition">
-              <div className="w-11 h-11 rounded-2xl gold-gradient text-white flex items-center justify-center mb-4">
-                <x.icon size={20} />
+      {/* Features */}
+      <section className="relative bg-[#f4f6fb] text-slate-900 py-16 md:py-20">
+        <div className="max-w-5xl mx-auto px-4">
+          <h2 className="font-display font-extrabold text-2xl md:text-3xl text-center mb-10">
+            Đơn giản. Riêng tư. Vuông.
+          </h2>
+          <div className="grid sm:grid-cols-3 gap-4 md:gap-5">
+            {[
+              { icon: Camera, t: 'Camera app-like', d: 'Mobile full-screen, PC trắng tối giản, khung 1:1.' },
+              { icon: Users, t: 'Close friends only', d: 'Feed & gallery chỉ circle bạn đã kết nối.' },
+              { icon: Square, t: 'Mọi media 1:1', d: 'Chụp, crop, feed, gallery — không méo ảnh.' },
+              { icon: Sparkles, t: 'Full features free', d: 'Theme, reaction, streak, insights — không paywall.' },
+              { icon: Shield, t: 'Tài khoản Dio', d: 'Đăng ký riêng. Không xin mật khẩu app khác.' },
+              { icon: MessageCircleIcon, t: 'Chat & react', d: 'Tin nhắn và reaction trên moment bạn bè.' },
+            ].map((x) => (
+              <div key={x.t} className="p-5 rounded-3xl bg-white border border-slate-100 shadow-[var(--shadow-soft)] hover:shadow-[var(--shadow-card)] transition">
+                <div className="w-11 h-11 rounded-2xl dio-gradient text-white flex items-center justify-center mb-3">
+                  <x.icon size={20} />
+                </div>
+                <h3 className="font-display font-bold text-base">{x.t}</h3>
+                <p className="text-sm text-slate-500 mt-1 leading-relaxed">{x.d}</p>
               </div>
-              <h3 className="font-bold text-lg">{x.t}</h3>
-              <p className="text-sm text-slate-500 mt-1">{x.d}</p>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       </section>
 
-      <section className="bg-slate-50 border-y border-slate-100 py-14">
-        <div className="max-w-5xl mx-auto px-4 grid sm:grid-cols-2 md:grid-cols-4 gap-4 text-center">
-          {[
-            { icon: Download, t: 'Tải 1:1' },
-            { icon: Share2, t: 'Share sheet' },
-            { icon: Smartphone, t: 'QR điện thoại' },
-            { icon: Sparkles, t: 'Caption + crop' },
-          ].map((x) => (
-            <div key={x.t} className="p-4 rounded-2xl bg-white border border-slate-100">
-              <x.icon className="mx-auto text-amber-500 mb-2" size={22} />
-              <p className="text-sm font-bold">{x.t}</p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <footer className="py-10 text-center text-xs text-slate-400">
-        <Logo className="justify-center mb-3" />
-        <p>© Locket Dio · Original branding · Not affiliated with Locket Inc.</p>
-        <p className="mt-1">Không yêu cầu mật khẩu app Locket chính hãng.</p>
+      <footer className="bg-[#0c1222] text-white/40 text-center text-xs py-8 px-4">
+        <p className="font-display font-bold text-white/70 text-sm mb-1">Locket Dio</p>
+        <p>Independent product · Original branding · Not affiliated with Locket</p>
       </footer>
     </div>
+  )
+}
+
+function MessageCircleIcon(props) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width={props.size || 20} height={props.size || 20}>
+      <path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z" />
+    </svg>
   )
 }

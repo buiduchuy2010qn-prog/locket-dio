@@ -10,23 +10,21 @@ export default function Avatar({ user, size = 'md', showBadge = true, className 
   }
   const frame = PROFILE_FRAMES.find((f) => f.id === (user?.profileFrame || 'none'))
   const badge = BADGE_STYLES.find((b) => b.id === (user?.badgeStyle || 'gold-star'))
-  const show = showBadge && user?.isGold && user?.badgeVisible !== false
+  const show = showBadge && user?.badgeVisible !== false && user?.badgeStyle
 
   return (
     <div className={`relative inline-flex shrink-0 ${className}`}>
       <img
         src={user?.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=guest`}
         alt={user?.displayName || 'avatar'}
-        className={`${sizes[size] || sizes.md} rounded-full object-cover bg-slate-100 ${frame?.ring || ''} ${
-          user?.isGold ? 'ring-offset-white dark:ring-offset-slate-900' : ''
-        }`}
+        className={`${sizes[size] || sizes.md} rounded-full object-cover bg-slate-100 ring-2 ring-white dark:ring-slate-900 ${frame?.ring || ''}`}
       />
       {show && (
         <span
-          className="absolute -bottom-0.5 -right-0.5 text-[10px] leading-none bg-white dark:bg-slate-900 rounded-full p-0.5 shadow"
+          className="absolute -bottom-0.5 -right-0.5 text-[10px] leading-none bg-white dark:bg-slate-900 rounded-full p-0.5 shadow-sm"
           title={badge?.name}
         >
-          {badge?.icon || '⭐'}
+          {badge?.icon || '✦'}
         </span>
       )}
     </div>

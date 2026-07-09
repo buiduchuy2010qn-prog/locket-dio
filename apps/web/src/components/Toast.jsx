@@ -3,23 +3,28 @@ import { CheckCircle2, AlertCircle, Info } from 'lucide-react'
 
 export default function ToastStack() {
   const { toasts } = useApp()
+  if (!toasts?.length) return null
+
   return (
-    <div className="fixed bottom-20 md:bottom-6 left-4 right-4 md:left-auto md:right-6 z-[100] flex flex-col gap-2 pointer-events-none max-w-sm md:ml-auto">
-      {toasts.map((t) => (
-        <div
-          key={t.id}
-          className={`pointer-events-auto float-up rounded-2xl px-4 py-3 shadow-lg text-sm font-medium flex items-center gap-2 ${
-            t.type === 'error'
-              ? 'bg-red-600 text-white'
-              : t.type === 'info'
-                ? 'bg-slate-800 text-white'
-                : 'bg-emerald-600 text-white'
-          }`}
-        >
-          {t.type === 'error' ? <AlertCircle size={16} /> : t.type === 'info' ? <Info size={16} /> : <CheckCircle2 size={16} />}
-          <span>{t.message}</span>
-        </div>
-      ))}
+    <div className="fixed top-4 inset-x-0 z-[100] flex flex-col items-center gap-2 pointer-events-none px-4 safe-pt">
+      {toasts.map((t) => {
+        const Icon = t.type === 'error' ? AlertCircle : t.type === 'info' ? Info : CheckCircle2
+        const color =
+          t.type === 'error'
+            ? 'border-rose-200 bg-rose-50 text-rose-800'
+            : t.type === 'info'
+              ? 'border-indigo-200 bg-indigo-50 text-indigo-800'
+              : 'border-emerald-200 bg-emerald-50 text-emerald-800'
+        return (
+          <div
+            key={t.id}
+            className={`pointer-events-auto flex items-center gap-2 px-4 py-2.5 rounded-2xl border shadow-lg text-sm font-semibold backdrop-blur-md ${color} page-enter`}
+          >
+            <Icon size={16} />
+            {t.message}
+          </div>
+        )
+      })}
     </div>
   )
 }

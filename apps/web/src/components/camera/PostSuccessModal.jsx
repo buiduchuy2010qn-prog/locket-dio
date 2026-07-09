@@ -90,14 +90,13 @@ export default function PostSuccessModal({ open, onClose, moment, mediaUrl, capt
   return (
     <div className="fixed inset-0 z-[90] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-0 sm:p-4">
       <div className="w-full max-w-md bg-white rounded-t-[1.75rem] sm:rounded-3xl shadow-2xl max-h-[92vh] overflow-y-auto">
-        {/* header */}
         <div className="sticky top-0 bg-white/95 backdrop-blur border-b border-slate-100 px-5 py-4 flex items-start justify-between gap-2 rounded-t-[1.75rem]">
           <div>
-            <p className="text-[11px] font-bold uppercase tracking-wide text-amber-600">Locket Dio</p>
-            <h3 className="font-extrabold text-lg text-slate-900 flex items-center gap-1.5">
+            <p className="text-[11px] font-bold uppercase tracking-wide text-indigo-600">Locket Dio</p>
+            <h3 className="font-display font-extrabold text-lg text-slate-900 flex items-center gap-1.5">
               <CheckCircle2 className="text-emerald-500" size={20} /> Đã lưu moment
             </h3>
-            <p className="text-xs text-slate-500 mt-0.5">Trên web Dio · 1:1 square</p>
+            <p className="text-xs text-slate-500 mt-0.5">Vuông 1:1 · circle của bạn</p>
           </div>
           <button type="button" onClick={onClose} className="w-9 h-9 rounded-full border border-slate-200 flex items-center justify-center active:scale-90">
             <X size={16} />
@@ -106,23 +105,21 @@ export default function PostSuccessModal({ open, onClose, moment, mediaUrl, capt
 
         <div className="p-5 space-y-4">
           {mediaUrl && (
-            <div className="mx-auto w-40 aspect-square rounded-2xl overflow-hidden shadow-lg ring-2 ring-amber-200">
+            <div className="mx-auto w-40 aspect-square rounded-2xl overflow-hidden shadow-lg ring-2 ring-indigo-200">
               <img src={mediaUrl} alt="" className="w-full h-full object-cover" />
             </div>
           )}
 
-          {/* Honest note */}
-          <div className="p-3 rounded-2xl bg-slate-50 border border-slate-100 text-xs text-slate-600 leading-relaxed">
-            <strong className="text-slate-800">Không đăng tự động lên app Locket chính hãng.</strong>
-            {' '}Tải / chia sẻ ảnh vuông sang điện thoại, rồi mở app Locket để đăng thủ công.
+          <div className="p-3 rounded-2xl bg-indigo-50 border border-indigo-100 text-xs text-slate-600 leading-relaxed">
+            <strong className="text-slate-800">Đã lưu trên Locket Dio.</strong>
+            {' '}Bạn có thể tải / share để đăng tay ở app khác nếu muốn.
           </div>
 
-          {/* Steps */}
           <div className="flex gap-2 text-[10px] font-bold">
             {[1, 2, 3].map((n) => (
               <div
                 key={n}
-                className={`flex-1 h-1.5 rounded-full ${step >= n ? 'bg-amber-400' : 'bg-slate-200'}`}
+                className={`flex-1 h-1.5 rounded-full ${step >= n ? 'bg-indigo-500' : 'bg-slate-200'}`}
               />
             ))}
           </div>
@@ -136,33 +133,33 @@ export default function PostSuccessModal({ open, onClose, moment, mediaUrl, capt
             <button
               type="button"
               onClick={download}
-              className="flex flex-col items-center gap-1.5 p-4 rounded-2xl border border-slate-200 hover:border-amber-300 hover:bg-amber-50 active:scale-95 transition"
+              className="flex flex-col items-center gap-1.5 p-4 rounded-2xl border border-slate-200 hover:border-indigo-300 hover:bg-indigo-50 active:scale-95 transition"
             >
-              <Download className="text-amber-600" size={22} />
+              <Download className="text-indigo-600" size={22} />
               <span className="text-xs font-bold text-slate-800">Tải xuống 1:1</span>
             </button>
             <button
               type="button"
               onClick={shareNative}
-              className="flex flex-col items-center gap-1.5 p-4 rounded-2xl border border-slate-200 hover:border-amber-300 hover:bg-amber-50 active:scale-95 transition"
+              className="flex flex-col items-center gap-1.5 p-4 rounded-2xl border border-slate-200 hover:border-indigo-300 hover:bg-indigo-50 active:scale-95 transition"
             >
-              <Share2 className="text-amber-600" size={22} />
+              <Share2 className="text-indigo-600" size={22} />
               <span className="text-xs font-bold text-slate-800">Share điện thoại</span>
             </button>
             <button
               type="button"
               onClick={copyCaption}
-              className="flex flex-col items-center gap-1.5 p-4 rounded-2xl border border-slate-200 hover:border-amber-300 hover:bg-amber-50 active:scale-95 transition"
+              className="flex flex-col items-center gap-1.5 p-4 rounded-2xl border border-slate-200 hover:border-indigo-300 hover:bg-indigo-50 active:scale-95 transition"
             >
-              <Copy className="text-amber-600" size={22} />
+              <Copy className="text-indigo-600" size={22} />
               <span className="text-xs font-bold text-slate-800">Copy caption</span>
             </button>
             <button
               type="button"
               onClick={openQr}
-              className="flex flex-col items-center gap-1.5 p-4 rounded-2xl border border-slate-200 hover:border-amber-300 hover:bg-amber-50 active:scale-95 transition"
+              className="flex flex-col items-center gap-1.5 p-4 rounded-2xl border border-slate-200 hover:border-indigo-300 hover:bg-indigo-50 active:scale-95 transition"
             >
-              <QrCode className="text-amber-600" size={22} />
+              <QrCode className="text-indigo-600" size={22} />
               <span className="text-xs font-bold text-slate-800">QR → điện thoại</span>
             </button>
           </div>
@@ -190,15 +187,15 @@ export default function PostSuccessModal({ open, onClose, moment, mediaUrl, capt
             className="w-full py-3.5 rounded-2xl bg-slate-900 text-white font-bold text-sm flex items-center justify-center gap-2 active:scale-95"
           >
             <Smartphone size={18} />
-            Hướng dẫn đăng trên app Locket
+            Hướng dẫn dùng moment
           </button>
 
           {step === 3 && (
-            <ol className="text-sm text-slate-600 space-y-2 p-4 rounded-2xl bg-amber-50 border border-amber-100 list-decimal pl-8">
-              <li>Mở app <strong>Locket</strong> trên điện thoại</li>
-              <li>Chọn ảnh/video vừa tải (thư viện / Files)</li>
-              <li>Crop vuông nếu cần · thêm caption · Gửi bạn bè</li>
-              <li>Locket Dio không đăng hộ — bạn kiểm soát 100%</li>
+            <ol className="text-sm text-slate-600 space-y-2 p-4 rounded-2xl bg-indigo-50 border border-indigo-100 list-decimal pl-8">
+              <li>Moment đã nằm trong circle Locket Dio</li>
+              <li>Tải / share sang điện thoại nếu cần</li>
+              <li>Bạn bè có thể react & xem feed Dio</li>
+              <li>Bạn kiểm soát 100% nội dung</li>
             </ol>
           )}
 
@@ -213,7 +210,7 @@ export default function PostSuccessModal({ open, onClose, moment, mediaUrl, capt
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 py-3 rounded-xl gold-gradient text-white text-sm font-bold active:scale-95 flex items-center justify-center gap-1"
+              className="flex-1 py-3 rounded-xl dio-gradient text-white text-sm font-bold active:scale-95 flex items-center justify-center gap-1"
             >
               <ImageIcon size={16} /> Chụp tiếp
             </button>
