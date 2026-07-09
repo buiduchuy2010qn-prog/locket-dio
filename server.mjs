@@ -116,7 +116,55 @@ function readBody(req) {
 // Priority: env > Neon DB > file local
 const GDRIVE_CONFIG_PATH = path.join(__dirname, "data", "gdrive-config.json");
 const GDRIVE_OAUTH_SCOPE = "https://www.googleapis.com/auth/drive.file";
-const oauthStateMap = new Map(); // state -> { exp, clientId, clientSecret, folderId }
+// State OAuth ký HMAC — không phụ thuộc RAM (Render restart không làm “Hết hạn”)
+const OAUTH_STATE_SECRET =
+  process.env.OAUTH_STATE_SECRET ||
+  process.env.DATABASE_URL ||
+  "locket-dio-oauth-state-huy";
+
+function signOauthState(payload) {
+  const body = b64url(
+    JSON.stringify({
+      ...payload,
+      exp: Date.now() + 60 * 60_000, // 60 phút
+    })
+  );
+  const sig = crypto
+    .createHmac("sha256", OAUTH_STATE_SECRET)
+    .update(body)
+    .digest("base64url");
+  return `${body}.${sig}`;
+}
+
+function verifyOauthState(state) {
+  if (!state || !String(state).includes(".")) return null;
+  const [body, sig] = String(state).split(".");
+  if (!body || !sig) return null;
+  const expect = crypto
+    .createHmac("sha256", OAUTH_STATE_SECRET)
+    .update(body)
+    .digest("base64url");
+  // timing-safe compare
+  try {
+    const a = Buffer.from(sig);
+    const b = Buffer.from(expect);
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+  } catch {
+    return null;
+  }
+  try {
+    const json = Buffer.from(
+      body.replace(/-/g, "+").replace(/_/g, "/"),
+      "base64"
+    ).toString("utf8");
+    const data = JSON.parse(json);
+    if (!data?.exp || data.exp < Date.now()) return null;
+    if (!data.clientId || !data.clientSecret || !data.folderId) return null;
+    return data;
+  } catch {
+    return null;
+  }
+}
 // Neon project huy-locket-drive — bền qua redeploy free
 const NEON_FALLBACK_URL =
   "postgresql://neondb_owner:npg_Wd4gbkpS2JCa@ep-rough-math-atpq3c8p-pooler.c-9.us-east-1.aws.neon.tech/neondb?sslmode=require";
@@ -976,13 +1024,8 @@ async function handleDriveOAuthStart(req, res) {
     return corsJson(req, res, 400, { error: "Thiếu Folder ID" });
   }
 
-  const state = crypto.randomBytes(16).toString("hex");
-  oauthStateMap.set(state, {
-    exp: Date.now() + 15 * 60_000,
-    clientId,
-    clientSecret,
-    folderId,
-  });
+  // State ký — sống sót qua restart Render (không còn “Hết hạn” do mất RAM)
+  const state = signOauthState({ clientId, clientSecret, folderId });
 
   const redirectUri = `${publicBaseUrl(req)}/api/drive-oauth-callback`;
   const params = new URLSearchParams({
@@ -1030,15 +1073,26 @@ async function handleDriveOAuthCallback(req, res) {
     return html("OAuth thất bại", `Google trả lỗi: ${err}`, false);
   }
 
-  const st = state ? oauthStateMap.get(state) : null;
-  if (!st || st.exp < Date.now()) {
+  let oauthCtx = verifyOauthState(state);
+  if (!oauthCtx) {
+    // Fallback: config đã lưu trước khi redirect Google
+    await warmDriveConfig();
+    const cfg = readDriveConfig();
+    if (cfg?.oauth?.clientId && cfg?.oauth?.clientSecret && cfg?.folderId) {
+      oauthCtx = {
+        clientId: cfg.oauth.clientId,
+        clientSecret: cfg.oauth.clientSecret,
+        folderId: cfg.folderId,
+      };
+    }
+  }
+  if (!oauthCtx) {
     return html(
-      "Hết hạn",
-      "Link đăng nhập đã hết hạn. Vào /admin/google-drive bấm Đăng nhập lại.",
+      "Hết hạn / thiếu state",
+      "Vào /admin/google-drive → điền form → bấm <b>Bật auto backup</b> lại (làm liền 1 lần).",
       false
     );
   }
-  oauthStateMap.delete(state);
 
   if (!code) {
     return html("Thiếu code", "Google không trả authorization code.", false);
@@ -1051,8 +1105,8 @@ async function handleDriveOAuthCallback(req, res) {
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
         code,
-        client_id: st.clientId,
-        client_secret: st.clientSecret,
+        client_id: oauthCtx.clientId,
+        client_secret: oauthCtx.clientSecret,
         redirect_uri: redirectUri,
         grant_type: "authorization_code",
       }).toString(),
@@ -1082,10 +1136,10 @@ async function handleDriveOAuthCallback(req, res) {
     const prev = readDriveConfig() || {};
     const savedOk = await saveDriveConfig({
       ...prev,
-      folderId: st.folderId || prev.folderId,
+      folderId: oauthCtx.folderId || prev.folderId,
       oauth: {
-        clientId: st.clientId,
-        clientSecret: st.clientSecret,
+        clientId: oauthCtx.clientId,
+        clientSecret: oauthCtx.clientSecret,
         refreshToken: tokenData.refresh_token,
         email,
       },
@@ -1118,7 +1172,7 @@ async function handleDriveOAuthCallback(req, res) {
     let testMsg = "";
     try {
       const token = tokenData.access_token;
-      const root = st.folderId || prev.folderId || getDriveFolderId();
+      const root = oauthCtx.folderId || prev.folderId || getDriveFolderId();
       if (root) {
         // Kiểm tra folder tồn tại / có quyền
         const metaRes = await fetch(
