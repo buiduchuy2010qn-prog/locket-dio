@@ -1,34 +1,54 @@
 {
-  "name": "locket-dio",
-  "version": "1.0.0",
+  "name": "locketdio",
   "private": true,
-  "description": "Locket Dio — independent private close-friends photo & video sharing",
-  "workspaces": [
-    "apps/*",
-    "packages/*"
-  ],
+  "version": "0.0.0",
+  "type": "module",
+  "license": "MIT",
   "scripts": {
-    "dev": "npm run dev --workspace=@locket-dio/web",
-    "dev:web": "npm run dev --workspace=@locket-dio/web",
-    "dev:api": "npm run dev --workspace=@locket-dio/api",
-    "build": "npm run build --workspace=@locket-dio/web && node scripts/copy-web-dist.mjs",
-    "build:web": "npm run build --workspace=@locket-dio/web && node scripts/copy-web-dist.mjs",
-    "build:api": "npm run build --workspace=@locket-dio/api",
-    "start:api": "npm run start --workspace=@locket-dio/api",
-    "db:generate": "npx prisma generate --schema=prisma/schema.prisma",
-    "db:push": "npx prisma db push --schema=prisma/schema.prisma",
-    "db:migrate": "npx prisma migrate dev --schema=prisma/schema.prisma",
-    "db:seed": "node prisma/seed.js",
-    "docker:up": "docker compose up -d --build",
-    "docker:down": "docker compose down"
+    "start": "npm run dev",
+    "dev": "vite",
+    "build": "vite build",
+    "lint": "eslint .",
+    "preview": "vite preview"
   },
   "dependencies": {
-    "@prisma/client": "^6.5.0"
+    "@tailwindcss/vite": "4.1.13",
+    "axios": "^1.8.1",
+    "canvas-confetti": "^1.9.3",
+    "dexie": "^4.0.11",
+    "jwt-decode": "^4.0.0",
+    "ldrs": "^1.0.2",
+    "lucide-react": "^0.476.0",
+    "prop-types": "^15.8.1",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-easy-crop": "^5.4.2",
+    "react-fast-marquee": "^1.6.5",
+    "react-icons": "^5.5.0",
+    "react-router-dom": "^7.2.0",
+    "react-toastify": "^11.0.5",
+    "react-turnstile": "^1.1.4",
+    "socket.io-client": "^4.8.1",
+    "sonner": "^2.0.7",
+    "swiper": "^12.0.3",
+    "uuid": "^13.0.0",
+    "zustand": "^5.0.8"
   },
   "devDependencies": {
-    "prisma": "^6.5.0"
-  },
-  "engines": {
-    "node": ">=18"
+    "@eslint/js": "^9.21.0",
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "@vitejs/plugin-react-swc": "^3.8.0",
+    "autoprefixer": "^10.4.20",
+    "daisyui": "^5.0.0",
+    "eslint": "^9.21.0",
+    "eslint-plugin-react-hooks": "^5.1.0",
+    "eslint-plugin-react-refresh": "^0.4.19",
+    "globals": "^15.15.0",
+    "postcss": "^8.5.3",
+    "rollup-plugin-visualizer": "^6.0.1",
+    "tailwindcss": "4.1.13",
+    "vite": "^6.2.5",
+    "vite-plugin-pwa": "^1.0.0"
   }
 }

@@ -1,0 +1,415 @@
+:root {
+  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  /* color-scheme: light dark; */
+  color: rgba(255, 255, 255, 0.87);
+  /* background-color: #242424; */
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  /* --theme-color: #ffffff: */
+}
+.no-save {
+  pointer-events: none; /* Ngăn mọi tương tác chuột */
+  -webkit-user-drag: none; /* Chrome, Edge, Opera */
+}
+.no-select {
+  user-select: none; /* Chặn chọn chữ trên tất cả trình duyệt */
+  -webkit-user-select: none; /* Safari */
+  -moz-user-select: none; /* Firefox */
+  -ms-user-select: none; /* IE/Edge */
+  pointer-events: none; /* Ngăn mọi tương tác chuột */
+  -webkit-user-drag: none; /* Chrome, Edge, Opera */
+}
+.disable-select {
+  user-select: none; /* Chặn chọn chữ trên tất cả trình duyệt */
+  -webkit-user-select: none; /* Safari */
+  -moz-user-select: none; /* Firefox */
+  -ms-user-select: none; /* IE/Edge */
+  pointer-events: none; /* Ngăn mọi tương tác chuột */
+  -webkit-user-drag: none; /* Chrome, Edge, Opera */
+}
+@keyframes gradientMove {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+.bg-locket {
+  background: linear-gradient(rgb(0, 0, 0), #8f6700);
+  background-size: 200% 200%;
+  /* animation: gradientMove 5s ease infinite; */
+  color: white;
+}
+
+.font-lovehouse {
+  font-family: "LoveHouse", system-ui, Avenir, Helvetica, Arial, sans-serif;
+}
+@font-face {
+  font-family: "LoveHouse";
+  src: url("https://cdn.locket-dio.com/v1/fonts/LoveHouse.woff") format("woff2");
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+.font-purrfect {
+  font-family: "Purrfect", system-ui, Avenir, Helvetica, Arial, sans-serif;
+}
+@font-face {
+  font-family: 'Purrfect';
+  src: url("https://cdn.locket-dio.com/v1/fonts/Purrfect.woff2") format('woff2');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Class để dùng font này */
+/* .sf-compact-rounded-regular {
+  font-family: 'SF Compact Rounded Black', sans-serif;
+} */
+
+@keyframes slideUp {
+  from {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes pulseEffect {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.3);
+    opacity: 0.7;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes expand {
+  from {
+    height: 0;
+  }
+  to {
+    height: 100%;
+  }
+}
+.animate-slideUp {
+  animation: slideUp 0.5s ease-out forwards;
+}
+.animate-pulseEffect {
+  animation: pulseEffect 1.5s infinite ease-in-out;
+  margin-left: -17px;
+}
+.animate-expand {
+  animation: expand 1.5s ease-out forwards;
+}
+
+@keyframes lineDraw {
+  from {
+    height: 0;
+  }
+  to {
+    height: 100%;
+  }
+}
+
+@keyframes pulseBeat {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.1);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes pulseWave {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.5);
+    opacity: 0.5;
+  }
+  100% {
+    transform: scale(2.5);
+    opacity: 0;
+  }
+}
+
+.animate-lineDraw {
+  animation: lineDraw 1.2s ease-out forwards;
+}
+.animate-pulseBeat {
+  animation: strongPulse 1.5s infinite ease-in-out;
+}
+.animate-lightPulse {
+  animation: lightPulse 1.5s infinite ease-out;
+}
+@keyframes arrowRight {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  50% {
+    transform: translateX(5px);
+  }
+}
+
+.arrow-animate {
+  display: inline-block;
+  animation: arrowRight 0.6s infinite ease-in-out;
+}
+@keyframes strongPulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(0.75);
+    opacity: 0.7;
+  }
+}
+
+@keyframes lightPulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.7;
+  }
+  50% {
+    transform: scale(0.9);
+    opacity: 0.5;
+  }
+}
+@keyframes border-run {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 100% 50%; }
+}
+.element {
+  border: 2px dashed blue;
+  /* background: linear-gradient(90deg, blue, transparent); */
+  background-size: 200% 100%;
+  animation: border-run 2s linear infinite;
+}
+
+/* Animation send new moments */
+@layer utilities {
+  .animate-slide-up {
+    animation: slide-up 0.5s forwards;
+  }
+
+  .animate-reset {
+    animation: reset 0s forwards, scale-up 0.5s 0.1s forwards;
+  }
+
+  @keyframes slide-up {
+    0% {
+      opacity: 1;
+      transform: scale(1) translateY(0);
+    }
+    100% {
+      opacity: 0;
+      transform: scale(1) translateY(-100vh); /* Đẩy lên khỏi màn hình */
+    }
+  }
+
+  @keyframes reset {
+    0% {
+      opacity: 0;
+      transform: scale(0) translateY(-100vh);
+    }
+    100% {
+      opacity: 0;
+      transform: scale(0) translateY(0);
+    }
+  }
+
+  @keyframes scale-up {
+    0% {
+      opacity: 0;
+      transform: scale(0);
+    }
+    100% {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+}
+
+
+@keyframes shake-rotate-smooth {
+  0% {
+    transform: rotate(0deg);
+    transform-origin: top center;
+  }
+  10% {
+    transform: rotate(-18deg);
+  }
+  20% {
+    transform: rotate(-9deg);
+  }
+  30% {
+    transform: rotate(0deg);
+  }
+  40% {
+    transform: rotate(9deg);
+  }
+  50% {
+    transform: rotate(18deg);
+  }
+  60% {
+    transform: rotate(9deg);
+  }
+  70% {
+    transform: rotate(0deg);
+  }
+  80% {
+    transform: rotate(-9deg);
+  }
+  90% {
+    transform: rotate(-18deg);
+  }
+  100% {
+    transform: rotate(0deg);
+  }
+}
+
+.shake-animation {
+  animation: shake-rotate-smooth 1s linear infinite;
+  transform-origin: top center;
+}
+
+
+@keyframes marquee-continuous {
+  0%, 20% {
+    transform: translateX(0%);
+  }
+  100% {
+    transform: translateX(-100%);
+  }
+}
+
+.animate-marquee {
+  display: inline-block;
+  white-space: nowrap;
+  animation: marquee-continuous 9s linear infinite;
+}
+
+
+@keyframes bounceY {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+.bounce-y {
+  animation: bounceY 1.5s ease-in-out infinite;
+}
+
+/* InputForMoment.css */
+
+@keyframes custom-shake {
+  0% {
+    transform: translate(0, 0) rotate(0deg) scale(1);
+  }
+  10% {
+    transform: translate(-2px, -1px) rotate(-1deg) scale(1.05);
+  }
+  20% {
+    transform: translate(2px, 1px) rotate(1deg) scale(0.97);
+  }
+  30% {
+    transform: translate(-1px, 2px) rotate(-1.5deg) scale(1.03);
+  }
+  40% {
+    transform: translate(1px, -2px) rotate(1.5deg) scale(0.95);
+  }
+  50% {
+    transform: translate(-2px, 1px) rotate(-1deg) scale(1.1);
+  }
+  60% {
+    transform: translate(2px, -1px) rotate(1deg) scale(0.95);
+  }
+  70% {
+    transform: translate(-1px, -2px) rotate(-1.5deg) scale(1.03);
+  }
+  80% {
+    transform: translate(1px, 2px) rotate(1.5deg) scale(0.97);
+  }
+  90% {
+    transform: translate(-2px, 0) rotate(-1deg) scale(1.05);
+  }
+  100% {
+    transform: translate(0, 0) rotate(0deg) scale(1);
+  }
+}
+
+.shake {
+  animation: custom-shake 0.8s infinite;
+  transform-origin: center;
+}
+
+@keyframes fly-up {
+  0% {
+    transform: translateY(100%) scale(var(--tw-scale-x, 1));
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-100vh) scale(var(--tw-scale-x, 1));
+    opacity: 0;
+  }
+}
+
+.animate-fly-up {
+  animation-name: fly-up;
+  animation-timing-function: ease-out;
+  animation-fill-mode: forwards;
+}
+
+.animated-gradient {
+  background: linear-gradient(270deg, #9333ea, #ec4899, #9333ea);
+  background-size: 400% 400%;
+  color: white;
+  animation: gradientFlow 6s ease infinite;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 12px rgba(236, 72, 153, 0.3);
+  border-radius: 9999px; /* full rounded */
+}
+
+@keyframes gradientFlow {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
