@@ -4,9 +4,9 @@
  */
 
 const PREVIEW_IDEAL = {
-  width: { ideal: 1280, max: 1920 },
-  height: { ideal: 720, max: 1080 },
-  frameRate: { ideal: 24, max: 30 },
+  width: { ideal: 960, max: 1280 },
+  height: { ideal: 720, max: 960 },
+  frameRate: { ideal: 20, max: 24 },
 };
 
 /**

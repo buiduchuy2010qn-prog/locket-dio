@@ -396,7 +396,7 @@ const MediaPreview = ({ capturedMedia }) => {
             autoPlay
             playsInline
             muted
-            className={`w-full h-full object-cover origin-center ${
+            className={`w-full h-full object-cover origin-center will-change-transform ${
               cameraMode === "user" ? "scale-x-[-1]" : ""
             }`}
             style={

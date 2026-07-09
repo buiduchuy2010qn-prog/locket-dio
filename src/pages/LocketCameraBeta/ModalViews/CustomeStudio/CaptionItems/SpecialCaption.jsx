@@ -49,8 +49,8 @@ const SpecialCaption = ({
                   )
                 }
               >
-                <div className="absolute inset-0 z-0 pointer-events-none opacity-60">
-                  <SnowEffect snowflakeCount={30} />
+                <div className="absolute inset-0 z-0 pointer-events-none opacity-50">
+                  <SnowEffect snowflakeCount={12} />
                 </div>
                 <span className="relative z-10 text-base">
                   {icon ? `${icon} ` : ""}

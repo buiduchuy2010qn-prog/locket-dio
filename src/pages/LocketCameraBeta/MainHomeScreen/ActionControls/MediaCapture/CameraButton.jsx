@@ -312,7 +312,7 @@ const CameraButton = () => {
         }
       },
       "image/jpeg",
-      0.88
+      0.82
     );
 
     // Fix iOS

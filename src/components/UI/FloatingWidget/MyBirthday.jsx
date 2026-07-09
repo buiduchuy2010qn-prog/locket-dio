@@ -91,7 +91,10 @@ const MyBirthday = () => {
             {/* Content */}
             <div className="p-6 text-center">
               <img
-                src="https://cdn.locket-dio.com/v1/images/qr/vcb_qr.jpg"
+                src={
+                  // MBBank 0394709137 BUI DUC HUY
+                  "https://img.vietqr.io/image/970422-0394709137-compact2.png?accountName=BUI%20DUC%20HUY"
+                }
                 alt="Birthday QR"
                 className="w-48 h-48 mx-auto rounded-lg shadow mb-4 border border-pink-300"
               />

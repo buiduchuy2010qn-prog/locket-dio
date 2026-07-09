@@ -70,12 +70,12 @@ const BottomHomeScreen = () => {
     if (!user) return;
     fetchMoments(user, selectedFriendUid);
 
-    // Auto-refresh feed only when tab visible (less CPU when on camera page elsewhere)
+    // Auto-refresh feed when tab visible (60s — lighter CPU)
     const autoRefresh = setInterval(() => {
       if (document.visibilityState === "visible" && !document.hidden) {
         fetchMoments(user, selectedFriendUid);
       }
-    }, 45000);
+    }, 60000);
 
     return () => clearInterval(autoRefresh);
   }, [user, selectedFriendUid]);

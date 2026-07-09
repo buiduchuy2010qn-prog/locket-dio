@@ -46,32 +46,32 @@ export const CONFIG = {
         maxVideoSizeMB: 200,
       },
       resolutions: {
-        imageSizePx: 1920, // ảnh vuông
-        videoResolutionPx: 1080,
+        imageSizePx: 1280, // capture/preview balance
+        videoResolutionPx: 720,
       },
       constraints: {
-        // Preview-friendly (smooth on mobile); capture still uses canvas
+        // Lighter preview for mid-range phones
         default: {
-          width: { ideal: 1280, max: 1920 },
-          height: { ideal: 720, max: 1080 },
-          frameRate: { ideal: 24, max: 30 },
+          width: { ideal: 960, max: 1280 },
+          height: { ideal: 720, max: 960 },
+          frameRate: { ideal: 20, max: 24 },
         },
         ultraHD: {
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
         },
       },
     },
     moments: {
-      initialVisible: 50, // Số lượng moments hiển thị ban đầu
-      maxDisplayLimit: 5000, // Giới hạn tối đa moments hiển thị trên client
-      loadMoreLimit: 50, // Số lượng moments tải thêm mỗi lần
-      duplicateThreshold: 3, // Ngưỡng trùng lặp để dừng tải thêm
+      initialVisible: 18, // Ít item đầu → mượt hơn
+      maxDisplayLimit: 2000,
+      loadMoreLimit: 24,
+      duplicateThreshold: 3,
     },
     messages: {
-      initialVisible: 50, // Số lượng messages hiển thị ban đầu
-      maxDisplayLimit: 5000, // Giới hạn tối đa messages hiển thị trên client
-      loadMoreLimit: 50, // Số lượng messages tải thêm mỗi lần
+      initialVisible: 20,
+      maxDisplayLimit: 2000,
+      loadMoreLimit: 30,
     },
     contact: {
       supportEmail: "doibncm2003@gmail.com",
@@ -82,17 +82,23 @@ export const CONFIG = {
       telegram: "https://t.me/ddevdio",
       messenger: "https://m.me/cm/AbYPtgRiGe2fInEf",
     },
+    // Ủng hộ — MBBank BUI DUC HUY
+    // VietQR BIN MB: 970422
     sponsors: {
-      urlImg: "https://cdn.locket-dio.com/v1/images/qr/vcb_qr.jpg",
-      bankName: "Ngân hàng Vietcombank (VCB)",
-      accountNumber: "1051852055",
-      accountName: "DAO VAN DOI",
+      bankName: "Ngân hàng MBBank (MB)",
+      accountNumber: "0394709137",
+      accountName: "BUI DUC HUY",
+      bankBin: "970422",
+      urlImg:
+        "https://img.vietqr.io/image/970422-0394709137-compact2.png?accountName=BUI%20DUC%20HUY",
     },
     bankInfo: {
-      urlImg: "https://cdn.locket-dio.com/v1/images/qr/dio-mbbank-qr.jpg",
       bankName: "Ngân hàng MBBank (MB)",
-      accountNumber: "66222222222266",
-      accountName: "DAO VAN DOI",
+      accountNumber: "0394709137",
+      accountName: "BUI DUC HUY",
+      bankBin: "970422",
+      urlImg:
+        "https://img.vietqr.io/image/970422-0394709137-compact2.png?accountName=BUI%20DUC%20HUY",
     },
     docs: {
       personal_authorization:
