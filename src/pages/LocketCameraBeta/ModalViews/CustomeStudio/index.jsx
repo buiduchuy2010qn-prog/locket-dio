@@ -189,17 +189,23 @@ const ScreenCustomeStudio = () => {
             captionThemes={captionThemes}
             onSelect={handleCustomeSelectTest}
           />
+          {(captionThemes.season?.length > 0) && (
+            <ThemesCustomes
+              title="🎉 Caption Season"
+              presets={captionThemes.season}
+              onSelect={handleCustomeSelect}
+            />
+          )}
           <ThemesCustomes
             title="🎨 Suggest Theme"
             presets={captionThemes.background}
             onSelect={handleCustomeSelect}
           />
           <SpecialCaption
-            title = "⭐ Caption đặc biệt"
+            title="⭐ Caption đặc biệt"
             presets={captionThemes.special}
             onSelect={handleCustomeSelect}
           />
-          {/* Decorative by Locket */}
           <ThemesCustomes
             title="🎨 Decorative by Locket"
             presets={captionThemes.decorative}

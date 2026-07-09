@@ -37,6 +37,8 @@ export const PUBLIC_API = {
   celebrates: "v1/public/getAllCelebrate",
   notifications: "v1/public/notification",
   plans: "v1/public/dio-plans",
+  // Official: overlays live at getAllOverlaysV2 (v1/public/themes is 404)
   themes: "v1/public/themes",
-  incidents: "v1/public/getAllIncident"
+  overlaysV2: "v1/public/getAllOverlaysV2",
+  incidents: "v1/public/getAllIncident",
 };

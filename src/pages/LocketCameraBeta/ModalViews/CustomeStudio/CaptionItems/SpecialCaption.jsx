@@ -1,76 +1,66 @@
 import SnowEffect from "@/components/Effects/SnowEffect";
-import React, { useState } from "react";
+import React from "react";
 
 const SpecialCaption = ({
   title = "⭐ Caption đặc biệt",
   presets = [],
   onSelect,
 }) => {
-  const [expanded, setExpanded] = useState(false);
-  const isLoading = !presets || presets.length === 0;
-
-  // Giới hạn hiển thị nếu chưa mở rộng
-  // const displayedPresets = expanded ? presets : presets.slice(0, 4);
-  const displayedPresets = presets;
+  const list = Array.isArray(presets) ? presets : [];
+  const isLoading = list.length === 0;
 
   return (
     <div className="px-4">
       {title && (
         <h2 className="text-md font-semibold text-primary mb-2">{title}</h2>
       )}
-      <div className="flex flex-wrap gap-4 pt-2 pb-5 justify-start">
+      <div className="flex flex-wrap gap-3 pt-2 pb-5 justify-start">
         {isLoading ? (
-          <>
-            <button className="flex flex-row whitespace-nowrap items-center justify-center py-2 px-4 btn h-auto w-auto rounded-3xl font-semibold">
-              <img
-                src="https://media4.giphy.com/media/v1.Y2lkPTc5MGI3NjExaTJyaDUyNWkzYjBqaGwycDZ0cWpudmhqbjVkdnBub3hlYXZkMHJ5OSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/3gAO9yx102EYTUG5E6/giphy.gif"
-                alt=""
-                className="w-6 h-6"
-              />
-              <span className="text-base">Caption</span>
-            </button>
-          </>
+          <div className="text-sm text-base-content/60 py-2">
+            Đang tải caption...
+          </div>
         ) : (
-          // <BouncyLoader color="orange" size={30} />
-          displayedPresets.map((preset) => (
-            <button
-              key={preset.preset_id || preset.id}
-              className="relative overflow-hidden **:flex flex-col whitespace-nowrap items-center space-y-1 py-2 px-4 btn h-auto w-auto rounded-3xl font-semibold justify-center"
-              style={{
-                background: `linear-gradient(to bottom, ${preset.color_top}, ${preset.color_bottom})`,
-                color: preset.text_color,
-              }}
-              onClick={() =>
-                onSelect(
-                  preset.preset_id || preset.id,
-                  preset.icon,
-                  preset.color_top,
-                  preset.color_bottom,
-                  preset.preset_caption,
-                  preset.text_color,
-                  preset.type
-                )
-              }
-            >
-              <div className="absolute inset-0 z-0">
-                <SnowEffect snowflakeCount={50} />
-              </div>
-              <span className="text-base">
-                {(preset.icon || "") + " "}
-                {preset.preset_caption || "Caption"}
-              </span>
-            </button>
-          ))
+          list.map((preset) => {
+            const top = preset.color_top || "#444";
+            const bot = preset.color_bottom || "#222";
+            const textColor = preset.text_color || "#FFFFFF";
+            const label =
+              preset.preset_caption || preset.caption || "Caption";
+            const icon = preset.icon || "";
+
+            return (
+              <button
+                key={preset.preset_id || preset.id || label}
+                type="button"
+                className="relative overflow-hidden flex flex-row whitespace-nowrap items-center gap-1.5 py-2 px-4 btn h-auto w-auto rounded-3xl font-semibold justify-center shadow-sm border-0 active:scale-95 transition"
+                style={{
+                  background: `linear-gradient(to bottom, ${top}, ${bot})`,
+                  color: textColor,
+                }}
+                onClick={() =>
+                  onSelect(
+                    preset.preset_id || preset.id,
+                    icon,
+                    top,
+                    bot,
+                    label,
+                    textColor,
+                    preset.type || "special"
+                  )
+                }
+              >
+                <div className="absolute inset-0 z-0 pointer-events-none opacity-60">
+                  <SnowEffect snowflakeCount={30} />
+                </div>
+                <span className="relative z-10 text-base">
+                  {icon ? `${icon} ` : ""}
+                  {label}
+                </span>
+              </button>
+            );
+          })
         )}
       </div>
-      {/* {!isLoading && presets.length > 4 && (
-        <button
-          onClick={() => setExpanded(!expanded)}
-          className="text-primary font-semibold underline mb-4"
-        >
-          {expanded ? "Thu gọn" : "Xem thêm"}
-        </button>
-      )} */}
     </div>
   );
 };
