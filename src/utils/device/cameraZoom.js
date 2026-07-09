@@ -1,8 +1,8 @@
 /**
- * Phone-style camera zoom: multi-lens switch + native track zoom + digital fallback.
+ * Phone-style camera zoom: multi-lens (0.5x ultra-wide) + native track zoom + digital.
  */
 
-/** Read zoom capability from active video track (Chrome Android / Safari partial) */
+/** Read zoom capability from active video track */
 export function getTrackZoomCapability(stream) {
   try {
     const track = stream?.getVideoTracks?.()?.[0];
@@ -14,23 +14,23 @@ export function getTrackZoomCapability(stream) {
     const settings =
       typeof track.getSettings === "function" ? track.getSettings() : {};
 
-    // Standard MediaCapture zoom
     if (caps.zoom && typeof caps.zoom === "object") {
       const min = Number(caps.zoom.min ?? 1);
       const max = Number(caps.zoom.max ?? 1);
       const step = Number(caps.zoom.step ?? 0.1);
-      if (max > min) {
+      if (max > min || min < 1) {
         return {
           track,
           min,
           max,
           step: step > 0 ? step : 0.1,
-          current: Number(settings.zoom ?? min),
+          current: Number(settings.zoom ?? Math.max(min, 1)),
           supported: true,
+          // true 0.5-style when browser exposes zoom.min < 1 (some Android)
+          hasWideNative: min < 0.95,
         };
       }
     }
-    // Some browsers expose zoom as number range differently
     if (typeof caps.zoom === "number" && caps.zoom > 1) {
       return {
         track,
@@ -39,15 +39,24 @@ export function getTrackZoomCapability(stream) {
         step: 0.1,
         current: Number(settings.zoom ?? 1),
         supported: true,
+        hasWideNative: false,
       };
     }
-    return { track, min: 1, max: 1, step: 1, current: 1, supported: false };
+    return {
+      track,
+      min: 1,
+      max: 1,
+      step: 1,
+      current: 1,
+      supported: false,
+      hasWideNative: false,
+    };
   } catch {
     return null;
   }
 }
 
-/** Apply optical/native zoom on track */
+/** Apply optical/native zoom on track (supports zoom < 1 for UW on some devices) */
 export async function applyTrackZoom(stream, zoomValue) {
   const cap = getTrackZoomCapability(stream);
   if (!cap?.supported || !cap.track) return false;
@@ -68,8 +77,8 @@ export async function applyTrackZoom(stream, zoomValue) {
 }
 
 /**
- * Build discrete zoom steps like a phone UI: 0.5 · 1 · 2 · 3 · 5 · max
- * Combines multi-lens deviceIds + native zoom factors.
+ * Build discrete zoom steps: 0.5 · 1 · 2 · 3 · …
+ * 0.5x only when machine has ultra-wide lens OR native zoom.min < 1.
  *
  * @returns {Array<{ label: string, factor: number, deviceId: string|null, mode: 'lens'|'optical'|'digital' }>}
  */
@@ -85,19 +94,21 @@ export function buildZoomSteps({
   const front = cameras.frontCameras || [];
   const back = cameras.backCameras || [];
   const ultra = cameras.backUltraWideCamera;
+  const hasUltra =
+    cameras.hasUltraWide ||
+    Boolean(ultra) ||
+    (cameras.ultraWideDeviceIds || []).length > 0;
   const main =
-    cameras.backNormalCamera ||
-    (back.length ? back[0] : null) ||
-    null;
+    cameras.backNormalCamera || (back.length ? back[0] : null) || null;
   const tele = cameras.backZoomCamera || cameras.backTeleCamera;
 
   if (isFront) {
-    // Front: usually 1x; some phones have ultra-wide front
+    // Front ultra-wide if multiple front cams
     if (front.length > 1) {
       steps.push({
         label: "0.5x",
         factor: 0.5,
-        deviceId: front[1]?.deviceId || front[0]?.deviceId,
+        deviceId: front[front.length - 1]?.deviceId || front[1]?.deviceId,
         mode: "lens",
       });
     }
@@ -108,22 +119,48 @@ export function buildZoomSteps({
       mode: "lens",
     });
   } else if (isBack) {
-    if (ultra) {
+    // --- 0.5x ultra-wide (device-dependent) ---
+    if (hasUltra && ultra?.deviceId) {
       steps.push({
         label: "0.5x",
         factor: 0.5,
         deviceId: ultra.deviceId,
         mode: "lens",
+        ultraCandidates: cameras.ultraWideDeviceIds || [ultra.deviceId],
       });
+    } else if (trackCap?.hasWideNative && trackCap.min < 0.95) {
+      // Native zoom below 1.0 on same lens (rare but real)
+      steps.push({
+        label: "0.5x",
+        factor: Math.max(trackCap.min, 0.5),
+        deviceId: null,
+        mode: "optical",
+      });
+    } else if (back.length >= 2) {
+      // Heuristic second back cam as UW
+      const uw =
+        back.find((d) => d.deviceId !== main?.deviceId) || back[1] || back[0];
+      if (uw?.deviceId) {
+        steps.push({
+          label: "0.5x",
+          factor: 0.5,
+          deviceId: uw.deviceId,
+          mode: "lens",
+          ultraCandidates: back
+            .map((d) => d.deviceId)
+            .filter((id) => id && id !== main?.deviceId),
+        });
+      }
     }
+
     steps.push({
       label: "1x",
       factor: 1,
       deviceId: main?.deviceId || back[0]?.deviceId || null,
       mode: "lens",
     });
-    if (tele) {
-      // Physical tele lens — often ~2x optical
+
+    if (tele?.deviceId) {
       steps.push({
         label: "2x",
         factor: 2,
@@ -133,32 +170,30 @@ export function buildZoomSteps({
     }
   }
 
-  // Native optical/digital zoom on current (or main) track
-  if (trackCap?.supported && trackCap.max > 1.01) {
+  // Optical zoom steps on main lens (factor > 1)
+  if (trackCap?.supported && trackCap.max > 1.05) {
     const candidates = [1.5, 2, 3, 5, 8, 10].filter(
-      (f) => f >= trackCap.min - 0.01 && f <= trackCap.max + 0.01
+      (f) => f >= trackCap.min - 0.01 && f <= trackCap.max + 0.05
     );
-    // Always include max if interesting
-    if (trackCap.max >= 1.5 && !candidates.includes(Math.round(trackCap.max))) {
+    if (trackCap.max >= 1.5) {
       const rounded = Math.round(trackCap.max * 10) / 10;
-      if (rounded > 1) candidates.push(rounded);
+      if (rounded > 1 && !candidates.some((c) => Math.abs(c - rounded) < 0.15)) {
+        candidates.push(rounded);
+      }
     }
     for (const f of candidates) {
       const label = `${f % 1 === 0 ? f : f.toFixed(1)}x`;
-      // Skip if we already have a lens step with same label
-      if (steps.some((s) => s.label === label || Math.abs(s.factor - f) < 0.05)) {
-        continue;
-      }
+      if (steps.some((s) => Math.abs(s.factor - f) < 0.08)) continue;
       steps.push({
         label,
         factor: f,
-        deviceId: null, // stay on current stream, apply zoom
+        deviceId: null,
         mode: "optical",
       });
     }
   }
 
-  // Deduplicate by factor, sort ascending
+  // Sort + dedupe
   const seen = new Set();
   const unique = [];
   for (const s of steps.sort((a, b) => a.factor - b.factor)) {
@@ -168,12 +203,11 @@ export function buildZoomSteps({
     unique.push(s);
   }
 
-  // Ensure at least 1x
   if (!unique.length) {
     unique.push({ label: "1x", factor: 1, deviceId: null, mode: "lens" });
   }
 
-  // If only 1x, add digital zoom steps for pinch-like control
+  // No multi-lens and no optical: digital zoom-in only (NOT fake 0.5 — that would crop not widen)
   if (unique.length === 1 && unique[0].factor === 1) {
     unique.push(
       { label: "1.5x", factor: 1.5, deviceId: null, mode: "digital" },
@@ -185,7 +219,6 @@ export function buildZoomSteps({
   return unique;
 }
 
-/** Next step in cycle after current label/factor */
 export function nextZoomStep(steps, currentLabel, currentFactor = 1) {
   if (!steps?.length) return null;
   let idx = steps.findIndex(

@@ -1,99 +1,136 @@
 /**
  * Enumerate and classify phone cameras (front / ultra-wide / main / tele).
+ * Labels vary a lot by OEM (Samsung, Xiaomi, Pixel, Oppo, iPhone…).
  */
+
+const FRONT_RE =
+  /mặt trước|front|user|trước|facing\s*front|facing:\s*front|facetime|selfie/i;
+const BACK_RE =
+  /mặt sau|back|rear|environment|sau|facing\s*back|facing:\s*back|world/i;
+
+// Ultra-wide / 0.5x — as many OEM strings as possible
+const ULTRA_RE =
+  /cực\s*rộng|siêu\s*rộng|góc\s*rộng|ultra\s*-?\s*wide|ultrawide|uwide|\buw\b|0\s*\.?\s*5\s*x|0,5\s*x|wide\s*angle|wideangle|camera2\s*2|logical.?camera.?id.?2|macro/i;
+
+const TELE_RE =
+  /chụp\s*xa|tele\s*photo|telephoto|\btele\b|periscope|2\s*x|3\s*x|5\s*x|10\s*x|zoom\s*camera|camera2\s*[34]/i;
+
+const MAIN_RE =
+  /bình\s*thường|chính|\bmain\b|1\s*x|primary|wide(?!\s*angle)|camera\s*kép|dual|camera2\s*0/i;
+
+function classifyLabel(label) {
+  const l = (label || "").toLowerCase();
+  return {
+    isFront: FRONT_RE.test(l) && !BACK_RE.test(l),
+    isBack: BACK_RE.test(l),
+    isUltra: ULTRA_RE.test(l),
+    isTele: TELE_RE.test(l) && !ULTRA_RE.test(l),
+    isMain: MAIN_RE.test(l) && !ULTRA_RE.test(l) && !TELE_RE.test(l),
+  };
+}
+
 export const getAvailableCameras = async () => {
   let devices = await navigator.mediaDevices.enumerateDevices();
   let videoDevices = devices.filter((d) => d.kind === "videoinput");
-  const needPermission = videoDevices.some((d) => !d.label);
-  if (needPermission) {
+
+  // Need labels → request permission briefly
+  if (videoDevices.some((d) => !d.label)) {
     try {
       const tmp = await navigator.mediaDevices.getUserMedia({
-        video: true,
+        video: { facingMode: { ideal: "environment" } },
         audio: false,
       });
       tmp.getTracks().forEach((t) => t.stop());
       devices = await navigator.mediaDevices.enumerateDevices();
       videoDevices = devices.filter((d) => d.kind === "videoinput");
     } catch (_) {
-      /* ignore */
+      try {
+        const tmp = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: false,
+        });
+        tmp.getTracks().forEach((t) => t.stop());
+        devices = await navigator.mediaDevices.enumerateDevices();
+        videoDevices = devices.filter((d) => d.kind === "videoinput");
+      } catch (__) {
+        /* ignore */
+      }
     }
   }
 
   const frontCameras = [];
   const backCameras = [];
+  const ultraCandidates = [];
+  const teleCandidates = [];
+  const mainCandidates = [];
 
-  let backUltraWideCamera = null;
-  let backNormalCamera = null;
-  let backZoomCamera = null;
-  let backTeleCamera = null;
+  videoDevices.forEach((device, index) => {
+    const label = device.label || "";
+    const c = classifyLabel(label);
 
-  videoDevices.forEach((device) => {
-    const label = (device.label || "").toLowerCase();
-
-    const isFront =
-      /mặt trước|front|user|trước|facing front|facing: front/.test(label) ||
-      /camera2 1/.test(label);
-    const isBack =
-      /mặt sau|back|rear|environment|sau|facing back|facing: back/.test(
-        label
-      ) || /camera2 0/.test(label);
-
-    if (isFront && !isBack) {
+    if (c.isFront) {
       frontCameras.push(device);
       return;
     }
 
-    if (isBack || (!isFront && label)) {
-      // Default unlabeled extras after first often back on Android
-      if (!isFront) backCameras.push(device);
+    // Treat as back if labeled back OR unknown (most multi-cams are back)
+    const asBack = c.isBack || !c.isFront;
+    if (asBack) {
+      backCameras.push(device);
+    }
 
-      if (
-        /cực rộng|ultra.?wide|ultrawide|0\.5x|góc rộng|wide angle|camera2 2/.test(
-          label
-        )
-      ) {
-        backUltraWideCamera ??= device;
-      } else if (
-        /chụp xa|tele|telephoto|zoom|2x|3x|5x|periscope|camera2 3|camera2 4/.test(
-          label
-        )
-      ) {
-        backZoomCamera ??= device;
-        backTeleCamera ??= device;
-      } else if (
-        isBack ||
-        /camera kép|bình thường|1x|wide|chính|main|dual/.test(label)
-      ) {
-        if (
-          !/cực rộng|ultra|tele|zoom|0\.5|chụp xa/.test(label) ||
-          /1x|main|chính|wide(?! angle)/.test(label)
-        ) {
-          backNormalCamera ??= device;
-        }
-      }
+    if (c.isUltra) {
+      ultraCandidates.push(device);
+    } else if (c.isTele) {
+      teleCandidates.push(device);
+    } else if (c.isMain || c.isBack) {
+      mainCandidates.push(device);
     }
   });
 
-  // Heuristic when labels empty/generic (Android often "camera 0,1,2")
-  if (!backNormalCamera && backCameras.length) {
-    backNormalCamera = backCameras[0];
+  // --- Heuristics when labels are weak (common on Android WebView/Chrome) ---
+  // Order is often: 0=main/back, 1=front OR ultra, 2=ultra/tele
+  if (!mainCandidates.length && backCameras.length) {
+    mainCandidates.push(backCameras[0]);
   }
-  if (!backUltraWideCamera && backCameras.length >= 2) {
-    // Often index 1 or 2 is ultra-wide
-    backUltraWideCamera = backCameras[1] || backCameras[backCameras.length - 1];
+
+  if (!ultraCandidates.length && backCameras.length >= 2) {
+    // Prefer later indices for ultra-wide on many Androids (camera2 2)
+    const guess =
+      backCameras.find((d, i) => i >= 1 && !teleCandidates.includes(d)) ||
+      backCameras[backCameras.length - 1];
+    if (guess && guess !== mainCandidates[0]) {
+      ultraCandidates.push(guess);
+    }
   }
-  if (!backZoomCamera && backCameras.length >= 3) {
-    backZoomCamera = backCameras[2];
-    backTeleCamera = backCameras[2];
-  }
-  if (!frontCameras.length) {
-    // Last resort: first non-back
-    videoDevices.forEach((d) => {
-      if (!backCameras.find((b) => b.deviceId === d.deviceId)) {
-        frontCameras.push(d);
-      }
+
+  // If only "Camera 0, Camera 1, Camera 2" style — index 0 main, 2 ultra often
+  if (!ultraCandidates.length && videoDevices.length >= 3) {
+    const byIndex = videoDevices.filter((d) => {
+      const l = (d.label || "").toLowerCase();
+      return !FRONT_RE.test(l);
     });
+    if (byIndex.length >= 2) {
+      ultraCandidates.push(byIndex[byIndex.length - 1]);
+    }
   }
+
+  if (!frontCameras.length) {
+    videoDevices.forEach((d) => {
+      if (FRONT_RE.test(d.label || "")) frontCameras.push(d);
+    });
+    // Still empty: leave empty (desktop)
+  }
+
+  const backUltraWideCamera = ultraCandidates[0] || null;
+  const backNormalCamera =
+    mainCandidates[0] || backCameras[0] || null;
+  const backZoomCamera = teleCandidates[0] || null;
+
+  // All ultra candidates (for fallback if first deviceId fails open)
+  const ultraWideDeviceIds = [
+    ...new Set(ultraCandidates.map((d) => d.deviceId).filter(Boolean)),
+  ];
 
   return {
     allCameras: videoDevices,
@@ -102,6 +139,43 @@ export const getAvailableCameras = async () => {
     backUltraWideCamera,
     backNormalCamera,
     backZoomCamera,
-    backTeleCamera: backTeleCamera || backZoomCamera,
+    backTeleCamera: backZoomCamera,
+    ultraWideDeviceIds,
+    hasUltraWide: Boolean(backUltraWideCamera || ultraWideDeviceIds.length),
   };
 };
+
+/**
+ * Try opening each ultra-wide candidate; return first working deviceId.
+ * Optional: prefer facingMode environment only as last resort (not true 0.5).
+ */
+export async function resolveUltraWideDeviceId(cameras) {
+  const ids = [];
+  if (cameras?.backUltraWideCamera?.deviceId) {
+    ids.push(cameras.backUltraWideCamera.deviceId);
+  }
+  for (const id of cameras?.ultraWideDeviceIds || []) {
+    if (!ids.includes(id)) ids.push(id);
+  }
+  // Other back cams except main (might be UW)
+  const mainId = cameras?.backNormalCamera?.deviceId;
+  for (const d of cameras?.backCameras || []) {
+    if (d.deviceId !== mainId && !ids.includes(d.deviceId)) {
+      ids.push(d.deviceId);
+    }
+  }
+
+  for (const deviceId of ids) {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { deviceId: { exact: deviceId } },
+        audio: false,
+      });
+      stream.getTracks().forEach((t) => t.stop());
+      return deviceId;
+    } catch (_) {
+      /* try next */
+    }
+  }
+  return null;
+}

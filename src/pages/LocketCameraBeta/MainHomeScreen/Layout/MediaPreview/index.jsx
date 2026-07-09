@@ -200,30 +200,95 @@ const MediaPreview = ({ capturedMedia }) => {
     };
   }, [stopCamera]);
 
-  /** Apply a zoom step (lens switch and/or optical/digital) */
+  /** Apply a zoom step (lens switch and/or optical/digital). 0.5x = real ultra-wide when available. */
   const applyZoomStep = useCallback(
     async (step) => {
       if (!step) return;
       setZoomLevel(step.label);
       setZoomFactor(step.factor);
+      setDigitalScale(1);
 
-      if (step.mode === "lens" && step.deviceId) {
-        // Different physical lens → reopen stream with that deviceId
-        if (step.deviceId !== deviceId) {
-          setDeviceId(step.deviceId);
-        } else {
-          // same device, reset optical
-          setDigitalScale(1);
-          if (streamRef.current) await applyTrackZoom(streamRef.current, 1);
+      // ----- 0.5x / multi-lens -----
+      if (step.mode === "lens") {
+        let targetId = step.deviceId;
+
+        // Ultra-wide: try candidates until one opens
+        if (step.factor < 0.9) {
+          try {
+            if (!camerasCacheRef.current) {
+              camerasCacheRef.current = await getAvailableCameras();
+            }
+            const cams = camerasCacheRef.current;
+            const candidates = [
+              step.deviceId,
+              ...(step.ultraCandidates || []),
+              ...(cams.ultraWideDeviceIds || []),
+              cams.backUltraWideCamera?.deviceId,
+            ].filter(Boolean);
+            const uniq = [...new Set(candidates)];
+
+            let opened = null;
+            for (const id of uniq) {
+              try {
+                const test = await openCameraStream({
+                  facingMode: cameraMode || "environment",
+                  deviceId: id,
+                });
+                stopMediaStream(test);
+                opened = id;
+                break;
+              } catch (_) {
+                /* try next UW camera */
+              }
+            }
+
+            if (opened) {
+              targetId = opened;
+            } else {
+              // Native zoom.min < 1 on main camera?
+              if (streamRef.current) {
+                const ok = await applyTrackZoom(streamRef.current, 0.5);
+                if (ok) {
+                  setZoomLevel("0.5x");
+                  setZoomFactor(0.5);
+                  return;
+                }
+              }
+              showInfo(
+                "Máy này không có camera 0.5x (góc siêu rộng) trên trình duyệt"
+              );
+              // stay / revert UI to 1x
+              setZoomLevel("1x");
+              setZoomFactor(1);
+              return;
+            }
+          } catch (e) {
+            console.error("0.5x open failed", e);
+            showInfo("Không bật được 0.5x trên máy này");
+            setZoomLevel("1x");
+            setZoomFactor(1);
+            return;
+          }
         }
+
+        // 1x / tele lens switch
+        if (targetId && targetId !== deviceId) {
+          setDeviceId(targetId);
+          return;
+        }
+        if (targetId && targetId === deviceId) {
+          if (streamRef.current) await applyTrackZoom(streamRef.current, 1);
+          return;
+        }
+        // lens step without deviceId → facingMode only
+        setDeviceId(null);
         return;
       }
 
-      // Optical or digital on current stream
+      // ----- Optical / digital on current stream -----
       if (step.mode === "optical" || step.mode === "digital") {
-        // Stay on current device; clear forced deviceId if we were on ultra-wide
+        // Leaving ultra-wide → main lens for zoom-in
         if (deviceId && step.factor >= 1) {
-          // Prefer main lens for >=1x zoom
           try {
             if (!camerasCacheRef.current) {
               camerasCacheRef.current = await getAvailableCameras();
@@ -232,9 +297,10 @@ const MediaPreview = ({ capturedMedia }) => {
               camerasCacheRef.current.backNormalCamera?.deviceId ||
               camerasCacheRef.current.backCameras?.[0]?.deviceId ||
               camerasCacheRef.current.frontCameras?.[0]?.deviceId;
-            if (main && main !== deviceId && step.factor >= 1) {
+            if (main && main !== deviceId) {
               setDeviceId(main);
-              return; // startCamera will apply zoom after reopen
+              // zoom applied after stream restart via zoomFactor state
+              return;
             }
           } catch (_) {
             /* ignore */
@@ -242,9 +308,20 @@ const MediaPreview = ({ capturedMedia }) => {
         }
 
         if (streamRef.current) {
+          if (step.factor < 1) {
+            const ok = await applyTrackZoom(streamRef.current, step.factor);
+            if (!ok) {
+              showInfo("Máy không hỗ trợ zoom 0.5x");
+              setZoomLevel("1x");
+              setZoomFactor(1);
+            }
+            setDigitalScale(1);
+            return;
+          }
           if (step.mode === "optical" || step.factor > 1) {
             const ok = await applyTrackZoom(streamRef.current, step.factor);
-            setDigitalScale(ok ? 1 : step.factor);
+            // Digital only for zoom-in (not fake wide)
+            setDigitalScale(ok ? 1 : Math.max(1, step.factor));
           } else {
             await applyTrackZoom(streamRef.current, 1);
             setDigitalScale(1);
@@ -252,7 +329,14 @@ const MediaPreview = ({ capturedMedia }) => {
         }
       }
     },
-    [deviceId, setDeviceId, setZoomFactor, setZoomLevel, streamRef]
+    [
+      cameraMode,
+      deviceId,
+      setDeviceId,
+      setZoomFactor,
+      setZoomLevel,
+      streamRef,
+    ]
   );
 
   const handleCycleZoomCamera = async () => {
