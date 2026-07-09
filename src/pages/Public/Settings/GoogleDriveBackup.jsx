@@ -191,19 +191,61 @@ export default function GoogleDriveBackup({ forceShow = false }) {
             {loading
               ? "Đang kiểm tra…"
               : enabled
-                ? "✅ Backup Drive: ĐANG BẬT (OAuth)"
+                ? status?.source?.includes("env")
+                  ? "✅ Backup Drive: BẬT VĨNH VIỄN (env Render)"
+                  : "✅ Backup Drive: ĐANG BẬT (tạm — nên set env Render)"
                 : "⚠️ CHƯA SẴN SÀNG — đăng nhập Google bên dưới"}
           </span>
         </div>
 
-        <div className="alert alert-error text-xs py-2">
-          <span>
-            <b>Vì sao hay bị “CHƯA SẴN SÀNG”?</b> Render free{" "}
-            <b>xóa file cấu hình</b> mỗi lần deploy code. Liên kết form chỉ tạm.
-            Sau khi OAuth xong, copy 4 dòng env hiện trên trang thành công → dán
-            vào <b>Render → Environment</b> thì <b>không mất nữa</b>.
-          </span>
-        </div>
+        {enabled && status?.source?.includes("env") ? (
+          <div className="alert alert-success text-xs py-2">
+            <span>
+              <b>Đã liên kết vĩnh viễn.</b> Cấu hình nằm trong Environment
+              Render — deploy code bao nhiêu lần cũng không mất.
+            </span>
+          </div>
+        ) : (
+          <div className="alert alert-error text-xs py-2 space-y-2">
+            <p>
+              <b>Liên kết vĩnh viễn được</b> — làm đúng 2 bước:
+            </p>
+            <ol className="list-decimal pl-4 space-y-1">
+              <li>
+                Dán Client ID + Secret + Folder ID →{" "}
+                <b>Lưu &amp; Đăng nhập Google</b>
+              </li>
+              <li>
+                Trang thành công hiện <b>4 dòng env</b> → copy → vào{" "}
+                <a
+                  className="link link-primary font-bold"
+                  href="https://dashboard.render.com"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Render Dashboard
+                </a>{" "}
+                → service <b>huy-locket</b> → <b>Environment</b> → dán 4 biến →{" "}
+                <b>Save</b>
+              </li>
+            </ol>
+            <p className="opacity-90">
+              4 biến:{" "}
+              <code className="bg-base-300 px-1">GOOGLE_OAUTH_CLIENT_ID</code>{" "}
+              <code className="bg-base-300 px-1">
+                GOOGLE_OAUTH_CLIENT_SECRET
+              </code>{" "}
+              <code className="bg-base-300 px-1">
+                GOOGLE_OAUTH_REFRESH_TOKEN
+              </code>{" "}
+              <code className="bg-base-300 px-1">GOOGLE_DRIVE_FOLDER_ID</code>
+            </p>
+            <p>
+              Chỉ dán form mà <b>không</b> set env → lần deploy sau bị{" "}
+              <b>CHƯA SẴN SÀNG</b> lại (Render free xóa file tạm).
+            </p>
+          </div>
+        )}
 
         {status?.warning && (
           <div className="alert alert-warning text-xs py-2">
