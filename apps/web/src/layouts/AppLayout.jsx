@@ -1,10 +1,9 @@
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import {
-  Home, Camera, Users, Images, Flame, Bell, Crown, User, Settings, LogOut, Sparkles, Link2, MessageCircle,
+  Home, Camera, Users, Images, Flame, Bell, User, Settings, LogOut, MessageCircle,
 } from 'lucide-react'
 import Logo from '../components/Logo'
 import Avatar from '../components/Avatar'
-import { GoldPill } from '../components/GoldBadge'
 import ToastStack from '../components/Toast'
 import UpgradeModal from '../components/UpgradeModal'
 import { useApp } from '../context/AppContext'
@@ -13,16 +12,14 @@ import * as api from '../api/index.js'
 
 const nav = [
   { to: '/app/feed', label: 'Feed', icon: Home },
-  { to: '/app/upload', label: 'Upload', icon: Camera },
-  { to: '/app/friends', label: 'Friends', icon: Users },
-  { to: '/app/gallery', label: 'Gallery', icon: Images },
+  { to: '/app/upload', label: 'Camera', icon: Camera },
+  { to: '/app/friends', label: 'Bạn bè', icon: Users },
+  { to: '/app/gallery', label: 'Lịch sử', icon: Images },
   { to: '/app/streaks', label: 'Streaks', icon: Flame },
-  { to: '/app/notifications', label: 'Notifications', icon: Bell, badge: true },
-  { to: '/app/gold', label: 'Dio Gold', icon: Crown },
+  { to: '/app/notifications', label: 'Thông báo', icon: Bell, badge: true },
   { to: '/app/chat', label: 'Chat', icon: MessageCircle },
-  { to: '/app/official-sync', label: 'Official Sync', icon: Link2 },
-  { to: '/app/profile', label: 'Profile', icon: User },
-  { to: '/app/settings', label: 'Settings', icon: Settings },
+  { to: '/app/profile', label: 'Hồ sơ', icon: User },
+  { to: '/app/settings', label: 'Cài đặt', icon: Settings },
 ]
 
 const mobileNav = [
@@ -93,11 +90,6 @@ export default function AppLayout() {
               <p className="text-sm font-bold truncate">{user?.displayName}</p>
               <p className="text-[11px] text-slate-400 truncate">@{user?.username}</p>
             </div>
-            {user?.isGold ? <GoldPill /> : (
-              <button type="button" onClick={() => navg('/app/gold')} className="text-amber-600">
-                <Sparkles size={16} />
-              </button>
-            )}
           </div>
           <button
             type="button"
@@ -123,9 +115,6 @@ export default function AppLayout() {
                 </span>
               )}
             </NavLink>
-            <NavLink to="/app/gold" className="p-2 rounded-xl gold-gradient text-white">
-              <Crown size={18} />
-            </NavLink>
           </div>
         </header>
 
@@ -138,69 +127,45 @@ export default function AppLayout() {
           <aside className="hidden xl:block w-72 shrink-0 space-y-4 sticky top-6 self-start">
             <div className="rounded-3xl bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 p-4 shadow-[var(--shadow-soft)]">
               <h3 className="font-bold text-sm mb-3">Hoạt động bạn bè</h3>
-              <div className="space-y-3">
-                {activity.map((f) => (
-                  <div key={f.userId} className="flex items-center gap-2">
-                    <div className="relative">
-                      <Avatar user={f.user} size="sm" />
-                      {f.user?.online && (
-                        <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-400 rounded-full border-2 border-white dark:border-slate-900" />
+              {activity.length === 0 ? (
+                <p className="text-xs text-slate-400 py-2">
+                  Chưa có bạn bè. Vào <button type="button" className="text-amber-600 font-semibold" onClick={() => navg('/app/friends')}>Bạn bè</button> để thêm người thật.
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {activity.map((f) => (
+                    <div key={f.userId || f.user?.id} className="flex items-center gap-2">
+                      <div className="relative">
+                        <Avatar user={f.user} size="sm" />
+                        {f.user?.online && (
+                          <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-400 rounded-full border-2 border-white dark:border-slate-900" />
+                        )}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold truncate">{f.user?.displayName || f.user?.username}</p>
+                        <p className="text-[11px] text-slate-400">{f.user?.online ? 'Đang online' : 'Gần đây'}</p>
+                      </div>
+                      {f.streak > 0 && (
+                        <span className="ml-auto text-xs font-bold text-orange-500">🔥 {f.streak}</span>
                       )}
                     </div>
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold truncate">{f.user?.displayName}</p>
-                      <p className="text-[11px] text-slate-400">{f.user?.online ? 'Đang online' : 'Gần đây'}</p>
-                    </div>
-                    {f.streak > 0 && (
-                      <span className="ml-auto text-xs font-bold text-orange-500">🔥 {f.streak}</span>
-                    )}
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className="rounded-3xl bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 p-4 shadow-[var(--shadow-soft)]">
               <h3 className="font-bold text-sm mb-3">Streak nhắc nhở</h3>
               {streaks.length === 0 ? (
-                <p className="text-xs text-slate-400">Chưa có streak — đăng moment với bạn bè!</p>
+                <p className="text-xs text-slate-400">Chưa có streak — đăng moment với bạn bè thật!</p>
               ) : (
                 streaks.map((s) => (
                   <div key={s.friendId} className="flex items-center gap-2 py-1.5">
                     <Avatar user={s.user} size="xs" />
-                    <span className="text-sm flex-1 truncate">{s.user?.displayName}</span>
+                    <span className="text-sm flex-1 truncate">{s.user?.displayName || s.user?.username}</span>
                     <span className="text-xs font-bold text-orange-500">🔥 {s.count}</span>
                   </div>
                 ))
-              )}
-            </div>
-
-            <div className="rounded-3xl gold-gradient p-4 text-white shadow-[var(--shadow-gold)]">
-              <p className="text-xs font-semibold opacity-90">Trạng thái Gold</p>
-              <p className="font-extrabold text-lg mt-0.5">
-                {user?.isGold ? 'Locket Dio Gold (in-app)' : 'Gói Free'}
-              </p>
-              <p className="text-xs opacity-90 mt-1">
-                {user?.isGold
-                  ? 'In-app only — not official Locket Gold'
-                  : 'Nâng cấp Dio Gold (không liên quan Locket Gold)'}
-              </p>
-              {!user?.isGold && (
-                <button
-                  type="button"
-                  onClick={() => navg('/app/gold')}
-                  className="mt-3 w-full py-2 rounded-xl bg-white text-amber-800 text-sm font-bold"
-                >
-                  Nâng cấp Gold
-                </button>
-              )}
-              {user?.isGold && (
-                <button
-                  type="button"
-                  onClick={() => navg('/app/gold/customize')}
-                  className="mt-3 w-full py-2 rounded-xl bg-white/20 backdrop-blur text-sm font-bold"
-                >
-                  Tùy chỉnh Gold
-                </button>
               )}
             </div>
           </aside>

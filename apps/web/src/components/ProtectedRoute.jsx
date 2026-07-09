@@ -10,7 +10,7 @@ export default function ProtectedRoute({ children }) {
       <div className="min-h-screen flex items-center justify-center sparkle-bg">
         <div className="text-center">
           <div className="w-14 h-14 mx-auto rounded-2xl gold-gradient animate-pulse mb-3" />
-          <p className="text-sm text-slate-500 font-medium">Đang tải Piclet Gold…</p>
+          <p className="text-sm text-slate-500 font-medium">Đang tải Locket Dio…</p>
         </div>
       </div>
     )

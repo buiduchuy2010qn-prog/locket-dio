@@ -2,9 +2,8 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useApp } from '../context/AppContext'
 import Avatar from '../components/Avatar'
-import { GoldPill, BadgePreview } from '../components/GoldBadge'
 import { PROFILE_BACKGROUNDS } from '../data/constants'
-import { Settings, Crown, Flame, Images } from 'lucide-react'
+import { Settings, Palette, Flame, Images } from 'lucide-react'
 
 export default function Profile() {
   const { user, updateUser, toast } = useApp()
@@ -29,7 +28,7 @@ export default function Profile() {
 
   return (
     <div className="px-4 md:px-0 max-w-xl mx-auto">
-      <div className={`rounded-3xl overflow-hidden border border-slate-100 dark:border-slate-800 shadow-[var(--shadow-card)] bg-gradient-to-br ${bg.className} ${user?.isGold ? 'animate-[goldPulse_3s_ease-in-out_infinite]' : ''}`}>
+      <div className={`rounded-3xl overflow-hidden border border-slate-100 dark:border-slate-800 shadow-[var(--shadow-card)] bg-gradient-to-br ${bg.className}`}>
         <div className="h-28 md:h-36" />
         <div className="bg-white/90 dark:bg-slate-900/95 backdrop-blur px-5 pb-5 -mt-12 relative">
           <div className="flex justify-between items-end">
@@ -38,25 +37,17 @@ export default function Profile() {
               <Link to="/app/settings" className="p-2 rounded-xl border border-slate-200 dark:border-slate-700">
                 <Settings size={18} />
               </Link>
-              {!user?.isGold ? (
-                <Link to="/app/gold" className="px-3 py-2 rounded-xl gold-gradient text-white text-xs font-bold flex items-center gap-1">
-                  <Crown size={14} /> Gold
-                </Link>
-              ) : (
-                <Link to="/app/gold/customize" className="px-3 py-2 rounded-xl border border-amber-300 text-amber-700 text-xs font-bold">
-                  Customize
-                </Link>
-              )}
+              <Link to="/app/gold/customize" className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold flex items-center gap-1">
+                <Palette size={14} /> Theme
+              </Link>
             </div>
           </div>
           <div className="mt-3">
             <div className="flex items-center gap-2 flex-wrap">
               <h1 className="text-xl font-extrabold">{user?.displayName}</h1>
-              {user?.isGold && user?.badgeVisible !== false && <BadgePreview styleId={user.badgeStyle} />}
-              {user?.isGold && <GoldPill />}
             </div>
             <p className="text-sm text-slate-500">@{user?.username}</p>
-            <p className={`mt-2 text-sm ${user?.isGold ? 'font-medium bg-gradient-to-r from-amber-700 to-orange-600 bg-clip-text text-transparent' : 'text-slate-600 dark:text-slate-300'}`}>
+            <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
               {user?.bio || 'Chưa có bio'}
             </p>
           </div>

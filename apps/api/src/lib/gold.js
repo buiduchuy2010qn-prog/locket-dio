@@ -1,31 +1,30 @@
-import { isGoldActive } from '@locket-dio/shared'
+/**
+ * All camera / friends / video features unlocked for every user.
+ * "Gold" UI remaining is cosmetic only — not a paywall.
+ */
 import { config } from '../config.js'
-import { AppError } from './errors.js'
 
-export function userIsGold(user) {
-  return isGoldActive(user?.goldSubscription)
+export function userIsGold(_user) {
+  return true
 }
 
-export function requireGold(user, feature = 'Gold feature') {
-  if (!userIsGold(user)) {
-    throw new AppError(`${feature} requires Locket Dio Gold`, 403, 'GOLD_REQUIRED')
-  }
+export function requireGold(_user, _feature = 'feature') {
+  // no-op — full access
 }
 
-export function friendLimit(user) {
-  if (userIsGold(user)) return null
-  return config.freeFriendLimit
+export function friendLimit(_user) {
+  return null // unlimited
 }
 
-export function videoMaxSec(user) {
-  return userIsGold(user) ? config.goldVideoMaxSec : config.freeVideoMaxSec
+export function videoMaxSec(_user) {
+  return config.goldVideoMaxSec || 60
 }
 
-export function maxUploadBytes(user) {
-  const mb = userIsGold(user) ? config.goldMaxUploadMb : config.freeMaxUploadMb
+export function maxUploadBytes(_user) {
+  const mb = config.goldMaxUploadMb || 50
   return mb * 1024 * 1024
 }
 
-export function canUseCameraRoll(user) {
-  return userIsGold(user)
+export function canUseCameraRoll(_user) {
+  return true
 }

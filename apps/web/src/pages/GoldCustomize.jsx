@@ -7,36 +7,21 @@ import { BadgePreview } from '../components/GoldBadge'
 import Avatar from '../components/Avatar'
 
 export default function GoldCustomize() {
-  const { user, updateUser, toast, openUpgrade } = useApp()
+  const { user, updateUser, toast } = useApp()
 
-  const requireGold = (fn) => {
-    if (!user?.isGold) {
-      openUpgrade('Gold customization', 'Theme, icon, badge & profile premium chỉ dành cho Gold.')
-      return
-    }
-    fn()
-  }
-
-  const set = (patch) => requireGold(async () => {
+  const set = async (patch) => {
     await updateUser(patch)
-    toast('Đã lưu tùy chỉnh Gold')
-  })
+    toast('Đã lưu tuỳ chỉnh')
+  }
 
   return (
     <div className="px-4 md:px-0 max-w-2xl mx-auto space-y-6 pb-8">
       <div>
-        <Link to="/app/gold" className="text-sm font-semibold text-amber-600">← Gold</Link>
-        <h1 className="text-2xl font-extrabold mt-1">Gold customization</h1>
-        <p className="text-sm text-slate-500">Icon, camera theme, badge, profile — preview trước khi lưu</p>
+        <Link to="/app/settings" className="text-sm font-semibold text-amber-600">← Cài đặt</Link>
+        <h1 className="text-2xl font-extrabold mt-1">Tuỳ chỉnh</h1>
+        <p className="text-sm text-slate-500">Icon, theme camera, badge, profile — free cho mọi người</p>
       </div>
 
-      {!user?.isGold && (
-        <div className="p-4 rounded-2xl border border-amber-200 bg-amber-50 dark:bg-amber-500/10 text-sm">
-          🔒 Bạn đang xem bản preview. <Link to="/app/gold" className="font-bold text-amber-700">Nâng Gold</Link> để áp dụng.
-        </div>
-      )}
-
-      {/* Preview card */}
       <div className={`rounded-3xl p-5 bg-gradient-to-br ${(PROFILE_BACKGROUNDS.find((b) => b.id === user?.profileBg) || PROFILE_BACKGROUNDS[0]).className} border border-white/40 shadow-[var(--shadow-card)]`}>
         <div className="flex items-center gap-3 bg-white/80 dark:bg-slate-900/80 backdrop-blur rounded-2xl p-4">
           <Avatar user={user} size="lg" />
@@ -51,7 +36,6 @@ export default function GoldCustomize() {
         </div>
       </div>
 
-      {/* App icons */}
       <section>
         <h2 className="font-bold mb-2">App icons</h2>
         <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
@@ -62,19 +46,17 @@ export default function GoldCustomize() {
               onClick={() => set({ appIcon: icon.id })}
               className={`p-3 rounded-2xl border text-center transition ${
                 user?.appIcon === icon.id ? 'border-amber-400 ring-2 ring-amber-300' : 'border-slate-100 dark:border-slate-800'
-              } ${!user?.isGold ? 'opacity-70' : ''}`}
+              }`}
             >
               <div className={`w-12 h-12 mx-auto rounded-2xl bg-gradient-to-br ${icon.gradient} flex items-center justify-center text-xl shadow`}>
                 {icon.emoji}
               </div>
               <p className="text-[10px] font-bold mt-1.5">{icon.name}</p>
-              {!user?.isGold && <p className="text-[9px] text-amber-600">🔒</p>}
             </button>
           ))}
         </div>
       </section>
 
-      {/* Camera themes */}
       <section>
         <h2 className="font-bold mb-2">Camera themes</h2>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
@@ -94,9 +76,8 @@ export default function GoldCustomize() {
         </div>
       </section>
 
-      {/* Badges */}
       <section>
-        <h2 className="font-bold mb-2">Custom Gold badge</h2>
+        <h2 className="font-bold mb-2">Badge</h2>
         <div className="flex flex-wrap gap-2 mb-2">
           {BADGE_STYLES.map((b) => (
             <button
@@ -122,7 +103,6 @@ export default function GoldCustomize() {
         </label>
       </section>
 
-      {/* Profile frames & bg */}
       <section>
         <h2 className="font-bold mb-2">Profile frame</h2>
         <div className="flex flex-wrap gap-2">
@@ -142,7 +122,7 @@ export default function GoldCustomize() {
       </section>
 
       <section>
-        <h2 className="font-bold mb-2">Premium backgrounds</h2>
+        <h2 className="font-bold mb-2">Backgrounds</h2>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
           {PROFILE_BACKGROUNDS.map((b) => (
             <button

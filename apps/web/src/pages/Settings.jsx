@@ -1,6 +1,6 @@
 import { Link, useNavigate } from 'react-router-dom'
 import { useApp } from '../context/AppContext'
-import { Moon, Sun, Bell, Shield, Crown, LogOut, ChevronRight, Bug } from 'lucide-react'
+import { Moon, Sun, Bell, Shield, Palette, LogOut, ChevronRight, Bug } from 'lucide-react'
 
 export default function Settings() {
   const { user, updateUser, toggleTheme, theme, logout, toast } = useApp()
@@ -33,7 +33,7 @@ export default function Settings() {
 
       <section className="rounded-3xl bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 overflow-hidden">
         <h2 className="px-4 pt-4 text-xs font-bold text-slate-400 uppercase flex items-center gap-1"><Bell size={12} /> Thông báo</h2>
-        {['moments', 'friends', 'streaks', 'gold'].map((k) => (
+        {['moments', 'friends', 'streaks'].map((k) => (
           <label key={k} className="flex items-center gap-3 px-4 py-3 border-t border-slate-50 dark:border-slate-800 cursor-pointer">
             <span className="flex-1 text-sm font-medium capitalize">{k}</span>
             <input
@@ -59,18 +59,9 @@ export default function Settings() {
       </section>
 
       <section className="rounded-3xl bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 overflow-hidden">
-        <h2 className="px-4 pt-4 text-xs font-bold text-slate-400 uppercase flex items-center gap-1"><Crown size={12} /> Gold</h2>
-        <div className="px-4 py-3 border-t border-slate-50 dark:border-slate-800 text-sm">
-          <p className="font-semibold">Trạng thái: {user?.isGold ? 'Piclet Gold' : 'Free'}</p>
-          <p className="text-xs text-slate-400 mt-0.5">
-            Ad-free: {user?.isGold || user?.adFree ? 'enabled ✓' : 'off'}
-          </p>
-        </div>
-        <Link to="/app/gold" className="flex items-center px-4 py-3 border-t border-slate-50 dark:border-slate-800 text-sm font-semibold text-amber-700">
-          Quản lý / nâng cấp Gold <ChevronRight size={16} className="ml-auto" />
-        </Link>
+        <h2 className="px-4 pt-4 text-xs font-bold text-slate-400 uppercase flex items-center gap-1"><Palette size={12} /> Tuỳ chỉnh</h2>
         <Link to="/app/gold/customize" className="flex items-center px-4 py-3 border-t border-slate-50 dark:border-slate-800 text-sm font-semibold">
-          Tùy chỉnh Gold <ChevronRight size={16} className="ml-auto" />
+          Theme camera & profile <ChevronRight size={16} className="ml-auto" />
         </Link>
       </section>
 

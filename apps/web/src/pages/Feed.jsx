@@ -68,7 +68,7 @@ export default function Feed() {
         </div>
       ))}
 
-      <Modal open={!!insights} onClose={() => setInsights(null)} title="Gold Insights" wide>
+      <Modal open={!!insights} onClose={() => setInsights(null)} title="Insights" wide>
         {insights && (
           <div className="space-y-4">
             <p className="text-sm text-slate-500">Chỉ bạn (chủ moment) thấy được thông tin này.</p>

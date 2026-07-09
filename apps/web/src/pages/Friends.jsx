@@ -5,11 +5,8 @@ import * as api from '../api/index.js'
 import Avatar from '../components/Avatar'
 import EmptyState from '../components/EmptyState'
 import { useApp } from '../context/AppContext'
-import { FREE_FRIEND_LIMIT } from '../data/constants'
-import { GoldPill } from '../components/GoldBadge'
-
 export default function Friends() {
-  const { user, toast, openUpgrade } = useApp()
+  const { toast } = useApp()
   const [list, setList] = useState([])
   const [q, setQ] = useState('')
   const [results, setResults] = useState([])
@@ -32,9 +29,7 @@ export default function Friends() {
       setUsername('')
       load()
     } catch (e) {
-      if (e.message.includes('Gold') || e.message.includes('tối đa')) {
-        openUpgrade('Unlimited friends', e.message)
-      } else toast(e.message, 'error')
+      toast(e.message, 'error')
     }
   }
 
@@ -53,27 +48,18 @@ export default function Friends() {
   }
 
   const shown = tab === 'close' ? list.filter((f) => f.close) : list
-  const limitInfo = user?.isGold
-    ? { text: 'Không giới hạn (Gold)' }
-    : { text: `${list.length}/${FREE_FRIEND_LIMIT} bạn (Free)` }
 
   return (
     <div className="px-4 md:px-0 max-w-2xl mx-auto space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-extrabold">Friends</h1>
-          <p className="text-sm text-slate-500">{limitInfo.text}</p>
+          <h1 className="text-2xl font-extrabold">Bạn bè</h1>
+          <p className="text-sm text-slate-500">{list.length} người · chỉ hiện bạn thật đã kết nối</p>
         </div>
         <Link to="/app/friends/requests" className="text-sm font-bold text-amber-600">
           Lời mời →
         </Link>
       </div>
-
-      {!user?.isGold && list.length >= FREE_FRIEND_LIMIT - 1 && (
-        <div className="p-3 rounded-2xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 text-sm">
-          Sắp đạt giới hạn Free. <button type="button" className="font-bold text-amber-700" onClick={() => openUpgrade('Unlimited friends', 'Gold: kết nối không giới hạn.')}>Nâng Gold</button>
-        </div>
-      )}
 
       <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-100 dark:border-slate-800 p-4 shadow-[var(--shadow-soft)] space-y-3">
         <label className="text-xs font-bold text-slate-500 uppercase">Thêm bạn bằng username</label>
@@ -81,7 +67,7 @@ export default function Friends() {
           <input
             value={username}
             onChange={(e) => setUsername(e.target.value)}
-            placeholder="vd: hana.bloom"
+            placeholder="username thật"
             className="flex-1 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2.5 text-sm focus:ring-2 focus:ring-amber-400 focus:outline-none"
           />
           <button type="button" onClick={() => add(username)} className="px-4 py-2.5 rounded-xl gold-gradient text-white font-bold text-sm flex items-center gap-1">
@@ -143,7 +129,6 @@ export default function Friends() {
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-1.5">
                   <p className="font-bold text-sm truncate">{f.user?.displayName}</p>
-                  {f.user?.isGold && <GoldPill />}
                 </div>
                 <p className="text-xs text-slate-400">@{f.user?.username} · {f.user?.online ? 'Online' : 'Recent'}</p>
               </div>

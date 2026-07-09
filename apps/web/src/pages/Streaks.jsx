@@ -8,7 +8,7 @@ import { useApp } from '../context/AppContext'
 import { timeAgo } from '../utils/storage'
 
 export default function Streaks() {
-  const { user, toast, openUpgrade } = useApp()
+  const { toast } = useApp()
   const [list, setList] = useState([])
   const [restore, setRestore] = useState(null)
 
@@ -17,10 +17,6 @@ export default function Streaks() {
 
   const doRestore = async () => {
     if (!restore) return
-    if (!user?.isGold) {
-      openUpgrade('Restore streak', 'Chỉ Piclet Gold mới khôi phục streak đã lỡ.')
-      return
-    }
     try {
       await api.restoreStreak(restore.friendId)
       toast('Đã khôi phục streak! 🔥')
@@ -71,13 +67,9 @@ export default function Streaks() {
                 <button
                   type="button"
                   onClick={() => setRestore(s)}
-                  className={`mt-3 w-full py-2 rounded-xl text-xs font-bold ${
-                    user?.isGold
-                      ? 'gold-gradient text-white'
-                      : 'bg-slate-100 dark:bg-slate-800 text-slate-500'
-                  }`}
+                  className="mt-3 w-full py-2 rounded-xl text-xs font-bold gold-gradient text-white"
                 >
-                  {user?.isGold ? 'Khôi phục streak' : '🔒 Restore streak (Gold)'}
+                  Khôi phục streak
                 </button>
               )}
             </div>
@@ -97,7 +89,7 @@ export default function Streaks() {
         }
       >
         <p className="text-sm text-slate-600 dark:text-slate-300">
-          Khôi phục streak với <strong>{restore?.user?.displayName}</strong>? Tính năng Gold — chỉ dùng khi lỡ một ngày.
+          Khôi phục streak với <strong>{restore?.user?.displayName}</strong>?
         </p>
       </Modal>
     </div>

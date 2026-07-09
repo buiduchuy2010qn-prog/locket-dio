@@ -1,15 +1,16 @@
 import { useState } from 'react'
 import { Eye, MoreHorizontal } from 'lucide-react'
 import Avatar from './Avatar'
-import { GoldPill } from './GoldBadge'
 import { timeAgo } from '../utils/storage'
 import { BASIC_REACTIONS, GOLD_REACTIONS } from '../data/constants'
 import { useApp } from '../context/AppContext'
 import * as api from '../api/index.js'
 import { SquareMedia } from './SquareFrame'
 
+const ALL_REACTIONS = [...BASIC_REACTIONS, ...GOLD_REACTIONS]
+
 export default function MomentCard({ post, onReact, onOpenInsights, compact }) {
-  const { user, openUpgrade, toast } = useApp()
+  const { user, toast } = useApp()
   const [picker, setPicker] = useState(false)
   const [local, setLocal] = useState(post)
 
@@ -17,11 +18,7 @@ export default function MomentCard({ post, onReact, onOpenInsights, compact }) {
   const reactionCount = Object.values(local.reactions || {}).reduce((s, a) => s + a.length, 0)
   const seenCount = (local.seenBy || []).length
 
-  const handleReact = async (emoji, isGoldOnly) => {
-    if (isGoldOnly && !user?.isGold) {
-      openUpgrade('Gold Reactions', 'Mở khóa reaction premium & hiệu ứng động với Piclet Gold.')
-      return
-    }
+  const handleReact = async (emoji) => {
     try {
       const updated = await api.reactToMoment(local.id, emoji)
       setLocal({ ...local, ...updated })
@@ -45,7 +42,6 @@ export default function MomentCard({ post, onReact, onOpenInsights, compact }) {
             <span className="font-bold text-sm text-slate-900 dark:text-white truncate">
               {local.user?.displayName || local.user?.username}
             </span>
-            {local.user?.isGold && local.user?.badgeVisible !== false && <GoldPill />}
           </div>
           <p className="text-xs text-slate-400">
             @{local.user?.username} · {timeAgo(local.createdAt)} · Friends only
@@ -92,40 +88,22 @@ export default function MomentCard({ post, onReact, onOpenInsights, compact }) {
             type="button"
             onClick={() => {
               if (local.userId !== user?.id) return
-              if (!user?.isGold) {
-                openUpgrade('Gold Insights', 'Xem ai đã xem moment của bạn với Piclet Gold.')
-                return
-              }
               onOpenInsights?.(local)
             }}
             className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-600"
             title="Seen by"
           >
             <Eye size={14} /> {seenCount}
-            {local.userId === user?.id && !user?.isGold && <span className="text-amber-500">🔒</span>}
           </button>
         </div>
 
         {picker && (
           <div className="absolute z-10 mt-1 p-2 rounded-2xl bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 shadow-xl flex flex-wrap gap-1 max-w-xs">
-            {BASIC_REACTIONS.map((e) => (
-              <button key={e} type="button" onClick={() => handleReact(e, false)} className="text-xl p-1.5 hover:scale-125 transition">
+            {ALL_REACTIONS.map((e) => (
+              <button key={e} type="button" onClick={() => handleReact(e)} className="text-xl p-1.5 hover:scale-125 transition">
                 {e}
               </button>
             ))}
-            <div className="w-full border-t border-slate-100 dark:border-slate-700 my-1 pt-1 flex flex-wrap gap-1">
-              <span className="w-full text-[10px] font-bold text-amber-600 px-1">Gold</span>
-              {GOLD_REACTIONS.map((e) => (
-                <button
-                  key={e}
-                  type="button"
-                  onClick={() => handleReact(e, true)}
-                  className={`text-xl p-1.5 hover:scale-125 transition ${!user?.isGold ? 'opacity-40 grayscale' : ''}`}
-                >
-                  {e}
-                </button>
-              ))}
-            </div>
           </div>
         )}
       </div>

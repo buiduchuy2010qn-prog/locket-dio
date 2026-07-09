@@ -1,12 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  User, MessageCircle, Grid3X3, Camera, SwitchCamera, Zap, ZapOff,
-  Images, MoreHorizontal, Heart, Flame, Send, X, Upload as UploadIcon, Bell, Crown,
+  User, MessageCircle, Grid3X3, SwitchCamera, Zap, ZapOff,
+  Images, MoreHorizontal, Send, Upload as UploadIcon, Bell, Video, Camera,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import * as api from '../api/index.js'
-import { FREE_VIDEO_MAX_SEC, GOLD_VIDEO_MAX_SEC } from '../data/constants'
+import { GOLD_VIDEO_MAX_SEC } from '../data/constants'
 import SquareFrame from '../components/SquareFrame'
 import SquareCropEditor from '../components/SquareCropEditor'
 import { exportSquareCrop } from '../utils/squareCrop'
@@ -16,16 +16,16 @@ import Avatar from '../components/Avatar'
 import { timeAgo } from '../utils/storage'
 
 /**
- * Locket-style camera experience:
- * Mobile = immersive dark/blue full-screen
- * Desktop = white minimal centered square + floating controls
+ * Locket-style camera: photo + video, gallery, square 1:1
+ * Full features — no Gold paywall
  */
 export default function Upload() {
-  const { user, toast, openUpgrade, unreadCount } = useApp()
+  const { user, toast, unreadCount } = useApp()
   const nav = useNavigate()
 
   const [screen, setScreen] = useState('camera') // camera | history | detail | compose
-  const [mode, setMode] = useState('camera') // camera | gallery (toggle pill)
+  const [mode, setMode] = useState('camera') // camera | gallery
+  const [captureKind, setCaptureKind] = useState('photo') // photo | video
   const [facing, setFacing] = useState('environment')
   const [flash, setFlash] = useState(false)
   const [friendsLabel, setFriendsLabel] = useState('Tất cả bạn bè')
@@ -40,14 +40,19 @@ export default function Upload() {
   const [posts, setPosts] = useState([])
   const [selected, setSelected] = useState(null)
   const [msg, setMsg] = useState('')
-  const [audience, setAudience] = useState('FRIENDS') // FRIENDS | CLOSE_FRIENDS
-  const [postResult, setPostResult] = useState(null) // { moment, mediaUrl, caption }
+  const [audience, setAudience] = useState('FRIENDS')
+  const [postResult, setPostResult] = useState(null)
   const [isDesktop, setIsDesktop] = useState(() => window.matchMedia('(min-width: 1024px)').matches)
+  const [recording, setRecording] = useState(false)
+  const [recSec, setRecSec] = useState(0)
 
   const liveRef = useRef(null)
   const streamRef = useRef(null)
   const fileRef = useRef(null)
-  const maxVideo = user?.isGold ? GOLD_VIDEO_MAX_SEC : FREE_VIDEO_MAX_SEC
+  const recorderRef = useRef(null)
+  const chunksRef = useRef([])
+  const recTimerRef = useRef(null)
+  const maxVideo = GOLD_VIDEO_MAX_SEC
 
   useEffect(() => {
     const mq = window.matchMedia('(min-width: 1024px)')
@@ -59,7 +64,6 @@ export default function Upload() {
   useEffect(() => {
     api.fetchFriends().then((f) => {
       setFriendCount(f.length)
-      // Style giống web camera VN: "48 Bạn bè" / "Tất cả bạn bè"
       setFriendsLabel(f.length > 0 ? `${f.length} Bạn bè` : 'Tất cả bạn bè')
     }).catch(() => {})
   }, [])
@@ -73,18 +77,28 @@ export default function Upload() {
   }, [screen, loadHistory])
 
   const stopLive = useCallback(() => {
+    if (recorderRef.current && recorderRef.current.state !== 'inactive') {
+      try { recorderRef.current.stop() } catch { /* ignore */ }
+    }
+    recorderRef.current = null
+    if (recTimerRef.current) {
+      clearInterval(recTimerRef.current)
+      recTimerRef.current = null
+    }
+    setRecording(false)
+    setRecSec(0)
     streamRef.current?.getTracks()?.forEach((t) => t.stop())
     streamRef.current = null
   }, [])
 
   useEffect(() => () => stopLive(), [stopLive])
 
-  const startLive = useCallback(async () => {
+  const startLive = useCallback(async (withAudio = false) => {
     try {
       stopLive()
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: facing, aspectRatio: { ideal: 1 }, width: { ideal: 1280 } },
-        audio: false,
+        audio: withAudio,
       })
       streamRef.current = stream
       if (liveRef.current) {
@@ -98,13 +112,13 @@ export default function Upload() {
 
   useEffect(() => {
     if (screen === 'camera' && mode === 'camera' && !sourceUrl) {
-      startLive()
+      startLive(captureKind === 'video')
     } else if (sourceUrl || screen !== 'camera') {
       stopLive()
     }
-  }, [screen, mode, facing, sourceUrl, startLive, stopLive])
+  }, [screen, mode, facing, sourceUrl, captureKind, startLive, stopLive])
 
-  const capture = () => {
+  const capturePhoto = () => {
     const video = liveRef.current
     if (!video?.videoWidth) return toast('Camera chưa sẵn sàng', 'error')
     const side = Math.min(video.videoWidth, video.videoHeight)
@@ -117,8 +131,86 @@ export default function Upload() {
     stopLive()
     setSourceUrl(canvas.toDataURL('image/jpeg', 0.92))
     setType('image')
+    setDuration(0)
     setCrop({ zoom: 1, offsetX: 0, offsetY: 0 })
     setScreen('compose')
+  }
+
+  const stopRecording = useCallback(() => {
+    if (recorderRef.current && recorderRef.current.state !== 'inactive') {
+      recorderRef.current.stop()
+    }
+    if (recTimerRef.current) {
+      clearInterval(recTimerRef.current)
+      recTimerRef.current = null
+    }
+    setRecording(false)
+  }, [])
+
+  const startRecording = async () => {
+    let stream = streamRef.current
+    if (!stream || !stream.getAudioTracks().length) {
+      await startLive(true)
+      stream = streamRef.current
+    }
+    if (!stream) return toast('Camera chưa sẵn sàng', 'error')
+
+    const mimeCandidates = [
+      'video/webm;codecs=vp9,opus',
+      'video/webm;codecs=vp8,opus',
+      'video/webm',
+      'video/mp4',
+    ]
+    const mime = mimeCandidates.find((m) => typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported?.(m)) || ''
+    if (typeof MediaRecorder === 'undefined') {
+      return toast('Trình duyệt không hỗ trợ quay video — dùng Thư viện', 'error')
+    }
+
+    chunksRef.current = []
+    try {
+      const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined)
+      recorderRef.current = rec
+      rec.ondataavailable = (e) => {
+        if (e.data?.size) chunksRef.current.push(e.data)
+      }
+      rec.onstop = () => {
+        const blob = new Blob(chunksRef.current, { type: rec.mimeType || 'video/webm' })
+        const url = URL.createObjectURL(blob)
+        const v = document.createElement('video')
+        v.onloadedmetadata = () => {
+          const sec = Math.round(v.duration || recSec || 0)
+          setDuration(sec)
+          setSourceUrl(url)
+          setType('video')
+          setScreen('compose')
+          stopLive()
+        }
+        v.src = url
+      }
+      rec.start(200)
+      setRecording(true)
+      setRecSec(0)
+      recTimerRef.current = setInterval(() => {
+        setRecSec((s) => {
+          const next = s + 1
+          if (next >= maxVideo) {
+            stopRecording()
+          }
+          return next
+        })
+      }, 1000)
+    } catch {
+      toast('Không quay được video — thử Thư viện', 'error')
+    }
+  }
+
+  const onShutter = () => {
+    if (captureKind === 'photo') {
+      capturePhoto()
+      return
+    }
+    if (recording) stopRecording()
+    else startRecording()
   }
 
   const readFile = (file, mediaType) => {
@@ -139,6 +231,7 @@ export default function Upload() {
       r.onload = () => {
         setSourceUrl(r.result)
         setType('image')
+        setDuration(0)
         setScreen('compose')
       }
       r.readAsDataURL(file)
@@ -150,7 +243,7 @@ export default function Upload() {
   const post = async () => {
     if (!sourceUrl) return
     if (type === 'video' && duration > maxVideo) {
-      return openUpgrade('Longer videos', `Video tối đa ${maxVideo}s`)
+      return toast(`Video tối đa ${maxVideo}s`, 'error')
     }
     setLoading(true)
     try {
@@ -174,11 +267,7 @@ export default function Upload() {
         syncOfficial: false,
       })
       toast('Đã lưu trên Locket Dio')
-      setPostResult({
-        moment: result,
-        mediaUrl,
-        caption,
-      })
+      setPostResult({ moment: result, mediaUrl, caption })
       setSourceUrl(null)
       setCaption('')
       loadHistory()
@@ -191,7 +280,6 @@ export default function Upload() {
 
   const btnVariant = isDesktop ? 'light' : 'dark'
 
-  /* ─── shared top chrome ─── */
   const TopChrome = ({ dark }) => (
     <div className="absolute top-0 inset-x-0 z-40 safe-pt px-4 pt-3 flex items-center justify-between gap-2 pointer-events-none">
       <div className="pointer-events-auto">
@@ -223,7 +311,6 @@ export default function Upload() {
     </div>
   )
 
-  /* ════════════════ HISTORY (mobile-first dark) ════════════════ */
   if (screen === 'history') {
     return (
       <div className={`fixed inset-0 z-30 lg:relative lg:inset-auto lg:min-h-[80vh] ${isDesktop ? 'bg-white' : 'bg-black'} page-enter`}>
@@ -252,7 +339,6 @@ export default function Upload() {
               </div>
             )}
           </div>
-          {/* floating capture */}
           <div className="fixed bottom-8 inset-x-0 z-40 flex justify-center lg:bottom-10">
             <GlassBtn
               size="xl"
@@ -269,7 +355,6 @@ export default function Upload() {
     )
   }
 
-  /* ════════════════ DETAIL ════════════════ */
   if (screen === 'detail' && selected) {
     return (
       <div className={`fixed inset-0 z-30 flex flex-col ${isDesktop ? 'bg-white' : 'bg-black'} page-enter`}>
@@ -297,7 +382,7 @@ export default function Upload() {
             </div>
           </div>
           <div className="flex gap-2 mt-3">
-            {['❤️', '😍', '🔥'].map((e) => (
+            {['❤️', '😍', '🔥', '✨', '💯'].map((e) => (
               <button
                 key={e}
                 type="button"
@@ -307,9 +392,6 @@ export default function Upload() {
                 {e}
               </button>
             ))}
-            <button type="button" className="w-11 h-11 rounded-full bg-white/10 border border-white/15 text-white active:scale-90 backdrop-blur-md">
-              😊
-            </button>
           </div>
           <div className={`mt-3 flex items-center gap-2 rounded-full px-3 py-2 border ${isDesktop ? 'bg-slate-50 border-slate-200' : 'bg-white/10 border-white/15 backdrop-blur-md'}`}>
             <input
@@ -320,7 +402,7 @@ export default function Upload() {
             />
             <button
               type="button"
-              onClick={() => { if (msg.trim()) { toast('Đã gửi (mock)'); setMsg('') } }}
+              onClick={() => { if (msg.trim()) { toast('Đã gửi'); setMsg('') } }}
               className="text-amber-400 active:scale-90"
             >
               <Send size={18} />
@@ -342,7 +424,6 @@ export default function Upload() {
     )
   }
 
-  /* ════════════════ COMPOSE (crop + audience + post) ════════════════ */
   if (screen === 'compose' && sourceUrl) {
     return (
       <div className={`fixed inset-0 z-30 flex flex-col page-enter ${isDesktop ? 'bg-white' : 'bg-gradient-to-b from-[#0a1628] via-[#0c1a2e] to-black'}`}>
@@ -357,6 +438,11 @@ export default function Upload() {
               </SquareFrame>
             )}
           </div>
+          {type === 'video' && (
+            <p className={`mt-2 text-xs font-semibold ${isDesktop ? 'text-slate-500' : 'text-white/60'}`}>
+              Video · {duration}s (tối đa {maxVideo}s)
+            </p>
+          )}
           <textarea
             value={caption}
             onChange={(e) => setCaption(e.target.value)}
@@ -366,7 +452,6 @@ export default function Upload() {
               isDesktop ? 'bg-slate-50 border border-slate-200' : 'bg-white/10 border border-white/15 text-white placeholder:text-white/40 backdrop-blur-md'
             }`}
           />
-          {/* Audience */}
           <div className="mt-3">
             <p className={`text-xs font-bold mb-1.5 ${isDesktop ? 'text-slate-500' : 'text-white/60'}`}>Audience</p>
             <div className="flex gap-2">
@@ -392,7 +477,7 @@ export default function Upload() {
             </div>
           </div>
           <p className={`mt-2 text-[11px] ${isDesktop ? 'text-slate-400' : 'text-white/45'}`}>
-            Đăng trên Dio · Sau đó tải/share để đăng tay trên app Locket (không auto-sync).
+            Đăng trên Dio · Tải/share để đăng tay trên app Locket (không auto-sync).
           </p>
           <div className="flex gap-2 mt-3">
             <button
@@ -416,7 +501,6 @@ export default function Upload() {
     )
   }
 
-  /* ════════════════ CAMERA (main) ════════════════ */
   const cameraShell = isDesktop
     ? 'min-h-[calc(100vh-2rem)] bg-white relative flex flex-col'
     : 'fixed inset-0 z-30 bg-gradient-to-b from-[#0b1526] via-[#0e1c33] to-black flex flex-col'
@@ -425,17 +509,15 @@ export default function Upload() {
     <div className={`${cameraShell} page-enter`}>
       <TopChrome dark={!isDesktop} />
 
-      {/* optional desktop extras */}
       {isDesktop && (
         <div className="absolute top-4 right-20 z-40 flex gap-2">
-          <GlassBtn size="sm" variant="light" label="Gold" onClick={() => nav('/app/gold')}><Crown size={16} className="text-amber-500" /></GlassBtn>
           <GlassBtn size="sm" variant="light" label="TB" onClick={() => nav('/app/notifications')}><Bell size={16} /></GlassBtn>
         </div>
       )}
 
       <div className={`flex-1 flex flex-col items-center justify-center px-4 ${isDesktop ? 'pt-8 pb-8' : 'pt-16 pb-4'}`}>
-        {/* mode pill over preview */}
-        <div className="mb-3 z-20">
+        {/* Camera | Gallery */}
+        <div className="mb-2 z-20">
           <div className={`inline-flex p-1 rounded-full border backdrop-blur-md ${isDesktop ? 'bg-slate-100 border-slate-200' : 'bg-white/10 border-white/20'}`}>
             {['camera', 'gallery'].map((m) => (
               <button
@@ -444,7 +526,6 @@ export default function Upload() {
                 onClick={() => {
                   setMode(m)
                   if (m === 'gallery') {
-                    if (!user?.isGold) return openUpgrade('Camera roll', 'Thư viện dành cho Gold')
                     fileRef.current?.click()
                     setMode('camera')
                   }
@@ -461,7 +542,30 @@ export default function Upload() {
           </div>
         </div>
 
-        {/* SQUARE FRAME */}
+        {/* Photo | Video */}
+        <div className="mb-3 z-20">
+          <div className={`inline-flex p-1 rounded-full border backdrop-blur-md ${isDesktop ? 'bg-slate-100 border-slate-200' : 'bg-white/10 border-white/20'}`}>
+            {[
+              { id: 'photo', label: 'Ảnh', Icon: Camera },
+              { id: 'video', label: 'Video', Icon: Video },
+            ].map(({ id, label, Icon }) => (
+              <button
+                key={id}
+                type="button"
+                disabled={recording}
+                onClick={() => setCaptureKind(id)}
+                className={`px-3.5 py-1.5 rounded-full text-xs font-bold transition active:scale-95 flex items-center gap-1 ${
+                  captureKind === id
+                    ? isDesktop ? 'bg-white shadow text-slate-900' : 'bg-white text-slate-900'
+                    : isDesktop ? 'text-slate-500' : 'text-white/70'
+                }`}
+              >
+                <Icon size={12} /> {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
         <div className={`relative w-full ${isDesktop ? 'max-w-[420px]' : 'max-w-[min(100%,420px)]'}`}>
           <SquareFrame showSafeGuide className="!rounded-[1.75rem] sm:!rounded-[2rem]">
             <video
@@ -473,7 +577,16 @@ export default function Upload() {
             />
           </SquareFrame>
 
-          {/* flash */}
+          {recording && (
+            <div className="absolute top-3 inset-x-0 z-30 flex justify-center">
+              <span className="px-3 py-1 rounded-full bg-rose-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-lg">
+                <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
+                REC {String(Math.floor(recSec / 60)).padStart(2, '0')}:{String(recSec % 60).padStart(2, '0')}
+                <span className="opacity-80">/ {maxVideo}s</span>
+              </span>
+            </div>
+          )}
+
           <button
             type="button"
             onClick={() => setFlash((f) => !f)}
@@ -486,7 +599,6 @@ export default function Upload() {
           </button>
         </div>
 
-        {/* Lịch sử link */}
         <button
           type="button"
           onClick={() => setScreen('history')}
@@ -495,7 +607,6 @@ export default function Upload() {
           Lịch sử
         </button>
 
-        {/* Bottom controls row */}
         <div className={`mt-5 w-full max-w-md flex items-center justify-between px-2 ${isDesktop ? 'mt-8' : ''}`}>
           <GlassBtn
             size="md"
@@ -506,34 +617,51 @@ export default function Upload() {
             <Images size={20} />
           </GlassBtn>
 
-          {/* Capture — yellow ring (Locket-like, original) */}
           <button
             type="button"
-            onClick={capture}
-            className="relative w-[5rem] h-[5rem] rounded-full bg-white border-[5px] border-amber-300 shadow-[0_8px_32px_rgba(251,191,36,0.45)] active:scale-90 transition flex items-center justify-center"
-            aria-label="Chụp"
+            onClick={onShutter}
+            className={`relative w-[5rem] h-[5rem] rounded-full bg-white border-[5px] shadow-[0_8px_32px_rgba(251,191,36,0.45)] active:scale-90 transition flex items-center justify-center ${
+              recording ? 'border-rose-500' : 'border-amber-300'
+            }`}
+            aria-label={captureKind === 'video' ? (recording ? 'Dừng quay' : 'Quay video') : 'Chụp'}
           >
-            <span className="w-[3.5rem] h-[3.5rem] rounded-full border-[3px] border-slate-900/80" />
+            {captureKind === 'video' ? (
+              recording ? (
+                <span className="w-7 h-7 rounded-md bg-rose-500" />
+              ) : (
+                <span className="w-[3.5rem] h-[3.5rem] rounded-full bg-rose-500" />
+              )
+            ) : (
+              <span className="w-[3.5rem] h-[3.5rem] rounded-full border-[3px] border-slate-900/80" />
+            )}
           </button>
 
           <GlassBtn
             size="md"
             variant={btnVariant}
             label="Đổi camera"
-            onClick={() => setFacing((f) => (f === 'environment' ? 'user' : 'environment'))}
+            onClick={() => {
+              if (recording) return
+              setFacing((f) => (f === 'environment' ? 'user' : 'environment'))
+            }}
           >
             <SwitchCamera size={20} />
           </GlassBtn>
         </div>
 
+        <p className={`mt-3 text-[11px] ${isDesktop ? 'text-slate-400' : 'text-white/50'}`}>
+          {captureKind === 'photo'
+            ? 'Chạm nút tròn để chụp ảnh 1:1'
+            : recording
+              ? 'Chạm lại để dừng quay'
+              : `Chạm nút đỏ để quay video (tối đa ${maxVideo}s)`}
+        </p>
+
         {isDesktop && (
           <div className="mt-6 flex gap-3">
             <button
               type="button"
-              onClick={() => {
-                if (!user?.isGold) return openUpgrade('Camera roll', 'Thư viện Gold')
-                fileRef.current?.click()
-              }}
+              onClick={() => fileRef.current?.click()}
               className="px-4 py-2 rounded-full text-xs font-bold bg-slate-100 text-slate-600 border border-slate-200 active:scale-95 flex items-center gap-1"
             >
               <UploadIcon size={14} /> Upload
@@ -558,6 +686,7 @@ export default function Upload() {
           const f = e.target.files?.[0]
           if (!f) return
           readFile(f, f.type.startsWith('video') ? 'video' : 'image')
+          e.target.value = ''
         }}
       />
 

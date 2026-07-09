@@ -1,4 +1,5 @@
-const PREFIX = 'piclet_gold_v1_'
+// Bump prefix to drop old demo seed (Mina/Kai/…) from browsers
+const PREFIX = 'locket_dio_v4_'
 
 export function load(key, fallback = null) {
   try {

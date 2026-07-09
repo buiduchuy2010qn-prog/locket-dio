@@ -3,21 +3,18 @@
  * Swap implementations later without changing UI call sites.
  */
 import { load, save, delay, uid } from '../utils/storage'
-import {
-  SEED_USERS, SEED_POSTS, SEED_FRIENDS, SEED_REQUESTS,
-  SEED_NOTIFICATIONS, SEED_STREAKS,
-} from '../data/mockData'
-import { FREE_FRIEND_LIMIT, FREE_VIDEO_MAX_SEC, GOLD_VIDEO_MAX_SEC } from '../data/constants'
+import { GOLD_VIDEO_MAX_SEC } from '../data/constants'
 
 function ensureSeed() {
-  if (!load('seeded')) {
-    save('users', SEED_USERS)
-    save('posts', SEED_POSTS)
-    save('friends', SEED_FRIENDS)
-    save('requests', SEED_REQUESTS)
-    save('notifications', SEED_NOTIFICATIONS)
-    save('streaks', SEED_STREAKS)
-    save('seeded', true)
+  // Empty stores only — real users & friends, never inject demo SEED_*
+  if (!load('seeded_v4')) {
+    save('users', load('users', []))
+    save('posts', load('posts', []))
+    save('friends', [])
+    save('requests', [])
+    save('notifications', [])
+    save('streaks', [])
+    save('seeded_v4', true)
   }
 }
 
@@ -74,16 +71,16 @@ export async function signUpUser({ email, password, displayName, username }) {
     displayName: displayName || username,
     bio: '',
     avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(username)}`,
-    isGold: false,
-    goldSince: null,
-    plan: null,
+    isGold: true,
+    adFree: true,
+    goldSince: new Date().toISOString(),
+    plan: 'full',
     badgeStyle: 'gold-star',
-    badgeVisible: true,
+    badgeVisible: false,
     appIcon: 'classic',
     cameraTheme: 'soft-pink',
     profileFrame: 'none',
     profileBg: 'soft',
-    adFree: false,
     darkMode: false,
     notifSettings: { moments: true, friends: true, streaks: true, gold: true },
     privacy: { friendsOnly: true, showActivity: true },
@@ -151,9 +148,9 @@ export async function uploadMoment({ mediaUrl, caption, type = 'image', duration
   if (!me) throw new Error('Chưa đăng nhập.')
   const user = users().find((u) => u.id === me)
   if (type === 'video') {
-    const max = user?.isGold ? GOLD_VIDEO_MAX_SEC : FREE_VIDEO_MAX_SEC
+    const max = GOLD_VIDEO_MAX_SEC
     if (durationSec && durationSec > max) {
-      throw new Error(`Video tối đa ${max}s${user?.isGold ? '' : ' (nâng Gold để dài hơn)'}.`)
+      throw new Error(`Video tối đa ${max}s.`)
     }
   }
   const post = {
@@ -265,9 +262,7 @@ export async function addFriend(username) {
   if (!target) throw new Error('Không tìm thấy username này.')
   if (target.id === me) throw new Error('Không thể kết bạn với chính mình.')
   if (friends().some((f) => f.userId === target.id)) throw new Error('Đã là bạn bè.')
-  if (!user.isGold && friends().length >= FREE_FRIEND_LIMIT) {
-    throw new Error(`Gói Free tối đa ${FREE_FRIEND_LIMIT} bạn. Nâng Gold để thêm không giới hạn.`)
-  }
+
   const reqs = requests()
   if (reqs.some((r) => r.fromUserId === me && r.toUserId === target.id && r.status === 'pending')) {
     throw new Error('Đã gửi lời mời rồi.')
@@ -379,7 +374,7 @@ export async function fetchStreaks() {
 export async function restoreStreak(friendId) {
   await delay(500)
   const me = users().find((u) => u.id === getSessionUserId())
-  if (!me?.isGold) throw new Error('Chỉ thành viên Gold mới khôi phục streak.')
+
   const all = streaks()
   const i = all.findIndex((s) => s.friendId === friendId)
   if (i < 0) throw new Error('Không tìm thấy streak.')
@@ -398,13 +393,13 @@ export async function fetchGoldStatus() {
   await delay(200)
   const u = await fetchCurrentUser()
   return {
-    isGold: !!u?.isGold,
-    plan: u?.plan || null,
+    isGold: true,
+    plan: 'full',
     goldSince: u?.goldSince || null,
-    adFree: !!u?.isGold || !!u?.adFree,
-    friendLimit: u?.isGold ? null : FREE_FRIEND_LIMIT,
+    adFree: true,
+    friendLimit: null,
     friendCount: friends().length,
-    videoMaxSec: u?.isGold ? GOLD_VIDEO_MAX_SEC : FREE_VIDEO_MAX_SEC,
+    videoMaxSec: GOLD_VIDEO_MAX_SEC,
   }
 }
 
@@ -528,8 +523,7 @@ export async function verifyEmail() {
   return { ok: true }
 }
 
-export function getFriendLimitInfo(user) {
+export function getFriendLimitInfo() {
   const count = friends().length
-  if (user?.isGold) return { count, limit: null, unlimited: true }
-  return { count, limit: FREE_FRIEND_LIMIT, unlimited: false, remaining: Math.max(0, FREE_FRIEND_LIMIT - count) }
+  return { count, limit: null, unlimited: true }
 }

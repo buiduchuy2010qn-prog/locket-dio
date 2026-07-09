@@ -2,7 +2,6 @@ import { prisma } from '../lib/prisma.js'
 import { AppError } from '../lib/errors.js'
 import { toPublic } from '../lib/auth.js'
 import { getFriendIds } from './friends.js'
-import { userIsGold } from '../lib/gold.js'
 import { BASIC_REACTIONS, GOLD_REACTIONS } from '@locket-dio/shared'
 
 const momentInclude = {
@@ -139,11 +138,8 @@ export async function deleteMoment(user, momentId) {
 }
 
 export async function reactToMoment(user, momentId, emoji) {
-  const allowed = [...BASIC_REACTIONS, ...(userIsGold(user) ? GOLD_REACTIONS : [])]
+  const allowed = [...BASIC_REACTIONS, ...GOLD_REACTIONS]
   if (!allowed.includes(emoji)) {
-    if (GOLD_REACTIONS.includes(emoji)) {
-      throw new AppError('Premium reaction requires Gold', 403, 'GOLD_REQUIRED')
-    }
     throw new AppError('Invalid reaction')
   }
 
@@ -191,7 +187,6 @@ export async function getInsights(user, momentId) {
     },
   })
   if (!m || m.authorId !== user.id) throw new AppError('Not found', 404)
-  if (!userIsGold(user)) throw new AppError('Insights require Gold', 403, 'GOLD_REQUIRED')
 
   return {
     seenBy: m.views.map((v) => ({ user: toPublic(v.user), seenAt: v.seenAt })),
