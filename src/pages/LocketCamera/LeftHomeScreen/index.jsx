@@ -102,11 +102,13 @@ const LeftHomeScreen = () => {
                 <button
                   type="button"
                   onClick={copyId}
-                  className="flex items-center gap-1 text-[11px] font-mono text-base-content/70 hover:text-primary max-w-full"
-                  title="Copy User ID"
+                  className="flex items-center gap-1.5 text-[11px] font-mono text-base-content/80 hover:text-primary max-w-full bg-base-200/80 px-2 py-1 rounded-lg border border-base-300"
+                  title="Locket ID thật (user_uid) — copy"
                 >
-                  <span className="opacity-60 shrink-0">ID:</span>
-                  <span className="truncate">{myId}</span>
+                  <span className="opacity-60 shrink-0 font-sans font-semibold">
+                    Locket ID:
+                  </span>
+                  <span className="truncate select-all">{myId}</span>
                   <Copy className="w-3 h-3 shrink-0" />
                 </button>
               )}
