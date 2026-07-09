@@ -1,34 +1,43 @@
 /**
- * HTTP client. Empty / localhost API in production browser → treat as offline (mock).
+ * HTTP client for Locket Dio API.
+ * Dev: Vite proxies /api → localhost:4000 when VITE_API_URL is empty.
+ * Prod: set VITE_API_URL to the public API origin.
  */
-const RAW_API = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
+const RAW = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
 const FORCE_MOCK = import.meta.env.VITE_FORCE_MOCK === 'true'
 
-function isLocalhostApi(url) {
-  if (!url) return true
-  try {
-    const u = new URL(url, typeof window !== 'undefined' ? window.location.origin : 'http://localhost')
-    return u.hostname === 'localhost' || u.hostname === '127.0.0.1'
-  } catch {
-    return true
-  }
+function isLocalhostHost(hostname) {
+  return hostname === 'localhost' || hostname === '127.0.0.1'
 }
 
-/** Only use remote real API when explicitly configured to a non-localhost host */
+/**
+ * Resolve API base URL.
+ * - Explicit VITE_API_URL wins (unless localhost baked into remote static site → skip)
+ * - Empty → same-origin (works with reverse proxy or Vite proxy)
+ */
+export function apiBase() {
+  if (FORCE_MOCK) return ''
+  if (typeof window !== 'undefined') {
+    const pageLocal = isLocalhostHost(window.location.hostname)
+    if (RAW) {
+      try {
+        const u = new URL(RAW, window.location.origin)
+        // Static CDN/host with baked localhost API → don't use it
+        if (isLocalhostHost(u.hostname) && !pageLocal) return ''
+        return u.origin === window.location.origin ? '' : RAW
+      } catch {
+        return RAW
+      }
+    }
+    return '' // relative /api via proxy or same host
+  }
+  return RAW || ''
+}
+
 export function shouldUseRealApiConfig() {
   if (FORCE_MOCK) return false
-  if (!RAW_API) return false
-  // In browser: if site is on real host but API points to localhost, skip real API
-  if (typeof window !== 'undefined') {
-    const pageLocal =
-      window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-    if (isLocalhostApi(RAW_API) && !pageLocal) return false
-  }
+  // Always try health check unless forced mock
   return true
-}
-
-export function apiBase() {
-  return RAW_API || ''
 }
 
 let authToken = null
@@ -52,8 +61,6 @@ export function getAuthToken() {
 
 export async function http(path, opts = {}) {
   const base = apiBase()
-  if (!base) throw new Error('API URL not configured')
-
   const headers = { ...(opts.headers || {}) }
   if (!(opts.body instanceof FormData)) {
     headers['Content-Type'] = headers['Content-Type'] || 'application/json'
@@ -61,7 +68,7 @@ export async function http(path, opts = {}) {
   if (authToken) headers.Authorization = `Bearer ${authToken}`
 
   const controller = new AbortController()
-  const t = setTimeout(() => controller.abort(), opts.timeoutMs || 15000)
+  const t = setTimeout(() => controller.abort(), opts.timeoutMs || 20000)
 
   try {
     const res = await fetch(`${base}${path}`, {
@@ -89,15 +96,19 @@ export async function http(path, opts = {}) {
 }
 
 export async function checkApiHealth() {
-  if (!shouldUseRealApiConfig()) return false
+  if (FORCE_MOCK) return false
   const base = apiBase()
-  if (!base) return false
   try {
     const controller = new AbortController()
-    const t = setTimeout(() => controller.abort(), 2000)
-    const res = await fetch(`${base}/health`, { signal: controller.signal })
+    const t = setTimeout(() => controller.abort(), 2500)
+    const res = await fetch(`${base}/health`, {
+      signal: controller.signal,
+      credentials: 'include',
+    })
     clearTimeout(t)
-    return res.ok
+    if (!res.ok) return false
+    const data = await res.json().catch(() => ({}))
+    return data.ok === true || data.service === 'locket-dio-api' || res.ok
   } catch {
     return false
   }

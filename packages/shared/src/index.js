@@ -1,17 +1,18 @@
-/** Shared constants & helpers — used by API and web */
+/** Shared constants & helpers — Locket Dio (independent app) */
 
-export const FREE_FRIEND_LIMIT = 5
-export const FREE_VIDEO_MAX_SEC = 5
-export const GOLD_VIDEO_MAX_SEC = 30
-export const FREE_MAX_UPLOAD_MB = 8
+// All features free for every account
+export const FREE_FRIEND_LIMIT = 99999
+export const FREE_VIDEO_MAX_SEC = 60
+export const GOLD_VIDEO_MAX_SEC = 60
+export const FREE_MAX_UPLOAD_MB = 50
 export const GOLD_MAX_UPLOAD_MB = 50
 
 export const BASIC_REACTIONS = ['❤️', '😂', '🔥', '👏', '😍']
 export const GOLD_REACTIONS = ['✨', '💯', '🥳', '🥹', '👑', '🌟', '💫', '🎉', '🥰', '⚡']
+export const ALL_REACTIONS = [...BASIC_REACTIONS, ...GOLD_REACTIONS]
 
 export const PLANS = {
-  monthly: { id: 'monthly', label: 'Monthly', priceCents: 49000, period: 'month' },
-  yearly: { id: 'yearly', label: 'Yearly', priceCents: 399000, period: 'year', save: '32%' },
+  full: { id: 'full', label: 'Full access', priceCents: 0, period: 'forever' },
 }
 
 export const APP_ICONS = [
@@ -33,24 +34,46 @@ export const CAMERA_THEMES = [
 ]
 
 export const BADGES = [
-  { id: 'gold-star', name: 'Gold Star', icon: '⭐', label: 'Gold' },
-  { id: 'crown', name: 'Crown', icon: '👑', label: 'Gold' },
-  { id: 'sparkle', name: 'Sparkle', icon: '✨', label: 'Gold' },
-  { id: 'minimal-gold', name: 'Minimal Gold', icon: '◆', label: 'Gold' },
-  { id: 'neon-gold', name: 'Neon Gold', icon: '⚡', label: 'GOLD' },
+  { id: 'gold-star', name: 'Gold Star', icon: '⭐', label: 'Dio' },
+  { id: 'crown', name: 'Crown', icon: '👑', label: 'Dio' },
+  { id: 'sparkle', name: 'Sparkle', icon: '✨', label: 'Dio' },
+  { id: 'minimal-gold', name: 'Minimal Gold', icon: '◆', label: 'Dio' },
+  { id: 'neon-gold', name: 'Neon Gold', icon: '⚡', label: 'DIO' },
 ]
 
-export function isGoldActive(sub) {
-  if (!sub) return false
-  if (sub.status !== 'ACTIVE' && sub.status !== 'TRIALING') return false
-  if (sub.currentPeriodEnd && new Date(sub.currentPeriodEnd) < new Date()) return false
+/** All accounts get full feature access (no paywall) */
+export function isGoldActive(_sub) {
   return true
 }
 
 export function publicUser(user, extras = {}) {
   if (!user) return null
+  // Flat mock users already have displayName etc.
+  if (!user.profile && user.displayName) {
+    return {
+      id: user.id,
+      email: user.email,
+      username: user.username,
+      role: user.role || 'USER',
+      emailVerified: !!user.emailVerifiedAt,
+      displayName: user.displayName,
+      bio: user.bio || '',
+      avatar: user.avatar,
+      darkMode: !!user.darkMode,
+      showActivity: user.showActivity !== false,
+      isGold: true,
+      adFree: true,
+      appIcon: user.appIcon || 'classic',
+      cameraTheme: user.cameraTheme || 'soft-pink',
+      badgeStyle: user.badgeStyle || 'gold-star',
+      badgeVisible: user.badgeVisible !== false,
+      profileFrame: user.profileFrame || 'none',
+      profileBg: user.profileBg || 'soft',
+      createdAt: user.createdAt,
+      ...extras,
+    }
+  }
   const profile = user.profile || {}
-  const gold = isGoldActive(user.goldSubscription)
   const custom = user.goldCustomization || {}
   return {
     id: user.id,
@@ -60,13 +83,15 @@ export function publicUser(user, extras = {}) {
     emailVerified: !!user.emailVerifiedAt,
     displayName: profile.displayName || user.username,
     bio: profile.bio || '',
-    avatar: profile.avatarUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(user.username)}`,
+    avatar:
+      profile.avatarUrl ||
+      `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(user.username)}`,
     darkMode: !!profile.darkMode,
     showActivity: profile.showActivity !== false,
-    isGold: gold,
-    goldPlan: gold ? user.goldSubscription?.plan : null,
-    goldUntil: gold ? user.goldSubscription?.currentPeriodEnd : null,
-    adFree: gold,
+    isGold: true,
+    goldPlan: 'full',
+    goldUntil: null,
+    adFree: true,
     appIcon: custom.appIconId || 'classic',
     cameraTheme: custom.cameraThemeId || 'soft-pink',
     badgeStyle: custom.badgeId || 'gold-star',
@@ -76,4 +101,11 @@ export function publicUser(user, extras = {}) {
     createdAt: user.createdAt,
     ...extras,
   }
+}
+
+export function sanitizeText(s, max = 2000) {
+  return String(s || '')
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '')
+    .trim()
+    .slice(0, max)
 }

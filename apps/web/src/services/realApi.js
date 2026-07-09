@@ -248,23 +248,16 @@ export async function fetchServerStatus() {
 }
 
 export async function fetchConversations() {
-  try {
-    const data = await http('/api/chat/conversations')
-    return data.conversations || []
-  } catch {
-    return []
-  }
+  const data = await http('/api/messages/conversations')
+  return data.conversations || []
 }
 
 export async function fetchMessages(peerId) {
-  try {
-    const data = await http(`/api/chat/messages?peerId=${encodeURIComponent(peerId)}`)
-    return data.messages || []
-  } catch {
-    return []
-  }
+  const data = await http(`/api/messages?peerId=${encodeURIComponent(peerId)}`)
+  return data.messages || []
 }
 
 export async function sendMessage(peerId, body) {
-  return http('/api/chat/messages', { method: 'POST', body: { peerId, body } })
+  const data = await http('/api/messages', { method: 'POST', body: { peerId, body } })
+  return data.message || data
 }

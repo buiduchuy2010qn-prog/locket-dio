@@ -14,9 +14,19 @@ router.patch('/me', authRequired, asyncHandler(async (req, res) => {
     darkMode: z.boolean().optional(),
     showActivity: z.boolean().optional(),
     friendsOnly: z.boolean().optional(),
-    avatarUrl: z.string().url().optional().nullable(),
+    avatarUrl: z.string().optional().nullable(),
+    avatar: z.string().optional().nullable(),
+    appIcon: z.string().optional(),
+    cameraTheme: z.string().optional(),
+    badgeStyle: z.string().optional(),
+    badgeVisible: z.boolean().optional(),
+    profileFrame: z.string().optional(),
+    profileBg: z.string().optional(),
+    notifSettings: z.record(z.any()).optional(),
+    privacy: z.record(z.any()).optional(),
   })
   const body = schema.parse(req.body)
+  const avatarUrl = body.avatarUrl ?? body.avatar
 
   if (body.username) {
     const un = body.username.toLowerCase()
@@ -35,9 +45,42 @@ router.patch('/me', authRequired, asyncHandler(async (req, res) => {
       ...(body.darkMode != null ? { darkMode: body.darkMode } : {}),
       ...(body.showActivity != null ? { showActivity: body.showActivity } : {}),
       ...(body.friendsOnly != null ? { friendsOnly: body.friendsOnly } : {}),
-      ...(body.avatarUrl !== undefined ? { avatarUrl: body.avatarUrl } : {}),
+      ...(body.privacy?.showActivity != null ? { showActivity: !!body.privacy.showActivity } : {}),
+      ...(body.privacy?.friendsOnly != null ? { friendsOnly: !!body.privacy.friendsOnly } : {}),
+      ...(avatarUrl !== undefined ? { avatarUrl } : {}),
     },
   })
+
+  // Gold-style customization (free for all)
+  if (
+    body.appIcon != null ||
+    body.cameraTheme != null ||
+    body.badgeStyle != null ||
+    body.badgeVisible != null ||
+    body.profileFrame != null ||
+    body.profileBg != null
+  ) {
+    await prisma.goldCustomization.upsert({
+      where: { userId: req.user.id },
+      create: {
+        userId: req.user.id,
+        appIconId: body.appIcon || 'classic',
+        cameraThemeId: body.cameraTheme || 'soft-pink',
+        badgeId: body.badgeStyle || 'gold-star',
+        badgeVisible: body.badgeVisible !== false,
+        profileFrame: body.profileFrame || 'none',
+        profileBg: body.profileBg || 'soft',
+      },
+      update: {
+        ...(body.appIcon != null ? { appIconId: body.appIcon } : {}),
+        ...(body.cameraTheme != null ? { cameraThemeId: body.cameraTheme } : {}),
+        ...(body.badgeStyle != null ? { badgeId: body.badgeStyle } : {}),
+        ...(body.badgeVisible != null ? { badgeVisible: body.badgeVisible } : {}),
+        ...(body.profileFrame != null ? { profileFrame: body.profileFrame } : {}),
+        ...(body.profileBg != null ? { profileBg: body.profileBg } : {}),
+      },
+    })
+  }
 
   const user = await prisma.user.findUnique({
     where: { id: req.user.id },
@@ -49,7 +92,10 @@ router.patch('/me', authRequired, asyncHandler(async (req, res) => {
 
 router.get('/search', authRequired, asyncHandler(async (req, res) => {
   const q = String(req.query.q || '').trim().toLowerCase()
-  if (q.length < 2) return res.json({ users: [] })
+  if (q.length < 1) return res.json({ users: [] })
+
+  const { getFriendIds } = await import('../services/friends.js')
+  const friendIds = new Set(await getFriendIds(req.user.id))
 
   const users = await prisma.user.findMany({
     where: {
@@ -64,7 +110,12 @@ router.get('/search', authRequired, asyncHandler(async (req, res) => {
     include: { profile: true, goldSubscription: true, goldCustomization: true },
   })
 
-  res.json({ users: users.map((u) => toPublic(u)) })
+  res.json({
+    users: users.map((u) => ({
+      ...toPublic(u),
+      isFriend: friendIds.has(u.id),
+    })),
+  })
 }))
 
 router.get('/:username', authRequired, asyncHandler(async (req, res) => {

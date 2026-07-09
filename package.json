@@ -2,18 +2,31 @@
   "name": "locket-dio",
   "version": "1.0.0",
   "private": true,
-  "description": "Locket Dio — private close-friends photo & video sharing",
+  "description": "Locket Dio — independent private close-friends photo & video sharing",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
-    "dev": "npm run dev --prefix apps/web",
-    "dev:web": "npm run dev --prefix apps/web",
-    "dev:api": "npm run dev --prefix apps/api",
-    "build": "npm install --prefix apps/web && npm run build --prefix apps/web && node scripts/copy-web-dist.mjs",
-    "build:web": "npm install --prefix apps/web && npm run build --prefix apps/web && node scripts/copy-web-dist.mjs",
-    "build:api": "npm install --prefix apps/api && npm run build --prefix apps/api",
-    "start:api": "npm run start --prefix apps/api",
+    "dev": "npm run dev --workspace=@locket-dio/web",
+    "dev:web": "npm run dev --workspace=@locket-dio/web",
+    "dev:api": "npm run dev --workspace=@locket-dio/api",
+    "build": "npm run build --workspace=@locket-dio/web && node scripts/copy-web-dist.mjs",
+    "build:web": "npm run build --workspace=@locket-dio/web && node scripts/copy-web-dist.mjs",
+    "build:api": "npm run build --workspace=@locket-dio/api",
+    "start:api": "npm run start --workspace=@locket-dio/api",
     "db:generate": "npx prisma generate --schema=prisma/schema.prisma",
     "db:push": "npx prisma db push --schema=prisma/schema.prisma",
-    "db:seed": "node prisma/seed.js"
+    "db:migrate": "npx prisma migrate dev --schema=prisma/schema.prisma",
+    "db:seed": "node prisma/seed.js",
+    "docker:up": "docker compose up -d --build",
+    "docker:down": "docker compose down"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.5.0"
+  },
+  "devDependencies": {
+    "prisma": "^6.5.0"
   },
   "engines": {
     "node": ">=18"

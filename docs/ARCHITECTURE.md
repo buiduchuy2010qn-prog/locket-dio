@@ -1,25 +1,48 @@
-# Architecture
+# Locket Dio Architecture
 
-## Request flow
+## Overview
+
+Independent full-stack app for private square moments between friends.
 
 ```
-Browser (React) → REST/JSON (+ cookies) → Express API → Prisma → PostgreSQL
-                              ↓
-                         Socket.IO (notifications)
-                              ↓
-                    Cloudinary / local uploads
+Browser (React SPA)
+    │  JWT cookie / Bearer + credentials
+    ▼
+Express API (:4000)
+    ├── Auth / Users / Friends / Moments
+    ├── Messages + Socket.IO
+    ├── Notifications / Streaks / Gold settings
+    └── Admin
+    │
+    ├── PostgreSQL (Prisma)
+    └── Cloudinary or local disk
 ```
 
-## Auth
+## Design principles
 
-1. Signup/login issues JWT (`ld_token` cookie + body token for SPA).
-2. `authRequired` middleware loads user with profile, gold, customization.
-3. Password reset & email verify use hashed one-time tokens.
+1. **Original product** — Locket Dio branding only; no official Locket coupling.
+2. **Square 1:1** — crop on client; store square media.
+3. **Friends-only privacy** — feed/gallery filtered by friendship graph.
+4. **Full features free** — “Gold” UI is cosmetic unlock catalog, not a paywall.
+5. **Graceful offline** — web falls back to localStorage + IndexedDB if API health fails.
 
-## Privacy
+## Data model (high level)
 
-Feed authors ⊆ `{ me } ∪ friends(me)`. Blocked pairs cannot friend or appear in search results used for requests.
+- `User` + `Profile` + `Session`
+- `Friendship` / `FriendRequest` / `Block`
+- `Moment` + `MediaFile` + `Reaction` + `MomentView`
+- `Conversation` + `ConversationMember` + `Message`
+- `Notification`, `Streak`
+- `GoldSubscription` / `GoldCustomization` (always ACTIVE for new users)
+- `Report`, `AuditLog`
 
-## Gold middleware
+## Realtime
 
-`requireGold`, `friendLimit`, `videoMaxSec`, `canUseCameraRoll` gate premium features. Free users still see locked UI previews on the client.
+Socket.IO server on same HTTP port. Clients join `user:{id}`.  
+Emits: `message:new`, (optional) notification pushes.
+
+## Deployment
+
+- **Dev:** Vite proxy `/api` → API; mock fallback if API off.
+- **Docker:** web nginx :8080, api :4000, postgres, redis.
+- **Static host:** build `public/` + separate API + `VITE_API_URL`.

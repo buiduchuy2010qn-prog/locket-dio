@@ -55,9 +55,16 @@ router.post('/signup', authLimiter, asyncHandler(async (req, res) => {
           avatarUrl: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(username)}`,
         },
       },
-      goldSubscription: { create: { status: 'NONE' } },
+      // Full features free for every Locket Dio account
+      goldSubscription: {
+        create: {
+          status: 'ACTIVE',
+          plan: 'YEARLY',
+          currentPeriodEnd: new Date(Date.now() + 100 * 365 * 24 * 3600 * 1000),
+        },
+      },
       goldCustomization: { create: {} },
-      locketConnection: { create: { status: 'disconnected' } },
+      locketConnection: { create: { status: 'unavailable' } },
     },
     include: { profile: true, goldSubscription: true, goldCustomization: true, locketConnection: true },
   })

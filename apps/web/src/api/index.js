@@ -1,6 +1,5 @@
 /**
- * API facade: mock-first for static deploy; real only when remote API is healthy.
- * Falls back to mock on real API failures so the app always works.
+ * API facade: production API when healthy, local mock fallback for offline UI.
  */
 import { checkApiHealth, shouldUseRealApiConfig } from '../services/http.js'
 import * as real from '../services/realApi.js'
@@ -12,15 +11,15 @@ export async function resolveApiMode() {
   if (mode) return mode
   if (!shouldUseRealApiConfig()) {
     mode = 'mock'
-    console.info('[Locket Dio] Local mode (mock storage) — full features offline')
+    console.info('[Locket Dio] Forced local mode')
     return mode
   }
   const ok = await checkApiHealth()
   mode = ok ? 'real' : 'mock'
   if (mode === 'mock') {
-    console.warn('[Locket Dio] API offline — using local mock storage')
+    console.warn('[Locket Dio] API offline — local storage mode (full UI still works)')
   } else {
-    console.info('[Locket Dio] Connected to production API')
+    console.info('[Locket Dio] Connected to Locket Dio API')
   }
   return mode
 }
@@ -43,13 +42,12 @@ async function call(name, ...args) {
   try {
     return await impl[name](...args)
   } catch (e) {
-    // Network / backend down → switch to mock once and retry (auth/session local)
     const isNet =
       e?.name === 'TypeError' ||
       e?.name === 'AbortError' ||
       /fetch|network|Failed to fetch|API URL/i.test(String(e?.message || ''))
     if (mode === 'real' && isNet && typeof mock[name] === 'function') {
-      console.warn(`[Locket Dio] ${name} failed on real API, falling back to mock`, e.message)
+      console.warn(`[Locket Dio] ${name} network fail → mock`, e.message)
       mode = 'mock'
       return mock[name](...args)
     }

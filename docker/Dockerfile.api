@@ -17,4 +17,5 @@ RUN npx prisma generate --schema=prisma/schema.prisma
 
 ENV NODE_ENV=production
 EXPOSE 4000
-CMD ["sh", "-c", "npx prisma migrate deploy --schema=prisma/schema.prisma && node apps/api/src/index.js"]
+# db push keeps schema in sync without committed migration history on first deploy
+CMD ["sh", "-c", "npx prisma db push --schema=prisma/schema.prisma && node apps/api/src/index.js"]

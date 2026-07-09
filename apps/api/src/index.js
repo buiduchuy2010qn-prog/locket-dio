@@ -22,6 +22,7 @@ import locketRoutes from './routes/locket.js'
 import integrationsLocketRoutes from './routes/integrationsLocket.js'
 import exportRoutes from './routes/export.js'
 import adminRoutes from './routes/admin.js'
+import messageRoutes from './routes/messages.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const app = express()
@@ -94,6 +95,8 @@ app.use('/api/locket', locketRoutes)
 app.use('/api/integrations/locket', integrationsLocketRoutes)
 app.use('/api/export', exportRoutes)
 app.use('/api/admin', adminRoutes)
+app.use('/api/messages', messageRoutes)
+app.use('/api/chat', messageRoutes) // alias
 
 app.use(errorMiddleware)
 
