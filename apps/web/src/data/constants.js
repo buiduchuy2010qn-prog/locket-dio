@@ -1,7 +1,8 @@
-// Full features for everyone — no Gold paywall
-export const FREE_FRIEND_LIMIT = 9999
-export const FREE_VIDEO_MAX_SEC = 60
-export const GOLD_VIDEO_MAX_SEC = 60
+// Full features for everyone — no Gold paywall, no hard limits
+export const FREE_FRIEND_LIMIT = 99999
+export const FREE_VIDEO_MAX_SEC = 300
+export const GOLD_VIDEO_MAX_SEC = 300
+export const MAX_UPLOAD_MB = 200
 
 export const APP_ICONS = [
   { id: 'classic', name: 'Classic', gradient: 'from-amber-400 to-orange-500', emoji: '📷' },

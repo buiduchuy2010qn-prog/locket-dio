@@ -17,11 +17,12 @@ export function friendLimit(_user) {
 }
 
 export function videoMaxSec(_user) {
-  return config.goldVideoMaxSec || 60
+  // High cap so client is not blocked (was 10–60s on free plans)
+  return config.goldVideoMaxSec || 300
 }
 
 export function maxUploadBytes(_user) {
-  const mb = config.goldMaxUploadMb || 50
+  const mb = config.goldMaxUploadMb || 200
   return mb * 1024 * 1024
 }
 

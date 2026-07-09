@@ -1,11 +1,11 @@
 /** Shared constants & helpers — Locket Dio (independent app) */
 
-// All features free for every account
+// All features free for every account — unlimited-style limits
 export const FREE_FRIEND_LIMIT = 99999
-export const FREE_VIDEO_MAX_SEC = 60
-export const GOLD_VIDEO_MAX_SEC = 60
-export const FREE_MAX_UPLOAD_MB = 50
-export const GOLD_MAX_UPLOAD_MB = 50
+export const FREE_VIDEO_MAX_SEC = 300
+export const GOLD_VIDEO_MAX_SEC = 300
+export const FREE_MAX_UPLOAD_MB = 200
+export const GOLD_MAX_UPLOAD_MB = 200
 
 export const BASIC_REACTIONS = ['❤️', '😂', '🔥', '👏', '😍']
 export const GOLD_REACTIONS = ['✨', '💯', '🥳', '🥹', '👑', '🌟', '💫', '🎉', '🥰', '⚡']

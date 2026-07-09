@@ -17,7 +17,7 @@ import { formatMoment } from '../services/moments.js'
 const router = Router()
 const upload = multer({
   dest: path.join(os.tmpdir(), 'locket-dio'),
-  limits: { fileSize: 50 * 1024 * 1024 },
+  limits: { fileSize: 200 * 1024 * 1024 },
 })
 
 const uploadLimiter = rateLimit({

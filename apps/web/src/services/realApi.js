@@ -3,10 +3,22 @@
  */
 import { http, setAuthToken, getAuthToken } from './http.js'
 
+/** Ensure every account appears fully unlocked on the client */
+function unlockUser(user) {
+  if (!user) return user
+  return {
+    ...user,
+    isGold: true,
+    adFree: true,
+    plan: user.plan || 'full',
+    goldPlan: user.goldPlan || 'full',
+  }
+}
+
 export async function loginUser({ email, password }) {
   const data = await http('/api/auth/login', { method: 'POST', body: { email, password } })
   if (data.token) setAuthToken(data.token)
-  return data.user
+  return unlockUser(data.user)
 }
 
 export async function signUpUser({ email, password, displayName, username }) {
@@ -15,7 +27,7 @@ export async function signUpUser({ email, password, displayName, username }) {
     body: { email, password, displayName, username },
   })
   if (data.token) setAuthToken(data.token)
-  return data.user
+  return unlockUser(data.user)
 }
 
 export async function logoutUser() {
@@ -31,14 +43,14 @@ export async function fetchCurrentUser() {
   if (!getAuthToken()) {
     try {
       const data = await http('/api/auth/me')
-      return data.user
+      return unlockUser(data.user)
     } catch {
       return null
     }
   }
   try {
     const data = await http('/api/auth/me')
-    return data.user
+    return unlockUser(data.user)
   } catch {
     setAuthToken(null)
     return null
@@ -59,7 +71,7 @@ export async function verifyEmail({ token }) {
 
 export async function updateProfile(patch) {
   const data = await http('/api/users/me', { method: 'PATCH', body: patch })
-  return data.user
+  return unlockUser(data.user)
 }
 
 export async function fetchFeed(params = {}) {
@@ -186,12 +198,12 @@ export async function fetchGoldStatus() {
 
 export async function upgradeToGold({ plan = 'monthly' } = {}) {
   const data = await http('/api/gold/activate', { method: 'POST', body: { plan } })
-  return data.user
+  return unlockUser(data.user)
 }
 
 export async function cancelGoldSubscription() {
   const data = await http('/api/gold/cancel', { method: 'POST', body: {} })
-  return data.user
+  return unlockUser(data.user)
 }
 
 export async function restoreGoldPurchase() {
