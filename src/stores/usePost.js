@@ -3,14 +3,18 @@ import { AuthContext } from "../context/AuthLocket";
 import { getMaxUploads } from "../hooks/useFeature";
 import { getPostedMoments, getQueuePayloads } from "@/process/uploadQueue";
 
+// Khớp client chính thức locket-dio.com (optionsData.overlay)
 export const defaultPostOverlay = {
   overlay_id: "standard",
+  text: "",
+  text_color: "#FFFFFF",
+  icon: {},
+  type: "default",
+  background: { colors: [] },
+  payload: {},
+  caption: "",
   color_top: "",
   color_bottom: "",
-  text_color: "#FFFFFF",
-  icon: "",
-  caption: "",
-  type: "default",
 };
 
 export const usePost = () => {

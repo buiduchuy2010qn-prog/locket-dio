@@ -139,13 +139,17 @@ export const uploadFileAndGetInfoR2 = async (
     );
   }
 
-  // Official returns full presign payload as mediaInfo base
+  // Official returns full presign payload as mediaInfo base (url, uploadUrl, key, expiresIn)
+  const publicUrl =
+    data.url || data.publicURL || data.publicUrl || data.downloadURL || null;
+
   return {
     ...data,
+    // ensure canonical `url` field for postMomentV2
+    url: publicUrl,
     type: safeType,
-    // helpers for older code paths
-    downloadURL:
-      data.publicURL || data.publicUrl || data.url || data.downloadURL,
+    // helpers for older code paths (stripped before post)
+    downloadURL: publicUrl,
     metadata: {
       name: fileName,
       size: file.size,

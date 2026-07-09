@@ -30,24 +30,63 @@ export const createRequestPayloadV5 = async (
       return null;
     }
 
+    const mediaType = String(previewType || "image").toLowerCase();
+
     const uploaded = await uploadFileAndGetInfoR2(
       selectedFile,
-      previewType,
+      mediaType,
       localId
     );
 
     // Official: mediaInfo = { ...presignResponse, type } only
     const mediaInfo = {
       ...uploaded,
-      type: previewType,
+      type: mediaType,
     };
     // strip local helpers never sent by official client
     delete mediaInfo.metadata;
     delete mediaInfo.downloadURL;
 
-    // Official: optionsData = { ...overlayData, audience, recipients }
-    const optionsData = {
+    // Dio storage may return publicURL / publicUrl — postMoment needs `url`
+    if (!mediaInfo.url) {
+      mediaInfo.url =
+        mediaInfo.publicURL ||
+        mediaInfo.publicUrl ||
+        mediaInfo.downloadURL ||
+        null;
+    }
+    if (!mediaInfo.url) {
+      throw new Error(
+        "Presign không trả URL công khai (url). Thử đăng xuất/đăng nhập lại."
+      );
+    }
+
+    // Official default overlay (Is) + audience/recipients
+    const baseOverlay = {
+      overlay_id: "standard",
+      text: "",
+      text_color: "#FFFFFF",
+      icon: {},
+      type: "default",
+      background: { colors: [] },
+      payload: {},
+      caption: "",
+      color_top: "",
+      color_bottom: "",
       ...(postOverlay || {}),
+    };
+    // caption → text (official uses both)
+    if (!baseOverlay.text && baseOverlay.caption) {
+      baseOverlay.text = baseOverlay.caption;
+    }
+    if (!baseOverlay.type) baseOverlay.type = "default";
+    // icon: official uses object; empty string breaks some overlay parsers
+    if (baseOverlay.icon == null || baseOverlay.icon === "") {
+      baseOverlay.icon = {};
+    }
+
+    const optionsData = {
+      ...baseOverlay,
       audience: audience || "all",
       recipients: determineRecipients(audience, selectedRecipients, localId),
     };
@@ -60,7 +99,7 @@ export const createRequestPayloadV5 = async (
     return {
       model: "Version-UploadmediaV3.1",
       mediaInfo,
-      contentType: previewType,
+      contentType: mediaType,
       optionsData,
       // keep options alias for any legacy queue code
       options: optionsData,

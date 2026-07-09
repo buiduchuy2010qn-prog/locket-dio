@@ -1,9 +1,21 @@
 import axios from "axios";
-import { API_URL, clearLocalData, removeToken, removeUser } from "../utils";
+import {
+  API_URL,
+  clearLocalData,
+  getToken,
+  removeToken,
+  removeUser,
+  saveToken,
+} from "../utils";
 import { showInfo } from "../components/Toast";
 import { CONFIG } from "@/config";
 import { parseJwt } from "@/utils/auth";
 import { applyMemberHeader, clearMemberSession } from "@/utils/memberToken";
+
+/** Đọc idToken từ localStorage HOẶC sessionStorage (saveToken dùng cả hai). */
+function readIdToken() {
+  return getToken()?.idToken || localStorage.getItem("idToken") || null;
+}
 
 // ==== Kiểm tra token sắp hết hạn (dưới 5 phút) ====
 let cachedExp = null;
@@ -19,12 +31,6 @@ function isTokenExpired(token) {
   }
 
   const timeLeft = cachedExp - now;
-
-  // console.log(
-  //   `⏰ Token còn lại: ${timeLeft}s (hết hạn lúc: ${new Date(
-  //     cachedExp * 1000
-  //   ).toLocaleString()})`
-  // );
 
   return timeLeft < 300; // < 5 phút thì coi là sắp hết hạn
 }
@@ -45,9 +51,12 @@ async function refreshIdToken() {
     const newLocalId = res?.data?.data?.user_id;
 
     if (newToken) {
+      // Ghi đúng chỗ saveToken đã dùng (local vs session theo rememberMe)
+      saveToken({ idToken: newToken, localId: newLocalId });
+      // Đồng bộ cả localStorage để code cũ không miss
       localStorage.setItem("idToken", newToken);
-      localStorage.setItem("localId", newLocalId);
-      cachedExp = null; // Reset lại cache khi nhận token mới
+      if (newLocalId) localStorage.setItem("localId", newLocalId);
+      cachedExp = null;
       return newToken;
     }
 
@@ -80,6 +89,8 @@ function handleLogout() {
   clearMemberSession();
   localStorage.removeItem("idToken");
   localStorage.removeItem("localId");
+  sessionStorage.removeItem("idToken");
+  sessionStorage.removeItem("localId");
 
   if (window.location.pathname !== "/login") {
     window.location.href = "/login";
@@ -125,7 +136,7 @@ api.interceptors.request.use(
       return config;
     }
 
-    let token = localStorage.getItem("idToken");
+    let token = readIdToken();
 
     if (!token || isTokenExpired(token)) {
       if (isRefreshing && refreshPromise) {
@@ -157,6 +168,9 @@ api.interceptors.request.use(
 
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
+    } else {
+      // Không gửi postMoment/API khác khi thiếu token — lỗi rõ ràng hơn 401 mơ hồ
+      console.warn("[axios] Missing idToken (localStorage/sessionStorage)");
     }
 
     return config;

@@ -151,11 +151,21 @@ export const processQueue = async (setStreak) => {
         console.error("❌ Lỗi khi upload:", err);
         // Bỏ qua bài này, tiếp bài tiếp theo
         await updatePayloadStatus(payload.id, "failed");
+        const detail =
+          err?.response?.data?.message ||
+          err?.response?.data?.error?.message ||
+          (typeof err?.response?.data?.error === "string"
+            ? err.response.data.error
+            : null) ||
+          err?.message ||
+          "";
         SonnerError(
           "Đăng tải thất bại!",
-          `Không thể tải ${
-            payload.contentType === "video" ? "video" : "ảnh"
-          } lên. Bài tiếp theo sẽ được xử lý.`
+          detail
+            ? String(detail).slice(0, 160)
+            : `Không thể tải ${
+                payload.contentType === "video" ? "video" : "ảnh"
+              } lên. Bài tiếp theo sẽ được xử lý.`
         );
       }
     }
@@ -218,14 +228,14 @@ export const processRetryQueue = async (setStreak) => {
         } else {
           // Các lỗi khác: đánh dấu failed
           await updatePayloadStatus(payload.id, "failed");
+          const detail =
+            (typeof message === "string" ? message : null) ||
+            err?.message ||
+            `Không thể tải ${
+              payload.contentType === "video" ? "video" : "ảnh"
+            } lên. Vui lòng thử lại sau.`;
+          SonnerError("Thử lại thất bại!", String(detail).slice(0, 160));
         }
-
-        SonnerError(
-          "Thử lại thất bại!",
-          `Không thể tải ${
-            payload.contentType === "video" ? "video" : "ảnh"
-          } lên. Vui lòng thử lại sau.`
-        );
       }
     }
   } finally {

@@ -106,7 +106,7 @@ export const PostMoments = async (payload) => {
     // Lấy mediaInfo từ payload
     const { mediaInfo } = payload;
     // Lấy type từ mediaInfo để xác định là ảnh hay video
-    const fileType = mediaInfo.type;
+    const fileType = mediaInfo?.type || payload.contentType;
 
     // Đặt timeout tùy theo loại tệp (ảnh hoặc video)
     const timeoutDuration =
@@ -115,18 +115,52 @@ export const PostMoments = async (payload) => {
       console.log("⏳ Uploading is taking longer than expected...");
     }, timeoutDuration);
 
-    // Gửi request như thường, headers không cần thêm Authorization vì đã cấu hình sẵn
+    // Chỉ gửi field client chính thức — bỏ id/status/createdAt của Dexie queue
+    const optionsData = payload.optionsData || payload.options || {};
+    if (!optionsData.type) optionsData.type = "default";
+
+    const body = {
+      model: payload.model || "Version-UploadmediaV3.1",
+      mediaInfo: payload.mediaInfo,
+      contentType: payload.contentType || fileType,
+      optionsData,
+    };
+
+    if (!body.mediaInfo) {
+      throw new Error("Thiếu mediaInfo — upload storage chưa xong.");
+    }
+    if (!body.contentType) {
+      throw new Error("Thiếu contentType (image/video).");
+    }
+
+    // Gửi request; Authorization + member header do axios interceptor gắn
     const response = await api.post(
       `${utils.API_URL.UPLOAD_MEDIA_URL_V2}`,
-      payload,
+      body,
       {
         headers: {
-          "Content-Type": "application/json", // vẫn có thể custom nếu cần
+          "Content-Type": "application/json",
         },
+        timeout: 90000,
       }
     );
 
     clearTimeout(timeoutId); // Hủy timeout khi upload thành công
+
+    // Dio đôi khi trả HTTP 200 + success:false
+    if (response.data?.success === false) {
+      const msg =
+        response.data?.message ||
+        response.data?.error?.message ||
+        (typeof response.data?.error === "string"
+          ? response.data.error
+          : null) ||
+        "postMoment bị từ chối";
+      const err = new Error(typeof msg === "string" ? msg : JSON.stringify(msg));
+      err.response = response;
+      throw err;
+    }
+
     console.log("✅ Upload thành công:", response.data);
     return response.data;
   } catch (error) {
@@ -136,6 +170,20 @@ export const PostMoments = async (payload) => {
       console.error("📡 Server Error:", error.response);
     } else {
       console.error("🌐 Network Error:", error.message);
+    }
+
+    // Bọc message API rõ ràng để toast queue hiển thị
+    const apiMsg =
+      error?.response?.data?.message ||
+      error?.response?.data?.error?.message ||
+      (typeof error?.response?.data?.error === "string"
+        ? error.response.data.error
+        : null);
+    if (apiMsg && !error.message?.includes(String(apiMsg))) {
+      const e = new Error(String(apiMsg));
+      e.response = error.response;
+      e.status = error?.response?.status;
+      throw e;
     }
 
     throw error;
