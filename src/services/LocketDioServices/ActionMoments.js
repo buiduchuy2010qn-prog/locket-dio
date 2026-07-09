@@ -6,16 +6,43 @@ import { getToken } from "@/utils";
 import { generateUUIDv4Upper } from "@/utils/generate/uuid";
 
 
-export const GetAllMoments = async ({ timestamp = null, friendId = null, limit = 60}) => {
+/** Normalize moment fields for cache/UI (createTime, thumbnail, user) */
+const normalizeMoment = (m) => {
+  if (!m || typeof m !== "object") return m;
+  const createTime =
+    m.createTime ||
+    m.date?._seconds ||
+    (typeof m.date === "number" ? m.date : null) ||
+    (m.date ? Math.floor(new Date(m.date).getTime() / 1000) : 0);
+  return {
+    ...m,
+    createTime,
+    user: m.user || m.userUid || m.owner || m.uid,
+    thumbnail_url:
+      m.thumbnail_url || m.thumbnailUrl || m.image_url || m.imageUrl,
+    image_url: m.image_url || m.imageUrl || m.thumbnail_url,
+    video_url: m.video_url || m.videoUrl || null,
+  };
+};
+
+export const GetAllMoments = async ({
+  timestamp = null,
+  friendId = null,
+  limit = 60,
+}) => {
   try {
-    const res = await api.post(API_ENDPOINTS.getMoments, {
-      timestamp: timestamp,
-      friendId: friendId,
-      limit: limit,
+    // Official: POST /locket/getMomentV2 on api.locket-dio.com (via /dio-api)
+    const res = await api.post(API_ENDPOINTS.getMoments || "/locket/getMomentV2", {
+      timestamp,
+      friendId,
+      limit,
     });
-    return res.data?.data;
+    const raw = res.data?.data ?? res.data;
+    const list = Array.isArray(raw) ? raw : raw?.moments || [];
+    return list.map(normalizeMoment);
   } catch (err) {
-    console.warn("Failed", err);
+    console.warn("Failed GetAllMoments:", err?.response?.data || err.message);
+    return [];
   }
 };
 

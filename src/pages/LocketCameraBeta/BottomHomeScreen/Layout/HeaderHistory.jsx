@@ -1,10 +1,12 @@
-import { ChevronDown, ChevronRight, MessageCircle } from "lucide-react";
+import { ChevronDown, ChevronRight, MessageCircle, RefreshCw } from "lucide-react";
 import { useContext, useState } from "react";
 import { AuthContext } from "@/context/AuthLocket";
 import { HiUsers } from "react-icons/hi2";
 import { useApp } from "@/context/AppContext";
 import Avatar from "../../ExtendPage/Badge/Avatar";
 import { useFriendStore } from "@/stores/useFriendStore";
+import { useMomentsStoreV2 } from "@/stores/useMomentsStoreV2";
+import { SonnerSuccess, SonnerError } from "@/components/ui/SonnerToast";
 
 const HeaderHistory = () => {
   const { friendDetails, loading, setFriendDetails } = useFriendStore();
@@ -20,6 +22,8 @@ const HeaderHistory = () => {
   const [isVisible, setIsVisible] = useState(false); // Điều khiển mount/unmount
   const [searchTerm, setSearchTerm] = useState("");
   const [friendName, setFriendName] = useState("Mọi người");
+  const [refreshing, setRefreshing] = useState(false);
+  const fetchMoments = useMomentsStoreV2((s) => s.fetchMoments);
 
   const truncateName = (name, length = 10) => {
     return name.length > length ? name.slice(0, length) + "..." : name;
@@ -51,6 +55,21 @@ const HeaderHistory = () => {
     setTimeout(() => setIsVisible(false), 500);
   };
 
+  const handleRefresh = async (e) => {
+    e?.stopPropagation?.();
+    if (refreshing || !user) return;
+    setRefreshing(true);
+    try {
+      await fetchMoments(user, selectedFriendUid);
+      SonnerSuccess("Đã làm mới", "Đã tải lại ảnh/video mới nhất");
+    } catch (err) {
+      console.error(err);
+      SonnerError("Làm mới thất bại", err?.message || "Thử lại sau");
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   return (
     <div className="px-4 py-2 text-base-content">
       <div className="flex flex-row justify-between w-full items-center">
@@ -62,8 +81,8 @@ const HeaderHistory = () => {
           <Avatar />
         </div>
 
-        {/* Giữa: Dropdown Toggle */}
-        <div className="flex justify-center items-center relative">
+        {/* Giữa: Dropdown + nút làm mới */}
+        <div className="flex justify-center items-center relative gap-2">
           <div
             onClick={toggleDropdown}
             className="bg-base-300/20 whitespace-nowrap drop-shadow-2xl backdrop-blur-md px-4 py-2.5 rounded-3xl font-semibold text-md flex items-center cursor-pointer hover:bg-base-300 transition"
@@ -76,6 +95,19 @@ const HeaderHistory = () => {
               strokeWidth={2.5}
             />
           </div>
+          <button
+            type="button"
+            title="Làm mới ảnh"
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="rounded-full p-2.5 bg-base-300/30 backdrop-blur-md hover:bg-base-300 transition disabled:opacity-50"
+          >
+            <RefreshCw
+              size={20}
+              className={refreshing ? "animate-spin" : ""}
+              strokeWidth={2.5}
+            />
+          </button>
         </div>
 
         {/* Phải: Tin nhắn */}
@@ -107,7 +139,7 @@ const HeaderHistory = () => {
               ${isOpen ? "opacity-100 scale-100" : "opacity-0 scale-0"}
               bg-base-100 border border-base-300 rounded-xl shadow-md px-4 py-3`}
           >
-            <h3 className="font-semibold mb-3 text-base">Danh sách bạn bè hh</h3>
+            <h3 className="font-semibold mb-3 text-base">Danh sách bạn bè</h3>
             <div className="relative w-full mt-2">
               <input
                 type="text"

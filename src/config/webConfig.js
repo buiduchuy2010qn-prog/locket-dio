@@ -7,7 +7,9 @@ export const CONFIG = {
     data: import.meta.env.VITE_DATA_API_URL, // API data local
     payment: import.meta.env.VITE_PAYMENT_API_URL, // API thanh toán
     cdnUrl: import.meta.env.VITE_CDN_URL, // API cdn
-    chatServer: import.meta.env.VITE_CHAT_SERVER_URL, // server realtime chat (socket + API)
+    // Official: socket on api.locket-dio.com (chat.* DNS is dead)
+    chatServer:
+      import.meta.env.VITE_CHAT_SERVER_URL || "api.locket-dio.com",
     locketApi: import.meta.env.VITE_LOCKET_API_URL, // API Locket chính thức
     exportApi: import.meta.env.VITE_EXPORTS_API_URL, // API export data pdf, excel,...
     convertApi: import.meta.env.VITE_CONVERTS_API_URL,

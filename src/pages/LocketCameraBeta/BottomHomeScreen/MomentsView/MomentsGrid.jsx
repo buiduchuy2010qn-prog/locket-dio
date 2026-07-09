@@ -73,10 +73,12 @@ const MomentsGrid = ({
   if (moments.length === 0) {
     return (
       <div className="grid grid-cols-3 md:grid-cols-6 md:gap-2 w-full h-full">
-        <div className="aspect-square bg-base-300 rounded-2xl border-2 border-dashed border-base-content/30 flex flex-col justify-center items-center">
-          <div className="text-2xl mb-1">+</div>
+        <div className="aspect-square bg-base-300 rounded-2xl border-2 border-dashed border-base-content/30 flex flex-col justify-center items-center px-2 text-center">
+          <div className="text-2xl mb-1">{loading ? "…" : "+"}</div>
           <div className="text-xs font-medium text-base-content/70">
-            Không có dữ liệu
+            {loading
+              ? "Đang tải..."
+              : "Chưa có ảnh — bấm nút làm mới cạnh Mọi người"}
           </div>
         </div>
       </div>
