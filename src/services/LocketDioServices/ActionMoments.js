@@ -71,17 +71,88 @@ export const SendReactMoment = async (emoji, selectedMomentId, power) => {
   }
 };
 
+/** Chuẩn hoá payload views/reactions từ Dio hoặc Locket API */
+const normalizeMomentActivity = (raw) => {
+  if (!raw || typeof raw !== "object") {
+    return { views: [], reactions: [] };
+  }
+  // Một số endpoint bọc trong data/result
+  const payload = raw.data ?? raw.result ?? raw;
+
+  let views = payload.views ?? payload.viewers ?? payload.view_list ?? [];
+  let reactions =
+    payload.reactions ?? payload.reacts ?? payload.reaction_list ?? [];
+
+  // getMomentViews đôi khi trả mảng viewer thuần
+  if (Array.isArray(payload) && !payload.views) {
+    views = payload;
+  }
+  if (!Array.isArray(views)) views = [];
+  if (!Array.isArray(reactions)) reactions = [];
+
+  const mapView = (v) => {
+    if (!v || typeof v !== "object") {
+      return { user: String(v || ""), viewedAt: null };
+    }
+    return {
+      user: v.user || v.uid || v.user_uid || v.userUid || v.viewer_uid || "",
+      viewedAt:
+        v.viewedAt ||
+        v.viewed_at ||
+        v.createdAt ||
+        v.created_at ||
+        v.timestamp ||
+        null,
+    };
+  };
+
+  const mapReaction = (r) => {
+    if (!r || typeof r !== "object") return null;
+    return {
+      user: r.user || r.uid || r.user_uid || r.userUid || "",
+      emoji: r.emoji || r.reaction || "💛",
+      intensity: r.intensity ?? r.power ?? 0,
+      createdAt: r.createdAt || r.created_at || r.timestamp || null,
+    };
+  };
+
+  return {
+    views: views.map(mapView).filter((v) => v.user),
+    reactions: reactions.map(mapReaction).filter(Boolean),
+  };
+};
+
 export const GetInfoMoment = async (idMoment) => {
+  if (!idMoment) return { views: [], reactions: [] };
+
+  // 1) Dio proxy getInfoMomentV2 (views + reactions)
   try {
     const res = await api.post("/locket/getInfoMomentV2", {
       pageToken: null,
       idMoment,
       limit: null,
     });
-    const moments = res.data.data;
-    return moments;
+    const raw = res?.data?.data ?? res?.data;
+    const normalized = normalizeMomentActivity(raw);
+    if (normalized.views.length > 0 || normalized.reactions.length > 0) {
+      return normalized;
+    }
+    // Có thể API OK nhưng rỗng — vẫn thử fallback Locket native
   } catch (err) {
-    console.warn("❌ React Failed", err);
+    console.warn("❌ GetInfoMoment Dio failed:", err?.response?.data || err?.message);
+  }
+
+  // 2) Fallback: Locket getMomentViews
+  try {
+    const viewsRaw = await getMomentViews(idMoment);
+    return normalizeMomentActivity(
+      viewsRaw && typeof viewsRaw === "object"
+        ? viewsRaw
+        : { views: Array.isArray(viewsRaw) ? viewsRaw : [] }
+    );
+  } catch (err) {
+    console.warn("❌ GetInfoMoment fallback failed:", err?.message);
+    return { views: [], reactions: [] };
   }
 };
 
@@ -111,11 +182,12 @@ export const getMomentViews = async (momentId) => {
       },
     };
 
-    const res = await instanceLocketV2.post("getMomentViews", body); // 👈 thêm body
-    const moments = res.data.result;
-    return moments;
+    const res = await instanceLocketV2.post("getMomentViews", body);
+    // result có thể là mảng viewers hoặc { views, reactions }
+    return res?.data?.result ?? res?.data?.data ?? res?.data ?? [];
   } catch (err) {
-    console.warn("❌ markMomentAsViewed Failed", err);
+    console.warn("❌ getMomentViews Failed", err?.response?.data || err?.message);
+    return [];
   }
 };
 

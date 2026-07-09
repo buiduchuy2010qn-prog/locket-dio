@@ -8,11 +8,14 @@ import { AuthContext } from "@/context/AuthLocket";
 import { SonnerError, SonnerSuccess } from "@/components/ui/SonnerToast";
 import { getFriendDetail } from "@/cache/friendsDB";
 import ActivitySection from "../Modal/ActivityViews/ActivityModal";
+import { markMomentViewedOnce } from "@/cache/viewedMomentDB";
+import { getMyLocalId } from "@/utils/auth/getMyLocalId";
 
+const FALLBACK_AVATAR = "/images/default_profile.png";
 
 const InputForMoment = () => {
-  const { user } = useContext(AuthContext);
-  const localId = user?.localId || null;
+  const { user, authTokens } = useContext(AuthContext);
+  const localId = getMyLocalId(user, authTokens);
 
   const {
     reactionInfo,
@@ -97,9 +100,11 @@ const InputForMoment = () => {
       try {
         setIsLoadingMoment(true);
         const moment = await getMomentById(selectedMomentId);
-        setMomentUser(moment.user);
-        const data = await getFriendDetail(moment.user);
-        setUserDetail(data);
+        setMomentUser(moment?.user || null);
+        if (moment?.user) {
+          const data = await getFriendDetail(moment.user);
+          setUserDetail(data);
+        }
       } catch (err) {
         console.error("Lỗi khi lấy moment hoặc user:", err);
       } finally {
@@ -111,6 +116,25 @@ const InputForMoment = () => {
       fetchMomentAndUser();
     }
   }, [selectedMomentId]);
+
+  // Đánh dấu đã xem bài của người khác → chủ bài thấy "đã xem"
+  useEffect(() => {
+    if (!selectedMomentId || !momentUser || !localId) return;
+    if (localId === momentUser) return;
+
+    const markViewed = async () => {
+      try {
+        await markMomentViewedOnce({
+          id: selectedMomentId,
+          user: momentUser,
+        });
+      } catch (err) {
+        console.error("❌ Lỗi mark viewed:", err);
+      }
+    };
+
+    markViewed();
+  }, [selectedMomentId, momentUser, localId]);
 
   const handleSend = async () => {
     if (isSendingMessage || !message.trim()) return;
@@ -136,43 +160,84 @@ const InputForMoment = () => {
   const shortName =
     fullName.length > 10 ? fullName.slice(0, 10) + "…" : fullName;
 
+  // Bài của mình → tải danh sách người xem / reaction
   useEffect(() => {
-    if (localId && momentUser && localId === momentUser && selectedMomentId) {
-      const fetchMyMoment = async () => {
-        try {
-          setIsLoadingActivity(true);
-          const info = await GetInfoMoment(selectedMomentId);
-          const { views = [], reactions = [] } = info;
-          // Map qua từng view, gắn thêm userInfo + reaction (nếu có)
-          const merged = await Promise.all(
-            views.map(async (view) => {
-              const userInfo = await getFriendDetail(view.user);
-              const reaction = reactions.find((r) => r.user === view.user);
-
-              return {
-                user: userInfo,
-                viewedAt: view.viewedAt,
-                reaction: reaction
-                  ? {
-                      emoji: reaction.emoji,
-                      intensity: reaction.intensity,
-                      createdAt: reaction.createdAt,
-                    }
-                  : null,
-              };
-            })
-          );
-
-          setActivity(merged);
-        } catch (err) {
-          console.error("❌ Lỗi khi gọi GetInfoMoment:", err);
-        } finally {
-          setIsLoadingActivity(false);
-        }
-      };
-
-      fetchMyMoment();
+    if (!localId || !momentUser || localId !== momentUser || !selectedMomentId) {
+      setActivity([]);
+      return;
     }
+
+    let cancelled = false;
+
+    const fetchMyMoment = async () => {
+      try {
+        setIsLoadingActivity(true);
+        const info = (await GetInfoMoment(selectedMomentId)) || {
+          views: [],
+          reactions: [],
+        };
+        const { views = [], reactions = [] } = info;
+
+        const byUser = new Map();
+        for (const view of views) {
+          if (!view?.user) continue;
+          byUser.set(view.user, {
+            userId: view.user,
+            viewedAt: view.viewedAt || null,
+            reaction: null,
+          });
+        }
+        for (const r of reactions) {
+          if (!r?.user) continue;
+          const existing = byUser.get(r.user) || {
+            userId: r.user,
+            viewedAt: r.createdAt || null,
+            reaction: null,
+          };
+          existing.reaction = {
+            emoji: r.emoji,
+            intensity: r.intensity,
+            createdAt: r.createdAt,
+          };
+          if (!existing.viewedAt) existing.viewedAt = r.createdAt || null;
+          byUser.set(r.user, existing);
+        }
+
+        const merged = await Promise.all(
+          Array.from(byUser.values()).map(async (item) => {
+            const userInfo = await getFriendDetail(item.userId);
+            return {
+              user: userInfo || {
+                uid: item.userId,
+                firstName: "Bạn bè",
+                lastName: "",
+                profilePic: FALLBACK_AVATAR,
+              },
+              viewedAt: item.viewedAt,
+              reaction: item.reaction,
+            };
+          })
+        );
+
+        merged.sort((a, b) => {
+          const ta = a.viewedAt ? new Date(a.viewedAt).getTime() : 0;
+          const tb = b.viewedAt ? new Date(b.viewedAt).getTime() : 0;
+          return tb - ta;
+        });
+
+        if (!cancelled) setActivity(merged);
+      } catch (err) {
+        console.error("❌ Lỗi khi gọi GetInfoMoment:", err);
+        if (!cancelled) setActivity([]);
+      } finally {
+        if (!cancelled) setIsLoadingActivity(false);
+      }
+    };
+
+    fetchMyMoment();
+    return () => {
+      cancelled = true;
+    };
   }, [localId, momentUser, selectedMomentId]);
 
   const [selectedItem, setSelectedItem] = useState(null);

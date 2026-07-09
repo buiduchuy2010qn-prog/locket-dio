@@ -43,9 +43,7 @@ export const ActivityModal = ({
             <div className="mt-3 text-sm text-base-content space-y-1">
               <p>
                 - 👁️ Tổng người xem:{" "}
-                <span className="font-semibold">
-                  {activity.filter((i) => i.viewedAt).length}
-                </span>
+                <span className="font-semibold">{activity.length}</span>
               </p>
               <p>
                 - 💖 Tổng người đã thả cảm xúc:{" "}
@@ -67,19 +65,22 @@ export const ActivityModal = ({
             </ul>
           ) : activity.length > 0 ? (
             <ul className="space-y-2">
-              {activity.map((item) => (
+              {activity.map((item, idx) => (
                 <li
-                  key={item?.user?.uid}
+                  key={item?.user?.uid || idx}
                   className="flex items-center gap-3 relative"
                 >
                   <img
-                    src={item?.user?.profilePic}
-                    alt={item?.user?.firstName}
-                    className="w-12 h-12 rounded-full border-[2.5px] p-0.5 border-amber-400"
+                    src={item?.user?.profilePic || "/images/default_profile.png"}
+                    alt={item?.user?.firstName || "viewer"}
+                    className="w-12 h-12 rounded-full border-[2.5px] p-0.5 border-amber-400 object-cover bg-base-300"
+                    onError={(e) => {
+                      e.currentTarget.src = "/images/default_profile.png";
+                    }}
                   />
                   <div className="flex flex-col flex-1">
                     <span className="text-base text-base-content font-semibold">
-                      {item.user?.firstName} {item.user?.lastName}
+                      {item.user?.firstName || "Bạn bè"} {item.user?.lastName || ""}
                     </span>
                     {item.reaction ? (
                       <span className="text-sm">
@@ -88,7 +89,7 @@ export const ActivityModal = ({
                       </span>
                     ) : (
                       <span className="text-sm">
-                        ✨ đã xem {formatTimeAgo(item?.viewedAt)}
+                        ✨ đã xem {item?.viewedAt ? formatTimeAgo(item.viewedAt) : ""}
                       </span>
                     )}
                   </div>

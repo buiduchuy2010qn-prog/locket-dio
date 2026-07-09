@@ -1,10 +1,10 @@
 /**
- * Locket Dio SW v2.3.1-netfirst
+ * Locket Dio SW v2.3.3-view-status
  * - KHÔNG precache JS/CSS/HTML (tránh kẹt bản cũ → postMoment 500)
  * - Navigation + script/style: NetworkFirst
  * - Chỉ cache font/image CDN
  */
-console.log("[SW] Locket Dio SW v2.3.2-ban-localid - loaded");
+console.log("[SW] Locket Dio SW v2.3.3-view-status - loaded");
 
 import { precacheAndRoute, cleanupOutdatedCaches } from "workbox-precaching";
 import { registerRoute } from "workbox-routing";
