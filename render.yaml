@@ -1,19 +1,11 @@
 services:
   - type: web
     name: locket-dio
-    runtime: static
-    # Prebuilt SPA is committed under public/ — do not run npm on Render
-    # (npm build fails on Render free static; public/ already has production files)
-    buildCommand: echo "Deploying prebuilt Client-Locket-Dio from public/"
-    staticPublishPath: ./public
-    routes:
-      - type: rewrite
-        source: /*
-        destination: /index.html
-    headers:
-      - path: /*
-        name: X-Frame-Options
-        value: DENY
-      - path: /*
-        name: X-Content-Type-Options
-        value: nosniff
+    runtime: node
+    plan: free
+    # Prebuilt SPA in public/ + CORS proxy (server.mjs) — no npm build on Render
+    buildCommand: echo "Using prebuilt public/ + server.mjs proxy"
+    startCommand: node server.mjs
+    envVars:
+      - key: NODE_VERSION
+        value: "20"

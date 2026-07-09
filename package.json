@@ -5,11 +5,16 @@
   "type": "module",
   "license": "MIT",
   "scripts": {
-    "start": "npm run dev",
+    "start": "node server.mjs",
     "dev": "vite",
     "build": "vite build",
+    "build:static": "vite build && node scripts/prepare-static.mjs",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "serve": "node server.mjs"
+  },
+  "engines": {
+    "node": ">=18"
   },
   "dependencies": {
     "@tailwindcss/vite": "4.1.13",
