@@ -62,8 +62,42 @@ export default function GoogleDriveBackup({ forceShow = false }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [localId, email]);
 
+  // Không admin: vẫn hiện card nhẹ + hướng dẫn vào đúng chỗ
   if (!isAdmin && !forceShow) {
-    return null;
+    return (
+      <div
+        id="google-drive-admin"
+        className="w-full rounded-2xl border-2 border-dashed border-base-300 bg-base-200 p-4 text-sm text-base-content/70"
+      >
+        <p className="font-semibold text-base-content flex items-center gap-2">
+          <HardDrive className="w-5 h-5" /> Google Drive (dùng chung web)
+        </p>
+        <p className="mt-2 text-xs">
+          Chỉ tài khoản admin (
+          <code className="bg-base-300 px-1 rounded">
+            buiduchuy2010qn@gmail.com
+          </code>
+          ) mới cấu hình liên kết. Bạn đang login:{" "}
+          <code className="bg-base-300 px-1 rounded">
+            {email || "chưa có email"}
+          </code>
+          {localId ? (
+            <>
+              {" · "}
+              <code className="bg-base-300 px-1 rounded text-[10px]">
+                {localId}
+              </code>
+            </>
+          ) : null}
+        </p>
+        <p className="mt-2 text-xs opacity-70">
+          Admin mở:{" "}
+          <a className="link link-primary" href="/admin/google-drive">
+            /admin/google-drive
+          </a>
+        </p>
+      </div>
+    );
   }
 
   const configured = Boolean(status?.configured);

@@ -48,7 +48,9 @@ const Sidebar = () => {
     localStorage.getItem("email") ||
     sessionStorage.getItem("email") ||
     "";
-  const showAdminDrive = isAdminUser(myId, { ...user, email, localId: myId });
+  // Admin Drive: luôn hiện cho user đã login (dễ tìm).
+  // Trang /admin/google-drive vẫn chỉ cho admin cấu hình.
+  const showDriveMenu = Boolean(user);
 
   useEffect(() => {
     document.body.classList.toggle("overflow-hidden", isSidebarOpen);
@@ -73,23 +75,34 @@ const Sidebar = () => {
 
   // Menu chia theo nhóm
   const userMenuSections = useMemo(() => {
-    const systemItems = [
-      { to: "/incidents", icon: Bug, text: "Trung tâm sự cố" },
-      { to: "/contact", icon: LifeBuoy, text: "Liên hệ & Hỗ trợ" },
-      { to: "/privacy", icon: ShieldCheck, text: "Chính sách bảo mật" },
-      { to: "/settings", icon: Settings, text: "Cài đặt" },
-    ];
-    // Admin: mục Drive nổi bật riêng
-    if (showAdminDrive) {
-      systemItems.unshift({
-        to: "/admin/google-drive",
-        icon: HardDrive,
-        text: "Google Drive",
-        badge: "Admin",
+    const sections = [];
+
+    // —— MỤC ĐẦU TIÊN: Google Drive (dễ thấy, không cần cuộn) ——
+    if (showDriveMenu) {
+      const isAdmin = isAdminUser(myId, {
+        ...user,
+        email,
+        localId: myId,
+      });
+      sections.push({
+        title: "⚡ Google Drive",
+        items: [
+          {
+            to: "/admin/google-drive",
+            icon: HardDrive,
+            text: isAdmin ? "Liên kết Drive (Admin)" : "Google Drive",
+            badge: isAdmin ? "Admin" : null,
+          },
+          {
+            to: "/settings",
+            icon: Settings,
+            text: "Cài đặt web",
+          },
+        ],
       });
     }
 
-    return [
+    sections.push(
       {
         title: "Locket Dio",
         items: [
@@ -128,10 +141,16 @@ const Sidebar = () => {
       },
       {
         title: "Hệ thống & Hỗ trợ",
-        items: systemItems,
-      },
-    ];
-  }, [showAdminDrive]);
+        items: [
+          { to: "/incidents", icon: Bug, text: "Trung tâm sự cố" },
+          { to: "/contact", icon: LifeBuoy, text: "Liên hệ & Hỗ trợ" },
+          { to: "/privacy", icon: ShieldCheck, text: "Chính sách bảo mật" },
+        ],
+      }
+    );
+
+    return sections;
+  }, [showDriveMenu, myId, email, user]);
 
   const guestMenuSections = [
     {

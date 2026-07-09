@@ -1,13 +1,23 @@
 import { useContext, useState } from "react";
-import { ChevronDown, CloudUpload, Download, Menu, MessageCircle } from "lucide-react";
+import { Link } from "react-router-dom";
+import {
+  ChevronDown,
+  CloudUpload,
+  Download,
+  HardDrive,
+  Menu,
+  MessageCircle,
+} from "lucide-react";
 import HistorySelectFriend from "@/pages/LocketCameraBeta/ModalViews/HistorySelectFriend";
 import { AuthContext } from "@/context/AuthLocket";
 import { useFriendStore } from "@/stores/useFriendStore";
 import {
   fetchDriveServerStatus,
+  isAdminUser,
   isDriveConfigured,
   uploadFileToGoogleDrive,
 } from "@/utils/googleDrive";
+import { getMyLocalId } from "@/utils/auth/getMyLocalId";
 import { SonnerError, SonnerSuccess } from "@/components/ui/SonnerToast";
 
 const HeaderHome = ({
@@ -20,8 +30,15 @@ const HeaderHome = ({
   isFriendHistoryOpen,
   selectedFile,
 }) => {
-  const { user } = useContext(AuthContext);
+  const { user, authTokens } = useContext(AuthContext);
   const { friendDetails } = useFriendStore();
+  const myId = getMyLocalId(user, authTokens);
+  const email =
+    user?.email ||
+    localStorage.getItem("email") ||
+    sessionStorage.getItem("email") ||
+    "";
+  const isAdmin = isAdminUser(myId, { ...user, email, localId: myId });
 
   const [isImageLoaded, setIsImageLoaded] = useState(false);
 
@@ -195,7 +212,19 @@ const HeaderHome = ({
           </button>
 
           {/* Nút bên phải */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3">
+            {/* Google Drive — nổi bật cho admin, mọi user cũng thấy */}
+            <Link
+              to="/admin/google-drive"
+              title="Google Drive"
+              className={`w-11 h-11 flex items-center justify-center rounded-full transition active:scale-105 ${
+                isAdmin
+                  ? "bg-amber-400 text-amber-950 shadow-md ring-2 ring-amber-300"
+                  : "bg-base-300/70 backdrop-blur-[4px] hover:bg-base-300"
+              }`}
+            >
+              <HardDrive size={22} strokeWidth={2.25} />
+            </Link>
             <button
               onClick={() => setIsHomeOpen(true)}
               className="w-11 h-11 flex items-center justify-center bg-base-300/70 backdrop-blur-[4px] rounded-full hover:bg-base-300 transition active:scale-105"
