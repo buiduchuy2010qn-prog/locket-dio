@@ -815,6 +815,7 @@ const MediaPreviewAndroid = () => {
 
         {!preview && !selectedFile && (
           <>
+            {/* Chỉ nút đèn flash — không zoom pill / số 1 trên khung ảnh */}
             <div className="absolute inset-0 top-7 px-7 z-30 pointer-events-none flex justify-start text-base-content text-xs font-semibold">
               <button
                 onClick={handleToggleTorch}
@@ -822,40 +823,7 @@ const MediaPreviewAndroid = () => {
               >
                 <img src="/icons/bolt.fill.png" alt="Icon sấm sét" />
               </button>
-              {/* Bỏ ô tròn 1x góc phải — dùng pills zoom dưới khung */}
             </div>
-
-            {/* Pills zoom: 0.5 · 1 · 2 · 3 (camera sau) — không hiện ô "1" lẻ */}
-            {!preview &&
-              !selectedFile &&
-              cameraActive &&
-              lensPills.length >= 2 && (
-              <div className="absolute bottom-5 left-1/2 -translate-x-1/2 z-30 flex items-center gap-1.5 pointer-events-auto px-2 py-1.5 rounded-full bg-black/40 backdrop-blur-md">
-                {lensPills.map((label) => {
-                  const active =
-                    zoomLevel === label ||
-                    (label === "1x" &&
-                      (!zoomLevel ||
-                        zoomLevel === "1x" ||
-                        zoomDisplay === "1x" ||
-                        zoomDisplay === "1.0x"));
-                  return (
-                    <button
-                      key={label}
-                      type="button"
-                      onClick={() => handleSelectLens(label)}
-                      className={`min-w-9 h-9 px-2.5 rounded-full text-xs font-bold transition-all active:scale-95 ${
-                        active
-                          ? "bg-white text-black shadow"
-                          : "bg-white/20 text-white"
-                      }`}
-                    >
-                      {label.replace("x", "")}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
 
             {cameraFrame?.imageSrc && (
               <div className="absolute inset-0 z-20 pointer-events-none">
