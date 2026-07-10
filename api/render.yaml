@@ -1,0 +1,23 @@
+# Render Blueprint — Huy Locket API
+services:
+  - type: web
+    name: huy-locket-api
+    runtime: node
+    plan: free
+    region: singapore
+    buildCommand: npm install --omit=dev
+    startCommand: node app.js
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: COOKIE_SECRET
+        generateValue: true
+      - key: LOCKETDIO_JWT_SECRET
+        generateValue: true
+      - key: CORS_ORIGINS
+        sync: false
+      # Thêm thủ công trên Dashboard:
+      # FIREBASE_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, WEATHER_API_KEY, REDIS_URL

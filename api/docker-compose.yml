@@ -1,0 +1,42 @@
+x-common-env: &common-env
+  # HTTP_PROXY: ${HTTP_PROXY}
+  # HTTPS_PROXY: ${HTTPS_PROXY}
+  NO_PROXY: ${NO_PROXY}
+  NODE_ENV: production
+  TZ: Asia/Ho_Chi_Minh
+
+x-app-base: &app-base
+  image: locketdio-app
+  env_file:
+    - .env
+  environment:
+    <<: *common-env
+    PORT: ${PORT}
+  restart: always
+  mem_limit: 7G
+  cpus: 2
+  pids_limit: 200
+
+services:
+  app1:
+    <<: *app-base
+    build: .
+    container_name: locketdio-app1
+    ports:
+      - "5001:${PORT}"
+
+  app2:
+    <<: *app-base
+    container_name: locketdio-app2
+    depends_on:
+      - app1
+    ports:
+      - "5002:${PORT}"
+
+  app3:
+    <<: *app-base
+    container_name: locketdio-app3
+    depends_on:
+      - app1
+    ports:
+      - "5003:${PORT}"

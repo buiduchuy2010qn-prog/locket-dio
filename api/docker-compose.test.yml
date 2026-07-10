@@ -1,0 +1,30 @@
+version: "3.9"
+
+x-app-common: &app-common
+  build: .
+  image: locketdio-app
+  env_file:
+    - .env
+  restart: always
+  mem_limit: 1500m
+  cpus: 1.5
+  pids_limit: 300
+
+services:
+  app1:
+    <<: *app-common
+    container_name: locketdio-app1
+    ports:
+      - "5005:5004"
+
+  app2:
+    <<: *app-common
+    container_name: locketdio-app2
+    ports:
+      - "5006:5004"
+
+  app3:
+    <<: *app-common
+    container_name: locketdio-app3
+    ports:
+      - "5007:5004"
