@@ -77,7 +77,8 @@ html[data-theme="pinksnow"] main.bg-base-200 {
   z-index: 0;
 }
 
-.locket-shell > * {
+/* Nội dung shell trên nền, không kẹp fixed menu (sidebar portal ra body) */
+.locket-shell > main {
   position: relative;
   z-index: 1;
 }

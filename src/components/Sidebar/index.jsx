@@ -1,4 +1,5 @@
 import React, { useContext, useEffect, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { Link, useNavigate } from "react-router-dom";
 import {
   X,
@@ -180,37 +181,48 @@ const Sidebar = () => {
 
   const menuSections = user ? userMenuSections : guestMenuSections;
 
-  return (
+  // Portal ra body — tránh bị .locket-shell / tuyết đè z-index
+  const panel = (
     <>
-      {/* Overlay */}
+      {/* Overlay — trên tuyết (z-20), dưới vẫn bấm được menu */}
       <div
-        className={`fixed h-screen z-60 inset-0 bg-base-100/10 backdrop-blur-[2px] transition-opacity duration-500 ${
+        className={`fixed inset-0 h-screen bg-base-100/20 backdrop-blur-[2px] transition-opacity duration-300 ${
           isSidebarOpen
             ? "opacity-100 pointer-events-auto"
             : "opacity-0 pointer-events-none"
         }`}
+        style={{ zIndex: 100 }}
         onClick={() => setIsSidebarOpen(false)}
+        aria-hidden={!isSidebarOpen}
       />
 
-      {/* Sidebar */}
+      {/* Sidebar panel */}
       <div
-        className={`fixed z-60 top-0 right-0 h-full w-64 shadow-xl transition-all duration-500 bg-base-100 flex flex-col ${
-          isSidebarOpen
-            ? "opacity-100 translate-x-0"
-            : "opacity-0 translate-x-full"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Menu"
+        className={`fixed top-0 right-0 h-full w-64 max-w-[85vw] shadow-xl transition-transform duration-300 bg-base-100 flex flex-col ${
+          isSidebarOpen ? "translate-x-0" : "translate-x-full"
         }`}
+        style={{ zIndex: 110 }}
       >
         {/* Header */}
         <div className="flex justify-between items-center py-3 px-2 border-b border-base-300 flex-shrink-0">
-          <Link to="/" className="flex items-center gap-1">
+          <Link
+            to="/"
+            className="flex items-center gap-1"
+            onClick={() => setIsSidebarOpen(false)}
+          >
             <span className="text-lg pl-2 font-semibold gradient-text select-none">
               Menu
             </span>
           </Link>
           <ThemeToggle />
           <button
+            type="button"
             onClick={() => setIsSidebarOpen(false)}
             className="p-2 rounded-md transition cursor-pointer btn"
+            aria-label="Đóng menu"
           >
             <X size={24} />
           </button>
@@ -260,6 +272,9 @@ const Sidebar = () => {
       </div>
     </>
   );
+
+  if (typeof document === "undefined") return null;
+  return createPortal(panel, document.body);
 };
 
 export default Sidebar;

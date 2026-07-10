@@ -87,10 +87,10 @@
   }
 }
 
-/* ❄ rơi — khớp demo HTML user */
+/* ❄ rơi — dưới header/sidebar (z-50 / z-[100]), không chặn click */
 .snow-layer {
-  pointer-events: none;
-  z-index: 9999;
+  pointer-events: none !important;
+  z-index: 20;
 }
 
 .snowflake-emoji {
@@ -98,7 +98,7 @@
   top: -24px;
   color: #fff;
   user-select: none;
-  pointer-events: none;
+  pointer-events: none !important;
   line-height: 1;
   will-change: transform, opacity;
   text-shadow: 0 0 8px rgba(255, 255, 255, 0.85);

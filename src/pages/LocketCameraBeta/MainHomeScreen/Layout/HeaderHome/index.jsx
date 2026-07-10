@@ -105,7 +105,8 @@ const HeaderHome = ({
       )}
       {!selectedFile && (
         <div
-          className={`fixed top-0 left-0 w-full px-2 pt-1 flex items-center justify-between z-50`}
+          className="fixed top-0 left-0 w-full px-2 pt-1 flex items-center justify-between"
+          style={{ zIndex: 55 }}
         >
           <button
             onClick={() => setIsProfileOpen(true)}
@@ -185,8 +186,11 @@ const HeaderHome = ({
               <MessageCircle strokeWidth={2} />
             </button>
             <button
+              type="button"
               onClick={() => setIsSidebarOpen(true)}
               className="w-11 h-11 flex items-center justify-center bg-base-300/70 backdrop-blur-[4px] rounded-full hover:bg-base-300 transition active:scale-105"
+              style={{ pointerEvents: "auto", zIndex: 56 }}
+              aria-label="Mở menu"
             >
               <Menu size={28} strokeWidth={2} />
             </button>

@@ -84,7 +84,8 @@ const SnowEffect = ({
       ref={layerRef}
       className={`snow-layer pointer-events-none fixed inset-0 overflow-hidden ${className}`}
       aria-hidden="true"
-      style={{ zIndex: 9999 }}
+      // Thấp hơn header/menu (z-50+) — tránh chặn bấm mở menu
+      style={{ zIndex: 20, pointerEvents: "none" }}
     />
   );
 };
