@@ -64,9 +64,22 @@
     opacity: 0.8;
   }
   100% {
-    transform: translateY(var(--fall-distance)) translateX(var(--drift));
-    opacity: 0.8;
+    transform: translateY(var(--fall-distance, 110vh))
+      translateX(var(--drift, 0px));
+    opacity: 0;
   }
+}
+
+/* Fallback nếu snow.css chưa load (SnowEffect import snow.css) */
+.snowflake-emoji {
+  position: absolute;
+  top: -2.5rem;
+  line-height: 1;
+  pointer-events: none;
+  user-select: none;
+  animation-name: fall;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
 }
 
 @keyframes spin-slow {

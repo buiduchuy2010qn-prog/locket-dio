@@ -1,18 +1,19 @@
 import React, { useEffect, useRef } from "react";
+import "./snow.css";
 
 /**
- * Tuyết rơi kiểu ❄ — spawn liên tục giống demo HTML user.
+ * Tuyết rơi kiểu ❄ — spawn liên tục.
  * pointer-events: none, tự remove sau khi rơi xong.
  */
 const SNOW_CHARS = ["❄", "❅", "❆", "·"];
 
 const SnowEffect = ({
-  /** ms giữa mỗi bông (nhỏ = dày hơn). Mặc định ~mẫu HTML 80ms */
+  /** ms giữa mỗi bông (nhỏ = dày hơn) */
   intervalMs = 90,
   /** tối đa bông trên màn (tránh lag mobile) */
   maxFlakes = 60,
   className = "",
-  /** giữ API cũ (caption widgets) — không còn dùng dots */
+  /** giữ API cũ (caption widgets) */
   snowflakeCount,
   containerHeight,
 }) => {
@@ -32,6 +33,11 @@ const SnowEffect = ({
     let alive = true;
     let timer = null;
 
+    const fallDistance =
+      typeof containerHeight === "number" && containerHeight > 0
+        ? `${containerHeight + 40}px`
+        : "110vh";
+
     const spawn = () => {
       if (!alive || !layer) return;
       if (countRef.current >= maxFlakes) return;
@@ -42,22 +48,26 @@ const SnowEffect = ({
         SNOW_CHARS[Math.floor(Math.random() * SNOW_CHARS.length)];
       el.setAttribute("aria-hidden", "true");
 
-      const size = 10 + Math.random() * 20;
-      const duration = 3 + Math.random() * 5;
+      const size = 10 + Math.random() * 18;
+      const duration = 4 + Math.random() * 5; // 4–9s rơi
       const left = Math.random() * 100;
-      const opacity = 0.4 + Math.random() * 0.55;
-      const drift = (Math.random() - 0.5) * 80;
+      const opacity = 0.45 + Math.random() * 0.5;
+      const drift = (Math.random() - 0.5) * 90;
+      const spin = (Math.random() > 0.5 ? 1 : -1) * (180 + Math.random() * 360);
 
       el.style.left = `${left}%`;
       el.style.fontSize = `${size}px`;
       el.style.opacity = String(opacity);
-      el.style.animationDuration = `${duration}s`;
+      el.style.setProperty("--flake-opacity", String(opacity));
       el.style.setProperty("--drift", `${drift}px`);
+      el.style.setProperty("--fall-distance", fallDistance);
+      el.style.setProperty("--spin", `${spin}deg`);
+      el.style.animationDuration = `${duration}s`;
 
       layer.appendChild(el);
       countRef.current += 1;
 
-      const life = Math.ceil(duration * 1000) + 400;
+      const life = Math.ceil(duration * 1000) + 200;
       window.setTimeout(() => {
         el.remove();
         countRef.current = Math.max(0, countRef.current - 1);
@@ -65,12 +75,11 @@ const SnowEffect = ({
     };
 
     // Seed nhẹ — tránh spawn ồ ạt làm jank camera
-    const seed = Math.min(4, maxFlakes);
+    const seed = Math.min(6, maxFlakes);
     for (let i = 0; i < seed; i++) {
-      window.setTimeout(spawn, i * 80);
+      window.setTimeout(spawn, i * 100);
     }
 
-    // Dùng rAF throttle thay setInterval dày khi tab ẩn
     let last = 0;
     const tick = (now) => {
       if (!alive) return;
@@ -88,15 +97,13 @@ const SnowEffect = ({
       if (layer) layer.innerHTML = "";
       countRef.current = 0;
     };
-  }, [spawnEvery, maxFlakes]);
+  }, [spawnEvery, maxFlakes, containerHeight]);
 
   return (
     <div
       ref={layerRef}
-      className={`snow-layer pointer-events-none fixed inset-0 overflow-hidden ${className}`}
+      className={`snow-layer ${className}`.trim()}
       aria-hidden="true"
-      // Thấp hơn header/menu (z-50+) — tránh chặn bấm mở menu
-      style={{ zIndex: 20, pointerEvents: "none" }}
     />
   );
 };

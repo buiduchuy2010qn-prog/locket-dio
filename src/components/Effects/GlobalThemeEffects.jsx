@@ -32,23 +32,27 @@ const GlobalThemeEffects = () => {
 
   if (!SNOW_THEMES.has(theme) || hidden || reduceMotion) return null;
 
-  // Camera / locket screen: ít tuyết hơn hẳn (ưu tiên mượt stream)
+  // Camera / locket: vừa đủ tuyết, không làm lag preview
   const onCameraRoute =
     location.pathname.startsWith("/locket") ||
     location.pathname.startsWith("/camera");
 
   const intervalMs = onCameraRoute
-    ? 220
+    ? 160
     : theme === "pinksnow"
-      ? 140
-      : 180;
-  const maxFlakes = onCameraRoute ? 18 : theme === "pinksnow" ? 32 : 24;
+      ? 100
+      : 140;
+  const maxFlakes = onCameraRoute ? 28 : theme === "pinksnow" ? 48 : 36;
 
   return (
     <SnowEffect
       intervalMs={intervalMs}
       maxFlakes={maxFlakes}
-      className={theme === "pinksnow" ? "snow-layer--pink" : ""}
+      className={
+        theme === "pinksnow" || theme === "valentine"
+          ? "snow-layer--pink"
+          : ""
+      }
     />
   );
 };

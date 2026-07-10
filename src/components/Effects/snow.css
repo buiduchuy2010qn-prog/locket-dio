@@ -1,0 +1,56 @@
+/* Tuyết rơi — theme pinksnow / winter / valentine */
+
+.snow-layer {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none !important;
+  z-index: 20;
+  contain: layout style paint;
+}
+
+.snowflake-emoji {
+  position: absolute;
+  top: -2.5rem;
+  left: 0;
+  display: block;
+  line-height: 1;
+  user-select: none;
+  pointer-events: none !important;
+  will-change: transform, opacity;
+  color: #ffffff;
+  text-shadow: 0 0 6px rgba(255, 255, 255, 0.45);
+  animation-name: snow-fall;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+  /* duration set inline */
+}
+
+/* Hồng tuyết — bông hơi hồng/trắng */
+.snow-layer--pink .snowflake-emoji {
+  color: #fff7fb;
+  text-shadow:
+    0 0 8px rgba(255, 182, 213, 0.7),
+    0 1px 2px rgba(255, 105, 180, 0.25);
+}
+
+@keyframes snow-fall {
+  0% {
+    transform: translate3d(0, 0, 0) rotate(0deg);
+    opacity: var(--flake-opacity, 0.85);
+  }
+  85% {
+    opacity: var(--flake-opacity, 0.85);
+  }
+  100% {
+    transform: translate3d(var(--drift, 0px), var(--fall-distance, 110vh), 0)
+      rotate(var(--spin, 360deg));
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .snow-layer {
+    display: none !important;
+  }
+}
