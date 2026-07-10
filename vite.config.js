@@ -32,7 +32,8 @@ const manifestForPlugIn = {
     description: "Huy Locket - Đăng ảnh & Video lên Locket",
     display: "standalone",
     scope: "/",
-    start_url: "/",
+    // Mở PWA/web → thẳng camera Locket
+    start_url: "/locket",
     orientation: "portrait",
     icons: [
       {

@@ -70,17 +70,23 @@ function AppContent() {
     fetch("/dio-api/health", { method: "GET", credentials: "include" }).catch(
       () => {},
     );
+    // Token local → coi như đã login ngay (không chờ API)
     hydrateAuth();
     initAuth();
     showDevWarning();
     fetchCaptionOverlays();
   }, []);
 
+  // Đã đăng nhập → luôn vào camera (không kẹt trang chủ / login)
   useEffect(() => {
-    if (!loading && isAuth && location.pathname === "/login") {
+    if (loading) return;
+    if (!isAuth) return;
+
+    const entryPaths = new Set(["/", "/login", "/home"]);
+    if (entryPaths.has(location.pathname)) {
       navigate("/locket", { replace: true });
     }
-  }, [isAuth, loading, location.pathname]);
+  }, [isAuth, loading, location.pathname, navigate]);
 
   useEffect(() => {
     if (user) {
@@ -144,18 +150,38 @@ function AppContent() {
               />
             ))}
 
-          {/* Điều hướng ngược lại khi đã đăng nhập mà cố vào public route */}
+          {/* Đã login mà vào public (/) → camera */}
           {!loading &&
             isAuth &&
-            publicRoutes.map(({ path }) => (
-              <Route
-                key={path}
-                path={path}
-                element={<Navigate to="/locket" replace />}
-              />
-            ))}
+            publicRoutes
+              .filter(
+                ({ path }) =>
+                  // Chỉ redirect entry public; route trùng auth (settings…) đã có ở privateRoutes
+                  path === "/" ||
+                  path === "/login" ||
+                  path === "/forgot-password",
+              )
+              .map(({ path }) => (
+                <Route
+                  key={`pub-redir-${path}`}
+                  path={path}
+                  element={<Navigate to="/locket" replace />}
+                />
+              ))}
 
-          <Route path="*" element={<NotFoundPage />} />
+          {/* Catch-all: đã login → camera; chưa login → login */}
+          <Route
+            path="*"
+            element={
+              loading ? (
+                <LoadingPageMain isLoading={true} />
+              ) : isAuth ? (
+                <Navigate to="/locket" replace />
+              ) : (
+                <Navigate to="/login" replace />
+              )
+            }
+          />
         </Routes>
       </Suspense>
       <LoadingPageMain isLoading={loading} />

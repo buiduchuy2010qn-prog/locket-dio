@@ -35,7 +35,9 @@ export const useAuthStore = create(
       // HYDRATE
       // =========================
       hydrateAuth: () => {
-        const token = localStorage.getItem("idToken");
+        const token =
+          localStorage.getItem("idToken") ||
+          sessionStorage.getItem("idToken");
 
         if (!token) {
           set({
@@ -46,10 +48,12 @@ export const useAuthStore = create(
           return;
         }
 
-        // ⚡ dùng luôn data đã persist
+        // ⚡ Có token → đăng nhập ngay, vào camera không chờ API
+        const cachedUser = get()?.user || null;
         set({
           isAuth: true,
           loading: false,
+          ...(cachedUser ? { user: cachedUser } : {}),
         });
       },
 
