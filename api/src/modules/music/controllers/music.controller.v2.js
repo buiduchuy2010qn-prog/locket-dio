@@ -13,52 +13,73 @@ const {
   getSpotifyInfo,
 } = require("../services/getMusicInfoV2");
 
+/**
+ * V2 (legacy scrapers): keep for /getInfoMusicV3 callers that still want scrape path.
+ */
 const getInfoMusicControllerV2 = async (req, res, next) => {
   const { url, platform } = req.body;
 
   try {
-    logInfo("getInfoMusic", `🎵 Đang lấy thông tin bài hát từ ${platform}...`);
+    logInfo("getInfoMusic", `🎵 [V2 scrape] Lấy info từ ${platform}...`);
+
+    // Prefer reliable local path first; fall back to old scrapers
+    try {
+      const data = await fetchMusicApi(url, platform);
+      if (data) {
+        logSuccess("getInfoMusic", "✅ Lấy info thành công (local reliable)");
+        return res.status(200).json({
+          status: "success",
+          message: "ok",
+          data,
+        });
+      }
+    } catch (localErr) {
+      logInfo(
+        "getInfoMusic",
+        `Local reliable failed, try scrapers: ${localErr.message}`,
+      );
+    }
 
     let data = null;
 
     if (platform === "apple") {
-      const meta = await getAppleMusicMeta(url);
-      const info = await getAppleMusicInfo(url);
+      const meta = (await getAppleMusicMeta(url).catch(() => null)) || {};
+      const info = (await getAppleMusicInfo(url).catch(() => null)) || {};
 
       data = {
         artist: meta.artist || info.artist,
         image_url: meta.image || info.image,
-
         isrc: info.isrc,
-
         preview_url: meta.previewUrl,
-        song_name: meta.name || meta.name,
+        song_name: meta.name || info.name,
         apple_music_url: meta.appleMusicUrl || info.appleLink,
-
-        title: meta.title,
-        song_title: meta.name,
+        title: meta.title || [meta.name || info.name, meta.artist || info.artist].filter(Boolean).join(" - "),
+        song_title: meta.name || info.name,
         album: meta.album,
         platform: "apple",
       };
     } else if (platform === "spotify") {
-      const meta = await getSpotifyTrackInfo(url);
-      const info = await getSpotifyInfo(url);
+      const meta = (await getSpotifyTrackInfo(url).catch(() => null)) || {};
+      const info = (await getSpotifyInfo(url).catch(() => null)) || {};
 
       data = {
         artist: meta.artist || info.artist,
-        image_url: meta.image,
-
+        image_url: meta.image || info.image_url,
         isrc: info.isrc,
-
-        preview_url: meta.previewUrl,
-        song_name: meta.name || info.name,
-        spotify_url: meta.spotify_url || info.spotifyLink,
-
-        title: meta.title,
-        song_title: meta.name,
+        preview_url: meta.previewUrl || meta.preview_url,
+        song_name: meta.name || info.song_name || info.name,
+        spotify_url: meta.spotify_url || info.spotify_url || info.spotifyLink || url,
+        title:
+          meta.title ||
+          [meta.name || info.song_name, meta.artist || info.artist]
+            .filter(Boolean)
+            .join(" - "),
+        song_title: meta.name || info.song_name,
         album: meta?.album,
         platform: "spotify",
       };
+
+      if (!data.song_name && !data.title) data = null;
     } else {
       return res.status(400).json({
         status: "error",
@@ -66,7 +87,7 @@ const getInfoMusicControllerV2 = async (req, res, next) => {
       });
     }
 
-    if (!data) {
+    if (!data || (!data.song_name && !data.title)) {
       logError("getInfoMusic", "❌ Không tìm thấy thông tin bài hát!");
       return res.status(404).json({
         status: "error",
@@ -83,16 +104,36 @@ const getInfoMusicControllerV2 = async (req, res, next) => {
     });
   } catch (error) {
     logError("getInfoMusic", "❌ Lỗi khi lấy thông tin bài hát", error.message);
+    if (error.status === 400 || error.status === 404) {
+      return res.status(error.status).json({
+        status: "error",
+        message: error.message,
+      });
+    }
     next(error);
   }
 };
 
+/**
+ * V3 used by client route POST /api/getInfoMusicV2.
+ * Uses local reliable providers (oEmbed + song.link + optional Spotify API).
+ * Does NOT depend on api-beta.locket-dio.com.
+ */
 const getInfoMusicControllerV3 = async (req, res, next) => {
   const { url, platform } = req.body;
 
   try {
-    logInfo("getInfoMusic", `🎵 Đang lấy thông tin bài hát từ ${platform}...`);
+    if (!url || !platform) {
+      return res.status(400).json({
+        status: "error",
+        message: "Thiếu url hoặc platform",
+      });
+    }
 
+    logInfo(
+      "getInfoMusic",
+      `🎵 [V2 route/local] Lấy info từ ${platform}: ${String(url).slice(0, 80)}`,
+    );
 
     const info = await fetchMusicApi(url, platform);
 
@@ -104,8 +145,11 @@ const getInfoMusicControllerV3 = async (req, res, next) => {
       });
     }
 
-    logSuccess("getInfoMusic", "✅ Lấy thông tin bài hát thành công!");
-    
+    logSuccess(
+      "getInfoMusic",
+      `✅ Lấy info OK: ${info.title} (${info.source || "local"})`,
+    );
+
     return res.status(200).json({
       status: "success",
       message: "ok",
@@ -113,6 +157,12 @@ const getInfoMusicControllerV3 = async (req, res, next) => {
     });
   } catch (error) {
     logError("getInfoMusic", "❌ Lỗi khi lấy thông tin bài hát", error.message);
+    if (error.status === 400 || error.status === 404) {
+      return res.status(error.status).json({
+        status: "error",
+        message: error.message,
+      });
+    }
     next(error);
   }
 };

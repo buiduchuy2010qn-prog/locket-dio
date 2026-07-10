@@ -108,14 +108,27 @@ export default function GeneralThemes({ title }) {
         formType === "apple" ? "apple" : "spotify",
       );
 
+      if (!musicData?.title && !musicData?.song_name) {
+        SonnerError(t("custom_studio.music_failed"));
+        return;
+      }
+
+      const caption =
+        musicData.title ||
+        [musicData.song_name, musicData.artist].filter(Boolean).join(" - ");
+
       applyOverlay({
         overlay_id: "music",
-        caption: musicData.title,
-        text: musicData.title,
-        icon: { data: musicData.image_url, type: "image", source: "url" },
+        caption,
+        text: caption,
+        icon: {
+          data: musicData.image_url || musicData.image || "",
+          type: "image",
+          source: "url",
+        },
         type: "music",
         payload: musicData,
-        platform: musicData.platform,
+        platform: musicData.platform || formType,
       });
 
       SonnerSuccess(
