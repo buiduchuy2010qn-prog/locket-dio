@@ -42,6 +42,8 @@ const FriendsContainer = () => {
     if (isFriendsTabOpen) {
       setShowModal(true);
       setTimeout(() => setAnimate(true), 10);
+      // Mở tab bạn bè → luôn thử sync (force nếu list rỗng)
+      refreshFriendsData().catch(() => {});
     } else {
       setAnimate(false);
       setShowAllFriends(false);

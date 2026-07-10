@@ -14,10 +14,27 @@ import { fetchUserById } from "../LocketServices";
 export const getListIdFriends = async () => {
   try {
     const res = await api.post("locket/getAllFriendsV2");
+    const body = res?.data;
 
-    const allFriends = res?.data?.data || [];
+    // Hỗ trợ nhiều shape response
+    let allFriends =
+      body?.data ??
+      body?.result?.data ??
+      body?.friends ??
+      (Array.isArray(body) ? body : null);
 
-    return allFriends;
+    if (!Array.isArray(allFriends)) {
+      console.warn("[friends] unexpected response shape", body);
+      return null;
+    }
+
+    // Lọc null từ gRPC simplify
+    return allFriends.filter(
+      (f) => f && (f.uid || f.user_uid || f.userUid || f.user),
+    ).map((f) => ({
+      ...f,
+      uid: f.uid || f.user_uid || f.userUid || f.user,
+    }));
   } catch (err) {
     console.error("❌ Lỗi khi gọi API get-friends:", err);
     return null;

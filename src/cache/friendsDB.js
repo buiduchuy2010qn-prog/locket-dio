@@ -42,9 +42,12 @@ export const setFriendDetail = async (friend) => {
 
 export const setFriendDetailsBulk = async (friends) => {
   try {
-    if (Array.isArray(friends) && friends.length > 0) {
-      await friendDB.friendDetails.clear();
-      await friendDB.friendDetails.bulkPut(friends);
+    if (!Array.isArray(friends)) return;
+    // Cho phép clear khi [] — và bulkPut khi có data
+    await friendDB.friendDetails.clear();
+    if (friends.length > 0) {
+      const valid = friends.filter((f) => f && f.uid);
+      if (valid.length) await friendDB.friendDetails.bulkPut(valid);
     }
   } catch (err) {
     console.error("❌ Lỗi khi lưu friend details:", err);

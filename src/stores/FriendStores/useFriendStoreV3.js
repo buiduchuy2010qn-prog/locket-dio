@@ -24,16 +24,27 @@ export const useFriendStoreV3 = create((set, get) => ({
   rebuildFriendList: () => {
     const { friendDetailsMap, friendRelationsMap, friendList } = get();
 
-    const merged = Object.keys(friendDetailsMap).map((uid) => ({
+    // Union: có relations (từ API) HOẶC details (từ cache) — không phụ thuộc chỉ details
+    const uidSet = new Set([
+      ...Object.keys(friendRelationsMap || {}),
+      ...Object.keys(friendDetailsMap || {}),
+    ]);
+
+    const merged = [...uidSet].map((uid) => ({
       uid,
-      isCelebrity: friendRelationsMap[uid]?.isCelebrity ?? false,
+      isCelebrity:
+        friendRelationsMap[uid]?.isCelebrity ??
+        friendDetailsMap[uid]?.isCelebrity ??
+        false,
       hidden: friendRelationsMap[uid]?.hidden ?? false,
-      createdAt: friendRelationsMap[uid]?.createdAt ?? 0,
+      createdAt:
+        friendRelationsMap[uid]?.createdAt ??
+        friendDetailsMap[uid]?.createdAt ??
+        0,
     }));
 
     const newList = sortFriends(merged).map((f) => f.uid);
 
-    // ✅ tránh set nếu không đổi (giảm re-render)
     if (
       newList.length === friendList.length &&
       newList.every((id, i) => id === friendList[i])
@@ -84,35 +95,47 @@ export const useFriendStoreV3 = create((set, get) => ({
     try {
       await get().loadFriendsLocalOnly();
 
-      const ONE_DAY = 12 * 60 * 60 * 1000;
+      const { friendList } = get();
       const lastSync = Number(localStorage.getItem("friendsLastSync") || 0);
-
-      const shouldSync = force || Date.now() - lastSync > ONE_DAY;
+      // Cache ngắn hơn + luôn sync nếu list rỗng (sau logout / DB clear)
+      const CACHE_MS = 30 * 60 * 1000; // 30 phút
+      const shouldSync =
+        force ||
+        friendList.length === 0 ||
+        !lastSync ||
+        Date.now() - lastSync > CACHE_MS;
 
       if (!shouldSync) return;
 
       const res = await syncFriendsWithServer();
 
-      if (!res || res.isFallback) return;
+      // Fallback vẫn apply local maps (đã load); chỉ skip nếu null hoàn toàn
+      if (!res) return;
 
       const { details, friendRelationsMap } = res;
+      const newDetailsMap = buildFriendDetailsMap(details || []);
 
-      const newDetailsMap = buildFriendDetailsMap(details);
-
+      // Relations từ server ưu tiên; fallback giữ state cũ + local
       set((state) => ({
         friendDetailsMap: {
           ...state.friendDetailsMap,
           ...newDetailsMap,
         },
-        friendRelationsMap: {
-          ...state.friendRelationsMap,
-          ...friendRelationsMap,
-        },
+        friendRelationsMap: res.isFallback
+          ? {
+              ...friendRelationsMap,
+              ...state.friendRelationsMap,
+            }
+          : {
+              ...friendRelationsMap,
+            },
       }));
 
       get().rebuildFriendList();
 
-      localStorage.setItem("friendsLastSync", Date.now().toString());
+      if (!res.isFallback) {
+        localStorage.setItem("friendsLastSync", Date.now().toString());
+      }
     } catch (err) {
       console.error("fetchAndSyncFriends error:", err);
     } finally {

@@ -90,8 +90,8 @@ function AppContent() {
 
   useEffect(() => {
     if (user) {
-      // loadFriendsV2();
-      fetchAndSyncFriends();
+      // Force sync lần đầu sau login (tránh list rỗng do cache)
+      fetchAndSyncFriends(false, true);
       syncStreak();
       hydrateUploadQueue();
       fetchConversations();
