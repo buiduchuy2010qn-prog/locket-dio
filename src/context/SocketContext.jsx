@@ -7,31 +7,36 @@ const SocketContext = createContext(null);
 export function SocketProvider({ children }) {
   const { user } = useAuthStore();
   const socketRef = useRef(null);
+  // Keep socket in state so children re-subscribe when instance is ready
+  const [socket, setSocket] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
 
   useEffect(() => {
     const idToken = localStorage.getItem("idToken");
     if (!idToken || !user?.uid) return;
 
-    // ❗ Chỉ tạo socket nếu chưa có
     if (!socketRef.current) {
-      socketRef.current = createSocket(idToken, {
+      const client = createSocket(idToken, {
         onConnect: () => setIsConnected(true),
         onDisconnect: () => setIsConnected(false),
         onError: () => setIsConnected(false),
       });
+      socketRef.current = client;
+      setSocket(client);
     }
 
     return () => {
       socketRef.current?.disconnect();
       socketRef.current = null;
+      setSocket(null);
+      setIsConnected(false);
     };
   }, [user?.uid]);
 
   return (
     <SocketContext.Provider
       value={{
-        socket: socketRef.current,
+        socket,
         isConnected,
       }}
     >

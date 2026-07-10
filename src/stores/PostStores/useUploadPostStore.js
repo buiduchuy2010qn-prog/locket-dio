@@ -6,7 +6,8 @@ import {
 } from "@/components/ui/SonnerToast";
 import { PostMoments } from "@/services";
 import { normalizeMoment } from "@/utils";
-import { useStreakStore } from "@/stores";
+import { useStreakStore } from "@/stores/StreakStores";
+import { useMomentsStoreV2 } from "@/stores/MomentStores";
 
 import {
   saveUploadItemToDB,
@@ -102,6 +103,13 @@ export const useUploadQueueStore = create((set, get) => ({
         throw new Error("INVALID_UPLOAD_RESPONSE");
       }
       await get().savePostedMoment(item, normalized);
+
+      // Đẩy bài vừa đăng vào feed lịch sử ngay (không chờ socket / F5)
+      try {
+        await useMomentsStoreV2.getState().addNewMoment(normalized);
+      } catch (e) {
+        console.warn("addNewMoment after upload failed:", e);
+      }
 
       get().updateUploadItem(item.id, {
         status: STATUS_UPLOAD_MOMENT.DONE,

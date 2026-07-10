@@ -1,6 +1,6 @@
 import { CONFIG } from "./webConfig";
 
-// Chat server host
+// Chat server host (REST + Socket). Self-host may use relative proxy "/dio-api".
 export const BASE_SERVER_HOST = CONFIG.api.baseUrl;
 export const BETA_SERVER_HOST = import.meta.env.VITE_BETA_API_URL;
 // Namespace
@@ -10,10 +10,34 @@ export const API_NAMESPACE = {
   chat: "/chat",
 };
 
+/**
+ * Socket.IO config.
+ * - Absolute URL (official): io("https://api.locket-dio.com") path=/socket.io
+ * - Relative proxy (Huy Locket): io(origin) path=/dio-api/socket.io
+ *   (io("/dio-api") would be treated as a namespace and hit SPA /socket.io → broken)
+ */
+export function resolveSocketIoConfig(base = BASE_SERVER_HOST) {
+  const raw = (base || "/dio-api").trim();
+  if (/^https?:\/\//i.test(raw)) {
+    return { url: raw.replace(/\/$/, ""), path: "/socket.io" };
+  }
+  const prefix = raw.startsWith("/") ? raw.replace(/\/$/, "") : `/${raw.replace(/\/$/, "")}`;
+  const origin =
+    typeof window !== "undefined" && window.location?.origin
+      ? window.location.origin
+      : "";
+  return {
+    url: origin || undefined,
+    path: `${prefix}/socket.io`,
+  };
+}
+
 // Endpoints
 export const API_ENDPOINTS = {
-  // Socket URL
   socketUrl: BASE_SERVER_HOST,
+  get socketIo() {
+    return resolveSocketIoConfig(BASE_SERVER_HOST);
+  },
 };
 
 

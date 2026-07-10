@@ -1,10 +1,15 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useApp } from "@/context/AppContext";
 import { useSocket } from "@/context/SocketContext";
 import { useAuthStore, useMomentsStoreV2, useSelectedStore } from "@/stores";
 
 import SwiperView from "./Views/SwiperView";
 import GridMoments from "./Views/GridMoments";
+
+/** Soft poll interval when socket is down (ms) */
+const POLL_OFFLINE_MS = 12_000;
+/** Soft poll interval when socket is connected (ms) — backup only */
+const POLL_ONLINE_MS = 45_000;
 
 const BottomHomeScreen = () => {
   const { navigation } = useApp();
@@ -19,28 +24,49 @@ const BottomHomeScreen = () => {
   const selectedFriendUid = useSelectedStore((s) => s.selectedFriendUid);
 
   const { user } = useAuthStore();
-  const { socket } = useSocket();
+  const { socket, isConnected } = useSocket();
 
-  const { fetchMoments, addNewMoment, syncMomentsSnapshot, resetVisible } =
-    useMomentsStoreV2();
+  const fetchMoments = useMomentsStoreV2((s) => s.fetchMoments);
+  const addNewMoment = useMomentsStoreV2((s) => s.addNewMoment);
+  const syncMomentsSnapshot = useMomentsStoreV2((s) => s.syncMomentsSnapshot);
+  const pullLatestMoments = useMomentsStoreV2((s) => s.pullLatestMoments);
+  const resetVisible = useMomentsStoreV2((s) => s.resetVisible);
+
+  const friendRef = useRef(selectedFriendUid);
+  friendRef.current = selectedFriendUid;
 
   useEffect(() => {
     resetVisible(selectedFriendUid);
   }, [isBottomOpen, isHomeOpen, isProfileOpen, selectedFriendUid, resetVisible]);
 
+  // Initial load + when filter friend changes
   useEffect(() => {
     fetchMoments(user, selectedFriendUid);
   }, [user, selectedFriendUid, fetchMoments]);
 
-  const idToken = localStorage.getItem("idToken");
-
+  // Auto-refresh when user opens history panel
   useEffect(() => {
-    if (!idToken || !socket) return;
+    if (!isBottomOpen || !user) return;
+    pullLatestMoments(selectedFriendUid);
+  }, [isBottomOpen, user, selectedFriendUid, pullLatestMoments]);
+
+  // Realtime socket: new posts from friends / self
+  useEffect(() => {
+    if (!socket || !user) return;
+
+    const idToken = localStorage.getItem("idToken");
+    if (!idToken) return;
 
     const handleMoments = (data) => {
       if (!data) return;
 
-      if (Array.isArray(data) && data.length > 1) {
+      // Always merge — never wipe feed with a partial "snapshot"
+      if (Array.isArray(data)) {
+        if (data.length === 0) return;
+        if (data.length === 1) {
+          addNewMoment(data[0]);
+          return;
+        }
         syncMomentsSnapshot(data);
         return;
       }
@@ -48,18 +74,53 @@ const BottomHomeScreen = () => {
       addNewMoment(data);
     };
 
+    const subscribe = () => {
+      socket.emit("on_moments", {
+        timestamp: null,
+        token: idToken,
+        friendId: null,
+        limit: 20,
+      });
+    };
+
     socket.on("new_on_moments", handleMoments);
-    socket.emit("on_moments", {
-      timestamp: null,
-      token: idToken,
-      friendId: null,
-      limit: 5,
-    });
+
+    if (socket.connected) {
+      subscribe();
+    }
+    socket.on("connect", subscribe);
 
     return () => {
       socket.off("new_on_moments", handleMoments);
+      socket.off("connect", subscribe);
     };
-  }, [idToken, socket, addNewMoment, syncMomentsSnapshot]);
+  }, [socket, user, addNewMoment, syncMomentsSnapshot]);
+
+  // Tab focus / visibility + periodic soft pull (backup for broken socket)
+  useEffect(() => {
+    if (!user) return;
+
+    const pull = () => {
+      if (typeof document !== "undefined" && document.hidden) return;
+      pullLatestMoments(friendRef.current);
+    };
+
+    const onVisible = () => {
+      if (!document.hidden) pull();
+    };
+
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", pull);
+
+    const intervalMs = isConnected ? POLL_ONLINE_MS : POLL_OFFLINE_MS;
+    const timer = window.setInterval(pull, intervalMs);
+
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", pull);
+      window.clearInterval(timer);
+    };
+  }, [user, isConnected, pullLatestMoments]);
 
   const selectedAnimate =
     (selectedMoment !== null && selectedQueue === null) ||

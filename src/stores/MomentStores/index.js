@@ -356,36 +356,79 @@ export const useMomentsStoreV2 = create((set, get) => ({
     }
   },
 
+  /**
+   * Merge a partial snapshot from socket / poll into the feed.
+   * IMPORTANT: do NOT wipe moments missing from the list — server often
+   * only sends the latest N items (limit=5). Old code filtered the feed
+   * down to snapshot ids → empty UI after realtime push.
+   */
   syncMomentsSnapshot: async (snapshot) => {
-    if (!Array.isArray(snapshot)) return;
+    if (!Array.isArray(snapshot) || !snapshot.length) return;
+    // Same path as realtime single/batch add (dedupe + sort + cache)
+    await get().addNewMoment(snapshot);
+  },
 
-    const snapshotIds = new Set(snapshot.map((m) => m.id));
+  /**
+   * Soft pull latest moments without full-screen loading state.
+   * Used for auto-refresh (tab focus, open history, interval).
+   */
+  pullLatestMoments: async (selectedFriendUid = null) => {
+    const key = selectedFriendUid ?? "all";
+    get().ensureBucket(key);
 
-    /* ---------- Update STORE ---------- */
-    set((state) => {
-      const next = { ...state.momentsByUser };
+    try {
+      const apiData = await GetAllMoments({
+        timestamp: Math.floor(Date.now() / 1000),
+        friendId: selectedFriendUid,
+        limit: initialVisible,
+      });
 
-      const bucket = next["all"] ?? defaultBucket();
+      if (!apiData?.length) return;
 
-      next["all"] = {
-        ...bucket,
-        moments: bucket.moments.filter((m) => snapshotIds.has(m.id)),
-      };
+      const dbQueue = [];
 
-      return { momentsByUser: next };
-    });
+      set((state) => {
+        const next = { ...state.momentsByUser };
+        const bucket = next[key] ?? defaultBucket();
+        const byId = new Map(bucket.moments.map((m) => [m.id, m]));
 
-    /* ---------- Update IndexedDB ---------- */
-    const local = await getAllMoments();
-    const localIds = new Set(local.map((m) => m.id));
+        for (const m of apiData) {
+          if (!m?.id) continue;
+          byId.set(m.id, m);
+          dbQueue.push(m);
+        }
 
-    const deletedIds = [...localIds].filter((id) => !snapshotIds.has(id));
+        next[key] = {
+          ...bucket,
+          moments: [...byId.values()].sort(
+            (a, b) => b.createTime - a.createTime,
+          ),
+        };
 
-    if (deletedIds.length) {
-      await Promise.all(deletedIds.map(deleteMomentById));
+        // Keep "all" feed in sync when filtering by friend
+        if (key !== "all") {
+          const all = next["all"] ?? defaultBucket();
+          const allById = new Map(all.moments.map((m) => [m.id, m]));
+          for (const m of apiData) {
+            if (m?.id) allById.set(m.id, m);
+          }
+          next["all"] = {
+            ...all,
+            moments: [...allById.values()].sort(
+              (a, b) => b.createTime - a.createTime,
+            ),
+          };
+        }
+
+        return { momentsByUser: next };
+      });
+
+      if (dbQueue.length) {
+        await bulkAddMoments(dbQueue);
+      }
+    } catch (err) {
+      console.error("❌ pullLatestMoments error:", err);
     }
-
-    await bulkAddMoments(snapshot);
   },
 
   /* --------------------------------------------------

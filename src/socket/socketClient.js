@@ -1,12 +1,17 @@
 // src/socket/socketClient.js
-import { API_ENDPOINTS } from "@/config/apiConfig";
+import { API_ENDPOINTS, resolveSocketIoConfig } from "@/config/apiConfig";
 import { io } from "socket.io-client";
 
 export const createSocket = (idToken, { onConnect, onDisconnect, onError } = {}) => {
   if (!idToken) return null;
 
-  const socketClient = io(API_ENDPOINTS.socketUrl, {
-    transports: ["websocket"],
+  const { url, path } = resolveSocketIoConfig(API_ENDPOINTS.socketUrl);
+
+  // Prefer websocket; allow polling so relative /dio-api proxy still works
+  // when the static host cannot upgrade WebSocket.
+  const socketClient = io(url, {
+    path,
+    transports: ["websocket", "polling"],
     auth: { token: idToken },
     autoConnect: false,
     // ✅ RECONNECT CONFIG
