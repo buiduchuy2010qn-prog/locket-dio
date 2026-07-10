@@ -105,58 +105,70 @@ const uploadMediaV3 = async (req, res, next) => {
         "Parsed incoming data",
       );
 
-      if (!path) {
+      const hasInline =
+        Boolean(mediaInfo.mediaBase64 || mediaInfo.base64 || mediaInfo.dataBase64);
+
+      // Inline base64 không cần path/signature temp
+      if (!hasInline && !path) {
         return res.status(400).json({ error: "Missing file path" });
       }
 
-      const isValid = signature.verifySignature(path, mediaSignature);
+      if (!hasInline && path && mediaSignature) {
+        const isValid = signature.verifySignature(path, mediaSignature);
 
-      logInfo(
-        "uploadMediaV3",
-        isValid
-          ? "✅ Signature verified successfully"
-          : "❌ Invalid signature detected!",
-      );
+        logInfo(
+          "uploadMediaV3",
+          isValid
+            ? "✅ Signature verified successfully"
+            : "❌ Invalid signature detected!",
+        );
 
-      if (!isValid) {
-        const cacheKey = `${localId}:${path}`;
+        if (!isValid) {
+          const cacheKey = `${localId}:${path}`;
 
-        const alreadyLogged = hasInvalidSignatureLog(cacheKey);
+          const alreadyLogged = hasInvalidSignatureLog(cacheKey);
 
-        if (!alreadyLogged) {
-          markInvalidSignatureLog(cacheKey, {
-            ip: getClientIp(req),
-          });
+          if (!alreadyLogged) {
+            markInvalidSignatureLog(cacheKey, {
+              ip: getClientIp(req),
+            });
 
-          sendDiscordWebhook({
-            threadId: "1503837608177041567",
+            sendDiscordWebhook({
+              threadId: "1503837608177041567",
 
-            title: "🚨 Invalid Media Signature",
+              title: "🚨 Invalid Media Signature",
 
-            color: 0xff0000,
+              color: 0xff0000,
 
-            fields: {
-              User: localId,
-              IP: getClientIp(req),
-              Path: path,
-              Signature: mediaSignature,
-            },
-
-            files: [
-              {
-                name: "request-body.json",
-
-                content: JSON.stringify(req.body, null, 2),
+              fields: {
+                User: localId,
+                IP: getClientIp(req),
+                Path: path,
+                Signature: mediaSignature,
               },
-            ],
-          }).catch(() => {});
-        }
 
-        return res.status(400).json({
-          success: false,
-          message: "Failed to verify media signature",
-          data: null,
-        });
+              files: [
+                {
+                  name: "request-body.json",
+
+                  content: JSON.stringify(
+                    { ...req.body, mediaInfo: { ...mediaInfo, mediaBase64: mediaInfo.mediaBase64 ? "[omitted]" : undefined } },
+                    null,
+                    2,
+                  ),
+                },
+              ],
+            }).catch(() => {});
+          }
+
+          return res.status(400).json({
+            success: false,
+            message: "Failed to verify media signature",
+            data: null,
+          });
+        }
+      } else if (hasInline) {
+        logInfo("uploadMediaV3", "✅ Inline media (skip temp signature)");
       }
 
       if (sizeInMB > limits.maxUploadSize) {
@@ -177,55 +189,82 @@ const uploadMediaV3 = async (req, res, next) => {
       let mediaBuffer = null;
       let mediaPath = null;
 
-      // 1) Ưu tiên temp store in-process (tránh HTTP + buffer rỗng khi multi-path)
-      try {
-        const tempMedia = require("../../storage/tempMediaStore");
-        const local = path && tempMedia.get(path);
-        if (local?.buffer?.length) {
-          mediaBuffer = local.buffer;
-          mediaPath = local.filePath || null;
-          logSuccess(
-            "uploadMediaV3",
-            `Loaded from temp store: ${formatFileSize(mediaBuffer.length)}`,
-          );
+      // 0) Ảnh/video gửi kèm base64 trong payload (ổn định nhất — không phụ thuộc temp PUT)
+      const inlineB64 =
+        mediaInfo.mediaBase64 ||
+        mediaInfo.base64 ||
+        mediaInfo.dataBase64 ||
+        null;
+      if (inlineB64 && typeof inlineB64 === "string") {
+        try {
+          const raw = inlineB64.includes(",")
+            ? inlineB64.split(",").pop()
+            : inlineB64;
+          mediaBuffer = Buffer.from(raw, "base64");
+          if (mediaBuffer.length > 0) {
+            logSuccess(
+              "uploadMediaV3",
+              `Loaded inline base64: ${formatFileSize(mediaBuffer.length)}`,
+            );
+          } else {
+            mediaBuffer = null;
+          }
+        } catch (e) {
+          logWarning("uploadMediaV3", `base64 decode fail: ${e.message}`);
+          mediaBuffer = null;
         }
-      } catch (e) {
-        logWarning("uploadMediaV3", `temp store skip: ${e.message}`);
       }
 
-      // 2) Fallback: tải qua URL public
+      // 1) Temp store in-process
       if (!mediaBuffer?.length) {
-        if (!sourceUrl) {
-          return res.status(400).json({ message: "Missing media URL" });
+        try {
+          const tempMedia = require("../../storage/tempMediaStore");
+          const local = path && tempMedia.get(path);
+          if (local?.buffer?.length) {
+            mediaBuffer = local.buffer;
+            mediaPath = local.filePath || null;
+            logSuccess(
+              "uploadMediaV3",
+              `Loaded from temp store: ${formatFileSize(mediaBuffer.length)}`,
+            );
+          }
+        } catch (e) {
+          logWarning("uploadMediaV3", `temp store skip: ${e.message}`);
         }
+      }
 
-        const media = await storageServices.downloadMediaOnStorage(
-          sourceUrl,
-          type,
-          name,
-        );
-
-        if (!media?.buffer?.length) {
-          logWarning(
-            "uploadMediaV3",
-            `Failed to download media buffer (empty or null) url=${String(sourceUrl).slice(0, 120)}`,
+      // 2) HTTP download public URL
+      if (!mediaBuffer?.length) {
+        if (
+          sourceUrl &&
+          !String(sourceUrl).startsWith("inline:") &&
+          !String(sourceUrl).startsWith("inline://")
+        ) {
+          const media = await storageServices.downloadMediaOnStorage(
+            sourceUrl,
+            type,
+            name,
           );
-          return res.status(404).json({
-            message:
-              "Không thể tải media (file rỗng hoặc hết hạn). Hãy chụp/chọn lại ảnh.",
-          });
+
+          if (media?.buffer?.length) {
+            mediaBuffer = media.buffer;
+            mediaPath = media.path;
+            logSuccess(
+              "uploadMediaV3",
+              `Downloaded media: ${formatFileSize(mediaBuffer.length)}`,
+            );
+          }
         }
-        mediaBuffer = media.buffer;
-        mediaPath = media.path;
-        logSuccess(
+      }
+
+      if (!mediaBuffer?.length) {
+        logWarning(
           "uploadMediaV3",
-          `Downloaded media successfully: ${formatFileSize(mediaBuffer.length)}`,
+          `No media buffer path=${path} url=${String(sourceUrl || "").slice(0, 100)} inline=${Boolean(inlineB64)}`,
         );
-      }
-
-      if (!mediaBuffer?.length) {
-        return res.status(400).json({
-          message: "Media buffer rỗng — không thể xử lý ảnh/video.",
+        return res.status(404).json({
+          message:
+            "Không thể tải media (file rỗng hoặc hết hạn). Hãy chụp/chọn lại ảnh.",
         });
       }
 
@@ -286,12 +325,20 @@ const uploadMediaV3 = async (req, res, next) => {
         return res.status(403).json({ message: "Permission denied!" });
       }
 
+      // Không spread mediaBase64 (rất lớn) vào payload Locket
+      const {
+        mediaBase64: _b64,
+        base64: _b64b,
+        dataBase64: _b64c,
+        ...mediaInfoSafe
+      } = mediaInfo;
+
       const mediaData = {
         fileBuffer: processedBuffer,
         thumbnail: thumbBuffer,
         publicId: name,
-        size,
-        ...mediaInfo,
+        size: mediaBuffer.length || size,
+        ...mediaInfoSafe,
       };
 
       let response;

@@ -1,10 +1,18 @@
 import { CONFIG } from "@/config/webConfig";
 import { instanceBaseStorage } from "@/libs";
 
-/**
- * Ưu tiên upload qua same-origin /dio-api (proxy) để body binary
- * luôn vào đúng API instance + tránh CORS/host sai.
- */
+/** File → base64 (không data: prefix) */
+async function fileToBase64(file) {
+  const buf = await file.arrayBuffer();
+  const bytes = new Uint8Array(buf);
+  let binary = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
 function resolveUploadUrl(data) {
   if (typeof window !== "undefined" && data?.proxyUploadUrl) {
     return data.proxyUploadUrl.startsWith("http")
@@ -16,38 +24,29 @@ function resolveUploadUrl(data) {
     try {
       const u = new URL(raw, window.location.origin);
       if (u.pathname.includes("/api/media-upload/")) {
-        // Ép qua proxy /dio-api
         return `${window.location.origin}/dio-api${u.pathname}${u.search}`;
       }
     } catch {
-      /* keep raw */
+      /* keep */
     }
   }
   return raw;
 }
 
-function resolvePublicUrls(data) {
-  // Server postMoment ưu tiên path id trong temp store; publicUrl vẫn cần fallback
+function resolvePublicUrl(data) {
   const pathId = data?.path || data?.key;
-  let publicUrl = data?.publicUrl || data?.url || data?.downloadURL;
   if (typeof window !== "undefined" && pathId) {
-    // Same-origin đọc được qua proxy nếu cần
-    const proxy = `${window.location.origin}/dio-api/api/media-temp/${pathId}`;
-    // Giữ absolute API url nếu có; thêm proxy làm backup field
-    return {
-      ...data,
-      publicUrl: publicUrl || proxy,
-      publicURL: publicUrl || proxy,
-      downloadURL: publicUrl || proxy,
-      url: publicUrl || proxy,
-      proxyPublicUrl: proxy,
-      path: pathId,
-      key: pathId,
-    };
+    // Always same-origin proxy so post/download hit the API via web
+    return `${window.location.origin}/dio-api/api/media-temp/${pathId}`;
   }
-  return data;
+  return data?.publicUrl || data?.url || data?.downloadURL || "";
 }
 
+/**
+ * Upload media:
+ * - Image ≤ 4.5MB: gửi base64 inline (postMoment đọc trực tiếp, không phụ thuộc temp PUT)
+ * - Video / file lớn: PUT temp + verify GET
+ */
 export const uploadFileAndGetInfoR2 = async (
   file,
   previewType = "other",
@@ -56,21 +55,49 @@ export const uploadFileAndGetInfoR2 = async (
   if (!file) throw new Error("No file provided");
   if (!file.size) throw new Error("File rỗng — hãy chụp/chọn lại");
 
-  const safeType = previewType.toLowerCase(); // image / video / other
+  const safeType = String(previewType || "other").toLowerCase();
   const timestamp = Date.now();
-  const extension = file.name?.split(".").pop() || "jpg";
-
+  const extension = file.name?.split(".").pop() || (safeType === "video" ? "mp4" : "jpg");
   const fileName = `huylocket_${timestamp}_${localId}_cli${CONFIG.app.clientVersion}.${extension}`;
+  const contentType = file.type || (safeType === "video" ? "video/mp4" : "image/jpeg");
 
+  const INLINE_MAX = 4.5 * 1024 * 1024; // JSON 20MB limit, base64 ~1.33x
+  const preferInline = safeType === "image" && file.size <= INLINE_MAX;
+
+  // ── Image: base64 inline (ổn định nhất trên Render free) ──
+  if (preferInline) {
+    const mediaBase64 = await fileToBase64(file);
+    if (!mediaBase64 || mediaBase64.length < 100) {
+      throw new Error("Không đọc được ảnh từ máy — hãy chụp lại");
+    }
+    return {
+      path: `inline_${timestamp}`,
+      key: `inline_${timestamp}`,
+      name: fileName,
+      size: file.size,
+      type: safeType,
+      contentType,
+      mediaBase64,
+      mediaEncoding: "base64",
+      // Dummy URLs — server sẽ dùng mediaBase64
+      url: "inline://local",
+      publicUrl: "inline://local",
+      publicURL: "inline://local",
+      downloadURL: "inline://local",
+      mediaSignature: null,
+      inline: true,
+    };
+  }
+
+  // ── Video / large: presign + PUT + verify ──
   const body = {
     filename: fileName,
-    contentType: file.type || "image/jpeg",
+    contentType,
     type: safeType,
     size: file.size,
     uploadedAt: new Date().toISOString(),
   };
 
-  // === Bước 1: Gọi BE để lấy Presigned URL
   const res = await instanceBaseStorage.post("/api/presignedV3", body);
   const data = res.data?.data;
   if (!data) throw new Error("presignedV3: no data");
@@ -78,27 +105,98 @@ export const uploadFileAndGetInfoR2 = async (
   const uploadUrl = resolveUploadUrl(data);
   if (!uploadUrl) throw new Error("presignedV3: missing uploadUrl");
 
-  // === Bước 2: Upload binary
+  const ab = await file.arrayBuffer();
+  if (!ab.byteLength) throw new Error("File buffer rỗng");
+
   const uploadRes = await fetch(uploadUrl, {
     method: "PUT",
     headers: {
-      "Content-Type": file.type || "application/octet-stream",
+      "Content-Type": contentType,
+      "Content-Length": String(ab.byteLength),
     },
-    body: file,
+    body: ab,
   });
 
   if (!uploadRes.ok) {
     const t = await uploadRes.text().catch(() => "");
+    // Fallback: nếu PUT fail và là ảnh → inline
+    if (safeType === "image" && file.size <= INLINE_MAX) {
+      const mediaBase64 = await fileToBase64(file);
+      return {
+        path: data.path || data.key,
+        key: data.key || data.path,
+        name: fileName,
+        size: file.size,
+        type: safeType,
+        contentType,
+        mediaBase64,
+        mediaEncoding: "base64",
+        url: "inline://local",
+        publicUrl: "inline://local",
+        publicURL: "inline://local",
+        downloadURL: "inline://local",
+        mediaSignature: data.mediaSignature,
+        inline: true,
+      };
+    }
     throw new Error(
-      `Upload media failed (${uploadRes.status})${t ? `: ${t.slice(0, 120)}` : ""}`,
+      `Upload media failed (${uploadRes.status})${t ? `: ${t.slice(0, 100)}` : ""}`,
     );
   }
 
-  return resolvePublicUrls({
+  const pathId = data.path || data.key;
+  const publicUrl = resolvePublicUrl(data);
+
+  // Verify file landed
+  try {
+    const check = await fetch(publicUrl, { method: "GET", cache: "no-store" });
+    if (!check.ok) {
+      throw new Error(`verify GET ${check.status}`);
+    }
+    const verified = await check.arrayBuffer();
+    if (!verified.byteLength) {
+      throw new Error("verify empty");
+    }
+    if (verified.byteLength < 32) {
+      throw new Error(`verify too small: ${verified.byteLength}`);
+    }
+  } catch (e) {
+    console.warn("temp media verify failed, try inline fallback:", e.message);
+    if (safeType === "image" && file.size <= INLINE_MAX) {
+      const mediaBase64 = await fileToBase64(file);
+      return {
+        path: pathId,
+        key: pathId,
+        name: fileName,
+        size: file.size,
+        type: safeType,
+        contentType,
+        mediaBase64,
+        mediaEncoding: "base64",
+        url: publicUrl,
+        publicUrl,
+        publicURL: publicUrl,
+        downloadURL: publicUrl,
+        mediaSignature: data.mediaSignature,
+        inline: true,
+      };
+    }
+    throw new Error(
+      "Upload temp media không lưu được file. Thử lại hoặc chụp ảnh nhỏ hơn.",
+    );
+  }
+
+  return {
     ...data,
-    size: file.size,
+    path: pathId,
+    key: pathId,
     name: fileName,
+    size: file.size,
     type: safeType,
-    contentType: file.type || data.contentType,
-  });
+    contentType,
+    url: publicUrl,
+    publicUrl,
+    publicURL: publicUrl,
+    downloadURL: publicUrl,
+  };
 };
