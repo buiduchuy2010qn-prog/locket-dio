@@ -7,6 +7,7 @@ const { notificationRoutes } = require("../modules/notification");
 const { musicRoutes } = require("../modules/music");
 const { momentRoutes } = require("../modules/moment");
 const { planRoutes } = require("../modules/locketdio");
+const { storageRoutes } = require("../modules/storage/routes");
 const { healthController } = require("../controllers");
 
 module.exports = (app) => {
@@ -32,4 +33,6 @@ module.exports = (app) => {
   app.use("/api", appCheckRoutes);
   app.use("/api", weatherRoutes);
   app.use("/api", musicRoutes);
+  // Self-host temp media (presignedV3 + media-temp GET). PUT raw mounted in app.js
+  app.use("/api", storageRoutes);
 };

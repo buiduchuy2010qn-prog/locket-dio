@@ -27,10 +27,11 @@ export const getMaxUploads = () => {
 
   const limits = userPlan?.limits || {};
 
+  // Self-host free defaults when plan API chưa trả limits
   return {
-    maxImageSizeMB: limits.image_storage_limit_mb ?? null,
-    maxVideoSizeMB: limits.video_storage_limit_mb ?? null,
-    storage_limit_mb: limits.storage_limit_mb ?? null,
+    maxImageSizeMB: limits.image_storage_limit_mb ?? 10,
+    maxVideoSizeMB: limits.video_storage_limit_mb ?? 10,
+    storage_limit_mb: limits.storage_limit_mb ?? 50,
   };
 };
 

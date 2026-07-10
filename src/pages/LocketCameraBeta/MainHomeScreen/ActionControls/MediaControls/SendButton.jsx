@@ -41,7 +41,8 @@ const SendButton = () => {
     : isVideo
       ? isSizeMedia > maxVideoSizeMB
       : false;
-  const hasNoData = !maxImageSizeMB || !maxVideoSizeMB;
+  // Limits always have free defaults now — never block send on "no plan data"
+  const hasNoData = false;
 
   // State để quản lý hiệu ứng loading và success
   const [isSuccess, setIsSuccess] = useState(false);

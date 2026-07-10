@@ -140,6 +140,19 @@ initChatSocket(io);
 
 // ── Express middleware ────────────────────────────────────────
 app.use(cookieParser());
+
+// Binary media upload (presigned PUT) — BEFORE json parser
+const {
+  mediaUpload,
+  mediaTempGet,
+} = require("./src/modules/storage/storage.controller");
+app.put(
+  "/api/media-upload/:id",
+  express.raw({ type: "*/*", limit: "25mb" }),
+  mediaUpload,
+);
+app.get("/api/media-temp/:id", mediaTempGet);
+
 app.use(express.json({ limit: "20mb" }));
 app.use(express.urlencoded({ extended: true, limit: "20mb" }));
 

@@ -49,6 +49,8 @@ const CameraButton = () => {
   };
 
   const startHold = (e) => {
+    // Chỉ nhận chuột trái / touch — bỏ qua hover / nút khác
+    if (e.type === "mousedown" && e.button !== 0) return;
     // Prevent default để tránh conflict trên iOS
     e.preventDefault();
 
@@ -237,7 +239,13 @@ const CameraButton = () => {
 
   const endHold = (e) => {
     // Prevent default để tránh conflict trên iOS
-    e.preventDefault();
+    if (e?.preventDefault) e.preventDefault();
+
+    // Chỉ xử lý khi đang giữ nút (mousedown/touchstart trước đó).
+    // Tránh: di chuột ra khỏi nút (mouseleave) / hover → chụp nhầm.
+    if (!isTryingToRecordRef.current && !isRecordingRef.current) {
+      return;
+    }
 
     const heldTime = Date.now() - (holdStartTimeRef.current || Date.now());
 
@@ -247,7 +255,9 @@ const CameraButton = () => {
     setHoldTime(heldTime);
 
     // Đánh dấu không còn trying to record
+    const wasTrying = isTryingToRecordRef.current;
     isTryingToRecordRef.current = false;
+    holdStartTimeRef.current = null;
 
     // Nếu đang trong quá trình recording
     if (
@@ -265,8 +275,19 @@ const CameraButton = () => {
       return;
     }
 
+    // Chỉ chụp khi thả nút sau khi đã bấm (không chụp khi mouseleave)
+    const isLeave =
+      e?.type === "mouseleave" ||
+      e?.type === "pointerleave" ||
+      e?.type === "touchcancel";
+    if (isLeave) {
+      // Rời nút khi đang giữ: hủy, không chụp
+      setIsHolding(false);
+      return;
+    }
+
     // Nếu không quay video (nhấn giữ < 600ms), tiến hành chụp ảnh
-    if (!isRecordingRef.current) {
+    if (wasTrying && !isRecordingRef.current) {
       captureImage();
     }
   };
@@ -345,13 +366,33 @@ const CameraButton = () => {
   return (
     <>
       <button
+        type="button"
         onMouseDown={startHold}
         onMouseUp={endHold}
-        onMouseLeave={endHold}
+        // Không gắn endHold vào mouseleave — di chuột ra ngoài không được chụp
+        onMouseLeave={(e) => {
+          // Chỉ hủy trạng thái giữ, không captureImage
+          if (!isTryingToRecordRef.current && !isRecordingRef.current) return;
+          clearTimeout(holdTimeoutRef.current);
+          // Nếu đang quay video thì giữ recording (user có thể thả ngoài nút)
+          if (isRecordingRef.current) return;
+          isTryingToRecordRef.current = false;
+          holdStartTimeRef.current = null;
+          setIsHolding(false);
+        }}
         onTouchStart={startHold}
         onTouchEnd={endHold}
         // Thêm các event cho iOS
-        onTouchCancel={endHold}
+        onTouchCancel={(e) => {
+          // Hủy, không chụp
+          clearTimeout(holdTimeoutRef.current);
+          isTryingToRecordRef.current = false;
+          holdStartTimeRef.current = null;
+          setIsHolding(false);
+          if (isRecordingRef.current && mediaRecorderRef.current?.state === "recording") {
+            mediaRecorderRef.current.stop();
+          }
+        }}
         onContextMenu={(e) => e.preventDefault()} // Prevent long press menu on iOS
         className="relative flex items-center justify-center w-24 h-24 active:scale-97"
         style={{

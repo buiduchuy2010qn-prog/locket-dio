@@ -2,7 +2,11 @@ const crypto = require("crypto");
 const { security } = require("../../config/app.config");
 const { logInfo } = require("../logEventUtils");
 
-const signatureSecret = security.signatureSecret;
+const signatureSecret =
+  security.signatureSecret ||
+  process.env.LOCKETDIO_SIGNATURE_SECRET ||
+  process.env.COOKIE_SECRET ||
+  "huy-locket-dev-signature-secret";
 
 // Generate signature
 const generateSignature = (value, secret = signatureSecret) => {
