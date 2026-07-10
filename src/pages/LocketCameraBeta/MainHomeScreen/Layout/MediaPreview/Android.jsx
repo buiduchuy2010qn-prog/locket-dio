@@ -210,18 +210,18 @@ const MediaPreviewAndroid = () => {
     setZoomOptions(fromTrack.length ? fromTrack : ["1x"]);
   };
 
+  /** Nhẹ — không setState zoom (tránh re-start camera) */
   const syncTrackFeatures = async (stream) => {
     const track = getActiveTrack(stream);
     const capabilities = getTrackCapabilities(track);
-    const supportedZoomOptions = getZoomLabels(capabilities);
 
     setTorchSupported(Boolean(capabilities.torch));
-    setZoomDisplay(formatZoomDisplay(currentZoomValue.current));
-    await refreshLensPills(stream);
+    if (!capabilities.torch) setTorchEnabled(false);
 
-    if (!capabilities.torch) {
-      setTorchEnabled(false);
-    }
+    // Lens pills: defer — không chặn frame đầu
+    setTimeout(() => {
+      refreshLensPills(stream).catch(() => {});
+    }, 0);
 
     if (!capabilities.zoom) {
       currentZoomValue.current = 1;
@@ -229,29 +229,17 @@ const MediaPreviewAndroid = () => {
       return;
     }
 
-    // Giữ zoom user chọn; mặc định 1x
-    let nextZoomLevel = zoomLevel || "1x";
-    if (
-      nextZoomLevel !== "0.5x" &&
-      !supportedZoomOptions.includes(nextZoomLevel)
-    ) {
-      nextZoomLevel = supportedZoomOptions.includes("1x")
-        ? "1x"
-        : supportedZoomOptions[0] || "1x";
-    }
-
-    if (nextZoomLevel !== zoomLevel && nextZoomLevel !== "0.5x") {
-      // 0.5 physical không cần applyConstraints zoom
-      setZoomLevel(nextZoomLevel);
-    }
-
-    if (nextZoomLevel !== "0.5x" || supportedZoomOptions.includes("0.5x")) {
-      await applyZoomLevel(
-        nextZoomLevel === "0.5x" && !supportedZoomOptions.includes("0.5x")
-          ? "1x"
-          : nextZoomLevel,
-        stream,
-      );
+    const z = zoomLevel || "1x";
+    // Chỉ applyConstraints khi user cần zoom ≠ 1 (mặc định track đã ~1x)
+    if (z === "2x" || z === "3x" || z === "0.5x") {
+      try {
+        await applyZoomLevel(z, stream);
+      } catch {
+        /* ignore */
+      }
+    } else {
+      currentZoomValue.current = 1;
+      setZoomDisplay("1x");
     }
   };
 
@@ -417,6 +405,7 @@ const MediaPreviewAndroid = () => {
 
   /**
    * Mở stream nhanh: ideal deviceId trước (ít fail hơn exact), fallback facingMode.
+   * KHÔNG gọi setDeviceId trong đây — tránh useEffect restart → lag.
    */
   const openStreamWithDevice = async (targetDeviceId, mode) => {
     const quality = getCameraPreviewConstraints(
@@ -430,7 +419,6 @@ const MediaPreviewAndroid = () => {
       });
     };
 
-    // 1) ideal deviceId — nhanh, ít reject hơn exact
     if (targetDeviceId) {
       try {
         return await tryOpen({
@@ -457,7 +445,7 @@ const MediaPreviewAndroid = () => {
 
   /**
    * Seamless start: mở stream mới → gắn video → tắt stream cũ.
-   * Không black flash khi đổi front/back/lens.
+   * Không setState deviceId giữa chừng (tránh double getUserMedia).
    */
   const startCamera = async () => {
     const requestId = startRequestId.current + 1;
@@ -486,9 +474,9 @@ const MediaPreviewAndroid = () => {
       const mode = cameraMode || "user";
       const isBack = mode === "environment";
       const z = zoomLevel || "1x";
-      let resolvedDeviceId = null;
+      let resolvedDeviceId = deviceId || null;
 
-      // Một lần getAvailableCameras (đã cache) cho mọi nhánh
+      // Cache enumerate — không block nếu đã có deviceId hợp lệ
       const cameras = await getAvailableCameras();
       const mainId =
         cameras?.backNormalCamera?.deviceId ||
@@ -500,19 +488,15 @@ const MediaPreviewAndroid = () => {
       const frontId = cameras?.frontCameras?.[0]?.deviceId || null;
 
       if (isBack && z === "1x") {
-        resolvedDeviceId = mainId;
+        resolvedDeviceId = mainId || deviceId;
       } else if (isBack && z === "0.5x") {
-        resolvedDeviceId = ultraId || mainId;
+        resolvedDeviceId = ultraId || mainId || deviceId;
       } else if (isBack && (z === "2x" || z === "3x")) {
         resolvedDeviceId = teleId || mainId || deviceId;
       } else if (!isBack) {
         resolvedDeviceId = frontId || deviceId;
       } else {
         resolvedDeviceId = deviceId || mainId;
-      }
-
-      if (resolvedDeviceId && resolvedDeviceId !== deviceId) {
-        setDeviceId(resolvedDeviceId);
       }
 
       const oldStream = streamRef.current;
@@ -523,19 +507,13 @@ const MediaPreviewAndroid = () => {
         return;
       }
 
-      // Nếu browser trả ultra khi đang 1x → mở lại main (ideal)
+      // Chỉ re-open nếu dính ultra khi cần 1x (1 lần)
       if (isBack && z === "1x" && mainId) {
         const actualId = stream.getVideoTracks?.()?.[0]?.getSettings?.()?.deviceId;
-        if (
-          actualId &&
-          actualId !== mainId &&
-          ultraId &&
-          actualId === ultraId
-        ) {
+        if (actualId && ultraId && actualId === ultraId && actualId !== mainId) {
           stream.getTracks().forEach((t) => t.stop());
           stream = await openStreamWithDevice(mainId, mode);
           resolvedDeviceId = mainId;
-          setDeviceId(mainId);
         }
       }
 
@@ -544,7 +522,6 @@ const MediaPreviewAndroid = () => {
         return;
       }
 
-      // Gắn stream mới trước — giữ frame cũ đến khi play xong
       streamRef.current = stream;
       cameraInitialized.current = true;
       lastCameraMode.current = cameraMode;
@@ -552,12 +529,9 @@ const MediaPreviewAndroid = () => {
       lastZoomLevel.current = zoomLevel;
 
       const actualId = getActiveTrack(stream)?.getSettings?.()?.deviceId;
-      if (actualId && actualId !== ultraId) {
-        if (actualId !== deviceId) setDeviceId(actualId);
-        lastDeviceId.current = actualId;
-      } else if (resolvedDeviceId) {
-        lastDeviceId.current = resolvedDeviceId;
-      }
+      // Chỉ ref — KHÔNG setDeviceId (setState → useEffect restart → lag)
+      if (actualId) lastDeviceId.current = actualId;
+      else if (resolvedDeviceId) lastDeviceId.current = resolvedDeviceId;
 
       if (videoRef.current) {
         const v = videoRef.current;
@@ -566,6 +540,12 @@ const MediaPreviewAndroid = () => {
         v.playsInline = true;
         v.setAttribute("playsinline", "true");
         v.setAttribute("webkit-playsinline", "true");
+        // Ưu tiên decode mượt
+        try {
+          v.disablePictureInPicture = true;
+        } catch {
+          /* ignore */
+        }
         try {
           await v.play();
         } catch {
@@ -573,7 +553,6 @@ const MediaPreviewAndroid = () => {
         }
       }
 
-      // Tắt stream cũ sau khi video mới đã gắn
       if (oldStream && oldStream !== stream) {
         try {
           oldStream.getTracks().forEach((t) => t.stop());
@@ -582,17 +561,9 @@ const MediaPreviewAndroid = () => {
         }
       }
 
+      // Features sau khi frame đã hiện
       try {
         await syncTrackFeatures(stream);
-        if (zoomLevel === "0.5x" && isBack) {
-          await applyZoomLevel("0.5x", stream);
-        } else if (zoomLevel === "2x" || zoomLevel === "3x") {
-          await applyZoomLevel(zoomLevel, stream);
-        } else {
-          await applyZoomLevel("1x", stream);
-          currentZoomValue.current = 1;
-          setZoomDisplay("1x");
-        }
       } catch (error) {
         console.error("Không thể đồng bộ tính năng camera:", error);
       }
@@ -630,6 +601,7 @@ const MediaPreviewAndroid = () => {
   }, []);
 
   // Lifecycle: chỉ chạy cam trên trang chụp
+  // Lưu ý: deviceId đổi từ *trong* startCamera không được trigger lại (đã chặn setState)
   useEffect(() => {
     const shouldRun =
       cameraActive && onCapturePage && !preview && !selectedFile;
@@ -808,13 +780,13 @@ const MediaPreviewAndroid = () => {
               cameraActive ? "opacity-100" : "opacity-0 pointer-events-none"
             }`}
             style={{
-              // GPU layer — giảm jank; mirror front camera
+              // GPU layer — mirror front; tránh willChange:contents (tốn RAM/lag Android)
               transform:
                 cameraMode === "user"
-                  ? "translateZ(0) scaleX(-1)"
-                  : "translateZ(0)",
-              willChange: "contents",
+                  ? "translate3d(0,0,0) scaleX(-1)"
+                  : "translate3d(0,0,0)",
               backfaceVisibility: "hidden",
+              WebkitBackfaceVisibility: "hidden",
             }}
           />
         )}

@@ -153,8 +153,7 @@ const MediaPreviewIOS = () => {
         resolvedDeviceId = await pickCameraDeviceId(mode, z);
       }
 
-      if (resolvedDeviceId) setDeviceId(resolvedDeviceId);
-
+      // Không setDeviceId trong start — tránh useEffect restart (lag)
       const quality = getCameraPreviewConstraints(
         CONFIG.app.camera.constraints.default,
       );
@@ -191,7 +190,7 @@ const MediaPreviewIOS = () => {
         return;
       }
 
-      // iOS: 1x dính ultra → mở lại main
+      // iOS: 1x dính ultra → mở lại main (1 lần)
       if (isBack && z === "1x" && mainId) {
         const actualId = stream.getVideoTracks?.()?.[0]?.getSettings?.()?.deviceId;
         if (actualId && ultraId && actualId === ultraId) {
@@ -201,7 +200,6 @@ const MediaPreviewIOS = () => {
               video: { deviceId: { ideal: mainId }, ...quality },
               audio: false,
             });
-            setDeviceId(mainId);
             resolvedDeviceId = mainId;
           } catch {
             /* keep previous */
@@ -219,7 +217,9 @@ const MediaPreviewIOS = () => {
       lastCameraMode.current = cameraMode;
       lastDeviceId.current = resolvedDeviceId || deviceId;
       lastZoomLevel.current = zoomLevel;
-      refreshLensPills();
+      setTimeout(() => {
+        refreshLensPills().catch(() => {});
+      }, 0);
 
       if (videoRef.current) {
         const v = videoRef.current;

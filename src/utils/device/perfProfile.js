@@ -56,30 +56,35 @@ export function applyPerfClasses() {
 }
 
 /**
- * Constraint camera preview — Android/lite: 720p@24, desktop: 1280x720@30
+ * Constraint camera preview — ưu tiên mượt (thấp hơn chụp full-res).
+ * Preview chỉ để ngắm; ảnh chụp vẫn vẽ từ track ở kích thước capture.
  */
 export function getCameraPreviewConstraints(base = {}) {
   const p = getPerfProfile();
+  // Android / máy yếu: 720p@24 — giảm jank mạnh
   if (p.isAndroid || p.isLowEnd) {
     return {
       ...base,
-      width: { ideal: 960, max: 1280 },
-      height: { ideal: 540, max: 720 },
-      frameRate: { ideal: 24, max: 30 },
+      width: { ideal: 720, max: 960 },
+      height: { ideal: 720, max: 960 },
+      frameRate: { ideal: 24, max: 24 },
+      // Ưu tiên mượt hơn độ nét
+      advanced: [{ focusMode: "continuous" }],
     };
   }
+  // iOS / mobile khác: 960 vuông @ 30
   if (p.isMobile) {
     return {
       ...base,
-      width: { ideal: 1280, max: 1280 },
-      height: { ideal: 720, max: 720 },
+      width: { ideal: 960, max: 1080 },
+      height: { ideal: 960, max: 1080 },
       frameRate: { ideal: 30, max: 30 },
     };
   }
   return {
     ...base,
-    width: { ideal: 1280, max: 1920 },
-    height: { ideal: 720, max: 1080 },
+    width: { ideal: 1080, max: 1280 },
+    height: { ideal: 1080, max: 1280 },
     frameRate: { ideal: 30, max: 30 },
   };
 }
