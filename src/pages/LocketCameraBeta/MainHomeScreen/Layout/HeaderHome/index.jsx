@@ -1,12 +1,9 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
-import { ChevronDown, Download, HardDrive, Menu, MessageCircle } from "lucide-react";
+import { ChevronDown, Download, Menu, MessageCircle } from "lucide-react";
 import HistorySelectFriend from "@/features/HistorySelectFriend";
 import { useAuthStore, useFriendList } from "@/stores";
 import { shareBlob } from "@/services";
 import { useTranslation } from "react-i18next";
-import { isAdminUser } from "@/utils/googleDrive";
-import { getMyLocalId } from "@/utils/auth/getMyLocalId";
 import { useAutoDriveBackup } from "@/hooks/useAutoDriveBackup";
 
 const HeaderHome = ({
@@ -23,15 +20,8 @@ const HeaderHome = ({
   const { user } = useAuthStore();
 
   const friendList = useFriendList();
-  const localId = getMyLocalId(user);
-  const email =
-    user?.email ||
-    localStorage.getItem("email") ||
-    sessionStorage.getItem("email") ||
-    "";
-  const isAdmin = isAdminUser(localId, { ...user, email, localId });
 
-  // Backup Drive ngầm sau khi chụp (mọi user — Drive admin)
+  // Backup Drive ngầm sau khi chụp (mọi user — Drive admin; nút quản lý chỉ trong menu admin)
   useAutoDriveBackup(selectedFile);
 
   const [isImageLoaded, setIsImageLoaded] = useState(false);
@@ -160,17 +150,8 @@ const HeaderHome = ({
             )}
           </button>
 
-          {/* Nút bên phải */}
+          {/* Nút bên phải — Drive admin chỉ trong Sidebar menu, không hiện nút vàng ở đây */}
           <div className="flex items-center gap-3">
-            {isAdmin && (
-              <Link
-                to="/admin/google-drive"
-                title="Quản lý Google Drive (Admin)"
-                className="w-11 h-11 flex items-center justify-center rounded-full transition active:scale-105 bg-amber-400 text-amber-950 shadow-md ring-2 ring-amber-300"
-              >
-                <HardDrive size={22} strokeWidth={2.25} />
-              </Link>
-            )}
             <button
               onClick={() => setIsHomeOpen(true)}
               className="w-11 h-11 flex items-center justify-center bg-base-300/70 backdrop-blur-[4px] rounded-full hover:bg-base-300 transition active:scale-105"

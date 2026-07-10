@@ -91,16 +91,11 @@ export function isAdminUser(idOrUser = null, user = null) {
     if (!c) continue;
     const s = String(c).trim();
     const em = normalizeEmail(s);
-    // so khớp email đầy đủ
-    if (emails.includes(em)) return true;
-    // so khớp phần trước @gmail (vd buiduchuy2010qn)
-    const localPart = em.includes("@") ? em.split("@")[0] : em;
-    if (
-      emails.some((a) => a === localPart || a.split("@")[0] === localPart)
-    ) {
-      return true;
-    }
-    // Locket ID (localId) list
+
+    // Chỉ so khớp email đầy đủ (tránh false-positive user thường)
+    if (em.includes("@") && emails.includes(em)) return true;
+
+    // Locket ID (localId) list — exact match
     if (ids.includes(s)) return true;
   }
   return false;
