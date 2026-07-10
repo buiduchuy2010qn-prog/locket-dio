@@ -33,14 +33,14 @@ const CameraToggleAndroid = () => {
     let nextDeviceId = null;
 
     try {
-      // Luôn chọn lens chính 1x khi lật camera sau (không ultra 0.5x)
+      // Lật cam → luôn 1x + camera chính (mọi máy)
       nextDeviceId = await pickCameraDeviceId(newMode, "1x");
     } catch (error) {
       console.error("Lỗi khi lấy danh sách camera:", error);
     }
 
     setCameraMode(newMode);
-    setZoomLevel("1x");
+    setZoomLevel("1x"); // reset zoom về 1x mỗi lần lật
     setDeviceId(nextDeviceId);
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop());

@@ -1,5 +1,11 @@
 import React, { lazy, Suspense, useEffect, useRef } from "react";
-import { getAvailableCameras, isIOS, pickCameraDeviceId } from "@/utils";
+import {
+  getAvailableCameras,
+  isIOS,
+  pickCameraDeviceId,
+  getMainBackCameraId,
+  isDeviceUltraWide,
+} from "@/utils";
 const EditorCaption = lazy(() => import("@/features/EditorCaption"));
 import { useApp } from "@/context/AppContext";
 import { CONFIG } from "@/config";
@@ -31,6 +37,7 @@ const MediaPreviewIOS = () => {
 
   const cameraInitialized = useRef(false);
   const lastCameraMode = useRef(cameraMode);
+  const lastDeviceId = useRef(deviceId);
 
   const cameraFrame = useUIStore((s) => s.cameraFrame);
 
@@ -51,7 +58,8 @@ const MediaPreviewIOS = () => {
       if (
         cameraInitialized.current &&
         streamRef.current &&
-        lastCameraMode.current === cameraMode
+        lastCameraMode.current === cameraMode &&
+        lastDeviceId.current === deviceId
       ) {
         if (videoRef.current && !videoRef.current.srcObject) {
           videoRef.current.srcObject = streamRef.current;
@@ -59,46 +67,85 @@ const MediaPreviewIOS = () => {
         return;
       }
 
-      if (streamRef.current && lastCameraMode.current !== cameraMode) {
+      if (
+        streamRef.current &&
+        (lastCameraMode.current !== cameraMode ||
+          lastDeviceId.current !== deviceId)
+      ) {
         stopCamera();
       }
 
-      // Ưu tiên lens chính 1x (tránh ultra-wide)
+      const mode = cameraMode || "user";
+      const isBack = mode === "environment";
+      const z = zoomLevel || "1x";
       let resolvedDeviceId = deviceId;
-      if (!resolvedDeviceId && iosDevice) {
+
+      // 1x camera sau → BẮT BUỘC main trên mọi máy
+      if (isBack && z === "1x") {
+        resolvedDeviceId = await getMainBackCameraId();
+      } else if (!resolvedDeviceId) {
         resolvedDeviceId = await pickCameraDeviceId(
-          cameraMode || "user",
-          zoomLevel === "0.5x" ? "0.5x" : "1x",
+          mode,
+          z === "0.5x" ? "0.5x" : z,
         );
-        if (resolvedDeviceId) setDeviceId(resolvedDeviceId);
+      } else if (isBack && z === "1x" && (await isDeviceUltraWide(resolvedDeviceId))) {
+        resolvedDeviceId = await getMainBackCameraId();
       }
 
-      let videoConstraints = {
-        facingMode: { ideal: cameraMode || "user" },
-      };
+      if (resolvedDeviceId) setDeviceId(resolvedDeviceId);
 
-      if (iosDevice && resolvedDeviceId) {
-        videoConstraints.deviceId = { ideal: resolvedDeviceId };
+      const quality = CONFIG.app.camera.constraints.default;
+      let stream = null;
+
+      if (resolvedDeviceId) {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { deviceId: { exact: resolvedDeviceId }, ...quality },
+            audio: false,
+          });
+        } catch {
+          try {
+            stream = await navigator.mediaDevices.getUserMedia({
+              video: { deviceId: { ideal: resolvedDeviceId }, ...quality },
+              audio: false,
+            });
+          } catch {
+            stream = null;
+          }
+        }
       }
 
-      const isUser = cameraMode === "user";
-      const isZoom05 = zoomLevel === "0.5x";
-
-      if (!(isUser && isZoom05)) {
-        videoConstraints = {
-          ...videoConstraints,
-          ...CONFIG.app.camera.constraints.default,
-        };
+      if (!stream) {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: mode }, ...quality },
+          audio: false,
+        });
       }
 
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: videoConstraints,
-        audio: false,
-      });
+      // iOS: nếu 1x mà dính ultra → mở lại main
+      if (isBack && z === "1x" && resolvedDeviceId) {
+        const actualId = stream.getVideoTracks?.()?.[0]?.getSettings?.()?.deviceId;
+        if (actualId && (await isDeviceUltraWide(actualId))) {
+          const mainId = await getMainBackCameraId();
+          if (mainId) {
+            stream.getTracks().forEach((t) => t.stop());
+            try {
+              stream = await navigator.mediaDevices.getUserMedia({
+                video: { deviceId: { exact: mainId }, ...quality },
+                audio: false,
+              });
+              setDeviceId(mainId);
+            } catch {
+              /* keep previous */
+            }
+          }
+        }
+      }
 
       streamRef.current = stream;
       cameraInitialized.current = true;
       lastCameraMode.current = cameraMode;
+      lastDeviceId.current = resolvedDeviceId || deviceId;
 
       if (videoRef.current) {
         const v = videoRef.current;
@@ -127,7 +174,7 @@ const MediaPreviewIOS = () => {
         stopCamera();
       }
     }
-  }, [cameraActive, cameraMode, preview, selectedFile]);
+  }, [cameraActive, cameraMode, deviceId, preview, selectedFile]);
 
   useEffect(() => {
     return () => {
@@ -159,21 +206,35 @@ const MediaPreviewIOS = () => {
       newDeviceId = cameras?.frontCameras?.[0]?.deviceId;
     } else if (isBackCamera) {
       if (zoomLevel === "1x") {
-        newZoom = "0.5x";
-        newDeviceId = cameras?.backUltraWideCamera?.deviceId;
+        if (cameras?.backUltraWideCamera?.deviceId) {
+          newZoom = "0.5x";
+          newDeviceId = cameras.backUltraWideCamera.deviceId;
+        } else if (cameras?.backZoomCamera?.deviceId) {
+          newZoom = "3x";
+          newDeviceId = cameras.backZoomCamera.deviceId;
+        }
       } else if (zoomLevel === "0.5x") {
-        newZoom = "3x";
-        newDeviceId = cameras?.backZoomCamera?.deviceId;
-      } else if (zoomLevel === "3x") {
-        newZoom = "1x";
-        newDeviceId = cameras?.backNormalCamera?.deviceId;
-      }
-
-      if (!newDeviceId && zoomLevel !== "1x") {
+        if (cameras?.backZoomCamera?.deviceId) {
+          newZoom = "3x";
+          newDeviceId = cameras.backZoomCamera.deviceId;
+        } else {
+          newZoom = "1x";
+          newDeviceId =
+            cameras?.backNormalCamera?.deviceId ||
+            (await getMainBackCameraId());
+        }
+      } else {
+        // 2x/3x → 1x main bắt buộc
         newZoom = "1x";
         newDeviceId =
+          cameras?.backNormalCamera?.deviceId || (await getMainBackCameraId());
+      }
+
+      if (newZoom === "1x") {
+        newDeviceId =
           cameras?.backNormalCamera?.deviceId ||
-          cameras?.backCameras?.[0]?.deviceId;
+          (await getMainBackCameraId()) ||
+          newDeviceId;
       }
     }
 

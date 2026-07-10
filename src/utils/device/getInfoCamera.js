@@ -1,38 +1,42 @@
 /**
- * Phân loại camera thiết bị.
- * Ưu tiên ống kính chính (1x) — tránh ultra-wide 0.5x khi bật camera sau.
+ * Phân loại + chọn camera thiết bị.
+ * QUY TẮC CỨNG: zoom 1x → luôn camera chính (main). Không dùng ultra-wide 0.5x.
  */
 
 const ULTRA_RE =
-  /cực\s*rộng|ultra\s*wide|ultrawide|0\.5x|góc\s*rộng|wide\s*angle|camera2\s*2|facing\s*back.*ultra|uw\b|siêu\s*rộng/;
+  /cực\s*rộng|ultra\s*wide|ultrawide|ultra\b|0\.5x|góc\s*rộng|wide\s*angle|camera2\s*2|facing\s*back.*ultra|uw\b|siêu\s*rộng|fisheye|fish\s*eye/;
 const TELE_RE =
-  /chụp\s*xa|tele|telephoto|zoom|2x|3x|5x|periscope|camera2\s*[3-9]/;
+  /chụp\s*xa|tele|telephoto|periscope|\b2x\b|\b3x\b|\b5x\b|\b10x\b|camera2\s*[3-9]/;
 const FRONT_RE =
   /mặt\s*trước|front|user|trước|facing\s*front|selfie|camera2\s*1|camera1\s*1/;
 const BACK_RE =
   /mặt\s*sau|back|rear|environment|sau|facing\s*back|outer|world|camera2\s*0|camera1\s*0/;
+const MAIN_HINT_RE =
+  /\b1x\b|main|primary|standard|bình\s*thường|camera\s*kép|\bwide\b(?!\s*angle)|default/;
 
-const isUltra = (label) => ULTRA_RE.test(label);
-const isTele = (label) => TELE_RE.test(label) && !isUltra(label);
+export const isUltraLabel = (label = "") => ULTRA_RE.test(String(label).toLowerCase());
+export const isTeleLabel = (label = "") =>
+  TELE_RE.test(String(label).toLowerCase()) && !isUltraLabel(label);
 
-/** Điểm ưu tiên: normal 1x cao nhất, ultra thấp nhất */
+/** Điểm ưu tiên: main 1x cao nhất, ultra thấp nhất */
 function scoreBackCamera(device, index, total) {
   const label = (device.label || "").toLowerCase();
   let score = 50;
 
-  if (isUltra(label)) score -= 40;
-  else if (isTele(label)) score -= 10;
-  else score += 30; // lens chính / wide bình thường
+  if (isUltraLabel(label)) score -= 80;
+  else if (isTeleLabel(label)) score -= 15;
+  else score += 40;
 
-  // Label gợi ý 1x / main / dual / wide (không ultra)
-  if (/\b1x\b|main|primary|standard|bình\s*thường|camera\s*kép|wide(?!\s*angle)/.test(label)) {
+  if (MAIN_HINT_RE.test(label)) score += 25;
+
+  // Nhiều Android: index 0 back = ultra → phạt
+  if (total >= 2 && index === 0 && isUltraLabel(label)) score -= 30;
+  // Index 1 thường là main trên multi-cam
+  if (total >= 2 && index === 1 && !isUltraLabel(label) && !isTeleLabel(label)) {
     score += 20;
   }
-
-  // Nhiều máy Android: camera sau chính thường không phải index 0 (0 = ultra)
-  // Ưu tiên nhẹ camera ở giữa danh sách back
-  if (total >= 2 && index === 0 && isUltra(label)) score -= 15;
-  if (total >= 2 && index === 1 && !isUltra(label) && !isTele(label)) score += 15;
+  // Camera cuối trong back list đôi khi là tele
+  if (total >= 3 && index === total - 1 && isTeleLabel(label)) score -= 5;
 
   return score;
 }
@@ -43,12 +47,8 @@ const classifyVideoDevices = (videoDevices) => {
 
   videoDevices.forEach((device) => {
     const label = (device.label || "").toLowerCase();
-
-    if (FRONT_RE.test(label)) {
-      frontCameras.push(device);
-    } else if (BACK_RE.test(label)) {
-      backCameras.push(device);
-    }
+    if (FRONT_RE.test(label)) frontCameras.push(device);
+    else if (BACK_RE.test(label)) backCameras.push(device);
   });
 
   const remainingDevices = videoDevices.filter(
@@ -57,10 +57,9 @@ const classifyVideoDevices = (videoDevices) => {
       !backCameras.some((c) => c.deviceId === device.deviceId),
   );
 
-  // Không gắn nhãn: gán phần còn lại (mobile thường front rồi back)
   if (!backCameras.length && remainingDevices.length) {
-    // Prefer last remaining as back on dual-cam mobile
     if (remainingDevices.length >= 2) {
+      // Dual unlabeled: first often front, last back — nhưng đôi khi ngược
       backCameras.push(remainingDevices[remainingDevices.length - 1]);
       if (!frontCameras.length) frontCameras.push(remainingDevices[0]);
     } else {
@@ -75,10 +74,8 @@ const classifyVideoDevices = (videoDevices) => {
     if (fallbackFront) frontCameras.push(fallbackFront);
   }
 
-  // Phân loại back theo label + điểm
   let backUltraWideCamera = null;
   let backZoomCamera = null;
-  let backNormalCamera = null;
 
   const scored = backCameras.map((device, index) => ({
     device,
@@ -87,30 +84,27 @@ const classifyVideoDevices = (videoDevices) => {
   }));
 
   for (const item of scored) {
-    if (isUltra(item.label) && !backUltraWideCamera) {
+    if (isUltraLabel(item.label) && !backUltraWideCamera) {
       backUltraWideCamera = item.device;
-    } else if (isTele(item.label) && !backZoomCamera) {
+    } else if (isTeleLabel(item.label) && !backZoomCamera) {
       backZoomCamera = item.device;
     }
   }
 
-  // Normal = điểm cao nhất trong các camera KHÔNG phải ultra (ưu tiên)
-  const nonUltra = scored.filter((s) => !isUltra(s.label));
-  const pool = nonUltra.length ? nonUltra : scored;
-  pool.sort((a, b) => b.score - a.score);
-  backNormalCamera = pool[0]?.device || backCameras[0] || null;
+  // MAIN = điểm cao nhất trong nhóm KHÔNG ultra (bắt buộc)
+  const nonUltra = scored.filter((s) => !isUltraLabel(s.label));
+  const mainPool = (nonUltra.length ? nonUltra : scored).slice();
+  mainPool.sort((a, b) => b.score - a.score);
+  const backNormalCamera = mainPool[0]?.device || backCameras[0] || null;
 
-  // Nếu normal vẫn trùng ultra (chỉ có 1 camera), giữ nguyên
-  // Nếu ultra chưa gán: lấy camera có label ultra hoặc score thấp nhất
   if (!backUltraWideCamera) {
-    const ultraCandidate = [...scored].sort((a, b) => a.score - b.score)[0];
-    if (
-      ultraCandidate &&
-      backNormalCamera &&
-      ultraCandidate.device.deviceId !== backNormalCamera.deviceId &&
-      isUltra(ultraCandidate.label)
-    ) {
-      backUltraWideCamera = ultraCandidate.device;
+    const ultraOnly = scored.filter((s) => isUltraLabel(s.label));
+    if (ultraOnly.length) {
+      ultraOnly.sort((a, b) => a.score - b.score);
+      const cand = ultraOnly[0];
+      if (cand.device.deviceId !== backNormalCamera?.deviceId) {
+        backUltraWideCamera = cand.device;
+      }
     }
   }
 
@@ -131,14 +125,13 @@ export const getAvailableCameras = async () => {
 
   if (!hasLabels) {
     const permissionStream = await navigator.mediaDevices.getUserMedia({
-      video: true,
+      video: { facingMode: { ideal: "environment" } },
     });
-
     try {
-      const refreshedDevices = await navigator.mediaDevices.enumerateDevices();
-      videoDevices = refreshedDevices.filter((d) => d.kind === "videoinput");
+      const refreshed = await navigator.mediaDevices.enumerateDevices();
+      videoDevices = refreshed.filter((d) => d.kind === "videoinput");
     } finally {
-      permissionStream.getTracks().forEach((track) => track.stop());
+      permissionStream.getTracks().forEach((t) => t.stop());
     }
   }
 
@@ -146,9 +139,11 @@ export const getAvailableCameras = async () => {
 };
 
 /**
- * Chọn deviceId phù hợp khi bật camera (mặc định lens chính 1x).
+ * Trả về deviceId theo mode + zoom.
+ * 1x (mặc định) → LUÔN camera chính. Không bao giờ ultra.
+ *
  * @param {"user"|"environment"} mode
- * @param {"0.5x"|"1x"|"2x"|"3x"} [zoomLevel="1x"]
+ * @param {"0.5x"|"1x"|"2x"|"3x"|string} [zoomLevel="1x"]
  */
 export const pickCameraDeviceId = async (mode, zoomLevel = "1x") => {
   try {
@@ -157,36 +152,55 @@ export const pickCameraDeviceId = async (mode, zoomLevel = "1x") => {
       return cameras?.frontCameras?.[0]?.deviceId || null;
     }
 
-    // Back camera
-    if (zoomLevel === "0.5x") {
-      return (
-        cameras?.backUltraWideCamera?.deviceId ||
-        cameras?.backNormalCamera?.deviceId ||
-        cameras?.backCameras?.[0]?.deviceId ||
-        null
-      );
-    }
-    if (zoomLevel === "2x" || zoomLevel === "3x") {
-      return (
-        cameras?.backZoomCamera?.deviceId ||
-        cameras?.backNormalCamera?.deviceId ||
-        cameras?.backCameras?.[0]?.deviceId ||
-        null
-      );
+    const mainId =
+      cameras?.backNormalCamera?.deviceId ||
+      cameras?.backCameras?.find((c) => !isUltraLabel(c.label))?.deviceId ||
+      cameras?.backCameras?.[0]?.deviceId ||
+      null;
+
+    const z = String(zoomLevel || "1x").toLowerCase();
+
+    // 0.5x: ultra nếu có, không thì main
+    if (z === "0.5x" || z === "0.5") {
+      return cameras?.backUltraWideCamera?.deviceId || mainId;
     }
 
-    // 1x — luôn lens chính, không ultra
-    return (
-      cameras?.backNormalCamera?.deviceId ||
-      cameras?.backCameras?.find((c) => {
-        const l = (c.label || "").toLowerCase();
-        return !isUltra(l);
-      })?.deviceId ||
-      cameras?.backCameras?.[0]?.deviceId ||
-      null
-    );
+    // 2x / 3x: tele nếu có, không thì main (zoom digital trên main)
+    if (z === "2x" || z === "3x" || z === "5x") {
+      return cameras?.backZoomCamera?.deviceId || mainId;
+    }
+
+    // 1x và mọi trường hợp khác → BẮT BUỘC main
+    return mainId;
   } catch (e) {
     console.warn("pickCameraDeviceId:", e.message);
     return null;
   }
+};
+
+/** deviceId có phải ultra-wide không (theo label đã enumerate) */
+export const isDeviceUltraWide = async (deviceId) => {
+  if (!deviceId) return false;
+  try {
+    const cameras = await getAvailableCameras();
+    if (cameras?.backUltraWideCamera?.deviceId === deviceId) return true;
+    const dev = cameras?.allCameras?.find((d) => d.deviceId === deviceId);
+    return isUltraLabel(dev?.label || "");
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * deviceId bắt buộc dùng ở zoom 1x (camera chính).
+ * Dùng khi cần ép lại sau khi browser chọn sai.
+ */
+export const getMainBackCameraId = async () => {
+  const cameras = await getAvailableCameras();
+  return (
+    cameras?.backNormalCamera?.deviceId ||
+    cameras?.backCameras?.find((c) => !isUltraLabel(c.label))?.deviceId ||
+    cameras?.backCameras?.[0]?.deviceId ||
+    null
+  );
 };
