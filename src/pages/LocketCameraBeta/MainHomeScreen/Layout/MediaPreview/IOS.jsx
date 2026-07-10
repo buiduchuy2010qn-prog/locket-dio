@@ -58,8 +58,16 @@ const MediaPreviewIOS = () => {
     const pills = new Set(["1x"]);
     try {
       const cameras = await getAvailableCameras();
+      // Full zoom theo lens máy
       if (cameras?.backUltraWideCamera) pills.add("0.5x");
-      if (cameras?.backZoomCamera) pills.add("3x");
+      pills.add("1x");
+      if (cameras?.backZoomCamera) {
+        pills.add("2x");
+        pills.add("3x");
+      } else {
+        // Không tele: vẫn cho 2x (main)
+        pills.add("2x");
+      }
     } catch {
       /* ignore */
     }
@@ -68,10 +76,15 @@ const MediaPreviewIOS = () => {
   };
 
   const handleSelectLens = async (label) => {
-    if (cameraMode !== "environment") return;
     const cameras = await getAvailableCameras();
     let newDeviceId = null;
-    if (label === "1x") {
+    if (cameraMode === "user") {
+      newDeviceId = cameras?.frontCameras?.[0]?.deviceId;
+      setZoomLevel(label === "0.5x" ? "0.5x" : "1x");
+      if (newDeviceId) setDeviceId(newDeviceId);
+      return;
+    }
+    if (label === "1x" || label === "2x") {
       newDeviceId =
         cameras?.backNormalCamera?.deviceId || (await getMainBackCameraId());
     } else if (label === "0.5x") {
@@ -79,6 +92,7 @@ const MediaPreviewIOS = () => {
         cameras?.backUltraWideCamera?.deviceId ||
         cameras?.backNormalCamera?.deviceId;
     } else {
+      // 3x / tele
       newDeviceId =
         cameras?.backZoomCamera?.deviceId ||
         cameras?.backNormalCamera?.deviceId ||
@@ -253,6 +267,13 @@ const MediaPreviewIOS = () => {
     return () => document.removeEventListener("visibilitychange", onVis);
   }, []);
 
+  // Preload zoom pills (0.5 / 1 / 2 / 3)
+  useEffect(() => {
+    if (!cameraActive || preview || selectedFile) return;
+    refreshLensPills().catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cameraActive, cameraMode]);
+
   useEffect(() => {
     const shouldRun =
       cameraActive && onCapturePage && !preview && !selectedFile;
@@ -392,6 +413,29 @@ const MediaPreviewIOS = () => {
                 {zoomLevel}
               </button>
             </div>
+
+            {/* Pills zoom: 0.5 · 1 · 2 · 3 theo máy */}
+            {!preview && !selectedFile && cameraActive && lensPills.length > 0 && (
+              <div className="absolute bottom-5 left-1/2 -translate-x-1/2 z-30 flex items-center gap-1.5 pointer-events-auto px-2 py-1 rounded-full bg-black/35 backdrop-blur-md">
+                {lensPills.map((label) => {
+                  const active = zoomLevel === label;
+                  return (
+                    <button
+                      key={label}
+                      type="button"
+                      onClick={() => handleSelectLens(label)}
+                      className={`min-w-9 h-9 px-2 rounded-full text-xs font-bold transition-all active:scale-95 ${
+                        active
+                          ? "bg-white text-black shadow"
+                          : "bg-white/15 text-white"
+                      }`}
+                    >
+                      {label.replace("x", "")}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
 
             {cameraFrame?.imageSrc && (
               <div className="absolute inset-0 z-20 pointer-events-none">

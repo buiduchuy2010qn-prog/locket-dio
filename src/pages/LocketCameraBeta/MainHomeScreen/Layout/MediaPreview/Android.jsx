@@ -69,45 +69,33 @@ const MediaPreviewAndroid = () => {
 
   const formatZoomDisplay = (value) => `${Number(value.toFixed(1))}x`;
 
+  /** Mức zoom theo hardware track (min/max) + lens vật lý */
   const getZoomLabels = (capabilities) => {
-    const minZoom = capabilities?.zoom?.min || 1;
-    const maxZoom = capabilities?.zoom?.max || 1;
+    const minZoom = capabilities?.zoom?.min ?? 1;
+    const maxZoom = capabilities?.zoom?.max ?? 1;
     const labels = [];
 
-    if (minZoom < 1) {
-      labels.push("0.5x");
-    }
-
+    if (minZoom < 0.9) labels.push("0.5x");
     labels.push("1x");
-
-    if (maxZoom >= 2) {
-      labels.push("2x");
-    }
-
-    if (maxZoom >= 3) {
-      labels.push("3x");
-    }
+    if (maxZoom >= 1.8) labels.push("2x");
+    if (maxZoom >= 2.5) labels.push("3x");
+    if (maxZoom >= 4.5) labels.push("5x");
 
     return [...new Set(labels)];
   };
 
   const getZoomValue = (label, capabilities) => {
-    const minZoom = capabilities?.zoom?.min || 1;
-    const maxZoom = capabilities?.zoom?.max || 1;
-
-    if (label === "0.5x") {
-      return Math.max(minZoom, Math.min(0.5, maxZoom));
-    }
-
-    if (label === "2x") {
-      return Math.max(minZoom, Math.min(2, maxZoom));
-    }
-
-    if (label === "3x") {
-      return Math.max(minZoom, Math.min(3, maxZoom));
-    }
-
-    return Math.max(minZoom, Math.min(1, maxZoom));
+    const minZoom = capabilities?.zoom?.min ?? 1;
+    const maxZoom = capabilities?.zoom?.max ?? 1;
+    const map = {
+      "0.5x": 0.5,
+      "1x": 1,
+      "2x": 2,
+      "3x": 3,
+      "5x": 5,
+    };
+    const target = map[label] ?? 1;
+    return Math.max(minZoom, Math.min(target, maxZoom));
   };
 
   const getNearestZoomLabel = (value, capabilities) => {
@@ -178,34 +166,34 @@ const MediaPreviewAndroid = () => {
     return true;
   };
 
-  /** Build danh sách pill 0.5 / 1 / 2 từ hardware + continuous zoom */
+  /** Full zoom pills: 0.5 / 1 / 2 / 3 / 5 theo lens + digital zoom máy */
   const refreshLensPills = async (stream) => {
     const track = getActiveTrack(stream);
     const capabilities = getTrackCapabilities(track);
     const fromTrack = getZoomLabels(capabilities);
-    const pills = new Set(["1x"]);
+    const pills = new Set(fromTrack.length ? fromTrack : ["1x"]);
 
-    if (fromTrack.includes("0.5x") || (capabilities?.zoom?.min ?? 1) < 1) {
-      pills.add("0.5x");
-    }
-    if (fromTrack.includes("2x") || (capabilities?.zoom?.max ?? 1) >= 2) {
-      pills.add("2x");
-    }
-    if (fromTrack.includes("3x") || (capabilities?.zoom?.max ?? 1) >= 3) {
-      pills.add("3x");
-    }
-
+    // Luôn có 1x; 0.5 nếu ultra-wide vật lý (kể cả khi track min=1)
+    pills.add("1x");
     try {
       const cameras = await getAvailableCameras();
       if (cameras?.backUltraWideCamera) pills.add("0.5x");
-      if (cameras?.backZoomCamera) pills.add("3x");
+      if (cameras?.backZoomCamera) {
+        pills.add("3x");
+        // tele máy thường ≥3; digital 2x vẫn hữu ích trên main
+        pills.add("2x");
+      }
+      // Camera sau: nếu track hỗ trợ zoom cao
+      if ((capabilities?.zoom?.max ?? 1) >= 1.8) pills.add("2x");
+      if ((capabilities?.zoom?.max ?? 1) >= 2.5) pills.add("3x");
+      if ((capabilities?.zoom?.max ?? 1) >= 4.5) pills.add("5x");
     } catch {
       /* optional */
     }
 
-    // Thứ tự hiển thị: 0.5 → 1 → 2 → 3
-    const order = ["0.5x", "1x", "2x", "3x"];
+    const order = ["0.5x", "1x", "2x", "3x", "5x"];
     const list = order.filter((z) => pills.has(z));
+    // Tối thiểu 0.5 + 1 nếu máy có ultra; không thì 1x
     setLensPills(list.length ? list : ["1x"]);
     setZoomOptions(fromTrack.length ? fromTrack : ["1x"]);
   };
@@ -243,42 +231,36 @@ const MediaPreviewAndroid = () => {
     }
   };
 
-  /** Chọn lens/zoom — đổi deviceId/zoomLevel, startCamera seamless (không blink) */
+  /** Chọn lens/zoom pill — ultra/main/tele + digital zoom */
   const handleSelectLens = async (label) => {
-    if (label === zoomLevel && label !== "0.5x") return;
-
-    const isBack = cameraMode === "environment";
-    const cameras = isBack ? await getAvailableCameras() : null;
-    const mainId = isBack ? await getMainBackCameraId() : null;
-    const capabilities = getTrackCapabilities(getActiveTrack());
-    const hasTrackZoom = Boolean(capabilities?.zoom);
-
-    if (label === "1x") {
-      if (isBack && mainId && deviceId !== mainId) {
-        setZoomLevel("1x");
-        setDeviceId(mainId);
-        return;
-      }
-      setZoomLevel("1x");
-      try {
-        await applyZoomLevel("1x");
-        setZoomDisplay("1x");
-      } catch {
-        /* ignore */
-      }
+    if (label === zoomLevel && label !== "0.5x") {
+      // Bấm lại 0.5 vẫn ok; các mức khác bỏ qua
       return;
     }
 
+    const isBack = cameraMode === "environment";
+    const cameras = await getAvailableCameras();
+    const mainId = isBack
+      ? cameras?.backNormalCamera?.deviceId || (await getMainBackCameraId())
+      : cameras?.frontCameras?.[0]?.deviceId || null;
+    const ultraId = cameras?.backUltraWideCamera?.deviceId || null;
+    const teleId = cameras?.backZoomCamera?.deviceId || null;
+    const capabilities = getTrackCapabilities(getActiveTrack());
+    const hasTrackZoom = Boolean(capabilities?.zoom);
+
+    // 0.5x → ultra vật lý ưu tiên
     if (label === "0.5x") {
-      if (isBack && cameras?.backUltraWideCamera?.deviceId) {
+      if (isBack && ultraId) {
         setZoomLevel("0.5x");
-        setDeviceId(cameras.backUltraWideCamera.deviceId);
+        setZoomDisplay("0.5x");
+        setDeviceId(ultraId);
         return;
       }
-      if (hasTrackZoom) {
+      if (hasTrackZoom && (capabilities?.zoom?.min ?? 1) < 1) {
         setZoomLevel("0.5x");
         try {
           await applyZoomLevel("0.5x");
+          setZoomDisplay("0.5x");
         } catch {
           SonnerInfo(t("home.camera_no_zoom"));
         }
@@ -288,15 +270,38 @@ const MediaPreviewAndroid = () => {
       return;
     }
 
-    if (isBack && cameras?.backZoomCamera?.deviceId && label === "3x") {
-      setZoomLevel("3x");
-      setDeviceId(cameras.backZoomCamera.deviceId);
+    // 1x → main
+    if (label === "1x") {
+      if (isBack && mainId && deviceId !== mainId) {
+        setZoomLevel("1x");
+        setZoomDisplay("1x");
+        setDeviceId(mainId);
+        return;
+      }
+      setZoomLevel("1x");
+      try {
+        if (hasTrackZoom) await applyZoomLevel("1x");
+        setZoomDisplay("1x");
+      } catch {
+        /* ignore */
+      }
       return;
     }
 
-    if (isBack && mainId && (await isDeviceUltraWide(deviceId))) {
+    // 3x / 5x → tele nếu có, không thì main + digital
+    if ((label === "3x" || label === "5x") && isBack && teleId) {
       setZoomLevel(label);
+      setZoomDisplay(label);
+      setDeviceId(teleId);
+      return;
+    }
+
+    // Đang ở ultra → chuyển main trước khi digital zoom
+    if (isBack && mainId && ultraId && deviceId === ultraId) {
+      setZoomLevel(label);
+      setZoomDisplay(label);
       setDeviceId(mainId);
+      // zoom digital apply sau khi stream mới mở (startCamera + sync)
       return;
     }
 
@@ -304,6 +309,7 @@ const MediaPreviewAndroid = () => {
       setZoomLevel(label);
       try {
         await applyZoomLevel(label);
+        setZoomDisplay(label);
       } catch {
         SonnerInfo(t("home.camera_no_zoom"));
       }
@@ -600,6 +606,13 @@ const MediaPreviewAndroid = () => {
     return () => document.removeEventListener("visibilitychange", onVis);
   }, []);
 
+  // Preload pills (0.5x…) theo lens máy ngay khi vào cam sau
+  useEffect(() => {
+    if (!cameraActive || preview || selectedFile) return;
+    refreshLensPills(streamRef.current).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cameraActive, cameraMode]);
+
   // Lifecycle: chỉ chạy cam trên trang chụp
   // Lưu ý: deviceId đổi từ *trong* startCamera không được trigger lại (đã chặn setState)
   useEffect(() => {
@@ -801,14 +814,40 @@ const MediaPreviewAndroid = () => {
                 <img src="/icons/bolt.fill.png" alt="Icon sấm sét" />
               </button>
 
-              {/* Cycle zoom: 0.5x → 1x → 2x/3x (không pill dưới camera) */}
               <button
                 onClick={handleCycleZoomCamera}
                 className="pointer-events-auto min-w-8 h-8 px-2 text-primary-content font-semibold rounded-full bg-white/30 backdrop-blur-md flex items-center justify-center text-xs"
+                title="Cycle zoom"
               >
                 {zoomDisplay}
               </button>
             </div>
+
+            {/* Pills zoom full: 0.5 · 1 · 2 · 3 · 5 theo máy */}
+            {!preview && !selectedFile && cameraActive && lensPills.length > 0 && (
+              <div className="absolute bottom-5 left-1/2 -translate-x-1/2 z-30 flex items-center gap-1.5 pointer-events-auto px-2 py-1 rounded-full bg-black/35 backdrop-blur-md">
+                {lensPills.map((label) => {
+                  const active =
+                    zoomLevel === label ||
+                    (label === "1x" &&
+                      (zoomLevel === "1x" || zoomDisplay === "1x"));
+                  return (
+                    <button
+                      key={label}
+                      type="button"
+                      onClick={() => handleSelectLens(label)}
+                      className={`min-w-9 h-9 px-2 rounded-full text-xs font-bold transition-all active:scale-95 ${
+                        active
+                          ? "bg-white text-black shadow"
+                          : "bg-white/15 text-white"
+                      }`}
+                    >
+                      {label.replace("x", "")}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
 
             {cameraFrame?.imageSrc && (
               <div className="absolute inset-0 z-20 pointer-events-none">
