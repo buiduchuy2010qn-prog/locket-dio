@@ -14,15 +14,43 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 4173);
 const PUBLIC_DIR = path.join(__dirname, "public");
 
+// API backend chính: set LOCKET_API_UPSTREAM=http://127.0.0.1:5007 (huy-locket-server)
+// Mặc định: api.locket-dio.com (public). Auth/storage vẫn sub-domain Dio trừ khi override env.
+const API_UPSTREAM =
+  process.env.LOCKET_API_UPSTREAM || "https://api.locket-dio.com";
+
 const PROXIES = [
-  { prefix: "/dio-api", target: "https://api.locket-dio.com" },
-  { prefix: "/dio-auth", target: "https://auth.locket-dio.com" },
-  { prefix: "/dio-data", target: "https://data.locket-dio.com" },
-  { prefix: "/dio-storage", target: "https://storage.locket-dio.com" },
-  { prefix: "/dio-media", target: "https://media.locket-dio.com" },
-  { prefix: "/dio-export", target: "https://export.locket-dio.com" },
-  { prefix: "/dio-cdn", target: "https://cdn.locket-dio.com" },
-  { prefix: "/dio-payment", target: "https://payment.locket-dio.com" },
+  { prefix: "/dio-api", target: API_UPSTREAM },
+  {
+    prefix: "/dio-auth",
+    target: process.env.LOCKET_AUTH_UPSTREAM || "https://auth.locket-dio.com",
+  },
+  {
+    prefix: "/dio-data",
+    target: process.env.LOCKET_DATA_UPSTREAM || "https://data.locket-dio.com",
+  },
+  {
+    prefix: "/dio-storage",
+    target:
+      process.env.LOCKET_STORAGE_UPSTREAM || "https://storage.locket-dio.com",
+  },
+  {
+    prefix: "/dio-media",
+    target: process.env.LOCKET_MEDIA_UPSTREAM || "https://media.locket-dio.com",
+  },
+  {
+    prefix: "/dio-export",
+    target: process.env.LOCKET_EXPORT_UPSTREAM || "https://export.locket-dio.com",
+  },
+  {
+    prefix: "/dio-cdn",
+    target: process.env.LOCKET_CDN_UPSTREAM || "https://cdn.locket-dio.com",
+  },
+  {
+    prefix: "/dio-payment",
+    target:
+      process.env.LOCKET_PAYMENT_UPSTREAM || "https://payment.locket-dio.com",
+  },
 ];
 
 const ALLOWED_ORIGIN_SPOOF = "https://locket-dio.com";
@@ -1729,6 +1757,7 @@ const server = http.createServer((req, res) => {
 server.listen(PORT, "0.0.0.0", async () => {
   console.log(`[huy-locket] listening on :${PORT}`);
   console.log(`[huy-locket] static: ${PUBLIC_DIR}`);
+  console.log(`[huy-locket] API upstream: ${API_UPSTREAM}`);
   console.log(`[huy-locket] proxies: ${PROXIES.map((p) => p.prefix).join(", ")}, /dio-r2-put`);
   await warmDriveConfig();
   const folder = getDriveFolderId();

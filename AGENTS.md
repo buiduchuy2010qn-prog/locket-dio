@@ -22,4 +22,11 @@ After production changes: commit + `git push origin main`.
 
 ## API note
 
-Internal API paths/headers (`LocketDioServices`, `X-LocketDio-Member`, `api.locket-dio.com`) stay for backend compatibility — only user-facing brand is Huy Locket.
+Internal API paths/headers (`LocketDioServices`, `X-LocketDio-Member`) stay for backend compatibility — only user-facing brand is Huy Locket.
+
+### Backend chính (upgrade/fix)
+
+- Path: `C:\Users\DucHuyy\.grok\bin\huy-locket-server` (Server-Locket-Dio)
+- Point frontend proxy: `LOCKET_API_UPSTREAM=http://127.0.0.1:5007` on `locket-dio/server.mjs`
+- Default still `https://api.locket-dio.com` if env unset
+
