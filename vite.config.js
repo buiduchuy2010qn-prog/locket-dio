@@ -17,8 +17,8 @@ const manifestForPlugIn = {
     maximumFileSizeToCacheInBytes: 0, // ✅ TẮT HOÀN TOÀN cache tự động
   },
 
-  // ✅ Tự kiểm tra và cập nhật SW khi có bản mới
-  registerType: "autoUpdate",
+  // prompt: không auto-reload — app hiện nút Cập nhật / Hủy (registerSW.js)
+  registerType: "prompt",
 
   includeAssets: [
     "favicon.ico",
@@ -64,8 +64,9 @@ const manifestForPlugIn = {
   },
   workbox: {
     cleanupOutdatedCaches: true,
-    skipWaiting: true,
-    clientsClaim: true,
+    // User-controlled update (prompt) — không skipWaiting/claim tự động
+    skipWaiting: false,
+    clientsClaim: false,
 
     navigateFallbackDenylist: [/^\/assets\//],
   },

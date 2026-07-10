@@ -9,18 +9,20 @@ import { CacheFirst } from "workbox-strategies";
 import { ExpirationPlugin } from "workbox-expiration";
 
 // ======================
-// FORCE SKIP WAITING
+// UPDATE CONTROL (user bấm "Cập nhật" mới skipWaiting)
+// Không skipWaiting ngay khi install → tránh web tự reload
 // ======================
 self.addEventListener("message", (event) => {
-  if (event.data?.type === "SKIP_WAITING") self.skipWaiting();
+  if (event.data?.type === "SKIP_WAITING") {
+    self.skipWaiting();
+  }
 });
 
-self.addEventListener("install", () => {
-  self.skipWaiting();
-});
+// Không gọi skipWaiting() ở install — giữ SW waiting cho đến khi user đồng ý
 
 self.addEventListener("activate", (event) => {
-  event.waitUntil(clients.claim());
+  // Chỉ claim clients sau khi user đã kích hoạt bản mới
+  event.waitUntil(self.clients.claim());
 });
 
 // ======================
