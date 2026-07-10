@@ -45,8 +45,14 @@ let spotifyAppToken = null;
 let spotifyAppTokenExp = 0;
 
 async function getSpotifyAppToken() {
-  const clientId = process.env.SPOTIFY_CLIENT_ID;
-  const clientSecret = process.env.SPOTIFY_CLIENT_SECRET;
+  // Ưu tiên env Render; fallback app "huy locket" (client credentials)
+  const clientId =
+    process.env.SPOTIFY_CLIENT_ID ||
+    process.env.VITE_SPOTIFY_CLIENT_ID ||
+    "1f89199367264178a0b8c66d7e74c1d6";
+  const clientSecret =
+    process.env.SPOTIFY_CLIENT_SECRET ||
+    "e600849643f94f8b9eb5ca247e1febf8";
   if (!clientId || !clientSecret) return null;
   if (spotifyAppToken && Date.now() < spotifyAppTokenExp) {
     return spotifyAppToken;

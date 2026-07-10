@@ -19,7 +19,8 @@ function getClientId() {
   return (
     import.meta.env.VITE_SPOTIFY_CLIENT_ID ||
     import.meta.env.VITE_SPOTIFY_CLIENTID ||
-    ""
+    // Fallback production Huy Locket (public Client ID)
+    "1f89199367264178a0b8c66d7e74c1d6"
   ).trim();
 }
 
