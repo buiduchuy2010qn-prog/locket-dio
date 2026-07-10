@@ -118,6 +118,9 @@ function AppContent() {
 
   // if (loading) return <LoadingPageMain isLoading={true} />;
 
+  // OAuth callback luôn mount (kể cả khi đã login — không redirect)
+  const alwaysPublicPaths = new Set(["/spotify/callback"]);
+
   return (
     <>
       <Suspense fallback={<LoadingPageMain isLoading={true} />}>
@@ -139,6 +142,25 @@ function AppContent() {
             },
           )}
 
+          {/* Route public luôn mở (Spotify OAuth callback…) — cả khi đã login */}
+          {isAuth &&
+            publicRoutes
+              .filter(({ path }) => alwaysPublicPaths.has(path))
+              .map(({ path, component: Component }) => {
+                const Layout = getLayout(path);
+                return (
+                  <Route
+                    key={`always-pub-${path}`}
+                    path={path}
+                    element={
+                      <LayoutWithSidebar Layout={Layout}>
+                        <Component />
+                      </LayoutWithSidebar>
+                    }
+                  />
+                );
+              })}
+
           {/* Điều hướng khi chưa đăng nhập cố vào route cần auth */}
           {!loading &&
             !isAuth &&
@@ -157,9 +179,11 @@ function AppContent() {
               .filter(
                 ({ path }) =>
                   // Chỉ redirect entry public; route trùng auth (settings…) đã có ở privateRoutes
-                  path === "/" ||
-                  path === "/login" ||
-                  path === "/forgot-password",
+                  // Không redirect OAuth callback
+                  !alwaysPublicPaths.has(path) &&
+                  (path === "/" ||
+                    path === "/login" ||
+                    path === "/forgot-password"),
               )
               .map(({ path }) => (
                 <Route

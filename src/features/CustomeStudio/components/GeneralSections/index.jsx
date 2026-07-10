@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/SonnerToast";
 import { useTranslation } from "react-i18next";
 import FormMusicPoup from "@/features/FormMusicPoup";
+import FormSpotifyPicker from "@/features/FormSpotifyPicker";
 import FormReviewPoup from "@/features/FormReviewPoup";
 import { useOverlayEditorStore, useStreakStore } from "@/stores";
 import IconRenderer from "@/components/Overlay/icons/IconRenderer";
@@ -20,6 +21,7 @@ import {
   useMediaPalette,
 } from "../../hooks";
 import LocationIcon from "@/assets/icons/LocationIcon";
+import { Music2 } from "lucide-react";
 
 export default function GeneralThemes({ title }) {
   const { t } = useTranslation("features");
@@ -45,6 +47,7 @@ export default function GeneralThemes({ title }) {
   const [popupActive, setPopupActive] = useState(false);
   const [formType, setFormType] = useState("");
   const [reviewOpen, setReviewOpen] = useState(false);
+  const [spotifyPickerOpen, setSpotifyPickerOpen] = useState(false);
 
   const { dominantColor, palette } = useMediaPalette();
 
@@ -100,6 +103,77 @@ export default function GeneralThemes({ title }) {
     setTimeout(() => setFormType(""), 300);
   };
 
+  /** Gắn caption music chuẩn Locket (từ link hoặc Spotify live) */
+  const applyMusicOverlay = (musicData, platformHint = "spotify") => {
+    if (!musicData?.title && !musicData?.song_name && !musicData?.song_title) {
+      SonnerError(t("custom_studio.music_failed"));
+      return false;
+    }
+
+    const caption =
+      musicData.title ||
+      [musicData.song_title || musicData.song_name, musicData.artist]
+        .filter(Boolean)
+        .join(" - ");
+
+    const musicPayload = {
+      ...musicData,
+      song_title:
+        musicData.song_title ||
+        musicData.song_name ||
+        musicData.name ||
+        "",
+      song_name:
+        musicData.song_name ||
+        musicData.song_title ||
+        musicData.name ||
+        "",
+      artist: musicData.artist || "",
+      isrc: musicData.isrc || null,
+      preview_url:
+        musicData.preview_url ||
+        musicData.previewUrl ||
+        musicData.audio ||
+        null,
+      image_url: musicData.image_url || musicData.image || "",
+      platform: musicData.platform || platformHint,
+      spotify_url: musicData.spotify_url || null,
+    };
+
+    if (!musicPayload.isrc) {
+      console.warn(
+        "[music] thiếu ISRC — Locket app có thể không hiện nhạc",
+        musicPayload,
+      );
+      SonnerError(
+        "Không lấy được mã ISRC bài hát. Thử bài khác hoặc dán link Spotify.",
+      );
+      return false;
+    }
+
+    applyOverlay({
+      overlay_id: "caption:music",
+      caption,
+      text: caption,
+      icon: {
+        data: musicPayload.image_url,
+        type: "image",
+        source: "url",
+      },
+      type: "music",
+      payload: musicPayload,
+      platform: musicPayload.platform,
+    });
+
+    SonnerSuccess(
+      platformHint === "apple" ? "Apple Music" : "Spotify",
+      musicPayload.preview_url
+        ? t("custom_studio.music_success")
+        : "Đã gắn nhạc (ISRC OK). Preview web có thể im — app Locket vẫn hiện.",
+    );
+    return true;
+  };
+
   const handleMusicSubmit = async (link) => {
     setLoading(true);
     try {
@@ -107,78 +181,70 @@ export default function GeneralThemes({ title }) {
         link,
         formType === "apple" ? "apple" : "spotify",
       );
+      const ok = applyMusicOverlay(
+        musicData,
+        formType === "apple" ? "apple" : "spotify",
+      );
+      if (ok) closeMusicForm();
+    } catch {
+      SonnerError(t("custom_studio.music_failed"));
+    } finally {
+      setLoading(false);
+    }
+  };
 
-      if (!musicData?.title && !musicData?.song_name) {
-        SonnerError(t("custom_studio.music_failed"));
-        return;
+  /** Chọn bài từ Spotify live (TikTok-style picker) */
+  const handleSpotifyLivePick = async (track) => {
+    if (!track?.spotify_url && !track?.id) {
+      SonnerError(t("custom_studio.music_failed"));
+      return;
+    }
+    setLoading(true);
+    try {
+      const url =
+        track.spotify_url ||
+        `https://open.spotify.com/track/${track.id}`;
+      // Enrich ISRC + preview ổn định qua API hiện có
+      let musicData = null;
+      try {
+        musicData = await getInfoMusicByUrl(url, "spotify");
+      } catch {
+        musicData = null;
       }
 
-      const caption =
-        musicData.title ||
-        [musicData.song_title || musicData.song_name, musicData.artist]
-          .filter(Boolean)
-          .join(" - ");
-
-      // Payload chuẩn cho Locket app (isrc + song_title + preview_url)
-      const musicPayload = {
-        ...musicData,
+      // Fallback từ Spotify user API nếu enrich chậm/fail
+      const merged = {
+        ...(track || {}),
+        ...(musicData || {}),
         song_title:
-          musicData.song_title ||
-          musicData.song_name ||
-          musicData.name ||
-          "",
+          musicData?.song_title ||
+          musicData?.song_name ||
+          track.song_title ||
+          track.song_name,
         song_name:
-          musicData.song_name ||
-          musicData.song_title ||
-          musicData.name ||
-          "",
-        artist: musicData.artist || "",
-        isrc: musicData.isrc || null,
+          musicData?.song_name ||
+          track.song_name ||
+          track.song_title,
+        artist: musicData?.artist || track.artist,
+        isrc: musicData?.isrc || track.isrc || null,
         preview_url:
-          musicData.preview_url ||
-          musicData.previewUrl ||
-          musicData.audio ||
+          musicData?.preview_url ||
+          track.preview_url ||
           null,
-        image_url: musicData.image_url || musicData.image || "",
-        platform: musicData.platform || formType,
+        image_url:
+          musicData?.image_url || track.image_url || "",
+        spotify_url: url,
+        platform: "spotify",
+        title:
+          musicData?.title ||
+          track.title ||
+          [track.song_title || track.song_name, track.artist]
+            .filter(Boolean)
+            .join(" - "),
       };
 
-      if (!musicPayload.isrc) {
-        console.warn(
-          "[music] thiếu ISRC — Locket app có thể không hiện nhạc",
-          musicPayload,
-        );
-        SonnerError(
-          "Không lấy được mã ISRC bài hát. Thử link Spotify/Apple khác hoặc đợi API khởi động rồi dán lại.",
-        );
-        return;
-      }
-      if (!musicPayload.preview_url) {
-        console.warn("[music] thiếu preview_url — web không phát được");
-      }
-
-      applyOverlay({
-        overlay_id: "caption:music",
-        caption,
-        text: caption,
-        icon: {
-          data: musicPayload.image_url,
-          type: "image",
-          source: "url",
-        },
-        type: "music",
-        payload: musicPayload,
-        platform: musicPayload.platform,
-      });
-
-      SonnerSuccess(
-        `${formType === "apple" ? "Apple Music" : "Spotify"}`,
-        musicPayload.preview_url
-          ? t("custom_studio.music_success")
-          : "Đã gắn nhạc (ISRC OK). Preview web có thể im — app Locket vẫn hiện.",
-      );
-
-      closeMusicForm();
+      const ok = applyMusicOverlay(merged, "spotify");
+      if (ok) setSpotifyPickerOpen(false);
     } catch {
       SonnerError(t("custom_studio.music_failed"));
     } finally {
@@ -204,6 +270,8 @@ export default function GeneralThemes({ title }) {
 
     music: () => openMusicForm("spotify"),
     music_apple: () => openMusicForm("apple"),
+    // Caption nhạc live (kiểu TikTok) — liên kết Spotify user
+    music_spotify_live: () => setSpotifyPickerOpen(true),
 
     review: () => setReviewOpen(true),
 
@@ -326,7 +394,14 @@ export default function GeneralThemes({ title }) {
     {
       id: "music",
       icon: <img src="/icons/music_icon.png" className="w-6 h-6 mr-1" />,
-      label: "Spotify",
+      label: "Spotify link",
+    },
+    {
+      id: "music_spotify_live",
+      icon: <Music2 className="w-5 h-5 mr-1" />,
+      label: "Nhạc live",
+      background: ["#FE2C55", "#25F4EE"],
+      color: "#FFFFFF",
     },
     {
       id: "music_apple",
@@ -447,7 +522,7 @@ export default function GeneralThemes({ title }) {
         </div>
       </div>
 
-      {/* POPUP MUSIC */}
+      {/* POPUP MUSIC — dán link */}
       <FormMusicPoup
         open={popupActive}
         onClose={closeMusicForm}
@@ -455,6 +530,14 @@ export default function GeneralThemes({ title }) {
         loading={loading}
         formType={formType}
         {...musicMeta}
+      />
+
+      {/* POPUP NHẠC LIVE — Spotify account (kiểu TikTok) */}
+      <FormSpotifyPicker
+        open={spotifyPickerOpen}
+        onClose={() => !loading && setSpotifyPickerOpen(false)}
+        onPick={handleSpotifyLivePick}
+        loading={loading}
       />
 
       {/* POPUP REVIEW */}

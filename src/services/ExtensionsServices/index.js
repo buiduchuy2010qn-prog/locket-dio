@@ -1,4 +1,5 @@
 export * from "./MusicServices";
+export * from "./SpotifyUserServices";
 export * from "./FetchDataServices";
 export * from "./WeatherServices";
 export * from "./CollabServices";

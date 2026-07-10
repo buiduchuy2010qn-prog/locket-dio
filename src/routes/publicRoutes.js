@@ -29,12 +29,20 @@ const ErrorReferencePage = React.lazy(() => import("../pages/Public/ErrorReferen
 const ReferencePage = React.lazy(() => import("../pages/Public/APIDocs"));
 const BirthdayPage = React.lazy(() => import("../pages/Public/BirthdayPage"));
 const AdminGoogleDrive = React.lazy(() => import("../pages/Public/AdminGoogleDrive"));
+const SpotifyCallback = React.lazy(
+  () => import("../pages/Public/SpotifyCallback"),
+);
 
 const APP_NAME = CONFIG.app.fullName;
 
 export const publicRoutes = [
   { path: "/", component: Home, title: `Trang Chủ | ${APP_NAME}` },
   { path: "/login", component: Login, title: `Đăng Nhập | ${APP_NAME}` },
+  {
+    path: "/spotify/callback",
+    component: SpotifyCallback,
+    title: `Liên kết Spotify | ${APP_NAME}`,
+  },
 
   { path: "/about", component: AboutHuyLocket, title: `Về Website Huy Locket | ${APP_NAME}` },
   { path: "/about-dio", component: AboutMe, title: `Về Huy | ${APP_NAME}` },
