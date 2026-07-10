@@ -55,24 +55,13 @@ const MediaPreviewIOS = () => {
   const cameraFrame = useUIStore((s) => s.cameraFrame);
 
   const refreshLensPills = async () => {
-    const pills = new Set(["1x"]);
-    try {
-      const cameras = await getAvailableCameras();
-      // Full zoom theo lens máy
-      if (cameras?.backUltraWideCamera) pills.add("0.5x");
-      pills.add("1x");
-      if (cameras?.backZoomCamera) {
-        pills.add("2x");
-        pills.add("3x");
-      } else {
-        // Không tele: vẫn cho 2x (main)
-        pills.add("2x");
-      }
-    } catch {
-      /* ignore */
+    const isBack = (cameraMode || "user") === "environment";
+    // Camera sau: luôn 0.5 · 1 · 2 · 3 — không hiện ô "1" lẻ
+    if (isBack) {
+      setLensPills(["0.5x", "1x", "2x", "3x"]);
+      return;
     }
-    const order = ["0.5x", "1x", "2x", "3x"];
-    setLensPills(order.filter((z) => pills.has(z)));
+    setLensPills([]); // camera trước: ẩn pills
   };
 
   const handleSelectLens = async (label) => {
@@ -408,20 +397,23 @@ const MediaPreviewIOS = () => {
               {/* Bỏ ô tròn 1x — dùng pills zoom dưới */}
             </div>
 
-            {/* Pills zoom: 0.5 · 1 · 2 · 3 theo máy */}
-            {!preview && !selectedFile && cameraActive && lensPills.length > 0 && (
-              <div className="absolute bottom-5 left-1/2 -translate-x-1/2 z-30 flex items-center gap-1.5 pointer-events-auto px-2 py-1 rounded-full bg-black/35 backdrop-blur-md">
+            {/* Pills zoom 0.5 · 1 · 2 · 3 — chỉ hiện khi ≥2 mức */}
+            {!preview &&
+              !selectedFile &&
+              cameraActive &&
+              lensPills.length >= 2 && (
+              <div className="absolute bottom-5 left-1/2 -translate-x-1/2 z-30 flex items-center gap-1.5 pointer-events-auto px-2 py-1.5 rounded-full bg-black/40 backdrop-blur-md">
                 {lensPills.map((label) => {
-                  const active = zoomLevel === label;
+                  const active = zoomLevel === label || (!zoomLevel && label === "1x");
                   return (
                     <button
                       key={label}
                       type="button"
                       onClick={() => handleSelectLens(label)}
-                      className={`min-w-9 h-9 px-2 rounded-full text-xs font-bold transition-all active:scale-95 ${
+                      className={`min-w-9 h-9 px-2.5 rounded-full text-xs font-bold transition-all active:scale-95 ${
                         active
                           ? "bg-white text-black shadow"
-                          : "bg-white/15 text-white"
+                          : "bg-white/20 text-white"
                       }`}
                     >
                       {label.replace("x", "")}
