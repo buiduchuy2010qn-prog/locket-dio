@@ -47,6 +47,8 @@ const MediaPreviewAndroid = () => {
   const [torchSupported, setTorchSupported] = useState(false);
   const [zoomOptions, setZoomOptions] = useState(["1x"]);
   const [zoomDisplay, setZoomDisplay] = useState("1x");
+  /** Lens pills: luôn có 0.5 / 1 / 2 khi camera sau (nếu máy hỗ trợ) */
+  const [lensPills, setLensPills] = useState(["1x"]);
 
   const getActiveTrack = (stream = streamRef.current) =>
     stream?.getVideoTracks?.()?.[0] || null;
@@ -164,14 +166,46 @@ const MediaPreviewAndroid = () => {
     return true;
   };
 
+  /** Build danh sách pill 0.5 / 1 / 2 từ hardware + continuous zoom */
+  const refreshLensPills = async (stream) => {
+    const track = getActiveTrack(stream);
+    const capabilities = getTrackCapabilities(track);
+    const fromTrack = getZoomLabels(capabilities);
+    const pills = new Set(["1x"]);
+
+    if (fromTrack.includes("0.5x") || (capabilities?.zoom?.min ?? 1) < 1) {
+      pills.add("0.5x");
+    }
+    if (fromTrack.includes("2x") || (capabilities?.zoom?.max ?? 1) >= 2) {
+      pills.add("2x");
+    }
+    if (fromTrack.includes("3x") || (capabilities?.zoom?.max ?? 1) >= 3) {
+      pills.add("3x");
+    }
+
+    try {
+      const cameras = await getAvailableCameras();
+      if (cameras?.backUltraWideCamera) pills.add("0.5x");
+      if (cameras?.backZoomCamera) pills.add("3x");
+    } catch {
+      /* optional */
+    }
+
+    // Thứ tự hiển thị: 0.5 → 1 → 2 → 3
+    const order = ["0.5x", "1x", "2x", "3x"];
+    const list = order.filter((z) => pills.has(z));
+    setLensPills(list.length ? list : ["1x"]);
+    setZoomOptions(fromTrack.length ? fromTrack : ["1x"]);
+  };
+
   const syncTrackFeatures = async (stream) => {
     const track = getActiveTrack(stream);
     const capabilities = getTrackCapabilities(track);
     const supportedZoomOptions = getZoomLabels(capabilities);
 
     setTorchSupported(Boolean(capabilities.torch));
-    setZoomOptions(supportedZoomOptions.length ? supportedZoomOptions : ["1x"]);
     setZoomDisplay(formatZoomDisplay(currentZoomValue.current));
+    await refreshLensPills(stream);
 
     if (!capabilities.torch) {
       setTorchEnabled(false);
@@ -179,28 +213,116 @@ const MediaPreviewAndroid = () => {
 
     if (!capabilities.zoom) {
       currentZoomValue.current = 1;
-      setZoomDisplay("1x");
+      setZoomDisplay(zoomLevel === "0.5x" ? "0.5x" : "1x");
       return;
     }
 
-    // Luôn ưu tiên 1x (camera thường) — không fallback sang 0.5x
-    let nextZoomLevel = "1x";
-    if (supportedZoomOptions.includes(zoomLevel) && zoomLevel !== "0.5x") {
-      nextZoomLevel = zoomLevel;
-    } else if (supportedZoomOptions.includes("1x")) {
-      nextZoomLevel = "1x";
-    } else {
-      nextZoomLevel =
-        supportedZoomOptions.find((z) => z !== "0.5x") ||
-        supportedZoomOptions[0] ||
-        "1x";
+    // Giữ zoom user chọn; mặc định 1x
+    let nextZoomLevel = zoomLevel || "1x";
+    if (
+      nextZoomLevel !== "0.5x" &&
+      !supportedZoomOptions.includes(nextZoomLevel)
+    ) {
+      nextZoomLevel = supportedZoomOptions.includes("1x")
+        ? "1x"
+        : supportedZoomOptions[0] || "1x";
     }
 
-    if (nextZoomLevel !== zoomLevel) {
+    if (nextZoomLevel !== zoomLevel && nextZoomLevel !== "0.5x") {
+      // 0.5 physical không cần applyConstraints zoom
       setZoomLevel(nextZoomLevel);
     }
 
-    await applyZoomLevel(nextZoomLevel, stream);
+    if (nextZoomLevel !== "0.5x" || supportedZoomOptions.includes("0.5x")) {
+      await applyZoomLevel(
+        nextZoomLevel === "0.5x" && !supportedZoomOptions.includes("0.5x")
+          ? "1x"
+          : nextZoomLevel,
+        stream,
+      );
+    }
+  };
+
+  /** Chọn lens/zoom cụ thể (pill 0.5 / 1 / 2) */
+  const handleSelectLens = async (label) => {
+    if (label === zoomLevel && label !== "0.5x") return;
+
+    const isBack = cameraMode === "environment";
+    const cameras = isBack ? await getAvailableCameras() : null;
+    const mainId = isBack ? await getMainBackCameraId() : null;
+    const capabilities = getTrackCapabilities(getActiveTrack());
+    const hasTrackZoom = Boolean(capabilities?.zoom);
+
+    if (label === "1x") {
+      // Bắt buộc main + zoom 1
+      if (isBack && mainId && deviceId !== mainId) {
+        setZoomLevel("1x");
+        setDeviceId(mainId);
+        setCameraActive(false);
+        setTimeout(() => setCameraActive(true), 250);
+        return;
+      }
+      setZoomLevel("1x");
+      try {
+        await applyZoomLevel("1x");
+        setZoomDisplay("1x");
+      } catch {
+        /* ignore */
+      }
+      return;
+    }
+
+    if (label === "0.5x") {
+      // Ưu tiên ultra physical; không thì zoom min trên main
+      if (isBack && cameras?.backUltraWideCamera?.deviceId) {
+        setZoomLevel("0.5x");
+        setDeviceId(cameras.backUltraWideCamera.deviceId);
+        setCameraActive(false);
+        setTimeout(() => setCameraActive(true), 250);
+        return;
+      }
+      if (hasTrackZoom) {
+        setZoomLevel("0.5x");
+        try {
+          await applyZoomLevel("0.5x");
+        } catch {
+          SonnerInfo(t("home.camera_no_zoom"));
+        }
+        return;
+      }
+      SonnerInfo(t("home.camera_no_zoom"));
+      return;
+    }
+
+    // 2x / 3x
+    if (isBack && cameras?.backZoomCamera?.deviceId && label === "3x") {
+      setZoomLevel("3x");
+      setDeviceId(cameras.backZoomCamera.deviceId);
+      setCameraActive(false);
+      setTimeout(() => setCameraActive(true), 250);
+      return;
+    }
+
+    // Zoom digital trên main
+    if (isBack && mainId && (await isDeviceUltraWide(deviceId))) {
+      setZoomLevel(label);
+      setDeviceId(mainId);
+      setCameraActive(false);
+      setTimeout(() => setCameraActive(true), 250);
+      return;
+    }
+
+    if (hasTrackZoom) {
+      setZoomLevel(label);
+      try {
+        await applyZoomLevel(label);
+      } catch {
+        SonnerInfo(t("home.camera_no_zoom"));
+      }
+      return;
+    }
+
+    SonnerInfo(t("home.camera_no_zoom"));
   };
 
   const getTouchDistance = (touches) => {
@@ -717,13 +839,45 @@ const MediaPreviewAndroid = () => {
                 <img src="/icons/bolt.fill.png" alt="Icon sấm sét" />
               </button>
 
+              {/* Giữ nút cycle nhỏ — pill 0.5/1/2 ở dưới rõ hơn */}
               <button
                 onClick={handleCycleZoomCamera}
-                className="pointer-events-auto w-6 h-6 text-primary-content font-semibold rounded-full bg-white/30 backdrop-blur-md p-3.5 flex items-center justify-center"
+                className="pointer-events-auto min-w-8 h-8 px-2 text-primary-content font-semibold rounded-full bg-white/30 backdrop-blur-md flex items-center justify-center text-xs"
               >
                 {zoomDisplay}
               </button>
             </div>
+
+            {/* Pills zoom: 0.5 · 1 · 2 — chọn nhanh, 1x = cam chính */}
+            {cameraMode === "environment" && lensPills.length > 1 && (
+              <div className="absolute bottom-6 left-0 right-0 z-30 pointer-events-none flex justify-center">
+                <div className="pointer-events-auto flex items-center gap-1.5 rounded-full bg-black/40 backdrop-blur-md px-2 py-1.5">
+                  {lensPills.map((z) => {
+                    const active =
+                      zoomLevel === z ||
+                      (z === "1x" &&
+                        (zoomLevel === "1x" ||
+                          (!lensPills.includes(zoomLevel) && z === "1x")));
+                    return (
+                      <button
+                        key={z}
+                        type="button"
+                        onClick={() => handleSelectLens(z)}
+                        className={`min-w-10 h-8 px-2.5 rounded-full text-xs font-bold transition active:scale-95 ${
+                          active
+                            ? "bg-white text-black shadow"
+                            : "bg-white/15 text-white"
+                        }`}
+                      >
+                        {z.replace("x", "")}
+                        <span className="opacity-70">×</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {cameraFrame?.imageSrc && (
               <div className="absolute inset-0 z-20 pointer-events-none">
                 <img

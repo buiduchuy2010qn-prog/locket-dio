@@ -1,4 +1,4 @@
-import React, { lazy, Suspense, useEffect, useRef } from "react";
+import React, { lazy, Suspense, useEffect, useRef, useState } from "react";
 import {
   getAvailableCameras,
   isIOS,
@@ -38,8 +38,49 @@ const MediaPreviewIOS = () => {
   const cameraInitialized = useRef(false);
   const lastCameraMode = useRef(cameraMode);
   const lastDeviceId = useRef(deviceId);
+  const [lensPills, setLensPills] = useState(["1x"]);
 
   const cameraFrame = useUIStore((s) => s.cameraFrame);
+
+  const refreshLensPills = async () => {
+    const pills = new Set(["1x"]);
+    try {
+      const cameras = await getAvailableCameras();
+      if (cameras?.backUltraWideCamera) pills.add("0.5x");
+      if (cameras?.backZoomCamera) pills.add("3x");
+    } catch {
+      /* ignore */
+    }
+    const order = ["0.5x", "1x", "2x", "3x"];
+    setLensPills(order.filter((z) => pills.has(z)));
+  };
+
+  const handleSelectLens = async (label) => {
+    if (cameraMode !== "environment") return;
+    const cameras = await getAvailableCameras();
+    let newDeviceId = null;
+    if (label === "1x") {
+      newDeviceId =
+        cameras?.backNormalCamera?.deviceId || (await getMainBackCameraId());
+    } else if (label === "0.5x") {
+      newDeviceId =
+        cameras?.backUltraWideCamera?.deviceId ||
+        cameras?.backNormalCamera?.deviceId;
+    } else {
+      newDeviceId =
+        cameras?.backZoomCamera?.deviceId ||
+        cameras?.backNormalCamera?.deviceId ||
+        (await getMainBackCameraId());
+    }
+    if (!newDeviceId) {
+      SonnerInfo(t("home.camera_no_zoom"));
+      return;
+    }
+    setZoomLevel(label);
+    setDeviceId(newDeviceId);
+    setCameraActive(false);
+    setTimeout(() => setCameraActive(true), 250);
+  };
 
   const iosDevice = isIOS();
   const stopCamera = () => {
@@ -146,6 +187,7 @@ const MediaPreviewIOS = () => {
       cameraInitialized.current = true;
       lastCameraMode.current = cameraMode;
       lastDeviceId.current = resolvedDeviceId || deviceId;
+      refreshLensPills();
 
       if (videoRef.current) {
         const v = videoRef.current;
@@ -287,11 +329,37 @@ const MediaPreviewIOS = () => {
 
               <button
                 onClick={handleCycleZoomCamera}
-                className="pointer-events-auto w-6 h-6 text-primary-content font-semibold rounded-full bg-white/30 backdrop-blur-md p-3.5 flex items-center justify-center"
+                className="pointer-events-auto min-w-8 h-8 px-2 text-primary-content font-semibold rounded-full bg-white/30 backdrop-blur-md flex items-center justify-center text-xs"
               >
                 {zoomLevel}
               </button>
             </div>
+
+            {cameraMode === "environment" && lensPills.length > 1 && (
+              <div className="absolute bottom-6 left-0 right-0 z-30 pointer-events-none flex justify-center">
+                <div className="pointer-events-auto flex items-center gap-1.5 rounded-full bg-black/40 backdrop-blur-md px-2 py-1.5">
+                  {lensPills.map((z) => {
+                    const active = zoomLevel === z;
+                    return (
+                      <button
+                        key={z}
+                        type="button"
+                        onClick={() => handleSelectLens(z)}
+                        className={`min-w-10 h-8 px-2.5 rounded-full text-xs font-bold transition active:scale-95 ${
+                          active
+                            ? "bg-white text-black shadow"
+                            : "bg-white/15 text-white"
+                        }`}
+                      >
+                        {z.replace("x", "")}
+                        <span className="opacity-70">×</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {cameraFrame?.imageSrc && (
               <div className="absolute inset-0 z-20 pointer-events-none">
                 <img

@@ -73,7 +73,6 @@ export default function MainHomeScreen() {
               <BottomHomeScreen />
             </Suspense>
           </div>
-          {/* Click để đóng lịch sử */}
           <BottomMenu
             setIsBottomOpen={setIsBottomOpen}
             setOptionModalOpen={setOptionModalOpen}
@@ -90,27 +89,12 @@ export default function MainHomeScreen() {
           )}
         >
           <div className="h-10" />
-          {/* Camera + nút lịch chuỗi (bên phải) */}
-          <div className="relative w-full max-w-md flex items-center justify-center px-2">
-            <div className="w-full">
-              <MediaPreview />
-            </div>
-            {!selectedFile && (
-              <button
-                type="button"
-                onClick={openStreakCalendar}
-                aria-label="Mở lịch chuỗi"
-                title="Lịch chuỗi Locket"
-                className="absolute -right-1 sm:right-0 z-40 flex items-center justify-center w-12 h-12 rounded-full bg-base-300/80 backdrop-blur-md border border-base-content/10 text-base-content shadow-lg active:scale-95 transition hover:bg-base-300"
-              >
-                <CalendarDays size={26} strokeWidth={1.75} />
-              </button>
-            )}
+          {/* Camera full width — không nút đè lên ảnh */}
+          <div className="w-full max-w-md px-2">
+            <MediaPreview />
           </div>
           <ActionControls />
-          {/* Click để mở lịch sử */}
           <div className="relative w-full">
-            {/* SelectFriendsList */}
             <div
               className={clsx("transition-all duration-300", {
                 "opacity-0 invisible hidden": !selectedFile,
@@ -122,14 +106,28 @@ export default function MainHomeScreen() {
               </Suspense>
             </div>
 
-            {/* HistoryArrow */}
+            {/* Lịch sử + nút lịch chuỗi (dưới camera, không vướng hình) */}
             <div
-              className={clsx("transition-all duration-300", {
-                "opacity-0 invisible hidden": selectedFile,
-                "opacity-100 visible": !selectedFile,
-              })}
+              className={clsx(
+                "transition-all duration-300 flex items-center justify-center gap-6",
+                {
+                  "opacity-0 invisible hidden": selectedFile,
+                  "opacity-100 visible": !selectedFile,
+                },
+              )}
             >
+              <button
+                type="button"
+                onClick={openStreakCalendar}
+                aria-label="Mở lịch chuỗi"
+                title="Lịch chuỗi Locket"
+                className="flex items-center justify-center w-11 h-11 rounded-full bg-base-300/70 backdrop-blur-md border border-base-content/10 text-base-content active:scale-95 transition hover:bg-base-300"
+              >
+                <CalendarDays size={24} strokeWidth={1.75} />
+              </button>
               <HistoryArrow setIsBottomOpen={setIsBottomOpen} />
+              {/* Spacer cân đối 2 bên */}
+              <div className="w-11 h-11" aria-hidden />
             </div>
           </div>
         </div>
