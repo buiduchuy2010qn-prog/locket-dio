@@ -1,5 +1,5 @@
 import React, { useEffect } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import {
   X,
   Home,
@@ -43,7 +43,6 @@ const Sidebar = () => {
   const clearAndlogout = useAuthStore((state) => state.clearAndlogout);
   const { t } = useTranslation("auth");
 
-  const navigate = useNavigate();
   const { navigation } = useApp();
   const { isSidebarOpen, setIsSidebarOpen } = navigation;
 
