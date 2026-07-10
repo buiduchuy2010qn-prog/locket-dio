@@ -282,15 +282,33 @@ const videoPostPayloadMusic = ({ videoUrl, thumbnailUrl, optionsData }) => {
   const { caption, payload, icon } = optionsData;
   const data = createBaseVideoPayload({ videoUrl, thumbnailUrl, optionsData });
 
-  // 🧠 Tạo payload cơ bản
+  const songTitle =
+    payload?.song_title ||
+    payload?.song_name ||
+    payload?.name ||
+    payload?.title ||
+    "";
+  const artist = payload?.artist || "";
+  const text =
+    (caption || "").trim() ||
+    [songTitle, artist].filter(Boolean).join(" - ") ||
+    songTitle;
+
   const musicPayload = {
-    preview_url: payload?.preview_url || payload?.audio || payload?.previewUrl,
-    isrc: payload?.isrc,
-    song_title: payload?.song_title || payload?.name || payload?.song_name,
-    artist: payload?.artist,
+    song_title: songTitle,
+    artist,
   };
 
-  // 🎧 Chỉ thêm khi có giá trị
+  if (payload?.isrc) {
+    musicPayload.isrc = String(payload.isrc).trim();
+  }
+
+  const preview =
+    payload?.preview_url || payload?.audio || payload?.previewUrl || null;
+  if (preview) {
+    musicPayload.preview_url = preview;
+  }
+
   if (payload?.spotify_url) {
     musicPayload.spotify_url = payload.spotify_url;
   } else if (payload?.apple_music_url || payload?.appleMusicUrl) {
@@ -298,20 +316,35 @@ const videoPostPayloadMusic = ({ videoUrl, thumbnailUrl, optionsData }) => {
       payload.apple_music_url || payload.appleMusicUrl;
   }
 
+  let musicIcon = icon;
+  if (!musicIcon?.data && (payload?.image_url || payload?.image)) {
+    musicIcon = {
+      type: "image",
+      data: payload.image_url || payload.image,
+      source: "url",
+    };
+  } else if (musicIcon?.data && !musicIcon.type) {
+    musicIcon = {
+      type: "image",
+      data: musicIcon.data,
+      source: musicIcon.source || "url",
+    };
+  }
+
   data.overlays.push({
     data: {
-      text: caption,
+      text,
       text_color: "#FFFFFFE6",
       type: "music",
       max_lines: 1,
       payload: musicPayload,
-      icon: icon,
+      icon: musicIcon,
       background: {
         material_blur: "ultra_thin",
         colors: [],
       },
     },
-    alt_text: caption,
+    alt_text: text,
     overlay_id: "caption:music",
     overlay_type: "caption",
   });

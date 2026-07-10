@@ -1,3 +1,8 @@
+/**
+ * Music metadata for Locket music caption.
+ * Locket app thật cần: isrc + song_title + artist + (spotify_url|apple_music_url)
+ * + preview_url ổn định để web phát được.
+ */
 const axios = require("axios");
 
 const UA =
@@ -35,7 +40,7 @@ function normalizeSpotifyUrl(url, trackId) {
   return String(url || "").split("?")[0];
 }
 
-/** Official Spotify Web API (needs SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET). */
+/** Spotify Web API (optional env credentials) */
 async function fetchSpotifyOfficial(trackId) {
   const clientId = process.env.SPOTIFY_CLIENT_ID;
   const clientSecret = process.env.SPOTIFY_CLIENT_SECRET;
@@ -84,7 +89,6 @@ async function fetchSpotifyOfficial(trackId) {
   }
 }
 
-/** Spotify oEmbed — title + thumbnail for valid public tracks. */
 async function fetchSpotifyOembed(url) {
   try {
     const r = await http.get("https://open.spotify.com/oembed", {
@@ -103,10 +107,103 @@ async function fetchSpotifyOembed(url) {
   }
 }
 
-/**
- * song.link / odesli — title, artist, artwork across platforms.
- * Also used to grab Deezer preview when available.
- */
+/** Deezer track → isrc + preview (quan trọng cho Locket) */
+async function enrichFromDeezer(deezerId, songName, artist) {
+  try {
+    let track = null;
+    if (deezerId) {
+      const r = await http.get(`https://api.deezer.com/track/${deezerId}`, {
+        timeout: 10000,
+      });
+      if (r.status === 200 && r.data?.id) track = r.data;
+    }
+    if (!track && songName) {
+      const q = [songName, artist].filter(Boolean).join(" ");
+      const s = await http.get("https://api.deezer.com/search", {
+        params: { q, limit: 5 },
+        timeout: 10000,
+      });
+      const hits = s.data?.data || [];
+      track =
+        hits.find(
+          (t) =>
+            t.title?.toLowerCase() === songName.toLowerCase() ||
+            t.title?.toLowerCase().includes(songName.toLowerCase().slice(0, 12)),
+        ) || hits[0];
+    }
+    if (!track) return null;
+    return {
+      isrc: track.isrc || null,
+      preview_url: track.preview || null,
+      song_name: track.title || songName,
+      artist: track.artist?.name || artist,
+      image_url: track.album?.cover_xl || track.album?.cover_big || null,
+      album: track.album?.title || "",
+      source: "deezer",
+    };
+  } catch (e) {
+    console.warn("enrichFromDeezer:", e.message);
+    return null;
+  }
+}
+
+/** iTunes — preview .m4a ổn định (web play được) */
+async function enrichFromItunes(songName, artist) {
+  if (!songName) return null;
+  try {
+    const term = [songName, artist].filter(Boolean).join(" ");
+    const r = await http.get("https://itunes.apple.com/search", {
+      params: {
+        term,
+        entity: "song",
+        limit: 5,
+        country: "US",
+      },
+      timeout: 12000,
+    });
+    const hits = r.data?.results || [];
+    if (!hits.length) return null;
+
+    const nameL = songName.toLowerCase();
+    const artistL = (artist || "").toLowerCase();
+    const best =
+      hits.find(
+        (t) =>
+          t.trackName?.toLowerCase() === nameL ||
+          (t.trackName?.toLowerCase().includes(nameL.slice(0, 10)) &&
+            (!artistL || t.artistName?.toLowerCase().includes(artistL.slice(0, 8)))),
+      ) || hits[0];
+
+    // lookup for isrc
+    let isrc = best.isrc || null;
+    if (best.trackId) {
+      try {
+        const lk = await http.get("https://itunes.apple.com/lookup", {
+          params: { id: best.trackId, country: "US" },
+          timeout: 8000,
+        });
+        isrc = lk.data?.results?.[0]?.isrc || isrc;
+      } catch {
+        /* optional */
+      }
+    }
+
+    return {
+      song_name: best.trackName || songName,
+      artist: best.artistName || artist,
+      album: best.collectionName || "",
+      image_url: (best.artworkUrl100 || "").replace("100x100", "600x600"),
+      preview_url: best.previewUrl || null,
+      isrc,
+      apple_music_url: best.trackViewUrl || null,
+      source: "itunes-search",
+    };
+  } catch (e) {
+    console.warn("enrichFromItunes:", e.message);
+    return null;
+  }
+}
+
 async function fetchSongLink(url) {
   for (const base of [
     "https://api.song.link/v1-alpha.1/links",
@@ -132,21 +229,6 @@ async function fetchSongLink(url) {
         );
       const deezer = byProvider.deezer;
       const apple = byProvider.appleMusic || byProvider.itunes;
-
-      let preview_url = null;
-      if (deezer?.id) {
-        try {
-          const dz = await http.get(`https://api.deezer.com/track/${deezer.id}`, {
-            timeout: 10000,
-          });
-          if (dz.status === 200 && dz.data?.preview) {
-            preview_url = dz.data.preview;
-          }
-        } catch {
-          /* optional */
-        }
-      }
-
       const primary = spotify || apple || deezer || Object.values(entities)[0];
       if (!primary?.title) continue;
 
@@ -154,8 +236,7 @@ async function fetchSongLink(url) {
         song_name: primary.title,
         artist: primary.artistName || "",
         image_url: primary.thumbnailUrl || "",
-        preview_url,
-        isrc: null,
+        deezerId: deezer?.id || null,
         apple_music_url: r.data.linksByPlatform?.appleMusic?.url || null,
         spotify_url: r.data.linksByPlatform?.spotify?.url || null,
         source: "songlink",
@@ -167,14 +248,13 @@ async function fetchSongLink(url) {
   return null;
 }
 
-/** iTunes Lookup for Apple Music links. */
 async function fetchAppleItunes(url) {
   const appleId = extractAppleId(url);
   if (!appleId) return null;
 
   try {
     const { data } = await http.get("https://itunes.apple.com/lookup", {
-      params: { id: appleId, country: "VN" },
+      params: { id: appleId, country: "US" },
       timeout: 12000,
     });
     const track = data?.results?.[0];
@@ -194,6 +274,58 @@ async function fetchAppleItunes(url) {
     console.warn("fetchAppleItunes:", e.message);
     return null;
   }
+}
+
+/**
+ * Gộp metadata + bắt buộc cố gắng lấy isrc + preview ổn định.
+ */
+async function enrichMusicMeta(base) {
+  let song_name = base.song_name || "";
+  let artist = base.artist || "";
+  let album = base.album || "";
+  let image_url = base.image_url || "";
+  let preview_url = base.preview_url || null;
+  let isrc = base.isrc || null;
+  let apple_music_url = base.apple_music_url || null;
+  let spotify_url = base.spotify_url || null;
+  let source = base.source || "local";
+
+  // Deezer: ISRC (Locket app cần)
+  if (!isrc || !preview_url) {
+    const dz = await enrichFromDeezer(base.deezerId, song_name, artist);
+    if (dz) {
+      isrc = isrc || dz.isrc;
+      if (!preview_url && dz.preview_url) preview_url = dz.preview_url;
+      if (!image_url && dz.image_url) image_url = dz.image_url;
+      if (!artist && dz.artist) artist = dz.artist;
+      if (!album && dz.album) album = dz.album;
+      if (dz.isrc) source = `${source}+deezer`;
+    }
+  }
+
+  // iTunes: preview ổn định cho web (m4a, không signed expire nhanh)
+  const it = await enrichFromItunes(song_name, artist);
+  if (it) {
+    // Ưu tiên iTunes preview cho playback web (ổn định hơn Deezer signed URL)
+    if (it.preview_url) preview_url = it.preview_url;
+    isrc = isrc || it.isrc;
+    if (!image_url && it.image_url) image_url = it.image_url;
+    if (!apple_music_url && it.apple_music_url) apple_music_url = it.apple_music_url;
+    if (!album && it.album) album = it.album;
+    if (it.preview_url) source = `${source}+itunes`;
+  }
+
+  return {
+    song_name,
+    artist,
+    album,
+    image_url,
+    preview_url,
+    isrc,
+    apple_music_url,
+    spotify_url,
+    source,
+  };
 }
 
 function toClientShape(partial, platform, originalUrl) {
@@ -243,31 +375,26 @@ async function getSpotifyMusicInfo(url) {
 
   const cleanUrl = normalizeSpotifyUrl(url, trackId);
 
-  // Parallel free sources first (fast), official API if configured
   const [official, oembed, songlink] = await Promise.all([
     fetchSpotifyOfficial(trackId),
     fetchSpotifyOembed(cleanUrl),
     fetchSongLink(cleanUrl),
   ]);
 
-  // Prefer richest data: official > songlink (has artist) > oembed
-  const merged = {
+  let merged = {
     song_name:
       official?.song_name || songlink?.song_name || oembed?.song_name || "",
     artist: official?.artist || songlink?.artist || oembed?.artist || "",
     album: official?.album || songlink?.album || "",
     image_url:
       official?.image_url || songlink?.image_url || oembed?.image_url || "",
-    preview_url:
-      official?.preview_url || songlink?.preview_url || null,
-    isrc: official?.isrc || songlink?.isrc || null,
-    spotify_url:
-      official?.spotify_url || songlink?.spotify_url || cleanUrl,
+    preview_url: official?.preview_url || null,
+    isrc: official?.isrc || null,
+    spotify_url: official?.spotify_url || songlink?.spotify_url || cleanUrl,
+    apple_music_url: songlink?.apple_music_url || null,
+    deezerId: songlink?.deezerId || null,
     source:
-      official?.source ||
-      songlink?.source ||
-      oembed?.source ||
-      "none",
+      official?.source || songlink?.source || oembed?.source || "none",
   };
 
   if (!merged.song_name) {
@@ -278,6 +405,7 @@ async function getSpotifyMusicInfo(url) {
     throw err;
   }
 
+  merged = await enrichMusicMeta(merged);
   return toClientShape(merged, "spotify", cleanUrl);
 }
 
@@ -287,15 +415,16 @@ async function getAppleMusicInfoLocal(url) {
     fetchSongLink(url).catch(() => null),
   ]);
 
-  const merged = {
+  let merged = {
     song_name: itunes?.song_name || songlink?.song_name || "",
     artist: itunes?.artist || songlink?.artist || "",
     album: itunes?.album || "",
     image_url: itunes?.image_url || songlink?.image_url || "",
-    preview_url: itunes?.preview_url || songlink?.preview_url || null,
+    preview_url: itunes?.preview_url || null,
     isrc: itunes?.isrc || null,
     apple_music_url: itunes?.apple_music_url || url,
     spotify_url: songlink?.spotify_url || null,
+    deezerId: songlink?.deezerId || null,
     source: itunes?.source || songlink?.source || "none",
   };
 
@@ -307,12 +436,10 @@ async function getAppleMusicInfoLocal(url) {
     throw err;
   }
 
+  merged = await enrichMusicMeta(merged);
   return toClientShape(merged, "apple", url);
 }
 
-/**
- * Local reliable music fetch — no dependency on api-beta.locket-dio.com.
- */
 const fetchMusicApi = async (url, platform = "spotify") => {
   if (!url) {
     const err = new Error("Thiếu URL bài hát");

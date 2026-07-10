@@ -74,25 +74,46 @@ export function MusicPlayer({
       return;
     }
 
+    const src =
+      payload?.preview_url ||
+      payload?.previewUrl ||
+      payload?.audio ||
+      null;
+
     // ❌ không có nhạc
-    if (!payload?.preview_url) {
+    if (!src) {
       return;
     }
 
-    audio.src = payload.preview_url;
+    audio.crossOrigin = "anonymous";
+    audio.preload = "auto";
+    audio.src = src;
     audio.loop = true;
     audio.volume = 1;
 
-    audio.play().catch(() => {});
+    const tryPlay = () => {
+      audio.play().catch(() => {
+        // Autoplay bị chặn — user tap sẽ play qua MediaSession / gesture
+      });
+    };
+
+    // iTunes/Deezer: đợi canplay
+    audio.addEventListener("canplay", tryPlay, { once: true });
+    tryPlay();
 
     return () => {
       audio.pause();
-
       audio.removeAttribute("src");
-
       audio.load();
     };
-  }, [payload?.preview_url, isVisible]);
+  }, [payload?.preview_url, payload?.previewUrl, payload?.audio, isVisible]);
 
-  return <audio ref={audioRef} className="hidden" />;
+  return (
+    <audio
+      ref={audioRef}
+      className="hidden"
+      playsInline
+      preload="auto"
+    />
+  );
 }

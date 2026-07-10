@@ -115,20 +115,56 @@ export default function GeneralThemes({ title }) {
 
       const caption =
         musicData.title ||
-        [musicData.song_name, musicData.artist].filter(Boolean).join(" - ");
+        [musicData.song_title || musicData.song_name, musicData.artist]
+          .filter(Boolean)
+          .join(" - ");
+
+      // Payload chuẩn cho Locket app (isrc + song_title + preview_url)
+      const musicPayload = {
+        ...musicData,
+        song_title:
+          musicData.song_title ||
+          musicData.song_name ||
+          musicData.name ||
+          "",
+        song_name:
+          musicData.song_name ||
+          musicData.song_title ||
+          musicData.name ||
+          "",
+        artist: musicData.artist || "",
+        isrc: musicData.isrc || null,
+        preview_url:
+          musicData.preview_url ||
+          musicData.previewUrl ||
+          musicData.audio ||
+          null,
+        image_url: musicData.image_url || musicData.image || "",
+        platform: musicData.platform || formType,
+      };
+
+      if (!musicPayload.isrc) {
+        console.warn(
+          "[music] thiếu ISRC — Locket app có thể không hiện nhạc",
+          musicPayload,
+        );
+      }
+      if (!musicPayload.preview_url) {
+        console.warn("[music] thiếu preview_url — web không phát được");
+      }
 
       applyOverlay({
-        overlay_id: "music",
+        overlay_id: "caption:music",
         caption,
         text: caption,
         icon: {
-          data: musicData.image_url || musicData.image || "",
+          data: musicPayload.image_url,
           type: "image",
           source: "url",
         },
         type: "music",
-        payload: musicData,
-        platform: musicData.platform || formType,
+        payload: musicPayload,
+        platform: musicPayload.platform,
       });
 
       SonnerSuccess(
