@@ -1,1 +1,0 @@
-@keyframes checkmark-draw{0%{transform:scale(0) rotate(-90deg);opacity:0}50%{transform:scale(1.2) rotate(0);opacity:1}to{transform:scale(1) rotate(0);opacity:1}}@keyframes success-pulse{0%,to{transform:scale(1)}50%{transform:scale(1.05)}}

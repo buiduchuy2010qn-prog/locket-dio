@@ -1,7 +1,10 @@
 import { getAllOverlayCaptionV2 } from "@/services";
+import { enrichOverlayItem } from "@/features/CustomeStudio/utils/overlayLabels";
 import { create } from "zustand";
 
-const CACHE_KEY = "overlaySections_v2";
+// Bump key → bỏ cache session cũ (text=null → "Caption")
+const CACHE_KEY = "overlaySections_v3";
+const OLD_CACHE_KEYS = ["overlaySections", "overlaySections_v2"];
 
 /* Check overlay có đang active không */
 const isOverlayActive = (item) => {
@@ -23,6 +26,14 @@ const isOverlayActive = (item) => {
   return true;
 };
 
+function clearOldCaches() {
+  try {
+    for (const k of OLD_CACHE_KEYS) sessionStorage.removeItem(k);
+  } catch {
+    /* ignore */
+  }
+}
+
 function normalizeSections(raw) {
   if (!raw) return [];
   // API có thể trả array hoặc { data: [] }
@@ -32,7 +43,9 @@ function normalizeSections(raw) {
   return list
     .map((section) => ({
       ...section,
-      items: (section.items || []).filter(isOverlayActive),
+      items: (section.items || [])
+        .filter(isOverlayActive)
+        .map(enrichOverlayItem),
     }))
     .filter((s) => s.active !== false);
 }
@@ -46,6 +59,7 @@ export const useOverlayDataStore = create((set, get) => ({
     if (!force && get().sectionOverlays.length > 0) return;
 
     set({ isLoading: true, error: null });
+    clearOldCaches();
 
     try {
       if (!force) {
@@ -54,14 +68,19 @@ export const useOverlayDataStore = create((set, get) => ({
           try {
             const parsed = JSON.parse(cached);
             if (Array.isArray(parsed) && parsed.length > 0) {
-              set({ sectionOverlays: parsed, isLoading: false });
+              // Re-enrich phòng cache cũ thiếu display_text
+              const sections = parsed.map((section) => ({
+                ...section,
+                items: (section.items || []).map(enrichOverlayItem),
+              }));
+              set({ sectionOverlays: sections, isLoading: false });
               // Refresh nền — không chặn UI
               getAllOverlayCaptionV2()
                 .then((result) => {
-                  const sections = normalizeSections(result);
-                  if (sections.length) {
-                    sessionStorage.setItem(CACHE_KEY, JSON.stringify(sections));
-                    set({ sectionOverlays: sections });
+                  const fresh = normalizeSections(result);
+                  if (fresh.length) {
+                    sessionStorage.setItem(CACHE_KEY, JSON.stringify(fresh));
+                    set({ sectionOverlays: fresh });
                   }
                 })
                 .catch(() => {});

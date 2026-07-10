@@ -52,14 +52,19 @@ const ScreenCustomeStudio = () => {
   const handleSelectCaption = (caption) => {
     resetOverlayEditor();
 
-    const text =
+    const rawText =
       caption?.text != null && String(caption.text).trim() !== ""
         ? String(caption.text)
-        : caption?.caption || "";
+        : caption?.caption != null && String(caption.caption).trim() !== ""
+          ? String(caption.caption)
+          : "";
 
-    // Theme gợi ý (custom): text null → editable, placeholder
+    // Theme gợi ý (custom): text null → editable, caption trống để user gõ
     const isCustomTheme =
       caption?.type === "custom" || caption?.is_editable === true;
+
+    // Decorative/template: giữ text API; custom: để trống (chỉ áp màu nền)
+    const text = isCustomTheme ? "" : rawText;
 
     updateOverlayEditor({
       ...caption,

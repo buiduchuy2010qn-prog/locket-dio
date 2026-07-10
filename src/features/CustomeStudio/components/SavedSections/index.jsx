@@ -42,14 +42,17 @@ const SavedCaptions = ({
               onClick={() => onSelect(cap)}
             >
               <span className="text-base flex items-center gap-2">
-                {cap.icon.data && (
+                {cap?.icon?.type === "image" && cap?.icon?.data && (
                   <img
                     src={cap.icon.data}
-                    alt="icon"
+                    alt=""
                     className="w-5 h-5 object-contain"
                   />
                 )}
-                {cap.text ? cap.text : "Caption"}
+                {cap?.icon?.type === "emoji" && cap?.icon?.data && (
+                  <span className="text-lg leading-none">{cap.icon.data}</span>
+                )}
+                {cap?.text || cap?.caption || cap?.display_text || "Caption"}
               </span>
             </button>
           ))

@@ -26,7 +26,32 @@ if (!fs.existsSync("dist/index.html")) {
   process.exit(1);
 }
 
+// Giữ static gốc (icons/images/...) — chỉ thay artifact build
+const STATIC_KEEP = ["fonts", "icons", "images", "pwa-icons", "svg"];
+const backup = path.join(".tmp-static-keep");
+rimraf(backup);
+fs.mkdirSync(backup, { recursive: true });
+for (const d of STATIC_KEEP) {
+  const src = path.join("public", d);
+  if (fs.existsSync(src)) copyDir(src, path.join(backup, d));
+}
+
 rimraf("public");
 copyDir("dist", "public");
+
+// Khôi phục static nếu dist thiếu (vite đã copy publicDir, thường đã có)
+for (const d of STATIC_KEEP) {
+  const fromBackup = path.join(backup, d);
+  const dest = path.join("public", d);
+  if (fs.existsSync(fromBackup) && !fs.existsSync(dest)) {
+    copyDir(fromBackup, dest);
+  }
+}
+rimraf(backup);
+
 fs.writeFileSync("public/_redirects", "/*    /index.html   200\n");
-console.log("[prepare-static] OK: dist -> public");
+const assetCount = fs.existsSync("public/assets")
+  ? fs.readdirSync("public/assets").length
+  : 0;
+console.log(`[prepare-static] OK: dist -> public (${assetCount} assets)`);
+

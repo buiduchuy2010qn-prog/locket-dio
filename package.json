@@ -9,7 +9,7 @@
     "start": "node server.mjs",
     "dev": "vite",
     "build": "vite build",
-    "build:static": "vite build && node scripts/prepare-static.mjs",
+    "build:static": "node scripts/clean-public-build.mjs && vite build && node scripts/prepare-static.mjs",
     "lint": "eslint .",
     "preview": "vite preview",
     "serve": "node server.mjs"

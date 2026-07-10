@@ -1,5 +1,6 @@
 import { getCaptionStyle } from "@/helpers/styleHelpers";
 import React from "react";
+import IconRenderer from "@/components/Overlay/icons/IconRenderer";
 import {
   getOverlayDisplayText,
   hasValidIcon,
@@ -34,9 +35,13 @@ const CaptionSections = ({ sections, onSelect }) => {
               </div>
 
               <div className="flex flex-wrap gap-3 justify-start">
-                {items.map((item) => {
+                {items.map((item, idx) => {
                   const label = getOverlayDisplayText(item);
-                  const key = item.overlay_id || `${section.section_id}-${label}`;
+                  const key =
+                    item.overlay_id ||
+                    item.id ||
+                    `${section.section_id}-${idx}-${label}`;
+                  const showIcon = hasValidIcon(item.icon);
 
                   return (
                     <button
@@ -50,26 +55,11 @@ const CaptionSections = ({ sections, onSelect }) => {
                       title={label}
                     >
                       <span className="text-base flex items-center gap-1.5 relative z-[1]">
-                        {hasValidIcon(item.icon) &&
-                          item.icon.type === "emoji" && (
-                            <span className="text-lg leading-none">
-                              {item.icon.data}
-                            </span>
-                          )}
-
-                        {hasValidIcon(item.icon) &&
-                          item.icon.type === "image" && (
-                            <img
-                              src={item.icon.data}
-                              alt=""
-                              draggable={false}
-                              className="w-5 h-5 object-contain"
-                              onError={(e) => {
-                                e.currentTarget.style.display = "none";
-                              }}
-                            />
-                          )}
-
+                        {showIcon && (
+                          <span className="inline-flex items-center justify-center w-5 h-5 shrink-0 [&_img]:w-5 [&_img]:h-5 [&_img]:object-contain [&_svg]:w-5 [&_svg]:h-5">
+                            <IconRenderer icon={item.icon} />
+                          </span>
+                        )}
                         <span className="leading-tight">{label}</span>
                       </span>
                     </button>
