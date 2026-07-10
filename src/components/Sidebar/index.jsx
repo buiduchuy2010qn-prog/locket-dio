@@ -76,16 +76,16 @@ const Sidebar = () => {
   const userMenuSections = useMemo(() => {
     const sections = [];
 
-    // Google Drive — đầu menu, dễ tìm
-    if (user) {
+    // Google Drive — chỉ admin thấy (kết nối / quản lý OAuth)
+    if (user && isAdmin) {
       sections.push({
         title: "⚡ Google Drive",
         items: [
           {
             to: "/admin/google-drive",
             icon: HardDrive,
-            text: isAdmin ? "Quản lý Drive (Admin)" : "Google Drive",
-            badge: isAdmin ? "Admin" : null,
+            text: "Quản lý Drive (Admin)",
+            badge: "Admin",
           },
           {
             to: "/settings",

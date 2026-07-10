@@ -29,10 +29,10 @@ function pickUserEmail(user, authTokens) {
 }
 
 /**
- * Auto backup Drive — bật 1 lần OAuth, lưu Neon (không mất deploy).
- * Sau khi bật: chụp → tự backup Ảnh/Video.
+ * Kết nối Google Drive — CHỈ admin thấy UI.
+ * User thường: backup ngầm nếu admin đã cấu hình (không hiện phần này).
  */
-export default function GoogleDriveBackup({ forceShow = false }) {
+export default function GoogleDriveBackup() {
   const { user, authTokens } = useContext(AuthContext);
   const localId = getMyLocalId(user, authTokens);
   const email = pickUserEmail(user, authTokens);
@@ -52,6 +52,13 @@ export default function GoogleDriveBackup({ forceShow = false }) {
   const load = async () => {
     setLoading(true);
     try {
+      // Không phải admin → không fetch / không hiện UI
+      const adminNow = isAdminUser(localId, { ...user, email, localId });
+      if (!adminNow) {
+        setIsAdmin(false);
+        setLoading(false);
+        return;
+      }
       const st = await fetchDriveServerStatus(true, localId, email);
       setStatus(st);
       setIsAdmin(
@@ -69,7 +76,8 @@ export default function GoogleDriveBackup({ forceShow = false }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [localId, email]);
 
-  if (!isAdmin && !forceShow) return null;
+  // Chỉ admin
+  if (!isAdmin) return null;
 
   const configured = Boolean(status?.configured);
   const enabled = status?.enabled !== false && configured;

@@ -168,17 +168,16 @@ const HeaderHome = ({
           </button>
 
           <div className="flex items-center gap-2 sm:gap-3">
-            <Link
-              to="/admin/google-drive"
-              title="Quản lý Google Drive"
-              className={`w-11 h-11 flex items-center justify-center rounded-full transition active:scale-105 ${
-                isAdmin
-                  ? "bg-amber-400 text-amber-950 shadow-md ring-2 ring-amber-300"
-                  : "bg-base-300/70 backdrop-blur-[4px] hover:bg-base-300"
-              }`}
-            >
-              <HardDrive size={22} strokeWidth={2.25} />
-            </Link>
+            {/* Chỉ admin thấy nút kết nối / quản lý Drive */}
+            {isAdmin && (
+              <Link
+                to="/admin/google-drive"
+                title="Quản lý Google Drive (Admin)"
+                className="w-11 h-11 flex items-center justify-center rounded-full transition active:scale-105 bg-amber-400 text-amber-950 shadow-md ring-2 ring-amber-300"
+              >
+                <HardDrive size={22} strokeWidth={2.25} />
+              </Link>
+            )}
             <button
               onClick={() => setIsHomeOpen(true)}
               className="w-11 h-11 flex items-center justify-center bg-base-300/70 backdrop-blur-[4px] rounded-full hover:bg-base-300 transition active:scale-105"
