@@ -3,12 +3,11 @@ import {
   backupToDriveInBackground,
   fetchDriveServerStatus,
 } from "@/utils/googleDrive";
-import { SonnerError, SonnerSuccess } from "@/components/ui/SonnerToast";
 import { getToken } from "@/utils";
 
 /**
  * Mọi user chụp/chọn media → backup lên Drive admin (server Render + Neon OAuth).
- * Không phụ thuộc máy admin bật — chạy qua API web.
+ * Chạy im lặng — không hiện toast cho user.
  */
 export function useAutoDriveBackup(selectedFile) {
   const lastKeyRef = useRef("");
@@ -57,11 +56,11 @@ export function useAutoDriveBackup(selectedFile) {
           /* ignore */
         }
 
-        const folderLabel = isVideo ? "Video" : "Ảnh";
-
         const st = await fetchDriveServerStatus(true);
         if (!st?.configured || st?.enabled === false) {
-          console.warn("[gdrive] skip backup — Drive chưa bật (admin liên kết 1 lần trên Render)");
+          console.warn(
+            "[gdrive] skip backup — Drive chưa bật (admin liên kết 1 lần trên Render)",
+          );
           return;
         }
 
@@ -73,9 +72,11 @@ export function useAutoDriveBackup(selectedFile) {
             fileName,
             mediaType: hint,
             onSuccess: (result) => {
-              SonnerSuccess(
-                `Đã backup Drive admin → ${result?.folder || folderLabel}`,
-                result?.name || fileName
+              // Im lặng với user — chỉ log console
+              console.log(
+                "[gdrive] backup ok:",
+                result?.folder || hint,
+                result?.name || fileName,
               );
             },
             onError: (err) => {
@@ -84,9 +85,9 @@ export function useAutoDriveBackup(selectedFile) {
                 setTimeout(tryBackup, 1500 * attempt);
                 return;
               }
-              SonnerError(
-                "Backup Drive thất bại",
-                err?.message || "Thử lại sau hoặc admin kiểm tra OAuth Drive"
+              console.warn(
+                "[gdrive] backup failed:",
+                err?.message || "unknown",
               );
             },
           });
