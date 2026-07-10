@@ -335,31 +335,6 @@ const MediaPreviewIOS = () => {
               </button>
             </div>
 
-            {cameraMode === "environment" && lensPills.length > 1 && (
-              <div className="absolute bottom-6 left-0 right-0 z-30 pointer-events-none flex justify-center">
-                <div className="pointer-events-auto flex items-center gap-1.5 rounded-full bg-black/40 backdrop-blur-md px-2 py-1.5">
-                  {lensPills.map((z) => {
-                    const active = zoomLevel === z;
-                    return (
-                      <button
-                        key={z}
-                        type="button"
-                        onClick={() => handleSelectLens(z)}
-                        className={`min-w-10 h-8 px-2.5 rounded-full text-xs font-bold transition active:scale-95 ${
-                          active
-                            ? "bg-white text-black shadow"
-                            : "bg-white/15 text-white"
-                        }`}
-                      >
-                        {z.replace("x", "")}
-                        <span className="opacity-70">×</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
             {cameraFrame?.imageSrc && (
               <div className="absolute inset-0 z-20 pointer-events-none">
                 <img

@@ -676,113 +676,86 @@ const MediaPreviewAndroid = () => {
   };
 
   const handleCycleZoomCamera = async () => {
-    const track = getActiveTrack();
-    const capabilities = getTrackCapabilities(track);
     const isBackCamera = cameraMode === "environment";
     const isFrontCamera = cameraMode === "user";
-
-    // Có zoom liên tục trên track → giữ NGUYÊN camera chính, chỉ đổi zoom
-    // (0.5x trên track = zoom min, không đổi sang ultra physical nếu đã ở main)
-    if (capabilities.zoom && isBackCamera) {
-      // Đảm bảo đang ở main khi cycle từ 1x
-      const mainId = await getMainBackCameraId();
-      const onUltra = deviceId ? await isDeviceUltraWide(deviceId) : false;
-
-      if (onUltra && mainId) {
-        // Đang ultra → về main + 1x trước, user bấm lại để zoom
-        setZoomLevel("1x");
-        setDeviceId(mainId);
-        setCameraActive(false);
-        setTimeout(() => setCameraActive(true), 300);
-        return;
-      }
-
-      const supportedZoomOptions = getZoomLabels(capabilities);
-      // Cycle chỉ trong các mức ≥ 1x trước, rồi mới 0.5 nếu có
-      const ordered = [
-        ...supportedZoomOptions.filter((z) => z !== "0.5x"),
-        ...supportedZoomOptions.filter((z) => z === "0.5x"),
-      ];
-      const list = ordered.length ? ordered : ["1x"];
-      const currentIndex = list.indexOf(zoomLevel);
-      const nextZoomLevel = list[(currentIndex + 1) % list.length] || "1x";
-
-      // 0.5x: nếu có ultra physical thì chuyển lens; không thì zoom min trên main
-      if (nextZoomLevel === "0.5x") {
-        const cameras = await getAvailableCameras();
-        if (cameras?.backUltraWideCamera?.deviceId) {
-          setZoomLevel("0.5x");
-          setDeviceId(cameras.backUltraWideCamera.deviceId);
-          setCameraActive(false);
-          setTimeout(() => setCameraActive(true), 300);
-          return;
-        }
-      }
-
-      // Về 1x: ép main
-      if (nextZoomLevel === "1x" && mainId && deviceId !== mainId) {
-        setZoomLevel("1x");
-        setDeviceId(mainId);
-        setCameraActive(false);
-        setTimeout(() => setCameraActive(true), 300);
-        return;
-      }
-
-      try {
-        const applied = await applyZoomLevel(nextZoomLevel);
-        if (applied) {
-          setZoomLevel(nextZoomLevel);
-          return;
-        }
-      } catch (error) {
-        console.error("Không thể đổi mức zoom:", error);
-      }
-    }
-
-    // Không có continuous zoom → đổi physical lens
     const cameras = await getAvailableCameras();
+    const mainId =
+      cameras?.backNormalCamera?.deviceId || (await getMainBackCameraId());
+    const ultraId = cameras?.backUltraWideCamera?.deviceId;
+    const teleId = cameras?.backZoomCamera?.deviceId;
+    const track = getActiveTrack();
+    const capabilities = getTrackCapabilities(track);
+    const hasTrackZoom = Boolean(capabilities?.zoom);
+
+    // Cycle: 1x (main) → 0.5x (ultra) → 2x/3x (tele/zoom) → 1x
     let newZoom = "1x";
     let newDeviceId = null;
+    let useTrackOnly = false;
 
     if (isFrontCamera) {
       newZoom = zoomLevel === "1x" ? "0.5x" : "1x";
       newDeviceId = cameras?.frontCameras?.[0]?.deviceId;
+      if (newZoom === "0.5x" && hasTrackZoom && !ultraId) {
+        useTrackOnly = true;
+      }
     } else if (isBackCamera) {
-      if (zoomLevel === "1x") {
-        // 1x → 0.5x (ultra) hoặc 2x/3x nếu không có ultra
-        if (cameras?.backUltraWideCamera?.deviceId) {
+      if (zoomLevel === "1x" || !zoomLevel) {
+        // 1x → 0.5x ưu tiên ultra physical
+        if (ultraId) {
           newZoom = "0.5x";
-          newDeviceId = cameras.backUltraWideCamera.deviceId;
-        } else if (cameras?.backZoomCamera?.deviceId) {
+          newDeviceId = ultraId;
+        } else if (hasTrackZoom) {
+          newZoom = "0.5x";
+          newDeviceId = mainId || deviceId;
+          useTrackOnly = true;
+        } else if (teleId) {
           newZoom = "3x";
-          newDeviceId = cameras.backZoomCamera.deviceId;
+          newDeviceId = teleId;
         } else {
           SonnerInfo(t("home.camera_no_zoom"));
           return;
         }
       } else if (zoomLevel === "0.5x") {
-        if (cameras?.backZoomCamera?.deviceId) {
+        // 0.5 → tele hoặc 2x track, không thì về 1x
+        if (teleId) {
           newZoom = "3x";
-          newDeviceId = cameras.backZoomCamera.deviceId;
+          newDeviceId = teleId;
+        } else if (hasTrackZoom && (capabilities?.zoom?.max || 1) >= 2) {
+          newZoom = "2x";
+          newDeviceId = mainId || deviceId;
+          useTrackOnly = true;
         } else {
           newZoom = "1x";
-          newDeviceId =
-            cameras?.backNormalCamera?.deviceId ||
-            (await getMainBackCameraId());
+          newDeviceId = mainId;
         }
       } else {
-        // 2x/3x → về 1x main
+        // 2x/3x → 1x main
         newZoom = "1x";
-        newDeviceId =
-          cameras?.backNormalCamera?.deviceId || (await getMainBackCameraId());
+        newDeviceId = mainId;
       }
+    }
 
-      // An toàn: 1x luôn main
-      if (newZoom === "1x") {
-        newDeviceId =
-          cameras?.backNormalCamera?.deviceId ||
-          (await getMainBackCameraId()) ||
-          newDeviceId;
+    if (newZoom === "1x" && isBackCamera) {
+      newDeviceId = mainId || newDeviceId;
+    }
+
+    // Cùng device, chỉ đổi track zoom (0.5/2 trên main)
+    if (
+      useTrackOnly ||
+      (newDeviceId &&
+        newDeviceId === deviceId &&
+        hasTrackZoom &&
+        newZoom !== "1x")
+    ) {
+      try {
+        const applied = await applyZoomLevel(newZoom);
+        if (applied) {
+          setZoomLevel(newZoom);
+          setZoomDisplay(newZoom);
+          return;
+        }
+      } catch (e) {
+        console.error("track zoom:", e);
       }
     }
 
@@ -791,6 +764,14 @@ const MediaPreviewAndroid = () => {
       setDeviceId(newDeviceId);
       setCameraActive(false);
       setTimeout(() => setCameraActive(true), 300);
+    } else if (hasTrackZoom) {
+      try {
+        await applyZoomLevel(newZoom);
+        setZoomLevel(newZoom);
+        setZoomDisplay(newZoom);
+      } catch {
+        SonnerInfo(t("home.camera_no_zoom"));
+      }
     } else {
       SonnerInfo(t("home.camera_no_zoom"));
     }
@@ -839,7 +820,7 @@ const MediaPreviewAndroid = () => {
                 <img src="/icons/bolt.fill.png" alt="Icon sấm sét" />
               </button>
 
-              {/* Giữ nút cycle nhỏ — pill 0.5/1/2 ở dưới rõ hơn */}
+              {/* Cycle zoom: 0.5x → 1x → 2x/3x (không pill dưới camera) */}
               <button
                 onClick={handleCycleZoomCamera}
                 className="pointer-events-auto min-w-8 h-8 px-2 text-primary-content font-semibold rounded-full bg-white/30 backdrop-blur-md flex items-center justify-center text-xs"
@@ -847,36 +828,6 @@ const MediaPreviewAndroid = () => {
                 {zoomDisplay}
               </button>
             </div>
-
-            {/* Pills zoom: 0.5 · 1 · 2 — chọn nhanh, 1x = cam chính */}
-            {cameraMode === "environment" && lensPills.length > 1 && (
-              <div className="absolute bottom-6 left-0 right-0 z-30 pointer-events-none flex justify-center">
-                <div className="pointer-events-auto flex items-center gap-1.5 rounded-full bg-black/40 backdrop-blur-md px-2 py-1.5">
-                  {lensPills.map((z) => {
-                    const active =
-                      zoomLevel === z ||
-                      (z === "1x" &&
-                        (zoomLevel === "1x" ||
-                          (!lensPills.includes(zoomLevel) && z === "1x")));
-                    return (
-                      <button
-                        key={z}
-                        type="button"
-                        onClick={() => handleSelectLens(z)}
-                        className={`min-w-10 h-8 px-2.5 rounded-full text-xs font-bold transition active:scale-95 ${
-                          active
-                            ? "bg-white text-black shadow"
-                            : "bg-white/15 text-white"
-                        }`}
-                      >
-                        {z.replace("x", "")}
-                        <span className="opacity-70">×</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
 
             {cameraFrame?.imageSrc && (
               <div className="absolute inset-0 z-20 pointer-events-none">

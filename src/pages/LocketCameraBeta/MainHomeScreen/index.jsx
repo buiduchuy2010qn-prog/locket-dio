@@ -1,6 +1,5 @@
 import React, { lazy, Suspense } from "react";
 import { useApp } from "@/context/AppContext";
-import { CalendarDays } from "lucide-react";
 
 import HeaderHome from "./Layout/HeaderHome";
 import BottomMenu from "../BottomHomeScreen/Layout/BottomMenu";
@@ -14,7 +13,7 @@ const BottomHomeScreen = lazy(() => import("../BottomHomeScreen"));
 const SelectFriendsList = lazy(() => import("./Layout/SelectFriends"));
 
 export default function MainHomeScreen() {
-  const { navigation, camera, useloading, post } = useApp();
+  const { navigation } = useApp();
 
   const {
     isHomeOpen,
@@ -30,11 +29,6 @@ export default function MainHomeScreen() {
     setFriendHistoryOpen,
   } = navigation;
   const selectedFile = usePostStore((s) => s.selectedFile);
-
-  const openStreakCalendar = () => {
-    setIsBottomOpen(false);
-    setIsProfileOpen(true);
-  };
 
   return (
     <>
@@ -89,7 +83,6 @@ export default function MainHomeScreen() {
           )}
         >
           <div className="h-10" />
-          {/* Camera full width — không nút đè lên ảnh */}
           <div className="w-full max-w-md px-2">
             <MediaPreview />
           </div>
@@ -106,28 +99,14 @@ export default function MainHomeScreen() {
               </Suspense>
             </div>
 
-            {/* Lịch sử + nút lịch chuỗi (dưới camera, không vướng hình) */}
+            {/* Chỉ Lịch sử — không nút calendar cạnh đó */}
             <div
-              className={clsx(
-                "transition-all duration-300 flex items-center justify-center gap-6",
-                {
-                  "opacity-0 invisible hidden": selectedFile,
-                  "opacity-100 visible": !selectedFile,
-                },
-              )}
+              className={clsx("transition-all duration-300", {
+                "opacity-0 invisible hidden": selectedFile,
+                "opacity-100 visible": !selectedFile,
+              })}
             >
-              <button
-                type="button"
-                onClick={openStreakCalendar}
-                aria-label="Mở lịch chuỗi"
-                title="Lịch chuỗi Locket"
-                className="flex items-center justify-center w-11 h-11 rounded-full bg-base-300/70 backdrop-blur-md border border-base-content/10 text-base-content active:scale-95 transition hover:bg-base-300"
-              >
-                <CalendarDays size={24} strokeWidth={1.75} />
-              </button>
               <HistoryArrow setIsBottomOpen={setIsBottomOpen} />
-              {/* Spacer cân đối 2 bên */}
-              <div className="w-11 h-11" aria-hidden />
             </div>
           </div>
         </div>

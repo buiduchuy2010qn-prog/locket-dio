@@ -6,6 +6,7 @@ import {
 } from "@/components/ui/SonnerToast";
 import { PostMoments } from "@/services";
 import { normalizeMoment } from "@/utils";
+import { overlayFromOptionsData } from "@/utils/standardize/normalizeMoments";
 import { useStreakStore } from "@/stores/StreakStores";
 import { useMomentsStoreV2 } from "@/stores/MomentStores";
 
@@ -166,7 +167,24 @@ export const useUploadQueueStore = create((set, get) => ({
 
     try {
       const res = await PostMoments(item);
-      const normalized = normalizeMoment(res?.data);
+      let normalized = normalizeMoment(res?.data);
+
+      // Response Locket đôi khi thiếu overlays → ghép từ optionsData lúc đăng
+      // (music / poll / review cần type + payload + icon)
+      if (normalized && !normalized.overlays && item?.optionsData) {
+        const ov = overlayFromOptionsData(item.optionsData);
+        if (ov) normalized = { ...normalized, overlays: ov };
+      }
+
+      // Nếu API không trả id, vẫn thử gắn id tạm để hiện feed + overlay
+      if (normalized && !normalized.id && res?.data) {
+        normalized.id =
+          res.data.id ||
+          res.data.canonical_uid ||
+          res.data.momentId ||
+          `local_${Date.now()}`;
+      }
+
       // ❗ Validate response
       if (!normalized || !normalized.id) {
         throw new Error("INVALID_UPLOAD_RESPONSE");

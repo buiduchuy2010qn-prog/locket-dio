@@ -6,18 +6,38 @@ const MusicOverlay = ({ overlayData, momentId }) => {
   const selectedMomentId = useSelectedStore((s) => s.selectedMomentId);
   const music = overlayData?.payload || {};
 
-  const text = overlayData?.text || "";
-  const urlImage = overlayData?.icon?.data || "";
+  const text =
+    overlayData?.text ||
+    music.title ||
+    [music.song_title || music.song_name || music.name, music.artist]
+      .filter(Boolean)
+      .join(" - ") ||
+    "";
+  const urlImage =
+    overlayData?.icon?.data ||
+    music.image_url ||
+    music.image ||
+    music.thumbnail_url ||
+    "";
+
+  const isSpotify =
+    music.platform === "spotify" ||
+    Boolean(music.spotify_url) ||
+    overlayData?.platform === "spotify";
+
+  if (!text && !urlImage) return null;
 
   return (
-    <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex w-auto items-center gap-2 py-2 px-4 rounded-4xl text-white font-semibold bg-white/50 backdrop-blur-2xl max-w-[85%] overflow-hidden">
-      <img
-        src={urlImage}
-        alt="Cover"
-        className="w-6 h-6 object-cover rounded-sm shrink-0 no-select no-save"
-      />
+    <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex w-auto items-center gap-2 py-2 px-4 rounded-4xl text-white font-semibold bg-white/50 backdrop-blur-2xl max-w-[85%] overflow-hidden z-20">
+      {urlImage ? (
+        <img
+          src={urlImage}
+          alt="Cover"
+          className="w-6 h-6 object-cover rounded-sm shrink-0 no-select no-save"
+        />
+      ) : null}
 
-      <div className="relative overflow-hidden whitespace-nowrap flex-1">
+      <div className="relative overflow-hidden whitespace-nowrap flex-1 min-w-0">
         <div
           className="inline-block animate-marquee"
           style={{
@@ -29,8 +49,7 @@ const MusicOverlay = ({ overlayData, momentId }) => {
           <span className="mr-4 absolute">{text}</span>
         </div>
       </div>
-      {/* ✅ Chỉ hiện icon nếu platform là spotify */}
-      {music.platform === "spotify" && (
+      {isSpotify && (
         <div className="flex items-center gap-2 shrink-0 no-select no-save">
           <div className="border-l border-white h-5"></div>
           <img
@@ -44,7 +63,7 @@ const MusicOverlay = ({ overlayData, momentId }) => {
       <MusicPlayer
         thumbnail={urlImage}
         payload={music}
-        isVisible={selectedMomentId === momentId}
+        isVisible={selectedMomentId === momentId || !selectedMomentId}
       />
     </div>
   );
