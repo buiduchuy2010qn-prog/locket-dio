@@ -40,12 +40,17 @@ function normalizeSpotifyUrl(url, trackId) {
   return String(url || "").split("?")[0];
 }
 
-/** Spotify Web API (optional env credentials) */
-async function fetchSpotifyOfficial(trackId) {
+/** Cache client-credentials token (Spotify Web API official) */
+let spotifyAppToken = null;
+let spotifyAppTokenExp = 0;
+
+async function getSpotifyAppToken() {
   const clientId = process.env.SPOTIFY_CLIENT_ID;
   const clientSecret = process.env.SPOTIFY_CLIENT_SECRET;
-  if (!clientId || !clientSecret || !trackId) return null;
-
+  if (!clientId || !clientSecret) return null;
+  if (spotifyAppToken && Date.now() < spotifyAppTokenExp) {
+    return spotifyAppToken;
+  }
   try {
     const tokenRes = await axios.post(
       "https://accounts.spotify.com/api/token",
@@ -57,17 +62,36 @@ async function fetchSpotifyOfficial(trackId) {
             Buffer.from(`${clientId}:${clientSecret}`).toString("base64"),
           "Content-Type": "application/x-www-form-urlencoded",
         },
-        timeout: 12000,
+        timeout: 10000,
       },
     );
     const accessToken = tokenRes.data?.access_token;
+    const expiresIn = Number(tokenRes.data?.expires_in) || 3600;
+    if (!accessToken) return null;
+    spotifyAppToken = accessToken;
+    spotifyAppTokenExp = Date.now() + (expiresIn - 60) * 1000;
+    return accessToken;
+  } catch (e) {
+    console.warn("getSpotifyAppToken:", e.message);
+    return null;
+  }
+}
+
+/**
+ * Spotify Web API official (full meta + isrc + preview nếu có).
+ * Cần SPOTIFY_CLIENT_ID + SPOTIFY_CLIENT_SECRET trên API server.
+ */
+async function fetchSpotifyOfficial(trackId) {
+  if (!trackId) return null;
+  try {
+    const accessToken = await getSpotifyAppToken();
     if (!accessToken) return null;
 
     const tr = await axios.get(
       `https://api.spotify.com/v1/tracks/${trackId}`,
       {
         headers: { Authorization: `Bearer ${accessToken}` },
-        timeout: 12000,
+        timeout: 10000,
       },
     );
     const d = tr.data;
@@ -77,7 +101,7 @@ async function fetchSpotifyOfficial(trackId) {
       song_name: d.name,
       artist: (d.artists || []).map((a) => a.name).join(", "),
       album: d.album?.name || "",
-      image_url: d.album?.images?.[0]?.url || "",
+      image_url: d.album?.images?.[0]?.url || d.album?.images?.[1]?.url || "",
       preview_url: d.preview_url || null,
       isrc: d.external_ids?.isrc || null,
       spotify_url: d.external_urls?.spotify || normalizeSpotifyUrl("", trackId),
@@ -89,15 +113,28 @@ async function fetchSpotifyOfficial(trackId) {
   }
 }
 
+/**
+ * oEmbed — siêu nhanh: title + cover (không preview/ISRC).
+ * Ưu tiên cho meta tức thì khi dán link track.
+ */
 async function fetchSpotifyOembed(url) {
   try {
     const r = await http.get("https://open.spotify.com/oembed", {
       params: { url },
+      timeout: 6000,
     });
     if (r.status !== 200 || !r.data?.title) return null;
+    // title oEmbed đôi khi "Song · Artist" hoặc chỉ tên bài
+    let song_name = r.data.title || "";
+    let artist = "";
+    if (song_name.includes(" · ")) {
+      const parts = song_name.split(" · ");
+      song_name = parts[0].trim();
+      artist = (parts[1] || "").trim();
+    }
     return {
-      song_name: r.data.title,
-      artist: "",
+      song_name,
+      artist,
       image_url: r.data.thumbnail_url || "",
       source: "spotify-oembed",
     };
@@ -419,6 +456,15 @@ function toClientShape(partial, platform, originalUrl) {
   return data;
 }
 
+/**
+ * Spotify từ link track — pipeline tối ưu:
+ * 1) oEmbed (title+cover, nhanh)
+ * 2) Spotify Web API official (isrc + meta đầy đủ) nếu có CLIENT_ID/SECRET
+ * 3) song.link chỉ khi còn thiếu isrc/preview path (chậm hơn, phụ)
+ * 4) Deezer/iTunes enrich preview ổn định
+ *
+ * Không search theo tên làm bước chính (chậm, dễ gãy).
+ */
 async function getSpotifyMusicInfo(url) {
   const trackId = extractSpotifyTrackId(url);
   if (!trackId) {
@@ -431,27 +477,39 @@ async function getSpotifyMusicInfo(url) {
 
   const cleanUrl = normalizeSpotifyUrl(url, trackId);
 
-  const [official, oembed, songlink] = await Promise.all([
+  // Song song: oEmbed (nhanh) + official API (đủ data)
+  const [official, oembed] = await Promise.all([
     fetchSpotifyOfficial(trackId),
     fetchSpotifyOembed(cleanUrl),
-    fetchSongLink(cleanUrl),
   ]);
 
   let merged = {
-    song_name:
-      official?.song_name || songlink?.song_name || oembed?.song_name || "",
-    artist: official?.artist || songlink?.artist || oembed?.artist || "",
-    album: official?.album || songlink?.album || "",
-    image_url:
-      official?.image_url || songlink?.image_url || oembed?.image_url || "",
+    song_name: official?.song_name || oembed?.song_name || "",
+    artist: official?.artist || oembed?.artist || "",
+    album: official?.album || "",
+    image_url: official?.image_url || oembed?.image_url || "",
     preview_url: official?.preview_url || null,
     isrc: official?.isrc || null,
-    spotify_url: official?.spotify_url || songlink?.spotify_url || cleanUrl,
-    apple_music_url: songlink?.apple_music_url || null,
-    deezerId: songlink?.deezerId || null,
-    source:
-      official?.source || songlink?.source || oembed?.source || "none",
+    spotify_url: official?.spotify_url || cleanUrl,
+    apple_music_url: null,
+    deezerId: null,
+    source: official?.source || oembed?.source || "none",
   };
+
+  // song.link chỉ khi còn thiếu ISRC hoặc cần map Deezer/Apple (tránh chậm không cần)
+  if (!merged.isrc || !merged.song_name) {
+    const songlink = await fetchSongLink(cleanUrl).catch(() => null);
+    if (songlink) {
+      merged.song_name = merged.song_name || songlink.song_name || "";
+      merged.artist = merged.artist || songlink.artist || "";
+      merged.image_url = merged.image_url || songlink.image_url || "";
+      merged.spotify_url =
+        merged.spotify_url || songlink.spotify_url || cleanUrl;
+      merged.apple_music_url = songlink.apple_music_url || null;
+      merged.deezerId = songlink.deezerId || null;
+      if (songlink.source) merged.source = `${merged.source}+songlink`;
+    }
+  }
 
   if (!merged.song_name) {
     const err = new Error(
@@ -461,6 +519,7 @@ async function getSpotifyMusicInfo(url) {
     throw err;
   }
 
+  // Preview ổn định + ISRC (Deezer/iTunes) — bắt buộc cho Locket app + web play
   merged = await enrichMusicMeta(merged);
   return toClientShape(merged, "spotify", cleanUrl);
 }
