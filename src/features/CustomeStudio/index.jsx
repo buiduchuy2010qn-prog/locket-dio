@@ -51,25 +51,34 @@ const ScreenCustomeStudio = () => {
 
   const handleSelectCaption = (caption) => {
     resetOverlayEditor();
-    // console.log("Chọn caption:", caption);
+
+    const text =
+      caption?.text != null && String(caption.text).trim() !== ""
+        ? String(caption.text)
+        : caption?.caption || "";
+
+    // Theme gợi ý (custom): text null → editable, placeholder
+    const isCustomTheme =
+      caption?.type === "custom" || caption?.is_editable === true;
 
     updateOverlayEditor({
       ...caption,
       overlay_id: caption?.overlay_id || caption?.id || "standard",
-
-      text_color: caption.text_color || "#FFFFFF",
-      text: caption?.text || "",
+      text_color: caption?.text_color || "#FFFFFF",
+      text,
+      caption: text,
       type: caption?.type || "default",
-
-      caption: caption?.text || "",
-      color_top: caption.colortop || "",
-      color_bottom: caption.colorbottom || "",
+      is_editable: isCustomTheme ? true : Boolean(caption?.is_editable),
+      color_top: caption?.colortop || caption?.color_top || "",
+      color_bottom: caption?.colorbottom || caption?.color_bottom || "",
+      // icon rỗng {} → bỏ để không vỡ UI
+      icon:
+        caption?.icon && caption.icon.type && caption.icon.data
+          ? caption.icon
+          : null,
     });
 
-    // SonnerInfo("DATA", JSON.stringify(caption, null, 2));
-
     setIsFilterOpen(false);
-    // Xử lý khi chọn caption
   };
 
   return (

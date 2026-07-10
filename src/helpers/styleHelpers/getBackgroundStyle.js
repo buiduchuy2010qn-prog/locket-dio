@@ -40,16 +40,32 @@ export function getBackgroundStyle(background, direction = "to bottom") {
   // Cả ảnh + màu: ảnh đè lên gradient, hiển thị rõ ràng
   const gradient = `linear-gradient(${direction}, ${colors.join(", ")})`;
 
-  if (background.image.data === "star_sign_background") {
+  if (background.image?.data === "star_sign_background") {
     return {
-      backgroundImage: `url("./images/star_sign_background.png"), ${gradient}`,
+      backgroundImage: `url("/images/star_sign_background.png"), ${gradient}`,
       backgroundSize: "cover",
       backgroundPosition: "center",
       backgroundRepeat: "no-repeat",
     };
   }
+  // URL tuyệt đối hoặc relative hợp lệ
+  const imageUrl =
+    typeof bgImage === "string" && bgImage.startsWith("http")
+      ? bgImage
+      : typeof bgImage === "string" && bgImage.startsWith("/")
+        ? bgImage
+        : bgImage
+          ? `/${String(bgImage).replace(/^\.?\//, "")}`
+          : null;
+
+  if (!imageUrl) {
+    return {
+      background: gradient,
+    };
+  }
+
   return {
-    backgroundImage: `url(${bgImage}), ${gradient}`,
+    backgroundImage: `url(${imageUrl}), ${gradient}`,
     backgroundSize: "cover",
     backgroundPosition: "center",
     backgroundRepeat: "no-repeat",
