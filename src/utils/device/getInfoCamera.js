@@ -118,14 +118,41 @@ const classifyVideoDevices = (videoDevices) => {
   };
 };
 
-export const getAvailableCameras = async () => {
+/** Cache enumerate — tránh enumerateDevices + getUserMedia mỗi lần đổi lens */
+let camerasCache = null;
+let camerasCacheAt = 0;
+const CAMERAS_CACHE_MS = 90 * 1000;
+
+export const invalidateCameraCache = () => {
+  camerasCache = null;
+  camerasCacheAt = 0;
+};
+
+/**
+ * @param {{ force?: boolean }} [opts]
+ */
+export const getAvailableCameras = async (opts = {}) => {
+  const force = Boolean(opts?.force);
+  if (
+    !force &&
+    camerasCache &&
+    Date.now() - camerasCacheAt < CAMERAS_CACHE_MS
+  ) {
+    return camerasCache;
+  }
+
   const devices = await navigator.mediaDevices.enumerateDevices();
   let videoDevices = devices.filter((d) => d.kind === "videoinput");
   const hasLabels = videoDevices.some((device) => device.label);
 
   if (!hasLabels) {
+    // Chỉ xin quyền 1 lần khi chưa có label — rồi cache
     const permissionStream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { ideal: "environment" } },
+      video: {
+        facingMode: { ideal: "environment" },
+        width: { ideal: 640 },
+        height: { ideal: 480 },
+      },
     });
     try {
       const refreshed = await navigator.mediaDevices.enumerateDevices();
@@ -135,7 +162,9 @@ export const getAvailableCameras = async () => {
     }
   }
 
-  return classifyVideoDevices(videoDevices);
+  camerasCache = classifyVideoDevices(videoDevices);
+  camerasCacheAt = Date.now();
+  return camerasCache;
 };
 
 /**

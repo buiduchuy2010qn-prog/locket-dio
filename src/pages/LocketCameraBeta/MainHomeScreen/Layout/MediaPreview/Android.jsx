@@ -15,7 +15,7 @@ import { useTranslation } from "react-i18next";
 import { getCameraPreviewConstraints } from "@/utils/device/perfProfile";
 
 const MediaPreviewAndroid = () => {
-  const { useloading, camera } = useApp();
+  const { useloading, camera, navigation } = useApp();
   const { t } = useTranslation("main");
   const {
     streamRef,
@@ -29,6 +29,7 @@ const MediaPreviewAndroid = () => {
     setDeviceId,
   } = camera;
   const { setSendLoading } = useloading;
+  const { isBottomOpen, isHomeOpen, isProfileOpen } = navigation || {};
 
   const selectedFile = usePostStore((s) => s.selectedFile);
   const preview = usePostStore((s) => s.preview);
@@ -37,10 +38,21 @@ const MediaPreviewAndroid = () => {
   const cameraInitialized = useRef(false);
   const lastCameraMode = useRef(cameraMode);
   const lastDeviceId = useRef(deviceId);
+  const lastZoomLevel = useRef(zoomLevel);
   const startRequestId = useRef(0);
+  const startingRef = useRef(false);
   const pinchState = useRef({ active: false, distance: 0, zoom: 1 });
   const currentZoomValue = useRef(1);
   const lastPinchUpdate = useRef(0);
+  const [pageVisible, setPageVisible] = useState(
+    () =>
+      typeof document === "undefined" ||
+      document.visibilityState === "visible",
+  );
+
+  // Chỉ bật cam khi đang ở trang chụp (không xem bài / chat / profile / tab ẩn)
+  const onCapturePage =
+    !isBottomOpen && !isHomeOpen && !isProfileOpen && pageVisible;
 
   const cameraFrame = useUIStore((s) => s.cameraFrame);
   const [torchEnabled, setTorchEnabled] = useState(false);
@@ -243,7 +255,7 @@ const MediaPreviewAndroid = () => {
     }
   };
 
-  /** Chọn lens/zoom cụ thể (pill 0.5 / 1 / 2) */
+  /** Chọn lens/zoom — đổi deviceId/zoomLevel, startCamera seamless (không blink) */
   const handleSelectLens = async (label) => {
     if (label === zoomLevel && label !== "0.5x") return;
 
@@ -254,12 +266,9 @@ const MediaPreviewAndroid = () => {
     const hasTrackZoom = Boolean(capabilities?.zoom);
 
     if (label === "1x") {
-      // Bắt buộc main + zoom 1
       if (isBack && mainId && deviceId !== mainId) {
         setZoomLevel("1x");
         setDeviceId(mainId);
-        setCameraActive(false);
-        setTimeout(() => setCameraActive(true), 250);
         return;
       }
       setZoomLevel("1x");
@@ -273,12 +282,9 @@ const MediaPreviewAndroid = () => {
     }
 
     if (label === "0.5x") {
-      // Ưu tiên ultra physical; không thì zoom min trên main
       if (isBack && cameras?.backUltraWideCamera?.deviceId) {
         setZoomLevel("0.5x");
         setDeviceId(cameras.backUltraWideCamera.deviceId);
-        setCameraActive(false);
-        setTimeout(() => setCameraActive(true), 250);
         return;
       }
       if (hasTrackZoom) {
@@ -294,21 +300,15 @@ const MediaPreviewAndroid = () => {
       return;
     }
 
-    // 2x / 3x
     if (isBack && cameras?.backZoomCamera?.deviceId && label === "3x") {
       setZoomLevel("3x");
       setDeviceId(cameras.backZoomCamera.deviceId);
-      setCameraActive(false);
-      setTimeout(() => setCameraActive(true), 250);
       return;
     }
 
-    // Zoom digital trên main
     if (isBack && mainId && (await isDeviceUltraWide(deviceId))) {
       setZoomLevel(label);
       setDeviceId(mainId);
-      setCameraActive(false);
-      setTimeout(() => setCameraActive(true), 250);
       return;
     }
 
@@ -396,14 +396,15 @@ const MediaPreviewAndroid = () => {
     resetPinchState();
   };
 
-  const stopCamera = () => {
+  const stopCamera = ({ keepDisplay = false } = {}) => {
     startRequestId.current += 1;
+    startingRef.current = false;
     resetPinchState();
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
     }
-    if (videoRef.current) {
+    if (videoRef.current && !keepDisplay) {
       videoRef.current.srcObject = null;
     }
     cameraInitialized.current = false;
@@ -415,57 +416,37 @@ const MediaPreviewAndroid = () => {
   };
 
   /**
-   * Mở stream với deviceId (exact → ideal → facingMode).
-   * Ở 1x + camera sau: bắt buộc main, từ chối ultra-wide.
+   * Mở stream nhanh: ideal deviceId trước (ít fail hơn exact), fallback facingMode.
    */
-  const openStreamWithDevice = async (targetDeviceId, mode, forceMain) => {
+  const openStreamWithDevice = async (targetDeviceId, mode) => {
     const quality = getCameraPreviewConstraints(
       CONFIG.app.camera.constraints.default,
     );
 
     const tryOpen = async (video) => {
-      const stream = await navigator.mediaDevices.getUserMedia({
+      return navigator.mediaDevices.getUserMedia({
         video,
         audio: false,
       });
-      return stream;
     };
 
-    // 1) exact deviceId (ép lens đúng)
+    // 1) ideal deviceId — nhanh, ít reject hơn exact
     if (targetDeviceId) {
-      try {
-        return await tryOpen({
-          deviceId: { exact: targetDeviceId },
-          ...quality,
-        });
-      } catch {
-        /* try ideal */
-      }
       try {
         return await tryOpen({
           deviceId: { ideal: targetDeviceId },
           ...quality,
         });
       } catch {
-        /* fall through */
+        try {
+          return await tryOpen({
+            deviceId: { exact: targetDeviceId },
+            ...quality,
+          });
+        } catch {
+          /* fall through */
+        }
       }
-    }
-
-    // 2) facingMode — chỉ khi không force main hoặc không có id
-    if (!forceMain) {
-      return tryOpen({
-        facingMode: { ideal: mode || "user" },
-        ...quality,
-      });
-    }
-
-    // force main nhưng exact fail: thử lại main id 1 lần nữa bằng ideal
-    if (targetDeviceId) {
-      return tryOpen({
-        deviceId: { ideal: targetDeviceId },
-        facingMode: { ideal: "environment" },
-        ...quality,
-      });
     }
 
     return tryOpen({
@@ -474,86 +455,85 @@ const MediaPreviewAndroid = () => {
     });
   };
 
+  /**
+   * Seamless start: mở stream mới → gắn video → tắt stream cũ.
+   * Không black flash khi đổi front/back/lens.
+   */
   const startCamera = async () => {
     const requestId = startRequestId.current + 1;
     startRequestId.current = requestId;
+    startingRef.current = true;
 
     try {
       if (
         cameraInitialized.current &&
         streamRef.current &&
         lastCameraMode.current === cameraMode &&
-        lastDeviceId.current === deviceId
+        lastDeviceId.current === deviceId &&
+        lastZoomLevel.current === zoomLevel
       ) {
         if (videoRef.current && !videoRef.current.srcObject) {
           videoRef.current.srcObject = streamRef.current;
+          try {
+            await videoRef.current.play();
+          } catch {
+            /* ignore */
+          }
         }
         return;
-      }
-
-      if (
-        streamRef.current &&
-        (lastCameraMode.current !== cameraMode ||
-          lastDeviceId.current !== deviceId)
-      ) {
-        stopCamera();
       }
 
       const mode = cameraMode || "user";
       const isBack = mode === "environment";
       const z = zoomLevel || "1x";
-      // 1x = BẮT BUỘC camera chính. 0.5x = ultra (nếu có). 2x/3x = tele hoặc main+zoom.
       let resolvedDeviceId = null;
 
-      if (isBack && z === "1x") {
-        resolvedDeviceId = await getMainBackCameraId();
-      } else if (isBack && z === "0.5x") {
-        resolvedDeviceId = await pickCameraDeviceId(mode, "0.5x");
-      } else if (isBack && (z === "2x" || z === "3x")) {
-        // Giữ device hiện tại nếu đã là tele/main; không bao giờ ultra
-        if (deviceId && !(await isDeviceUltraWide(deviceId))) {
-          resolvedDeviceId = deviceId;
-        } else {
-          resolvedDeviceId = await pickCameraDeviceId(mode, z);
-        }
-      } else {
-        resolvedDeviceId =
-          deviceId || (await pickCameraDeviceId(mode, z === "0.5x" ? "0.5x" : "1x"));
-      }
+      // Một lần getAvailableCameras (đã cache) cho mọi nhánh
+      const cameras = await getAvailableCameras();
+      const mainId =
+        cameras?.backNormalCamera?.deviceId ||
+        cameras?.backCameras?.find((c) => !isDeviceUltraWideSync(c))?.deviceId ||
+        cameras?.backCameras?.[0]?.deviceId ||
+        null;
+      const ultraId = cameras?.backUltraWideCamera?.deviceId || null;
+      const teleId = cameras?.backZoomCamera?.deviceId || null;
+      const frontId = cameras?.frontCameras?.[0]?.deviceId || null;
 
-      // An toàn: nếu vẫn null / ultra khi cần 1x → main
       if (isBack && z === "1x") {
-        const mainId = await getMainBackCameraId();
-        if (mainId) resolvedDeviceId = mainId;
+        resolvedDeviceId = mainId;
+      } else if (isBack && z === "0.5x") {
+        resolvedDeviceId = ultraId || mainId;
+      } else if (isBack && (z === "2x" || z === "3x")) {
+        resolvedDeviceId = teleId || mainId || deviceId;
+      } else if (!isBack) {
+        resolvedDeviceId = frontId || deviceId;
+      } else {
+        resolvedDeviceId = deviceId || mainId;
       }
 
       if (resolvedDeviceId && resolvedDeviceId !== deviceId) {
         setDeviceId(resolvedDeviceId);
       }
 
-      let stream = await openStreamWithDevice(
-        resolvedDeviceId,
-        mode,
-        isBack && z === "1x",
-      );
+      const oldStream = streamRef.current;
+      let stream = await openStreamWithDevice(resolvedDeviceId, mode);
 
       if (requestId !== startRequestId.current) {
         stream.getTracks().forEach((track) => track.stop());
         return;
       }
 
-      // Nếu browser vẫn trả ultra khi đang 1x → mở lại bằng main exact
-      if (isBack && zoomLevel === "1x") {
+      // Nếu browser trả ultra khi đang 1x → mở lại main (ideal)
+      if (isBack && z === "1x" && mainId) {
         const actualId = stream.getVideoTracks?.()?.[0]?.getSettings?.()?.deviceId;
-        const mainId = await getMainBackCameraId();
         if (
-          mainId &&
           actualId &&
           actualId !== mainId &&
-          (await isDeviceUltraWide(actualId))
+          ultraId &&
+          actualId === ultraId
         ) {
           stream.getTracks().forEach((t) => t.stop());
-          stream = await openStreamWithDevice(mainId, mode, true);
+          stream = await openStreamWithDevice(mainId, mode);
           resolvedDeviceId = mainId;
           setDeviceId(mainId);
         }
@@ -564,24 +544,19 @@ const MediaPreviewAndroid = () => {
         return;
       }
 
+      // Gắn stream mới trước — giữ frame cũ đến khi play xong
       streamRef.current = stream;
       cameraInitialized.current = true;
       lastCameraMode.current = cameraMode;
       lastDeviceId.current = resolvedDeviceId || deviceId;
+      lastZoomLevel.current = zoomLevel;
 
       const actualId = getActiveTrack(stream)?.getSettings?.()?.deviceId;
-      // Chỉ cập nhật deviceId nếu không phải “trôi” sang ultra khi đang 1x
-      if (actualId) {
-        const driftedUltra =
-          isBack &&
-          zoomLevel === "1x" &&
-          (await isDeviceUltraWide(actualId));
-        if (!driftedUltra) {
-          if (actualId !== deviceId) setDeviceId(actualId);
-          lastDeviceId.current = actualId;
-        } else if (resolvedDeviceId) {
-          lastDeviceId.current = resolvedDeviceId;
-        }
+      if (actualId && actualId !== ultraId) {
+        if (actualId !== deviceId) setDeviceId(actualId);
+        lastDeviceId.current = actualId;
+      } else if (resolvedDeviceId) {
+        lastDeviceId.current = resolvedDeviceId;
       }
 
       if (videoRef.current) {
@@ -598,9 +573,17 @@ const MediaPreviewAndroid = () => {
         }
       }
 
+      // Tắt stream cũ sau khi video mới đã gắn
+      if (oldStream && oldStream !== stream) {
+        try {
+          oldStream.getTracks().forEach((t) => t.stop());
+        } catch {
+          /* ignore */
+        }
+      }
+
       try {
         await syncTrackFeatures(stream);
-        // Sau khi mở: ép optical/digital zoom = 1 trên track (cam chính)
         if (zoomLevel === "0.5x" && isBack) {
           await applyZoomLevel("0.5x", stream);
         } else if (zoomLevel === "2x" || zoomLevel === "3x") {
@@ -609,7 +592,6 @@ const MediaPreviewAndroid = () => {
           await applyZoomLevel("1x", stream);
           currentZoomValue.current = 1;
           setZoomDisplay("1x");
-          if (zoomLevel !== "1x") setZoomLevel("1x");
         }
       } catch (error) {
         console.error("Không thể đồng bộ tính năng camera:", error);
@@ -624,23 +606,51 @@ const MediaPreviewAndroid = () => {
       }
     } catch (err) {
       console.error("startCamera:", err);
-      setCameraActive(false);
       cameraInitialized.current = false;
+    } finally {
+      startingRef.current = false;
     }
   };
 
-  useEffect(() => {
-    if (cameraActive && !preview && !selectedFile) {
-      startCamera();
-    } else if (!cameraActive || preview || selectedFile) {
-      // Chỉ tắt khi chụp xong / tắt camera — không stop trong cleanup mỗi lần re-render
-      if (streamRef.current) {
-        stopCamera();
-      }
-    }
-  }, [cameraActive, cameraMode, deviceId, preview, selectedFile]);
+  // helper sync (label only) — tránh async isDeviceUltraWide trong hot path
+  function isDeviceUltraWideSync(device) {
+    if (!device) return false;
+    return /ultra|0\.5|cực\s*rộng|siêu\s*rộng|wide\s*angle/i.test(
+      device.label || "",
+    );
+  }
 
-  // Unmount: giải phóng camera (không stop giữa chừng khi chỉ đổi deps đã xử lý ở trên)
+  // Tab ẩn / hiện
+  useEffect(() => {
+    const onVis = () => {
+      setPageVisible(document.visibilityState === "visible");
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, []);
+
+  // Lifecycle: chỉ chạy cam trên trang chụp
+  useEffect(() => {
+    const shouldRun =
+      cameraActive && onCapturePage && !preview && !selectedFile;
+
+    if (shouldRun) {
+      startCamera();
+    } else if (streamRef.current) {
+      stopCamera();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    cameraActive,
+    cameraMode,
+    deviceId,
+    zoomLevel,
+    preview,
+    selectedFile,
+    onCapturePage,
+  ]);
+
+  // Unmount
   useEffect(() => {
     return () => {
       startRequestId.current += 1;
@@ -760,10 +770,9 @@ const MediaPreviewAndroid = () => {
     }
 
     if (newDeviceId) {
+      // Seamless: chỉ đổi state — startCamera mở stream mới rồi tắt cũ
       setZoomLevel(newZoom);
       setDeviceId(newDeviceId);
-      setCameraActive(false);
-      setTimeout(() => setCameraActive(true), 300);
     } else if (hasTrackZoom) {
       try {
         await applyZoomLevel(newZoom);

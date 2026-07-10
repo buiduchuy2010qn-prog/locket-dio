@@ -29,17 +29,10 @@ const CameraToggleIOS = () => {
   const handleRotateCamera = async () => {
     setRotation((prev) => prev - 180);
     const newMode = cameraMode === "user" ? "environment" : "user";
+    // Chỉ đổi state — MediaPreview seamless switch (mở mới → gắn → tắt cũ)
     setCameraMode(newMode);
     setZoomLevel("1x");
-    // MediaPreview sẽ pick lens 1x qua pickCameraDeviceId
     setDeviceId(null);
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
-      streamRef.current = null;
-    }
-    if (videoRef.current) {
-      videoRef.current.srcObject = null;
-    }
   };
 
   return (

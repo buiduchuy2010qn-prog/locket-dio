@@ -39,17 +39,10 @@ const CameraToggleAndroid = () => {
       console.error("Lỗi khi lấy danh sách camera:", error);
     }
 
+    // Chỉ đổi state — MediaPreview mở stream mới rồi mới tắt stream cũ (mượt, không đen màn)
     setCameraMode(newMode);
-    setZoomLevel("1x"); // reset zoom về 1x mỗi lần lật
+    setZoomLevel("1x");
     setDeviceId(nextDeviceId);
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
-      streamRef.current = null;
-    }
-
-    if (videoRef.current) {
-      videoRef.current.srcObject = null;
-    }
   };
 
   return (
