@@ -6,9 +6,9 @@ import { useAuthStore, useMomentsStoreV2, useSelectedStore } from "@/stores";
 import SwiperView from "./Views/SwiperView";
 import GridMoments from "./Views/GridMoments";
 
-/** Soft poll khi mở lịch sử — tự làm mới im lặng (không nút) */
-const POLL_OFFLINE_MS = 15_000;
-const POLL_ONLINE_MS = 45_000;
+/** Tự làm mới bài đăng khi mở lịch sử (không nút Làm mới) */
+const POLL_OFFLINE_MS = 12_000;
+const POLL_ONLINE_MS = 25_000;
 
 const BottomHomeScreen = () => {
   const { navigation } = useApp();

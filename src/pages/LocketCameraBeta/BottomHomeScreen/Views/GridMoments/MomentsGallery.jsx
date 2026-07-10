@@ -1,11 +1,10 @@
 import { useEffect, useState, useRef } from "react";
 import { MdSlowMotionVideo } from "react-icons/md";
 import { useSelectedStore } from "@/stores";
-import { useTranslation } from "react-i18next";
 
 /**
- * Lưới khoảnh khắc — không nút "Làm mới / Đang tải".
- * Feed tự pull ở BottomHomeScreen (socket + soft poll).
+ * Lưới khoảnh khắc — KHÔNG nút Làm mới.
+ * Tự cập nhật qua socket + poll (BottomHomeScreen).
  */
 const MomentsGallery = ({
   visibleCount,
@@ -15,7 +14,6 @@ const MomentsGallery = ({
   hasMore,
   loading,
 }) => {
-  const { t } = useTranslation("main");
   const setSelectedMoment = useSelectedStore((s) => s.setSelectedMoment);
   const setSelectedMomentId = useSelectedStore((s) => s.setSelectedMomentId);
   const selectedFriendUid = useSelectedStore((s) => s.selectedFriendUid);
