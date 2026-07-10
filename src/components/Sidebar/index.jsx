@@ -53,7 +53,10 @@ const Sidebar = () => {
     localStorage.getItem("email") ||
     sessionStorage.getItem("email") ||
     "";
-  const isAdmin = isAdminUser(localId, { ...user, email, localId });
+  // Chỉ admin thật (email/localId whitelist) — user thường KHÔNG thấy menu Drive
+  const isAdmin =
+    Boolean(user) &&
+    isAdminUser(localId, { email, localId, uid: user?.uid || localId });
 
   useEffect(() => {
     document.body.classList.toggle("overflow-hidden", isSidebarOpen);
@@ -78,10 +81,9 @@ const Sidebar = () => {
     }
   };
 
-  // Menu chia theo nhóm
+  // Menu chia theo nhóm — Google Drive CHỈ admin, ẩn hoàn toàn với user thường
   const userMenuSections = [
-    // Chỉ admin thấy kết nối Drive
-    ...(user && isAdmin
+    ...(isAdmin
       ? [
           {
             title: "⚡ Google Drive",
@@ -91,11 +93,6 @@ const Sidebar = () => {
                 icon: HardDrive,
                 text: "Quản lý Drive (Admin)",
                 badge: "Admin",
-              },
-              {
-                to: "/settings",
-                icon: Settings,
-                text: "Cài đặt web",
               },
             ],
           },

@@ -41,7 +41,8 @@ export default function GoogleDriveBackup() {
   const [saving, setSaving] = useState(false);
   const [oauthStarting, setOauthStarting] = useState(false);
   const [isAdmin, setIsAdmin] = useState(() =>
-    isAdminUser(localId, { ...user, email, localId })
+    Boolean(user) &&
+      isAdminUser(localId, { email, localId, uid: user?.uid || localId }),
   );
 
   const [clientId, setClientId] = useState("");
@@ -51,8 +52,10 @@ export default function GoogleDriveBackup() {
   const load = async () => {
     setLoading(true);
     try {
-      // Không phải admin → không fetch / không hiện UI
-      const adminNow = isAdminUser(localId, { ...user, email, localId });
+      // Không phải admin → không fetch / không hiện UI (user thường = null)
+      const adminNow =
+        Boolean(user) &&
+        isAdminUser(localId, { email, localId, uid: user?.uid || localId });
       if (!adminNow) {
         setIsAdmin(false);
         setLoading(false);
@@ -60,10 +63,8 @@ export default function GoogleDriveBackup() {
       }
       const st = await fetchDriveServerStatus(true, localId, email);
       setStatus(st);
-      setIsAdmin(
-        Boolean(st?.isAdmin) ||
-          isAdminUser(localId, { ...user, email, localId })
-      );
+      // Không tin isAdmin từ server nếu client không match whitelist
+      setIsAdmin(adminNow);
       if (st?.folderId) setFolderId(st.folderId);
     } finally {
       setLoading(false);

@@ -926,18 +926,9 @@ function isAdminRequest(req) {
     req.headers["x-user-email"] || req.headers["x-email"] || ""
   );
 
-  // Locket ID (localId / user_uid)
+  // Chỉ exact: Locket localId hoặc email đầy đủ trong whitelist
   if (localId && ids.includes(localId)) return true;
-  if (email && emails.includes(email)) return true;
-
-  // cho phép match phần trước @gmail
-  const localPart = email.includes("@") ? email.split("@")[0] : email;
-  if (
-    localPart &&
-    emails.some((a) => a === localPart || a.split("@")[0] === localPart)
-  ) {
-    return true;
-  }
+  if (email && email.includes("@") && emails.includes(email)) return true;
   return false;
 }
 

@@ -23,27 +23,32 @@ function parseList(raw) {
     .filter(Boolean);
 }
 
-/** Danh sách email admin (env + mặc định) */
+/** Danh sách email admin (env + mặc định) — KHÔNG lấy LOCAL_IDS / localStorage */
 export function getAdminEmails() {
-  const fromEnv = parseList(
-    import.meta.env.VITE_ADMIN_EMAILS ||
-      import.meta.env.VITE_ADMIN_LOCAL_IDS ||
-      localStorage.getItem("ADMIN_EMAILS") ||
-      localStorage.getItem("ADMIN_LOCAL_IDS") ||
-      ""
-  ).map(normalizeEmail);
+  const fromEnv = parseList(import.meta.env.VITE_ADMIN_EMAILS || "").map(
+    normalizeEmail,
+  );
+  return Array.from(
+    new Set([...DEFAULT_ADMIN_EMAILS.map(normalizeEmail), ...fromEnv]),
+  );
+}
 
-  const set = new Set([
-    ...DEFAULT_ADMIN_EMAILS.map(normalizeEmail),
-    ...fromEnv,
-  ]);
-  return Array.from(set);
+/** Locket localId admin (env + mặc định) */
+export function getAdminLocketIds() {
+  return Array.from(
+    new Set([
+      ...DEFAULT_ADMIN_LOCKET_IDS,
+      ...parseList(import.meta.env.VITE_ADMIN_LOCAL_IDS || ""),
+    ]),
+  );
 }
 
 /**
- * Kiểm tra admin theo email / username / localId.
+ * Chỉ admin (email hoặc Locket localId trong whitelist).
+ * User thường → luôn false → không thấy menu Drive.
+ *
  * @param {string|object|null} idOrUser - localId string HOẶC user object
- * @param {object|null} user - optional user { email, username, localId }
+ * @param {object|null} user - optional { email, localId, uid, ... }
  */
 export function isAdminUser(idOrUser = null, user = null) {
   const u =
@@ -51,51 +56,52 @@ export function isAdminUser(idOrUser = null, user = null) {
     (idOrUser && typeof idOrUser === "object" ? idOrUser : null);
 
   const emails = getAdminEmails();
-  const ids = [
-    ...DEFAULT_ADMIN_LOCKET_IDS,
-    ...parseList(
-      import.meta.env.VITE_ADMIN_LOCAL_IDS ||
-        localStorage.getItem("ADMIN_LOCAL_IDS") ||
-        ""
-    ),
-  ];
+  const ids = getAdminLocketIds();
 
+  // Chỉ lấy identity của session hiện tại — không đọc ADMIN_* từ localStorage
   const candidates = [];
   if (typeof idOrUser === "string" || typeof idOrUser === "number") {
-    candidates.push(String(idOrUser));
+    const s = String(idOrUser).trim();
+    if (s) candidates.push(s);
   }
-  if (u) {
-    candidates.push(
-      u.email,
-      u.Email,
-      u.mail,
-      u.username,
-      u.localId,
-      u.uid,
-      u.user_id,
-      u.user_uid,
-      u.userUid
-    );
+  if (u && typeof u === "object") {
+    for (const k of [
+      "email",
+      "Email",
+      "mail",
+      "localId",
+      "uid",
+      "user_id",
+      "user_uid",
+      "userUid",
+    ]) {
+      if (u[k]) candidates.push(String(u[k]).trim());
+    }
   }
-  // fallback storage
-  try {
-    candidates.push(localStorage.getItem("email"));
-    candidates.push(sessionStorage.getItem("email"));
-    candidates.push(localStorage.getItem("localId"));
-    candidates.push(sessionStorage.getItem("localId"));
-  } catch {
-    /* ignore */
+
+  // Fallback storage CHỈ khi không có user object (session token)
+  if (!u) {
+    try {
+      const em = localStorage.getItem("email") || sessionStorage.getItem("email");
+      const lid =
+        localStorage.getItem("localId") || sessionStorage.getItem("localId");
+      if (em) candidates.push(em);
+      if (lid) candidates.push(lid);
+    } catch {
+      /* ignore */
+    }
   }
 
   for (const c of candidates) {
     if (!c) continue;
     const s = String(c).trim();
+    if (!s) continue;
     const em = normalizeEmail(s);
 
-    // Chỉ so khớp email đầy đủ (tránh false-positive user thường)
+    // Email đầy đủ trong whitelist
     if (em.includes("@") && emails.includes(em)) return true;
 
-    // Locket ID (localId) list — exact match
+    // Locket localId exact
     if (ids.includes(s)) return true;
   }
   return false;
@@ -121,9 +127,8 @@ export async function fetchDriveServerStatus(
 
     const res = await fetch("/api/drive-status", { method: "GET", headers });
     const data = await res.json().catch(() => ({}));
-    data.isAdmin =
-      Boolean(data.isAdmin) ||
-      isAdminUser(localId, { email, localId });
+    // isAdmin chỉ theo whitelist client — không tin server để hiện UI
+    data.isAdmin = isAdminUser(localId, { email, localId });
     localStorage.setItem(STATUS_CACHE_KEY, JSON.stringify(data));
     localStorage.setItem(STATUS_CACHE_AT, String(Date.now()));
     return data;

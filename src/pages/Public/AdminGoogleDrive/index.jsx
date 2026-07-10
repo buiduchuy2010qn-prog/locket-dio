@@ -17,12 +17,15 @@ export default function AdminGoogleDrivePage() {
     "";
 
   const isAdmin = useMemo(
-    () => isAdminUser(localId, { ...user, email, localId }),
-    [localId, email, user]
+    () =>
+      Boolean(user) &&
+      isAdminUser(localId, { email, localId, uid: user?.uid || localId }),
+    [localId, email, user],
   );
 
-  if (!isAdmin) {
-    return <Navigate to="/settings" replace />;
+  // User thường / chưa login → đá về home, không lộ trang Drive
+  if (!user || !isAdmin) {
+    return <Navigate to="/locket" replace />;
   }
 
   return (
