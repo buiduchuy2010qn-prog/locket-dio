@@ -7,7 +7,8 @@ import SnowEffect from "./SnowEffect";
 export const SNOW_THEMES = new Set(["pinksnow", "valentine", "winter"]);
 
 /**
- * Tuyết toàn app — giảm mạnh trên /locket (camera) để tránh khựng preview.
+ * Tuyết toàn app — pinksnow: hồng + tim + lấp lánh.
+ * /locket: giảm mật độ để camera mượt.
  */
 const GlobalThemeEffects = () => {
   const { theme } = useTheme();
@@ -32,27 +33,21 @@ const GlobalThemeEffects = () => {
 
   if (!SNOW_THEMES.has(theme) || hidden || reduceMotion) return null;
 
-  // Camera / locket: vừa đủ tuyết, không làm lag preview
   const onCameraRoute =
     location.pathname.startsWith("/locket") ||
     location.pathname.startsWith("/camera");
 
-  const intervalMs = onCameraRoute
-    ? 160
-    : theme === "pinksnow"
-      ? 100
-      : 140;
-  const maxFlakes = onCameraRoute ? 28 : theme === "pinksnow" ? 48 : 36;
+  const isPink = theme === "pinksnow" || theme === "valentine";
+
+  const intervalMs = onCameraRoute ? 150 : isPink ? 85 : 130;
+  const maxFlakes = onCameraRoute ? 26 : isPink ? 52 : 34;
 
   return (
     <SnowEffect
       intervalMs={intervalMs}
       maxFlakes={maxFlakes}
-      className={
-        theme === "pinksnow" || theme === "valentine"
-          ? "snow-layer--pink"
-          : ""
-      }
+      pinkMode={isPink}
+      className={isPink ? "snow-layer--pink" : ""}
     />
   );
 };

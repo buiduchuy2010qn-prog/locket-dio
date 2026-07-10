@@ -29,7 +29,7 @@ const ButtonCreateGroup = ({ onClick, hasUserGroup }) => {
       "
       title={hasUserGroup ? t("right.group_already_created_title") : t("right.create_new_group_title")}
     >
-      <img src="./icons/edit_title.png" alt="" className="w-6 h-6" />
+      <img src="/icons/edit_title.png" alt="" className="w-6 h-6" />
     </button>
   );
 };

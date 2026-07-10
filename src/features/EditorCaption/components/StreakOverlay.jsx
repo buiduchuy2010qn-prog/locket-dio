@@ -8,7 +8,7 @@ const StreakOverlay = ({ postOverlay }) => {
         ...getCaptionStyle(postOverlay.background, postOverlay.text_color),
       }}
     >
-      <img src="./icons/flame_fill.png" alt="" className="w-5 h-5 mr-0.5" />
+      <img src="/icons/flame_fill.png" alt="" className="w-5 h-5 mr-0.5" />
       <span>{postOverlay.text}</span>
     </div>
   );

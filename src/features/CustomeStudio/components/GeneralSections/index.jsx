@@ -236,9 +236,9 @@ export default function GeneralThemes({ title }) {
   const musicMeta = {
     icon:
       formType === "apple" ? (
-        <img src="./svg/lcd-empty-logo.svg" className="w-8 h-8" />
+        <img src="/svg/lcd-empty-logo.svg" className="w-8 h-8" />
       ) : (
-        <img src="./icons/spotify_icon.png" className="w-8 h-8" />
+        <img src="/icons/spotify_icon.png" className="w-8 h-8" />
       ),
     title: t("custom_studio.enter_link", {
       platform: formType === "apple" ? "Apple Music" : "Spotify",
@@ -255,7 +255,7 @@ export default function GeneralThemes({ title }) {
     {
       id: "locket_count",
       icon: (
-        <img src="./icons/suit_heart_fill.png" className="w-5 h-5 mr-0.5" />
+        <img src="/icons/suit_heart_fill.png" className="w-5 h-5 mr-0.5" />
       ),
       label: streak?.count || "1",
       background: ["#FFD25F", "#EAA900"],
@@ -264,18 +264,18 @@ export default function GeneralThemes({ title }) {
     {
       id: "color_palette",
       icon: (
-        <img src="./icons/color_palette_icon.png" className="w-6 h-6 mr-1" />
+        <img src="/icons/color_palette_icon.png" className="w-6 h-6 mr-1" />
       ),
       label: t("custom_studio.color_label"),
     },
     {
       id: "music",
-      icon: <img src="./icons/music_icon.png" className="w-6 h-6 mr-1" />,
+      icon: <img src="/icons/music_icon.png" className="w-6 h-6 mr-1" />,
       label: "Spotify",
     },
     {
       id: "music_apple",
-      icon: <img src="./svg/lcd-empty-logo.svg" className="w-5 h-5 mr-1" />,
+      icon: <img src="/svg/lcd-empty-logo.svg" className="w-5 h-5 mr-1" />,
       label: "Apple Music",
     },
     {
@@ -288,7 +288,7 @@ export default function GeneralThemes({ title }) {
     },
     {
       id: "review",
-      icon: <img src="./icons/star_icon.png" className="w-5 h-5 mr-1" />,
+      icon: <img src="/icons/star_icon.png" className="w-5 h-5 mr-1" />,
       label: "Review",
     },
     {
@@ -298,7 +298,7 @@ export default function GeneralThemes({ title }) {
     },
     {
       id: "streak",
-      icon: <img src="./icons/flame_fill.png" className="w-5 h-5 mr-0.5" />,
+      icon: <img src="/icons/flame_fill.png" className="w-5 h-5 mr-0.5" />,
       label: streak?.count || "1",
       background: ["#FFD25F", "#EAA900"],
       color: "#00000099",
@@ -306,7 +306,7 @@ export default function GeneralThemes({ title }) {
     {
       id: "poll",
       background: ["#685AF7", "#685AF7"],
-      icon: <img src="./icons/poll_icon.png" className="w-5 h-5 mr-0.5" />,
+      icon: <img src="/icons/poll_icon.png" className="w-5 h-5 mr-0.5" />,
       color: "#FFFFFF",
       label: t("custom_studio.poll_label"),
     },

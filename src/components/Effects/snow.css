@@ -1,4 +1,4 @@
-/* Tuyết rơi — theme pinksnow / winter / valentine */
+/* Hồng tuyết — tuyết + lấp lánh hồng */
 
 .snow-layer {
   position: fixed;
@@ -7,6 +7,17 @@
   pointer-events: none !important;
   z-index: 20;
   contain: layout style paint;
+}
+
+/* Soft pink wash (chỉ pinksnow/valentine) */
+.snow-layer--pink::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 80% 50% at 50% -10%, rgba(255, 150, 200, 0.22), transparent 55%),
+    radial-gradient(ellipse 60% 40% at 80% 100%, rgba(255, 182, 213, 0.12), transparent 50%);
+  pointer-events: none;
 }
 
 .snowflake-emoji {
@@ -19,32 +30,63 @@
   pointer-events: none !important;
   will-change: transform, opacity;
   color: #ffffff;
-  text-shadow: 0 0 6px rgba(255, 255, 255, 0.45);
+  text-shadow: 0 0 6px rgba(255, 255, 255, 0.5);
   animation-name: snow-fall;
   animation-timing-function: linear;
   animation-fill-mode: forwards;
-  /* duration set inline */
+  filter: drop-shadow(0 0 2px rgba(255, 255, 255, 0.35));
 }
 
-/* Hồng tuyết — bông hơi hồng/trắng */
-.snow-layer--pink .snowflake-emoji {
-  color: #fff7fb;
+/* Variant: bông hồng / tim / lấp lánh */
+.snowflake-emoji.is-heart {
+  color: #ff8fc4;
   text-shadow:
-    0 0 8px rgba(255, 182, 213, 0.7),
-    0 1px 2px rgba(255, 105, 180, 0.25);
+    0 0 10px rgba(255, 120, 180, 0.85),
+    0 0 4px rgba(255, 255, 255, 0.6);
+}
+
+.snowflake-emoji.is-spark {
+  color: #ffe6f3;
+  text-shadow:
+    0 0 12px rgba(255, 200, 230, 0.9),
+    0 0 4px #fff;
+}
+
+.snow-layer--pink .snowflake-emoji {
+  color: #fff8fc;
+  text-shadow:
+    0 0 10px rgba(255, 170, 210, 0.75),
+    0 1px 3px rgba(255, 105, 180, 0.35);
+}
+
+.snow-layer--pink .snowflake-emoji.is-heart {
+  color: #ff6eb0;
+  text-shadow:
+    0 0 12px rgba(255, 80, 160, 0.9),
+    0 0 4px rgba(255, 255, 255, 0.7);
+}
+
+.snow-layer--pink .snowflake-emoji.is-spark {
+  color: #ffd6ec;
+  text-shadow:
+    0 0 14px rgba(255, 160, 210, 0.95),
+    0 0 6px #fff;
 }
 
 @keyframes snow-fall {
   0% {
-    transform: translate3d(0, 0, 0) rotate(0deg);
-    opacity: var(--flake-opacity, 0.85);
+    transform: translate3d(0, 0, 0) rotate(0deg) scale(1);
+    opacity: 0;
   }
-  85% {
-    opacity: var(--flake-opacity, 0.85);
+  8% {
+    opacity: var(--flake-opacity, 0.9);
+  }
+  70% {
+    opacity: var(--flake-opacity, 0.9);
   }
   100% {
     transform: translate3d(var(--drift, 0px), var(--fall-distance, 110vh), 0)
-      rotate(var(--spin, 360deg));
+      rotate(var(--spin, 360deg)) scale(0.85);
     opacity: 0;
   }
 }
