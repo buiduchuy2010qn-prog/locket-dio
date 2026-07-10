@@ -21,6 +21,9 @@ services:
       # Neon — OAuth Drive (không commit key mới; giữ env đã set trên dashboard nếu đổi)
       - key: DATABASE_URL
         sync: false
+      # Spotify user OAuth (Nhạc live) — set Client ID trên Dashboard
+      - key: VITE_SPOTIFY_CLIENT_ID
+        sync: false
 
   # ── API: backend Huy Locket (folder /api) ─────────────────────
   - type: web
@@ -47,5 +50,10 @@ services:
       # Locket Firebase public API key (login Identity Toolkit) — override trên Dashboard nếu cần
       - key: FIREBASE_API_KEY
         value: AIzaSyCQngaaXQIfJaH0aS2l7REgIjD7nL431So
+      # Spotify Web API (dán link track → isrc/meta official)
+      - key: SPOTIFY_CLIENT_ID
+        sync: false
+      - key: SPOTIFY_CLIENT_SECRET
+        sync: false
       # Supabase optional: membership DB. Không set → gói Free local, login vẫn OK
       # SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, WEATHER_API_KEY
