@@ -69,65 +69,6 @@
   }
 }
 
-/* Tuyết rơi mượt: ease nhẹ + fade đầu/cuối */
-@keyframes snow-fall {
-  0% {
-    transform: translate3d(0, 0, 0) rotate(0deg);
-    opacity: 0;
-  }
-  8% {
-    opacity: 0.75;
-  }
-  85% {
-    opacity: 0.55;
-  }
-  100% {
-    transform: translate3d(var(--drift), var(--fall-distance), 0) rotate(360deg);
-    opacity: 0;
-  }
-}
-
-/* ❄ rơi — dưới header/sidebar (z-50 / z-[100]), không chặn click */
-.snow-layer {
-  pointer-events: none !important;
-  z-index: 20;
-}
-
-.snowflake-emoji {
-  position: absolute;
-  top: -24px;
-  color: #fff;
-  user-select: none;
-  pointer-events: none !important;
-  line-height: 1;
-  will-change: transform, opacity;
-  text-shadow: 0 0 8px rgba(255, 255, 255, 0.85);
-  animation-name: snowflake-fall;
-  animation-timing-function: linear;
-  animation-fill-mode: forwards;
-}
-
-/* Tuyết trên theme hồng — bông trắng + viền hồng nhẹ */
-.snow-layer--pink .snowflake-emoji {
-  color: #ffffff;
-  text-shadow:
-    0 0 6px rgba(255, 255, 255, 0.95),
-    0 0 14px rgba(255, 158, 207, 0.65),
-    0 1px 2px rgba(255, 105, 180, 0.25);
-  filter: drop-shadow(0 0 2px rgba(255, 182, 217, 0.5));
-}
-
-@keyframes snowflake-fall {
-  0% {
-    transform: translate3d(0, 0, 0) rotate(0deg);
-    opacity: 1;
-  }
-  100% {
-    transform: translate3d(var(--drift, 0px), 105vh, 0) rotate(360deg);
-    opacity: 0;
-  }
-}
-
 @keyframes spin-slow {
   0% {
     transform: rotate(0deg);
@@ -173,3 +114,54 @@
   animation: pulse-circle 3.5s ease-in-out infinite;
 }
 
+.animated-gradient {
+  background: linear-gradient(270deg, #9333ea, #ec4899, #9333ea);
+  background-size: 400% 400%;
+  color: white;
+  animation: gradientFlow 6s ease infinite;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 12px rgba(236, 72, 153, 0.3);
+  border-radius: 9999px; /* full rounded */
+}
+
+@keyframes gradientFlow {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+@keyframes shake {
+  0% {
+    transform: translateX(0);
+  }
+  20% {
+    transform: translateX(-4px);
+  }
+  40% {
+    transform: translateX(4px);
+  }
+  60% {
+    transform: translateX(-4px);
+  }
+  80% {
+    transform: translateX(4px);
+  }
+  100% {
+    transform: translateX(0);
+  }
+}
+
+.animate-shake {
+  animation: shake 0.3s ease-in-out;
+}
+
+.camera-inner-circle {
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: inset 0 0 2px rgba(0, 0, 0, 0.08);
+}

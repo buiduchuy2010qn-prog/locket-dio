@@ -1,26 +1,31 @@
-import React, { lazy } from "react";
+import React, { lazy, Suspense, useEffect } from "react";
 import { useApp } from "@/context/AppContext";
 import MainHomeScreen from "./MainHomeScreen";
 import { MusicPlayer } from "./Widgets/MusicPlayer";
-import { CONFIG } from "@/config/webConfig";
+import { useOverlayEditorStore, useUIStore } from "@/stores";
+import GlobalReactionEffect from "./Widgets/GlobalReactionEffect";
+// import CropVideoStudio from "./ModalViews/CropVideoStudio";
+// const Snowfall = lazy(() => import("@/components/Effects/SnowBanner"));
+const BgHuyLocket = lazy(() => import("@/components/Effects/BgLocketDio"));
 
 const LeftHomeScreen = lazy(() => import("./LeftHomeScreen"));
 const RightHomeScreen = lazy(() => import("./RightHomeScreen"));
 
-const FriendsContainer = lazy(() => import("./ModalViews/FriendsContainer"));
-const EmojiPicker = lazy(() => import("./ModalViews/EmojiStudio"));
-const ScreenCustomeStudio = lazy(() => import("./ModalViews/CustomeStudio"));
-const CropImageStudio = lazy(() => import("./ModalViews/CropImageStudio"));
-const OptionMoment = lazy(() => import("./ModalViews/OptionMoment"));
+const FriendsContainer = lazy(() => import("../../features/FriendsContainer"));
+const EmojiPicker = lazy(() => import("@/features/EmojiStudio"));
+const ScreenCustomeStudio = lazy(() => import("@/features/CustomeStudio"));
+const CropImageStudio = lazy(() => import("@/features/EditorStudio/CropImageStudio"));
+const CropVideoStudio = lazy(() => import("@/features/EditorStudio/CropVideoStudio"));
+const OptionMoment = lazy(() => import("@/features/OptionMoment"));
+const WelcomeModal = lazy(() => import("./Widgets/WelcomeModal"));
 
 export default function LocketCameraBeta() {
-  const { navigation, camera, useloading, post } = useApp();
+  const { navigation, camera } = useApp();
 
   const {
     isHomeOpen,
     isProfileOpen,
     isBottomOpen,
-    isFullview,
     setIsHomeOpen,
     setIsProfileOpen,
     setIsBottomOpen,
@@ -30,29 +35,49 @@ export default function LocketCameraBeta() {
     setOptionModalOpen,
   } = navigation;
   const { canvasRef } = camera;
-  const { postOverlay } = post;
+
+  const overlayData = useOverlayEditorStore((s) => s.overlayData);
+  const background = useUIStore((s) => s.background);
+
+  useEffect(() => {
+    import("./LeftHomeScreen");
+    import("./RightHomeScreen");
+  }, []);
 
   return (
     <>
+      <Suspense fallback={null}>
+        <BgHuyLocket bgSrc={background?.url} />
+        <GlobalReactionEffect />
+      </Suspense>
+
       <MainHomeScreen />
       {/* Page Views */}
-      <LeftHomeScreen setIsProfileOpen={setIsProfileOpen} />
-      <RightHomeScreen setIsHomeOpen={setIsHomeOpen} />
+      <Suspense fallback={null}>
+        <LeftHomeScreen setIsProfileOpen={setIsProfileOpen} />
+        <RightHomeScreen setIsHomeOpen={setIsHomeOpen} />
+      </Suspense>
+
       {/* Modal Views */}
-      <FriendsContainer />
-      <CropImageStudio />
-      <ScreenCustomeStudio />
-      <EmojiPicker />
-      <OptionMoment
-        setOptionModalOpen={setOptionModalOpen}
-        isOptionModalOpen={isOptionModalOpen}
-      />
+      <Suspense fallback={null}>
+        <FriendsContainer />
+        <CropImageStudio />
+        <CropVideoStudio />
+        <ScreenCustomeStudio />
+        <EmojiPicker />
+        <OptionMoment
+          setOptionModalOpen={setOptionModalOpen}
+          isOptionModalOpen={isOptionModalOpen}
+        />
+        <WelcomeModal />
+      </Suspense>
+
       {/* Canvas for capturing image/video */}
       <canvas ref={canvasRef} className="hidden" />
       {/* Audio Music */}
-      {postOverlay.music && <MusicPlayer music={postOverlay.music} />}
+      {overlayData.type === "music" && <MusicPlayer music={overlayData.payload} />}
       <span className="fixed pointer-events-none z-60 bottom-3 right-4 text-xs text-gray-400 select-none">
-        © {CONFIG.app.watermark || "huy-locket"}
+        © Huy Locket
       </span>
     </>
   );

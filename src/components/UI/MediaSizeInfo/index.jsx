@@ -1,17 +1,22 @@
 import React from "react";
 import { TbMoodCrazyHappy } from "react-icons/tb";
 import { RiEmotionHappyLine } from "react-icons/ri";
-import { useApp } from "@/context/AppContext";
+import { getMaxUploads } from "@/hooks/useFeature";
+import { usePostStore } from "@/stores";
 
 const MediaSizeInfo = () => {
-  const { post } = useApp();
-  const { preview, isSizeMedia, maxImageSizeMB, maxVideoSizeMB } = post;
+  const preview = usePostStore((s) => s.preview);
+  const isSizeMedia = usePostStore((s) => s.isSizeMedia);
 
+  const { maxImageSizeMB, maxVideoSizeMB, storage_limit_mb } = getMaxUploads();
   const isImage = preview?.type === "image";
   const isVideo = preview?.type === "video";
-  // Full unlock: always show green (informational only)
-  const isTooBig = false;
-  const colorClass = "text-green-500";
+  const isTooBig = isImage
+    ? isSizeMedia > maxImageSizeMB
+    : isVideo
+      ? isSizeMedia > maxVideoSizeMB
+      : false;
+  const colorClass = isTooBig ? "text-red-500" : "text-green-500";
 
   return (
     <div className="h-1 transition-opacity duration-300 ease-in-out">

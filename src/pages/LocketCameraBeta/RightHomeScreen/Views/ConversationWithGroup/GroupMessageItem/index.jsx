@@ -1,0 +1,427 @@
+import React, {
+  useEffect,
+  useState,
+  useRef,
+  useCallback,
+  useMemo,
+} from "react";
+import { useMembersGroupStore, useGroupMessagesStore } from "@/stores";
+import {
+  reactToGroupMessage,
+  removeGroupMessageReaction,
+  deleteGroupMessage,
+} from "@/services";
+
+import { ReactionViewerDrawer } from "./ReactionViewerDrawer";
+import { MomentContent } from "./MomentContent";
+import { SystemMessage } from "./SystemMessage";
+import clsx from "clsx";
+import { SonnerInfo } from "@/components/ui/SonnerToast";
+import { MessageContextMenu } from "../../../Layout/MessageContextMenu";
+import { imageFallback } from "@/utils";
+import { useTranslation } from "react-i18next";
+
+const GroupMessageItem = ({ msg }) => {
+  const me = localStorage.getItem("localId");
+  const isMe = msg.user_id === me;
+  const { t } = useTranslation("main");
+
+  const [showReactions, setShowReactions] = useState(false);
+  const [showMenu, setShowMenu] = useState(false);
+
+  const bubbleRef = useRef(null);
+  const holdTimerRef = useRef(null);
+  const isLongPress = useRef(false);
+
+  const userInfoMap = useMembersGroupStore((s) => s.membersMap);
+  const updateGroupMessageReaction = useGroupMessagesStore(
+    (s) => s.updateGroupMessageReaction,
+  );
+  const removeGroupMessage = useGroupMessagesStore((s) => s.removeGroupMessage);
+  const addGroupMessages = useGroupMessagesStore((s) => s.addGroupMessages);
+  const [menuDirection, setMenuDirection] = useState("center");
+
+  const senderDetail = userInfoMap?.[msg.user_id] ?? null;
+  const senderName = isMe
+    ? t("right.you")
+    : senderDetail
+      ? `${senderDetail.firstName} ${senderDetail.lastName}`
+      : msg.user_id?.slice(0, 8) || t("right.group_member");
+
+  const avatarUrl = senderDetail?.profilePic || "/default-avatar.png";
+
+  const formatTime = (ts) => {
+    if (!ts) return "";
+    return new Date(Number(ts)).toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
+
+  const content = msg.content || {};
+  const isSystemMessage =
+    content.type === "userAddedToGroup" ||
+    content.type === "userRemovedFromGroup" ||
+    content.type === "groupNameChanged" ||
+    content.type === "groupImageChanged";
+
+  const actorUid = content.added_by_user_id || msg.user_id;
+  const targetUid = isSystemMessage ? content.user_id : null;
+
+  useEffect(() => {
+    if (!showMenu) return;
+
+    const prevent = (e) => e.preventDefault();
+
+    document.body.style.overflow = "hidden";
+    // document.addEventListener("touchmove", prevent, {
+    //   passive: false,
+    // });
+
+    return () => {
+      document.body.style.overflow = "";
+      // document.removeEventListener("touchmove", prevent);
+    };
+  }, [showMenu]);
+
+  const getName = (uid) => {
+    if (!uid) return null;
+    if (uid === me) return t("right.you");
+    const detail = userInfoMap?.[uid] ?? null;    
+    if (detail?.firstName)
+      return `${detail.firstName} ${detail.lastName}`.trim();
+    return null;
+  };
+
+  const myReaction =
+    msg.reactions?.find((r) => r.user_id === me)?.emoji || null;
+
+  const sendReaction = useCallback(
+    async (emoji) => {
+      const existing = msg.reactions?.find((r) => r.user_id === me);
+
+      if (existing?.emoji === emoji) {
+        updateGroupMessageReaction(
+          msg.uid,
+          msg.id,
+          me,
+          null,
+          "reactionRemoved",
+        );
+        removeGroupMessageReaction({
+          groupId: msg.uid,
+          messageId: msg.id,
+        }).catch(console.error);
+      } else {
+        updateGroupMessageReaction(msg.uid, msg.id, me, emoji, "reactionAdded");
+        reactToGroupMessage({
+          groupId: msg.uid,
+          messageId: msg.id,
+          emoji,
+        }).catch(console.error);
+      }
+
+      setShowMenu(false);
+    },
+    [msg, me, updateGroupMessageReaction],
+  );
+
+  const showContextMenu = useCallback(() => {
+    if (bubbleRef.current) {
+      const rect = bubbleRef.current.getBoundingClientRect();
+
+      const viewportHeight = window.innerHeight;
+
+      const topZone = viewportHeight * 0.3;
+      const bottomZone = viewportHeight * 0.7;
+
+      if (rect.top < topZone) {
+        setMenuDirection("bottom");
+      } else if (rect.bottom > bottomZone) {
+        setMenuDirection("top");
+      } else {
+        setMenuDirection("center");
+      }
+    }
+
+    setShowMenu(true);
+  }, []);
+
+  const handleTouchStart = useCallback(() => {
+    isLongPress.current = false;
+
+    holdTimerRef.current = setTimeout(() => {
+      isLongPress.current = true;
+
+      if (bubbleRef.current) {
+        const rect = bubbleRef.current.getBoundingClientRect();
+
+        showContextMenu(isMe ? rect.right : rect.left, rect.top);
+      }
+    }, 400);
+  }, [isMe, showContextMenu]);
+
+  const handleTouchMove = useCallback(() => {
+    if (holdTimerRef.current) {
+      clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = null;
+    }
+  }, []);
+
+  const handleTouchEnd = useCallback((e) => {
+    if (holdTimerRef.current) {
+      clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = null;
+    }
+
+    if (isLongPress.current) {
+      e.preventDefault();
+      e.stopPropagation();
+
+      isLongPress.current = false;
+    }
+  }, []);
+
+  const handleContextMenu = useCallback(
+    (e) => {
+      e.preventDefault();
+
+      showContextMenu(e.clientX, e.clientY);
+    },
+    [showContextMenu],
+  );
+
+  useEffect(() => {
+    return () => {
+      if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
+    };
+  }, []);
+
+  if (isSystemMessage) {
+    return (
+      <SystemMessage
+        content={content}
+        actorUid={actorUid}
+        targetUid={targetUid}
+        getName={getName}
+      />
+    );
+  }
+
+  const renderBody = () => {
+    if (content.type === "moment") {
+      return <MomentContent moment={content.moment} />;
+    }
+    if (content.type === "text" || !content.type) {
+      return (
+        <>
+          {content.content && (
+            <span className="break-words text-sm">{content.content}</span>
+          )}
+          {content.moment && <MomentContent moment={content.moment} />}
+        </>
+      );
+    }
+    return null;
+  };
+
+  return (
+    <div
+      className={clsx("chat", {
+        "chat-end": isMe,
+        "chat-start": !isMe,
+      })}
+      key={msg.id}
+    >
+      {!isMe && (
+        <div className="chat-image avatar">
+          <div className="w-8 h-8 rounded-full border border-base-300">
+            <img src={avatarUrl} alt={senderName} onError={imageFallback()}/>
+          </div>
+        </div>
+      )}
+
+      {!isMe && (
+        <div className="chat-header text-[10px] font-semibold opacity-70 mb-1 ml-1">
+          {senderName}
+        </div>
+      )}
+      <div
+        onClick={() => {
+          setShowMenu(false);
+        }}
+        className={clsx(
+          "fixed inset-0 bg-base-100/30 backdrop-blur-[4px] transition-opacity duration-500 z-[50]",
+          {
+            "opacity-100 select-none": showMenu,
+            "opacity-0 pointer-events-none": !showMenu,
+          },
+        )}
+      />
+      <div
+        ref={bubbleRef}
+        className={clsx(
+          "chat-bubble relative bg-base-200 text-base-content font-medium max-w-xs md:max-w-md select-none rounded-t-2xl transition-all duration-500 scale-100",
+          {
+            "rounded-bl-2xl": isMe,
+            "rounded-br-2xl": !isMe,
+            "relative z-[50] scale-110": showMenu,
+            "translate-x-3": showMenu && !isMe,
+            "-translate-x-3": showMenu && isMe,
+            "-translate-y-14": showMenu && menuDirection === "top",
+            "translate-y-14": showMenu && menuDirection === "bottom",
+          },
+        )}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        onContextMenu={handleContextMenu}
+      >
+        {msg.reply_moment && (
+          <div className="text-xs italic opacity-75 mb-1 text-primary">
+            {t("right.replied_to_moment")}
+          </div>
+        )}
+
+        {renderBody()}
+
+        <MessageReactions
+          reactions={msg.reactions}
+          isMe={isMe}
+          getName={getName}
+          onClick={() => setShowReactions(true)}
+        />
+        <MessageContextMenu
+          show={showMenu}
+          isMe={isMe}
+          content={content}
+          myReaction={myReaction}
+          onReaction={sendReaction}
+          onCopy={() => {
+            navigator.clipboard.writeText(content.content || "");
+            SonnerInfo(t("right.copied"));
+            setShowMenu(false);
+          }}
+          onRecall={async () => {
+            setShowMenu(false);
+            // Optimistic: gỡ tin khỏi UI ngay, revert nếu API lỗi.
+            removeGroupMessage(msg.uid, msg.id);
+            try {
+              await deleteGroupMessage({
+                groupId: msg.uid,
+                messageId: msg.id,
+              });
+              SonnerInfo(t("right.message_recalled"));
+            } catch (err) {
+              console.error("recall message error:", err);
+              addGroupMessages(msg.uid, msg);
+              SonnerInfo(t("right.recall_failed"));
+            }
+          }}
+          onReport={() => {
+            SonnerInfo(t("right.feature_not_available_yet"));
+          }}
+        />
+      </div>
+
+      <ReactionViewerDrawer
+        open={showReactions}
+        reactions={msg.reactions}
+        userInfoMap={userInfoMap}
+        onClose={() => setShowReactions(false)}
+        onRemoveReaction={() => {
+          updateGroupMessageReaction(
+            msg.uid,
+            msg.id,
+            me,
+            null,
+            "reactionRemoved",
+          );
+          removeGroupMessageReaction({
+            groupId: msg.uid,
+            messageId: msg.id,
+          }).catch(console.error);
+          setShowReactions(false);
+        }}
+      />
+
+      <div className="chat-footer opacity-50 text-[9px] mt-0.5">
+        {formatTime(msg.created_at || msg.create_time * 1000)}
+      </div>
+    </div>
+  );
+};
+
+export default GroupMessageItem;
+
+function MessageReactions({ reactions = [], isMe, getName, onClick }) {
+  const groupedReactions = useMemo(() => {
+    const grouped = {};
+
+    reactions.forEach((r) => {
+      if (!r?.emoji) return;
+
+      if (!grouped[r.emoji]) {
+        grouped[r.emoji] = {
+          count: 0,
+          users: [],
+        };
+      }
+
+      grouped[r.emoji].count++;
+      grouped[r.emoji].users.push(r.user_id);
+    });
+
+    return Object.entries(grouped);
+  }, [reactions]);
+
+  if (!groupedReactions.length) return null;
+
+  return (
+    <div
+      className={clsx("absolute -top-7 flex cursor-pointer z-10", {
+        "-left-2": isMe,
+        "-right-2": !isMe,
+      })}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick?.();
+      }}
+    >
+      {groupedReactions.length === 1 ? (
+        <div className="p-1 bg-base-100 rounded-full">
+          <div className="p-1 w-8 h-8 text-base bg-base-300 rounded-full shadow flex items-center justify-center">
+            {groupedReactions[0][0]}
+          </div>
+        </div>
+      ) : (
+        <div className="flex items-center">
+          {groupedReactions.slice(0, 2).map(([emoji, data], index) => (
+            <div
+              key={emoji}
+              title={data.users
+                .map((u) => getName?.(u))
+                .filter(Boolean)
+                .join(", ")}
+              className={clsx("p-1 bg-base-100 rounded-full", {
+                "-ml-3": index > 0,
+              })}
+            >
+              <div className="p-1 w-8 h-8 text-base bg-base-300 rounded-full shadow flex items-center justify-center">
+                {emoji}
+              </div>
+            </div>
+          ))}
+
+          {groupedReactions.length > 2 && (
+            <div className="-ml-3 p-2 bg-base-300 rounded-full shadow border border-base-100">
+              <div className="p-1 flex items-center justify-center text-[10px] font-semibold">
+                +{groupedReactions.length - 2}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}

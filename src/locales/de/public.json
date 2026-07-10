@@ -1,0 +1,32 @@
+{
+  "server": {
+    "checking": "Server wird überprüft",
+    "online": "Server ist online",
+    "offline": "Serverfehler"
+  },
+  "time": {
+    "just_now": "Gerade eben",
+    "minutes_ago": "vor {{count}} Minute",
+    "hours_ago": "vor {{count}} Stunden",
+    "days_ago": "vor {{count}} Tagen"
+  },
+  "error_boundary": {
+    "title": "Ups! Etwas ist schiefgelaufen.",
+    "description": "Die Locket-Dio-Webanwendung ist auf einen unerwarteten Fehler gestoßen. Du kannst versuchen, sie neu zu starten oder die Community um Hilfe bitten.",
+    "restart": "Neu starten",
+    "join_community": "Community beitreten"
+  },
+  "not_found": {
+    "title": "Ups! Die gesuchte Seite wurde nicht gefunden.",
+    "description": "Es sieht so aus, als hätten wir diese Seite verloren.",
+    "go_home": "Zur Startseite"
+  },
+  "loading_page": {
+    "title": "Huy Locket wird geladen.",
+    "description": "Deine Erinnerungen werden vorbereitet..."
+  },
+  "rotating_circle": {
+    "outer": "Huy Locket • Momente teilen •",
+    "inner": "Huy Locket • Modern • Praktisch • Plattformübergreifend • Sicher •"
+  }
+}

@@ -1,9 +1,12 @@
 import React from "react";
+import "./styles.css";
 import { Mail, MapPin } from "lucide-react";
-import MailForm from "@/components/ui/SupportForms/MailForm";
-import { COMMUNITY_CONFIG, CONTACT_CONFIG } from "@/config";
+import { COMMUNITY_CONFIG, CONFIG, CONTACT_CONFIG } from "@/config";
 
 export default function Contact() {
+  const avatarUrl = CONFIG.app.myInfo.avatarUrl;
+  const fullName = CONFIG.app.myInfo.fullName;
+
   const communityLinks = [
     {
       name: "Discord",
@@ -49,8 +52,8 @@ export default function Contact() {
             Liên hệ & Hỗ trợ
           </h1>
           <p className="mt-3 text-base-content/70 text-lg">
-            Kết nối với <span className="font-semibold">Bùi Đức Huy</span>{" "}
-            - Quản trị <span className="font-semibold">Huy Locket</span>
+            Kết nối với <span className="font-semibold">{fullName}</span> - Tác
+            giả <span className="font-semibold">Huy Locket</span>
           </p>
         </div>
 
@@ -58,7 +61,7 @@ export default function Contact() {
           {/* Profile */}
           <div className="bg-base-100 w-full flex flex-col items-center justify-start p-6 rounded-2xl shadow-lg hover:shadow-xl transition duration-300 transform hover:-translate-y-1 animate-slideUp">
             <img
-              src="https://cdn.locket-dio.com/v1/images/avt/avtdio.webp"
+              src={avatarUrl}
               alt="Bùi Đức Huy"
               className="w-28 h-28 rounded-full object-cover border-4 border-base-300 mb-4 shadow-md hover:scale-105 transition duration-300"
             />
@@ -69,20 +72,7 @@ export default function Contact() {
           </div>
 
           {/* Contact Info & Social */}
-          <div className="lg:col-span-2 space-y-6">
-            {/* Primary Contact */}
-            <div className="bg-base-100 p-6 rounded-2xl shadow-lg hover:shadow-xl transition duration-300 animate-slideUp delay-100">
-              <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                <Mail size={18} /> Liên hệ chính
-              </h3>
-              <a
-                href={`mailto:${CONTACT_CONFIG.supportEmail}`}
-                className="btn btn-outline w-full justify-start gap-3 hover:scale-[1.02] transition"
-              >
-                <Mail size={18} /> {CONTACT_CONFIG.supportEmail}
-              </a>
-            </div>
-
+          <div className="space-y-6">
             {/* Community Links */}
             <div className="bg-base-100 p-6 rounded-2xl shadow-lg hover:shadow-xl transition duration-300 animate-slideUp delay-200">
               <h3 className="text-lg font-semibold mb-4">Liên kết cộng đồng</h3>
@@ -115,11 +105,10 @@ export default function Contact() {
             </div>
           </div>
         </div>
-        <MailForm />
 
         {/* Footer */}
         <div className="text-center mt-10 text-sm text-base-content/60 animate-fadeIn">
-          © {new Date().getFullYear()} Huy Locket. Made with ❤️ by Bùi Đức Huy
+          © 2025 Huy Locket. Made with ❤️ by Bùi Đức Huy
         </div>
       </div>
     </div>

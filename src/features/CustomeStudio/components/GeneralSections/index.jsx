@@ -1,0 +1,409 @@
+import React, { useEffect, useState, useMemo } from "react";
+import { PiClockFill } from "react-icons/pi";
+import { useApp } from "@/context/AppContext";
+import { useBatteryStatus } from "@/utils";
+import { getInfoMusicByUrl } from "@/services";
+import {
+  SonnerError,
+  SonnerInfo,
+  SonnerSuccess,
+} from "@/components/ui/SonnerToast";
+import { useTranslation } from "react-i18next";
+import FormMusicPoup from "@/features/FormMusicPoup";
+import FormReviewPoup from "@/features/FormReviewPoup";
+import { useOverlayEditorStore, useStreakStore } from "@/stores";
+import IconRenderer from "@/components/Overlay/icons/IconRenderer";
+import { getCaptionStyle } from "@/helpers/styleHelpers";
+import {
+  useCurrentWeatherV2,
+  useCurrentLocation,
+  useMediaPalette,
+} from "../../hooks";
+import LocationIcon from "@/assets/icons/LocationIcon";
+
+export default function GeneralThemes({ title }) {
+  const { t } = useTranslation("features");
+  const { navigation } = useApp();
+  const { setIsFilterOpen } = navigation;
+
+  const { addressOptions } = useCurrentLocation();
+  const weatherInfo = useCurrentWeatherV2();
+
+  const { level, charging } = useBatteryStatus();
+  const streak = useStreakStore((s) => s.streak);
+
+  const updateOverlayEditor = useOverlayEditorStore(
+    (s) => s.updateOverlayEditor,
+  );
+  const resetOverlayEditor = useOverlayEditorStore((s) => s.resetOverlayEditor);
+
+  const [time, setTime] = useState(new Date());
+  const [savedAddressOptions, setSavedAddressOptions] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  // popup states
+  const [popupActive, setPopupActive] = useState(false);
+  const [formType, setFormType] = useState("");
+  const [reviewOpen, setReviewOpen] = useState(false);
+
+  const { dominantColor, palette } = useMediaPalette();
+
+  // --- EFFECTS ---
+  useEffect(() => {
+    if (
+      addressOptions.length &&
+      JSON.stringify(addressOptions) !== JSON.stringify(savedAddressOptions)
+    ) {
+      setSavedAddressOptions(addressOptions);
+    }
+  }, [addressOptions]);
+
+  useEffect(() => {
+    const timer = setInterval(() => setTime(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const formattedTime = useMemo(
+    () =>
+      time.toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
+    [time],
+  );
+
+  // --- CORE APPLY ---
+  const applyOverlay = (data) => {
+    resetOverlayEditor();
+
+    updateOverlayEditor({
+      ...data,
+      color_top: data.color_top || "",
+      color_bottom: data.color_bottom || "",
+      text_color: data.text_color || "#FFFFFF",
+      icon: data.icon || "",
+      caption: data.caption || "",
+      type: data.type || "default",
+    });
+
+    setIsFilterOpen(false);
+  };
+
+  // --- MUSIC ---
+  const openMusicForm = (type) => {
+    setFormType(type);
+    requestAnimationFrame(() => setPopupActive(true));
+  };
+
+  const closeMusicForm = () => {
+    setPopupActive(false);
+    setTimeout(() => setFormType(""), 300);
+  };
+
+  const handleMusicSubmit = async (link) => {
+    setLoading(true);
+    try {
+      const musicData = await getInfoMusicByUrl(
+        link,
+        formType === "apple" ? "apple" : "spotify",
+      );
+
+      applyOverlay({
+        overlay_id: "music",
+        caption: musicData.title,
+        text: musicData.title,
+        icon: { data: musicData.image_url, type: "image", source: "url" },
+        type: "music",
+        payload: musicData,
+        platform: musicData.platform,
+      });
+
+      SonnerSuccess(
+        `${formType === "apple" ? "Apple Music" : "Spotify"} by Dio`,
+        t("custom_studio.music_success"),
+      );
+
+      closeMusicForm();
+    } catch {
+      SonnerError(t("custom_studio.music_failed"));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // --- REVIEW ---
+  const handleReviewSubmit = ({ rating, text }) => {
+    applyOverlay({
+      overlay_id: "review",
+      caption: text,
+      text,
+      type: "review",
+      payload: { rating, comment: text },
+    });
+    setReviewOpen(false);
+  };
+
+  // --- ACTION MAP ---
+  const actions = {
+    default: () => applyOverlay({ type: "default" }),
+
+    music: () => openMusicForm("spotify"),
+    music_apple: () => openMusicForm("apple"),
+
+    review: () => setReviewOpen(true),
+
+    time: () =>
+      applyOverlay({
+        overlay_id: "time",
+        icon: { color: "#FFFFFFCC", data: "clock.fill", type: "sf_symbol" },
+        caption: formattedTime,
+        text: formattedTime,
+        type: "time",
+      }),
+
+    weather: () => {
+      if (!weatherInfo || !weatherInfo.payload || !weatherInfo.text) {
+        SonnerInfo(t("custom_studio.weather_no_data"));
+        return;
+      }
+
+      applyOverlay({
+        overlay_id: "weather",
+        caption: weatherInfo?.text || {},
+        type: "weather",
+        ...weatherInfo,
+      });
+    },
+
+    battery: () =>
+      applyOverlay({
+        overlay_id: "battery",
+        caption: level || "50",
+        icon: charging,
+        text: `${level || "50"}%`,
+        type: "battery",
+      }),
+
+    heart: () =>
+      applyOverlay({
+        overlay_id: "heart",
+        caption: "inlove",
+        text: "inlove",
+        icon: { color: "#FF0000CC", data: "heart.fill", type: "sf_symbol" },
+        type: "heart",
+      }),
+
+    locket_count: () => SonnerInfo("Sắp ra mắt!"),
+
+    streak: () =>
+      applyOverlay({
+        overlay_id: "streak",
+        icon: { color: "#00000099", data: "flame.fill", type: "sf_symbol" },
+        background: { colors: ["#FFD25F", "#EAA900"] },
+        caption: streak?.count || "1",
+        text: String(streak?.count || "1"),
+        type: "streak",
+        text_color: "#00000099",
+      }),
+    color_palette: () =>
+      applyOverlay({
+        overlay_id: "color_palette",
+        icon: { source: "local", data: "color_palette_icon", type: "image" },
+        background: { material_blur: "ultra_thin", colors: [] },
+        caption: String(dominantColor || "#FFFFFF"),
+        text: String(dominantColor || "#FFFFFF"),
+        payload: { colors: palette || [] },
+        type: "color_palette",
+        text_color: "#FFFFFFE6",
+      }),
+    poll: () =>
+      applyOverlay({
+        overlay_id: "poll",
+        background: { colors: ["#685AF7", "#685AF7"] },
+        text: "",
+        type: "poll",
+        text_color: "#FFFFFFF0",
+        payload: {
+          right_emoji: "👎",
+          left_emoji: "👍",
+        },
+      }),
+  };
+
+  const handleClick = (id) => actions[id]?.();
+
+  // --- MUSIC META (fix thiếu props modal) ---
+  const musicMeta = {
+    icon:
+      formType === "apple" ? (
+        <img src="./svg/lcd-empty-logo.svg" className="w-8 h-8" />
+      ) : (
+        <img src="./icons/spotify_icon.png" className="w-8 h-8" />
+      ),
+    title: t("custom_studio.enter_link", {
+      platform: formType === "apple" ? "Apple Music" : "Spotify",
+    }),
+  };
+
+  // --- BUTTONS ---
+  const buttons = [
+    {
+      id: "default",
+      icon: <span className="mr-1 font-semibold">Aa</span>,
+      label: t("custom_studio.text_label"),
+    },
+    {
+      id: "locket_count",
+      icon: (
+        <img src="./icons/suit_heart_fill.png" className="w-5 h-5 mr-0.5" />
+      ),
+      label: streak?.count || "1",
+      background: ["#FFD25F", "#EAA900"],
+      color: "#00000099",
+    },
+    {
+      id: "color_palette",
+      icon: (
+        <img src="./icons/color_palette_icon.png" className="w-6 h-6 mr-1" />
+      ),
+      label: t("custom_studio.color_label"),
+    },
+    {
+      id: "music",
+      icon: <img src="./icons/music_icon.png" className="w-6 h-6 mr-1" />,
+      label: "Spotify",
+    },
+    {
+      id: "music_apple",
+      icon: <img src="./svg/lcd-empty-logo.svg" className="w-5 h-5 mr-1" />,
+      label: "Apple Music",
+    },
+    {
+      id: "weather",
+      icon: <IconRenderer icon={weatherInfo.icon} />,
+      background: weatherInfo.background.colors,
+      color: "#FFFFFF",
+      label: weatherInfo?.text || t("custom_studio.weather_label"),
+      cover: "./images/cloud_cover.png",
+    },
+    {
+      id: "review",
+      icon: <img src="./icons/star_icon.png" className="w-5 h-5 mr-1" />,
+      label: "Review",
+    },
+    {
+      id: "time",
+      icon: <PiClockFill className="w-6 h-6 mr-1 rotate-270" />,
+      label: formattedTime,
+    },
+    {
+      id: "streak",
+      icon: <img src="./icons/flame_fill.png" className="w-5 h-5 mr-0.5" />,
+      label: streak?.count || "1",
+      background: ["#FFD25F", "#EAA900"],
+      color: "#00000099",
+    },
+    {
+      id: "poll",
+      background: ["#685AF7", "#685AF7"],
+      icon: <img src="./icons/poll_icon.png" className="w-5 h-5 mr-0.5" />,
+      color: "#FFFFFF",
+      label: t("custom_studio.poll_label"),
+    },
+    {
+      id: "location",
+      icon: <LocationIcon className="w-6 h-6 mr-0.5" />,
+      label: savedAddressOptions[0] || t("custom_studio.location_label"),
+    },
+  ];
+
+  return (
+    <>
+      <div className="px-4">
+        {title && (
+          <div className="flex flex-row gap-3 items-center mb-2">
+            <h2 className="text-md font-semibold text-primary">{title}</h2>
+            <div className="badge badge-sm badge-secondary">New</div>
+          </div>
+        )}
+
+        <div className="flex flex-wrap gap-3 justify-start">
+          {buttons.map((btn) => (
+            <button
+              key={btn.id}
+              onClick={() => handleClick(btn.id)}
+              style={{
+                backgroundColor: "rgba(0, 0, 0, 0.05)",
+                ...getCaptionStyle(btn.background, btn.color),
+              }}
+              className={`relative flex flex-col whitespace-nowrap backdrop-blur-3xl items-center space-y-1 py-2 px-4 btn h-auto w-auto rounded-3xl font-semibold justify-center`}
+            >
+              {btn.cover && (
+                <img
+                  src={btn.cover}
+                  alt="Cover"
+                  className="absolute inset-0 w-full h-full object-cover rounded-3xl select-none pointer-events-none"
+                  style={{
+                    opacity: weatherInfo?.payload?.cloud_cover ?? 0.5,
+                  }}
+                />
+              )}
+              <span className="text-base flex flex-row items-center gap-1 font-bold">
+                {btn.icon}
+
+                {btn.id === "location" ? (
+                  <div className="relative w-max">
+                    <div className="cursor-pointer select-none">
+                      {savedAddressOptions[0] ||
+                        t("custom_studio.location_label")}
+                    </div>
+
+                    <select
+                      className="absolute top-0 left-0 w-full h-full opacity-0 cursor-pointer"
+                      onChange={(e) =>
+                        applyOverlay({
+                          preset_id: "location",
+                          caption: e.target.value,
+                          type: "location",
+                        })
+                      }
+                    >
+                      <option value="" disabled>
+                        {t("custom_studio.select_address")}
+                      </option>
+                      {savedAddressOptions.map((opt, idx) => (
+                        <option key={idx} value={opt}>
+                          {opt}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ) : (
+                  btn.label
+                )}
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* POPUP MUSIC */}
+      <FormMusicPoup
+        open={popupActive}
+        onClose={closeMusicForm}
+        onConfirm={handleMusicSubmit}
+        loading={loading}
+        formType={formType}
+        {...musicMeta}
+      />
+
+      {/* POPUP REVIEW */}
+      <FormReviewPoup
+        open={reviewOpen}
+        onClose={() => setReviewOpen(false)}
+        onConfirm={handleReviewSubmit}
+        title={"Caption Review"}
+      />
+    </>
+  );
+}

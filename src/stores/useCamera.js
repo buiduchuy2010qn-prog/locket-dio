@@ -7,7 +7,6 @@ export const useCamera = () => {
   const streamRef = useRef(null);
   const cameraRef = useRef(null);
 
-  const [capturedMedia, setCapturedMedia] = useState(null);
   const [permissionChecked, setPermissionChecked] = useState(true);
   const [cameraActive, setCameraActive] = useState(true);
   const [rotation, setRotation] = useState(0);
@@ -16,31 +15,14 @@ export const useCamera = () => {
   const [loading, setLoading] = useState(false);
   const [countdown, setCountdown] = useState(null);
   const [cameraMode, setCameraMode] = useState("user");
-  const [zoomLevel, setZoomLevel] = useState("1x"); // label: "0.5x" | "1x" | "2x" | ...
-  const [zoomFactor, setZoomFactor] = useState(1); // numeric factor for optical/digital
-  const [zoomSteps, setZoomSteps] = useState([]); // available phone zoom steps
+  const [zoomLevel, setZoomLevel] = useState("1x"); // "0.5x" | "1x" | "3x"
   const [deviceId, setDeviceId] = useState(null); // deviceId của camera hiện tại
-
-  // ✅ Lấy từ localStorage hoặc mặc định frame đầu tiên
-  const [selectedFrame, setSelectedFrame] = useState(() => {
-    const saved = localStorage.getItem("selectedFrame");
-    return saved ? JSON.parse(saved) : frames[0];
-  });
-
-  // ✅ Lưu vào localStorage khi thay đổi
-  useEffect(() => {
-    if (selectedFrame) {
-      localStorage.setItem("selectedFrame", JSON.stringify(selectedFrame));
-    }
-  }, [selectedFrame]);
 
   return {
     videoRef,
     streamRef,
     cameraRef,
     canvasRef,
-    capturedMedia,
-    setCapturedMedia,
     permissionChecked,
     setPermissionChecked,
     holdTime,
@@ -61,11 +43,5 @@ export const useCamera = () => {
     setDeviceId,
     zoomLevel,
     setZoomLevel,
-    zoomFactor,
-    setZoomFactor,
-    zoomSteps,
-    setZoomSteps,
-    selectedFrame,
-    setSelectedFrame,
   };
 };

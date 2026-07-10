@@ -1,292 +1,133 @@
-/**
- * Activity bài của mình:
- * - Chỉ hiện ai đã xem (views + reaction = đã xem)
- * - Cuối danh sách: ai bị chặn / không được xem bài
- */
-import { getAllFriendDetails, getFriendDetail } from "@/cache/friendsDB";
+import { getFriendDetail } from "@/cache/friendsDB";
 
-const FALLBACK_AVATAR = "/images/default_profile.png";
+export const MAX_REACTIONS_PER_USER = 5;
 
-function friendUid(f) {
-  return f?.uid || f?.localId || f?.user || f?.id || null;
-}
+export function resolvePollOverlay(overlays) {
+  if (!overlays) return null;
 
-function normalizeIdList(list) {
-  if (!Array.isArray(list)) return [];
-  return list
-    .map((x) => {
-      if (x == null) return "";
-      if (typeof x === "string" || typeof x === "number") return String(x);
-      return String(x.uid || x.user || x.localId || x.id || "");
-    })
-    .filter(Boolean);
-}
-
-/** Lấy audience / recipients / excluded từ moment (nhiều field API) */
-function getMomentAudienceMeta(moment) {
-  if (!moment || typeof moment !== "object") {
-    return { audience: "all", recipients: [], excluded: [], isPublic: true };
-  }
-  const opts = moment.optionsData || moment.options || moment.overlays || {};
-
-  const showPersonally = !!(
-    moment.show_personally ??
-    opts.show_personally
-  );
-  const sentToAll = !!(moment.sent_to_all ?? opts.sent_to_all);
-
-  let audience =
-    moment.audience ||
-    opts.audience ||
-    null;
-
-  if (!audience) {
-    if (moment.isPublic === false || (showPersonally && !sentToAll && !normalizeIdList(moment.recipients || opts.recipients || []).length)) {
-      audience = moment.isPublic === false && !showPersonally ? "private" : null;
-    }
-    if (!audience && sentToAll) audience = "all";
-    else if (!audience && showPersonally) audience = "selected";
-    else if (!audience) audience = moment.isPublic === false ? "private" : "all";
-  }
-
-  const recipients = normalizeIdList(
-    moment.recipients ||
-      opts.recipients ||
-      moment.allowed_users ||
-      opts.allowed_users ||
-      opts.user_uids ||
-      moment.user_uids ||
-      []
+  const list = Array.isArray(overlays) ? overlays : [overlays];
+  const poll = list.find(
+    (o) =>
+      o?.type === "poll" || String(o?.overlay_id || "").includes("poll"),
   );
 
-  // private: show_personally + chỉ mình / isPublic false không recipients
-  if (
-    audience === "all" &&
-    showPersonally &&
-    !sentToAll &&
-    recipients.length > 0
-  ) {
-    audience = "selected";
-  }
-  if (
-    (audience === "private" ||
-      (showPersonally && recipients.length <= 1 && moment.isPublic === false)) &&
-    !sentToAll
-  ) {
-    // giữ private nếu đã set
-  }
+  if (!poll) return null;
 
-  const excluded = normalizeIdList(
-    moment.excluded_users ||
-      moment.excludedUsers ||
-      opts.excluded_users ||
-      opts.blocked_users ||
-      moment.blocked_users ||
-      moment.blockedUsers ||
-      []
-  );
-
-  const isPublic =
-    moment.isPublic !== false &&
-    audience !== "private" &&
-    audience !== "selected" &&
-    !showPersonally;
-
-  return { audience, recipients, excluded, isPublic: !!isPublic };
-}
-
-async function resolveUser(userId, friendsById) {
-  let userInfo = friendsById.get(userId);
-  if (!userInfo) {
-    try {
-      userInfo = await getFriendDetail(userId);
-    } catch {
-      userInfo = null;
-    }
-  }
-  return (
-    userInfo || {
-      uid: userId,
-      firstName: "Bạn bè",
-      lastName: "",
-      profilePic: FALLBACK_AVATAR,
-    }
-  );
-}
-
-/**
- * @returns {Promise<Array>} activity: status "viewed" | "reacted" | "blocked"
- */
-export async function buildFullMomentActivity({
-  views = [],
-  reactions = [],
-  myLocalId = null,
-  moment = null,
-}) {
-  let friends = [];
-  try {
-    friends = (await getAllFriendDetails()) || [];
-  } catch {
-    friends = [];
-  }
-
-  const friendsById = new Map();
-  for (const f of friends) {
-    const id = friendUid(f);
-    if (id) friendsById.set(id, f);
-  }
-
-  // ----- 1) Chỉ người đã xem -----
-  const byUser = new Map();
-
-  for (const view of views) {
-    if (!view?.user) continue;
-    if (myLocalId && view.user === myLocalId) continue;
-    byUser.set(view.user, {
-      userId: view.user,
-      viewedAt: view.viewedAt || null,
-      reaction: null,
-      status: "viewed",
-    });
-  }
-
-  // Reaction cũng = đã xem; gom nhiều emoji / user (UI Locket: 💛🔥😍)
-  for (const r of reactions) {
-    if (!r?.user) continue;
-    if (myLocalId && r.user === myLocalId) continue;
-    const existing = byUser.get(r.user) || {
-      userId: r.user,
-      viewedAt: r.createdAt || null,
-      reaction: null,
-      emojis: [],
-      status: "viewed",
-    };
-    const emoji = r.emoji || r.reaction || "💛";
-    if (!existing.emojis) existing.emojis = [];
-    if (!existing.emojis.includes(emoji)) {
-      existing.emojis.push(emoji);
-    }
-    // intensity cao → có thể lặp emoji kiểu Locket (tối đa 3)
-    const intensity = Number(r.intensity) || 0;
-    if (intensity >= 50 && existing.emojis.filter((e) => e === emoji).length < 2) {
-      // giữ unique list; UI chỉ hiện emoji khác nhau
-    }
-    existing.reaction = {
-      emoji,
-      intensity: r.intensity,
-      createdAt: r.createdAt,
-    };
-    existing.status = "reacted";
-    if (!existing.viewedAt) existing.viewedAt = r.createdAt || null;
-    byUser.set(r.user, existing);
-  }
-
-  // ----- 2) Ai bị chặn / không được xem -----
-  const { audience, recipients, excluded } = getMomentAudienceMeta(moment);
-  const blockedIds = new Set(excluded);
-
-  // Đăng chọn người: bạn bè không nằm trong recipients → không xem được
-  if (audience === "selected" && recipients.length > 0) {
-    const allow = new Set(recipients);
-    for (const f of friends) {
-      const id = friendUid(f);
-      if (!id || (myLocalId && id === myLocalId)) continue;
-      if (!allow.has(id)) blockedIds.add(id);
-    }
-  }
-
-  // Riêng tư / isPublic false: mọi bạn bè không xem được
-  if (audience === "private" || moment?.isPublic === false) {
-    for (const f of friends) {
-      const id = friendUid(f);
-      if (!id || (myLocalId && id === myLocalId)) continue;
-      blockedIds.add(id);
-    }
-  }
-
-  // Friend flag hidden (nếu có)
-  for (const f of friends) {
-    const id = friendUid(f);
-    if (!id) continue;
-    if (f.hidden === true || f.isHidden === true || f.blocked === true) {
-      blockedIds.add(id);
-    }
-  }
-
-  // Không liệt kê blocked nếu họ đã xem (tránh trùng)
-  for (const uid of byUser.keys()) {
-    blockedIds.delete(uid);
-  }
-  if (myLocalId) blockedIds.delete(myLocalId);
-
-  const viewers = await Promise.all(
-    Array.from(byUser.values()).map(async (item) => ({
-      user: await resolveUser(item.userId, friendsById),
-      viewedAt: item.viewedAt,
-      reaction: item.reaction,
-      emojis: item.emojis || (item.reaction?.emoji ? [item.reaction.emoji] : []),
-      status: item.status,
-    }))
-  );
-
-  // Mới xem trước
-  viewers.sort((a, b) => {
-    const ta = a.viewedAt
-      ? new Date(a.viewedAt).getTime()
-      : a.reaction?.createdAt
-        ? new Date(a.reaction.createdAt).getTime()
-        : 0;
-    const tb = b.viewedAt
-      ? new Date(b.viewedAt).getTime()
-      : b.reaction?.createdAt
-        ? new Date(b.reaction.createdAt).getTime()
-        : 0;
-    return tb - ta;
-  });
-
-  const blocked = await Promise.all(
-    Array.from(blockedIds).map(async (uid) => ({
-      user: await resolveUser(uid, friendsById),
-      viewedAt: null,
-      reaction: null,
-      status: "blocked",
-    }))
-  );
-
-  // Tên A→Z cho mục chặn
-  blocked.sort((a, b) => {
-    const na = `${a.user?.firstName || ""} ${a.user?.lastName || ""}`.trim();
-    const nb = `${b.user?.firstName || ""} ${b.user?.lastName || ""}`.trim();
-    return na.localeCompare(nb, "vi");
-  });
-
-  // Viewers trước, blocked ở cuối
-  return [...viewers, ...blocked];
-}
-
-export function splitActivity(activity = []) {
-  const viewedAll = activity.filter(
-    (i) =>
-      i.status === "viewed" ||
-      i.status === "reacted" ||
-      !!i.viewedAt ||
-      !!i.reaction
-  );
-  const reacted = activity.filter((i) => i.status === "reacted" || !!i.reaction);
-  const viewedOnly = activity.filter(
-    (i) =>
-      !i.reaction &&
-      i.status !== "blocked" &&
-      (i.status === "viewed" || !!i.viewedAt)
-  );
-  const blocked = activity.filter((i) => i.status === "blocked");
+  const payload = poll.payload || poll.overlays?.payload || {};
 
   return {
-    reacted,
-    viewedOnly,
-    viewedAll,
-    blocked,
-    notViewed: [],
-    noReaction: viewedOnly,
+    leftEmoji: payload.left_emoji || "👎",
+    rightEmoji: payload.right_emoji || "👍",
+    text: poll.text,
   };
+}
+
+/**
+ * Đếm poll: 1 user = tối đa 1 vote (👍 hoặc 👎).
+ * User thả nhiều lần → lấy lượt mới nhất.
+ */
+export function computePollCounts(
+  reactions,
+  leftEmoji = "👎",
+  rightEmoji = "👍",
+) {
+  const latestVoteByUser = new Map();
+
+  const pollVotes = (reactions || [])
+    .filter(
+      (r) =>
+        r?.user && (r.emoji === leftEmoji || r.emoji === rightEmoji),
+    )
+    .sort(
+      (a, b) =>
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    );
+
+  for (const r of pollVotes) {
+    if (latestVoteByUser.has(r.user)) continue;
+    latestVoteByUser.set(
+      r.user,
+      r.emoji === leftEmoji ? "left" : "right",
+    );
+  }
+
+  let leftCount = 0;
+  let rightCount = 0;
+
+  for (const side of latestVoteByUser.values()) {
+    if (side === "left") leftCount++;
+    else rightCount++;
+  }
+
+  return {
+    isPoll: true,
+    leftEmoji,
+    rightEmoji,
+    leftCount,
+    rightCount,
+    total: leftCount + rightCount,
+  };
+}
+
+/** Gom reaction theo user, mới nhất trước, tối đa 5 / user */
+export function groupReactionsByUser(reactions) {
+  const map = new Map();
+
+  for (const r of reactions || []) {
+    if (!r?.user) continue;
+    if (!map.has(r.user)) map.set(r.user, []);
+    map.get(r.user).push(r);
+  }
+
+  for (const [uid, list] of map) {
+    list.sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    );
+    map.set(uid, list.slice(0, MAX_REACTIONS_PER_USER));
+  }
+
+  return map;
+}
+
+function mapReactionItem(r) {
+  return {
+    id: r.id,
+    emoji: r.emoji,
+    intensity: r.intensity ?? 0,
+    createdAt: r.createdAt,
+  };
+}
+
+export async function buildActivityFromViewsAndReactions(views, reactions) {
+  const viewList = views?.moment_views ?? [];
+  const reactionsByUser = groupReactionsByUser(reactions);
+  const viewByUser = new Map(viewList.map((v) => [v.user, v]));
+
+  const allUserIds = new Set([
+    ...viewList.map((v) => v.user),
+    ...reactionsByUser.keys(),
+  ]);
+
+  const activities = await Promise.all(
+    [...allUserIds].map(async (uid) => {
+      const userInfo = await getFriendDetail(uid);
+      const userReactions = (reactionsByUser.get(uid) || []).map(mapReactionItem);
+      const view = viewByUser.get(uid);
+
+      return {
+        user: userInfo,
+        viewedAt: view?.viewed_at ?? null,
+        reactions: userReactions,
+        reaction: userReactions[0] ?? null,
+      };
+    }),
+  );
+
+  activities.sort((a, b) => {
+    const aTime = a.reactions[0]?.createdAt || a.viewedAt || 0;
+    const bTime = b.reactions[0]?.createdAt || b.viewedAt || 0;
+    return new Date(bTime).getTime() - new Date(aTime).getTime();
+  });
+
+  return activities;
 }

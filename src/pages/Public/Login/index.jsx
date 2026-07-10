@@ -1,25 +1,26 @@
-import { useState, useContext, useEffect } from "react";
-import * as DioService from "@/services/LocketDioServices";
-import { AuthContext } from "@/context/AuthLocket";
-import * as utils from "@/utils";
+import { useState, useEffect } from "react";
 import LoadingRing from "@/components/ui/Loading/ring";
-import StatusServer from "@/components/ui/StatusServer";
-import { useApp } from "@/context/AppContext";
-import Turnstile from "react-turnstile";
 import { Link } from "react-router-dom";
-import {
-  SonnerError,
-  SonnerInfo,
-  SonnerSuccess,
-} from "@/components/ui/SonnerToast";
+import { SonnerError, SonnerPromise } from "@/components/ui/SonnerToast";
 import { CONFIG } from "@/config";
 import RotatingCircleText from "./RotatingCircleText";
 import { ensureDBOwner } from "@/cache/configDB";
+import { useAuthStore } from "@/stores";
+import TurnstileCaptcha from "./TurnstileCaptcha";
+import { Mail, Phone } from "lucide-react";
+import { loginWithEmail, loginWithPhone } from "@/services";
+import { PhoneInput } from "./PhoneInput";
+import StatusServer from "./StatusServer";
+import { saveToken } from "@/utils";
+import { useTranslation } from "react-i18next";
+import clsx from "clsx";
 
 const Login = () => {
-  const { setUser, setAuthTokens } = useContext(AuthContext);
+  const initAuth = useAuthStore((s) => s.initAuth);
+  const hydrateAuth = useAuthStore((s) => s.hydrateAuth);
   const [captchaToken, setCaptchaToken] = useState(null);
-  const [email, setEmail] = useState("");
+  const [loginMethod, setLoginMethod] = useState("email"); // "email" hoặc "phone"
+  const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(() => {
@@ -27,8 +28,10 @@ const Login = () => {
     return stored === null ? true : stored === "true";
   });
 
-  const { useloading } = useApp();
-  const { isStatusServer, isLoginLoading, setIsLoginLoading } = useloading;
+  const { t } = useTranslation("auth");
+
+  const [isStatusServer, setIsStatusServer] = useState(false);
+  const [isLoginLoading, setIsLoginLoading] = useState(false);
 
   useEffect(() => {
     if (rememberMe) {
@@ -40,98 +43,85 @@ const Login = () => {
 
   const handleLogin = async (e) => {
     e.preventDefault();
+
     if (CONFIG.keys.turnstileKey && !captchaToken) {
-      SonnerError("Vui lòng xác minh bạn không phải robot");
+      SonnerError(t("login.captcha.required"));
       return;
     }
 
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      SonnerError("Email không hợp lệ!");
-      return;
+    if (loginMethod === "email") {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(identifier)) {
+        SonnerError(t("login.validation.invalid_email"));
+        return;
+      }
+    } else {
+      const phoneRegex = /^\+[1-9]\d{6,14}$/;
+      if (!phoneRegex.test(identifier)) {
+        SonnerError(t("login.validation.invalid_phone"));
+        return;
+      }
     }
 
     setIsLoginLoading(true);
+
     try {
-      const res = await DioService.loginV2({
-        email: email,
-        password: password,
-        captchaToken: captchaToken,
+      const loginPromise = (async () => {
+        const res =
+          loginMethod === "email"
+            ? await loginWithEmail({
+                email: identifier,
+                password,
+                captchaToken,
+              })
+            : await loginWithPhone({
+                phone: identifier,
+                password,
+                captchaToken,
+              });
+
+        if (!res?.data) throw new Error(t("login.toast.no_response"));
+
+        const { idToken, localId, refreshToken } = res.data;
+
+        saveToken({ idToken, localId, refreshToken }, rememberMe);
+
+        await ensureDBOwner(localId);
+
+        initAuth();
+        hydrateAuth();
+
+        return res.data;
+      })();
+
+      SonnerPromise(loginPromise, {
+        loading: t("login.toast.loading"),
+        success: (data) =>
+          t("login.toast.welcome", {
+            name: data?.displayName || t("login.toast.welcome_default"),
+          }),
+        error: (error) => {
+          const status = error?.status || error?.response?.status;
+
+          switch (status) {
+            case 400:
+              return t("login.toast.invalid_credentials");
+            case 401:
+              return t("login.toast.session_expired");
+            case 429:
+              return t("login.toast.too_many_requests");
+            case 403:
+              window.location.href = "/login";
+              return t("login.toast.forbidden");
+            case 500:
+              return t("login.toast.server_error");
+            default:
+              return error?.message || t("login.toast.network_error");
+          }
+        },
       });
-      if (!res) throw new Error("Lỗi: Server không trả về dữ liệu!");
 
-      const userPayload = res.data || res;
-      const idToken = userPayload?.idToken;
-      const localId = userPayload?.localId;
-      if (!idToken || !localId) {
-        throw new Error(
-          "Đăng nhập không nhận được token. Cần Web Service (node server.mjs) + mật khẩu Locket đúng."
-        );
-      }
-
-      // ⚡️ Lưu refreshToken theo rememberMe
-      // Khi login thành công:
-      utils.saveToken({ idToken, localId }, rememberMe);
-      await ensureDBOwner(localId);
-      // Lưu email để nhận diện admin (Google Drive, …)
-      const userWithEmail = {
-        ...userPayload,
-        email: userPayload.email || email,
-      };
-      try {
-        localStorage.setItem("email", email);
-        if (!rememberMe) sessionStorage.setItem("email", email);
-      } catch {
-        /* ignore */
-      }
-      utils.saveUser(userWithEmail);
-      setAuthTokens(utils.getToken());
-      setUser(userWithEmail);
-
-      SonnerSuccess(
-        "Đăng nhập thành công!",
-        `Xin chào ${userPayload?.displayName || "người dùng"}!`
-      );
-    } catch (error) {
-      const status = error?.status || error?.response?.status;
-      const message =
-        error?.message ||
-        error?.response?.data?.error ||
-        error?.response?.data?.message ||
-        "";
-      const msgLower = String(message).toLowerCase();
-
-      if (
-        msgLower.includes("permission denied") ||
-        status === 400 ||
-        status === 401
-      ) {
-        SonnerError(
-          "Đăng nhập thất bại",
-          message === "Permission Denied" || msgLower.includes("permission")
-            ? "Sai email/mật khẩu Locket, hoặc API từ chối (Permission Denied)."
-            : message || "Tài khoản hoặc mật khẩu không đúng!"
-        );
-      } else if (status === 429) {
-        SonnerError(
-          "Bạn nhập sai quá nhiều lần. Vui lòng thử lại sau 15 phút!"
-        );
-        setEmail("");
-        setPassword("");
-      } else if (status === 403) {
-        SonnerError("Bạn không có quyền truy cập.");
-      } else if (status === 502 || msgLower.includes("proxy") || msgLower.includes("web service")) {
-        SonnerError("Chưa có API proxy", message || "Tạo Web Service Node trên Render.");
-      } else if (status === 500) {
-        SonnerError("Lỗi hệ thống", message || "Vui lòng thử lại sau!");
-      } else if (status) {
-        SonnerError("Đăng nhập thất bại", message || `Lỗi ${status}`);
-      } else {
-        SonnerError(
-          "Lỗi kết nối!",
-          message || "Vui lòng kiểm tra lại mạng / Web Service."
-        );
-      }
+      await loginPromise;
     } finally {
       setIsLoginLoading(false);
     }
@@ -141,31 +131,81 @@ const Login = () => {
     setShowPassword(!showPassword);
   };
 
+  const toggleLoginMethod = () => {
+    setLoginMethod(loginMethod === "email" ? "phone" : "email");
+    setIdentifier("");
+    setPassword("");
+  };
+
+  const isActiveLogin =
+    isStatusServer !== true ||
+    isLoginLoading ||
+    (CONFIG.keys.turnstileKey && !captchaToken);
+
   return (
     <>
-      <div className="flex items-center justify-center h-[84vh] bg-base-200 px-6">
-        <div className="relative w-full max-w-md p-6 shadow-lg overflow-hidden rounded-xl bg-opacity-50 backdrop-blur-3xl bg-base-100 border-base-300 text-base-content">
+      <div className="flex items-center justify-center h-[84vh] px-6">
+        <div className="relative w-full max-w-md p-6 shadow-lg overflow-hidden rounded-3xl backdrop-blur-3xl bg-base-100 border-base-300 text-base-content">
           <RotatingCircleText />
-          <h1 className="text-3xl font-bold text-center">Đăng Nhập Locket</h1>
+          <h1 className="text-3xl font-bold text-center mb-6">
+            {t("login.title")}
+          </h1>
+
           <form onSubmit={handleLogin} className="space-y-4">
-            <div>
-              <legend className="fieldset-legend">Email</legend>
-              <input
-                type="email"
-                className="w-full px-4 py-2 border rounded-lg input input-ghost border-base-content"
-                placeholder="Nhập email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-              />
+            {/* Input Email hoặc SĐT */}
+            <div className="space-y-1">
+              <label className="label flex gap-1 items-center">
+                {loginMethod === "email"
+                  ? t("login.identifier.email")
+                  : t("login.identifier.phone")}
+                <span className="text-red-500">*</span>
+              </label>
+              <div className="relative">
+                {loginMethod === "email" ? (
+                  <input
+                    type={"email"}
+                    value={identifier}
+                    onChange={(e) => setIdentifier(e.target.value)}
+                    placeholder={"example@email.com"}
+                    required
+                    className="w-full input input-ghost rounded-xl py-5.5 bg-base-300 transition text-base font-semibold placeholder:font-normal placeholder:italic placeholder:opacity-70 shadow-md"
+                  />
+                ) : (
+                  <PhoneInput phone={identifier} onChange={setIdentifier} />
+                )}
+              </div>
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={toggleLoginMethod}
+                  className="text-xs text-base-content opacity-80 hover:opacity-100 underline inline-flex items-center gap-1"
+                >
+                  {loginMethod === "email" ? (
+                    <>
+                      <Phone className="w-4 h-4" />
+                      {t("login.switch.phone")}
+                    </>
+                  ) : (
+                    <>
+                      <Mail className="w-4 h-4" />
+                      {t("login.switch.email")}
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
-            <div>
-              <legend className="fieldset-legend">Mật khẩu</legend>
+
+            {/* Input Mật khẩu */}
+            <div className="space-y-1">
+              <label className="label flex gap-1 items-center">
+                {t("login.password.label")}
+                <span className="text-red-500">*</span>
+              </label>
               <div className="relative">
                 <input
                   type={showPassword ? "text" : "password"}
-                  className="w-full px-4 py-2 pr-12 rounded-lg input input-ghost border-base-content"
-                  placeholder="Nhập mật khẩu"
+                  className="w-full input input-ghost rounded-xl py-5.5 font-semibold text-base bg-base-300 placeholder:font-normal placeholder:italic placeholder:opacity-70 shadow-md"
+                  placeholder={t("login.password.placeholder")}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
@@ -213,7 +253,17 @@ const Login = () => {
                   )}
                 </button>
               </div>
+              <div className="flex justify-end">
+                <Link
+                  to="/forgot-password"
+                  className="text-xs tracking-wide opacity-80 hover:opacity-100 underline"
+                >
+                  {t("login.password.forgot")}
+                </Link>
+              </div>
             </div>
+
+            {/* Remember me & Forgot password */}
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <input
@@ -228,61 +278,39 @@ const Login = () => {
                   htmlFor="rememberMe"
                   className="cursor-pointer select-none text-sm"
                 >
-                  Ghi nhớ đăng nhập
+                  {t("login.remember_me")}
                 </label>
               </div>
-
-              {/* ✅ Thêm link Quên mật khẩu */}
-              <Link
-                to={"/forgot-password"}
-                className="text-sm text-blue-500 hover:underline"
-              >
-                Quên mật khẩu?
-              </Link>
             </div>
 
+            {/* Button đăng nhập */}
             <button
               type="submit"
-              className={`
-    w-full btn btn-primary py-2 text-lg font-semibold rounded-lg transition flex items-center justify-center gap-2
-    ${
-      isStatusServer !== true ||
-      isLoginLoading ||
-      (CONFIG.keys.turnstileKey && !captchaToken)
-        ? "bg-blue-400 cursor-not-allowed opacity-80"
-        : ""
-    }
-  `}
-              disabled={
-                isStatusServer !== true ||
-                isLoginLoading ||
-                (CONFIG.keys.turnstileKey && !captchaToken)
-              }
+              className={clsx(
+                "w-full btn btn-primary py-6 text-lg font-semibold rounded-3xl transition flex items-center justify-center gap-2",
+                {
+                  "cursor-not-allowed": isActiveLogin,
+                },
+              )}
+              disabled={isActiveLogin}
             >
               {isLoginLoading ? (
                 <>
                   <LoadingRing size={20} stroke={3} speed={2} color="white" />
-                  Đang đăng nhập...
+                  {t("login.loading.login")}
                 </>
               ) : (
-                "Đăng Nhập"
+                <>{t("login.button.submit")}</>
               )}
             </button>
 
-            {CONFIG.keys.turnstileKey && (
-              <Turnstile
-                sitekey={CONFIG.keys.turnstileKey}
-                onVerify={(token) => setCaptchaToken(token)}
-                onExpire={() => {
-                  setCaptchaToken(null);
-                  SonnerInfo("Turnstile đã hết hạn. Vui lòng xác minh lại.");
-                }}
-                className="mt-2"
-              />
-            )}
+            <TurnstileCaptcha onVerify={setCaptchaToken} />
 
-            <span className="text-xs">Vui lòng chờ Server02 khởi động.</span>
-            <StatusServer />
+            <span className="text-xs">{t("login.server.starting")}</span>
+            <StatusServer
+              isStatusServer={isStatusServer}
+              setIsStatusServer={setIsStatusServer}
+            />
           </form>
         </div>
       </div>

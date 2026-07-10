@@ -2,11 +2,12 @@
 <html lang="vi">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
     <title>Huy Locket - Đăng ảnh & Video lên Locket</title>
+    <!-- <meta name="robots" content="noindex, nofollow" /> -->
     <!-- PWA Manifest -->
-    <!-- <link rel="manifest" href="/manifest.json" /> -->
-    <meta name="theme-color" content="#ff9ecf" />
+    <!-- <link rel="manifest" href="./manifest.json" /> -->
+    <meta name="theme-color" content="#ffffff" />
     <meta name="description" content="Huy Locket giúp bạn đăng ảnh và video lên Locket nhanh chóng ngay từ trình duyệt, hỗ trợ chụp/quay trực tiếp, thêm caption đầy màu sắc và chia sẻ khoảnh khắc dễ dàng." />
 
     <!-- iOS Support -->
@@ -33,7 +34,7 @@
     <!-- Cho phép các công cụ tìm kiếm lập chỉ mục và theo dõi liên kết -->
     <meta name="robots" content="index, follow" />
 
-    <!-- CDN (backend Locket Dio) -->
+    <!-- CDN Huy Locket -->
     <link rel="dns-prefetch" href="https://cdn.locket-dio.com" />
     <link rel="preconnect" href="https://cdn.locket-dio.com" crossorigin />
 
@@ -52,24 +53,27 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
     <link rel="icon" type="image/png" sizes="96x96" href="/favicon-96x96.png" />
     
-    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <noscript>
+    </noscript>
 
     <!-- Google Analytics -->
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-7596Z1M8BB"></script>
-    <script>
+    <script defer>
       window.dataLayer = window.dataLayer || [];
       function gtag(){dataLayer.push(arguments);}
       gtag('js', new Date());
       gtag('config', 'G-7596Z1M8BB');
     </script>
     
-    <script type="module" crossorigin src="/assets/index-LVNg7imV.js"></script>
-    <link rel="modulepreload" crossorigin href="/assets/react-DSZ8E3Kk.js">
-    <link rel="modulepreload" crossorigin href="/assets/ui-bHBfS8iO.js">
-    <link rel="modulepreload" crossorigin href="/assets/vendor-_RjxNf5h.js">
-    <link rel="stylesheet" crossorigin href="/assets/index-DZQFyU2w.css">
+    <script type="module" crossorigin src="/assets/index-DWirp_NM.js"></script>
+    <link rel="modulepreload" crossorigin href="/assets/vendor-hHZ6xKSS.js">
+    <link rel="modulepreload" crossorigin href="/assets/i18n-BYN5h6_Y.js">
+    <link rel="modulepreload" crossorigin href="/assets/react-Dylfdo1z.js">
+    <link rel="modulepreload" crossorigin href="/assets/icons-CeAlbVeh.js">
+    <link rel="stylesheet" crossorigin href="/assets/index-DEkq6RNG.css">
   <link rel="manifest" href="/manifest.webmanifest"></head>
   <body>
-    <div id="root"></div>
+    <div id="root"></div>
   </body>
 </html>

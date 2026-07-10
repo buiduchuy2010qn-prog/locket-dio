@@ -10,28 +10,24 @@ const Header = () => {
 
   return (
     <>
-      <header
-        className="sticky top-0 shadow-md bg-base-100 navbar flex items-center justify-between px-6 py-3 text-base-content border-base-300"
-        style={{ zIndex: 50 }}
-      >
+      <header className="fixed top-0 z-50 shadow-md bg-base-100 navbar flex items-center justify-between px-6 py-3 text-base-content border-base-300">
         <Link to="/" className="flex items-center gap-2" aria-label="Trang chủ">
-          <span className="font-semibold gradient-text select-none">
+          <span className="font-semibold gradient-text disable-select">
             Huy Locket
           </span>
           <img
             src="/images/locket-dio.png"
-            alt="Huy Locket icon"
-            className="w-7 h-7 object-contain -ml-1 select-none pointer-events-none"
+            alt="Locket icon"
+            className="w-7 h-7 object-contain -ml-1 disable-select"
             draggable="false"
           />
         </Link>
 
-        <div className="flex items-center gap-2 relative" style={{ zIndex: 51 }}>
+        <div className="flex items-center gap-2">
+          {/* <ThemeDropdown /> */}
           <button
-            type="button"
             onClick={() => setIsSidebarOpen(true)}
-            className="p-2 rounded-md transition cursor-pointer btn relative"
-            style={{ zIndex: 51, pointerEvents: "auto" }}
+            className="p-2 rounded-md transition cursor-pointer btn"
             aria-label="Mở menu"
           >
             <Menu size={28} strokeWidth={2} />

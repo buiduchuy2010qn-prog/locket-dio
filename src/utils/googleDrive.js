@@ -211,7 +211,7 @@ export async function uploadFileToGoogleDrive(file, options = {}) {
   let name =
     options.fileName ||
     clean.name ||
-    `locketdio-${Date.now()}.${ext}`;
+    `huylocket-${Date.now()}.${ext}`;
   // Đảm bảo đuôi khớp MIME (Drive mới nhận video)
   if (!name.toLowerCase().endsWith(`.${ext}`)) {
     name = `${String(name).replace(/\.[^.]+$/, "")}.${ext}`;

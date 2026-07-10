@@ -1,44 +1,31 @@
-import React, { lazy, Suspense, useEffect, useState } from "react";
+import React, { lazy, Suspense } from "react";
 import { useLocation } from "react-router-dom";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
-import LoadingPage from "../components/pages/LoadingPage";
-import Sidebar from "@/components/Sidebar";
 
 const FloatingActions = lazy(() => import("@/components/ui/FloatingWidget"));
-const CropImageStudio = lazy(() =>
-  import("@/components/common/CropImageStudio")
-);
+const CropImageStudio = lazy(() => import("@/features/EditorStudio/CropImageStudio"));
+const CropVideoStudio = lazy(() => import("@/features/EditorStudio/CropVideoStudio"));
 
 const DefaultLayout = ({ children }) => {
   const location = useLocation();
-  const [isLoading, setIsLoading] = useState(false);
 
-  // Các route cần ẩn FloatingActions
+  // Ẩn floating
   const hiddenFloatingRoutes = ["/tools"];
   const shouldHideFloating = hiddenFloatingRoutes.some((path) =>
-    location.pathname.startsWith(path)
+    location.pathname.startsWith(path),
   );
 
-  // Handle loading state on route change
-  useEffect(() => {
-    setIsLoading(true);
-    const timer = setTimeout(() => setIsLoading(false), 500);
-    return () => clearTimeout(timer);
-  }, [location.pathname]);
+  // Chỉ hiện crop ở các route này
+  const cropRoutes = ["/postmoments", "/restore-streak"];
+  const shouldShowCrop = cropRoutes.some((path) =>
+    location.pathname.startsWith(path),
+  );
 
   return (
-    <div className="grid grid-rows-[auto_1fr_auto]">
-      {/* Fixed Header */}
+    <>
       <Header />
-
-      {isLoading && (
-        <div className="absolute inset-0 z-20">
-          <LoadingPage />
-        </div>
-      )}
-
-      {/* Main Content with Scroll */}
+      <div className="h-16 bg-base-200" />
       <main className="overflow-hidden bg-base-200 text-base-content relative">
         <div className="relative z-10">{children}</div>
       </main>
@@ -46,11 +33,36 @@ const DefaultLayout = ({ children }) => {
       {!shouldHideFloating && <Footer />}
 
       <Suspense fallback={null}>
-        <CropImageStudio />
+        {shouldShowCrop && (
+          <>
+            <CropImageStudio />
+            <CropVideoStudio />
+          </>
+        )}
         {!shouldHideFloating && <FloatingActions />}
       </Suspense>
+    </>
+  );
 
-      <Sidebar />
+  return (
+    <div className="grid grid-rows-[auto_1fr_auto]">
+      <Header />
+
+      <main className="overflow-hidden bg-base-200 text-base-content relative">
+        <div className="relative z-10">{children}</div>
+      </main>
+
+      {!shouldHideFloating && <Footer />}
+
+      <Suspense fallback={null}>
+        {shouldShowCrop && (
+          <>
+            <CropImageStudio />
+            <CropVideoStudio />
+          </>
+        )}
+        {!shouldHideFloating && <FloatingActions />}
+      </Suspense>
     </div>
   );
 };

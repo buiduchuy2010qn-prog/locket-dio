@@ -35,6 +35,15 @@ export const CONTACT_CONFIG = {
   supportEmail: CONFIG.app.contact.supportEmail,
 };
 
+export const MYBANK_CONFIG = {
+  bankCode: CONFIG.app.bankInfo.bankCode,
+  urlImg: CONFIG.app.bankInfo.urlImg,
+  bankShortname: CONFIG.app.bankInfo.short_name,
+  bankName: CONFIG.app.bankInfo.bankName,
+  accountNumber: CONFIG.app.bankInfo.accountNumber,
+  accountName: CONFIG.app.bankInfo.accountName,
+};
+
 export const SPONSORS_CONFIG = {
   accountName: CONFIG.app.sponsors.accountName,
   accountNumber: CONFIG.app.sponsors.accountNumber,
@@ -45,4 +54,9 @@ export const SPONSORS_CONFIG = {
 export const EMBEDVIDEO_CONFIG = {
   embedIos: CONFIG.app.videoTutorials.iosAddscreen,
   embedAndroid: CONFIG.app.videoTutorials.androidAddscreen,
+};
+
+export const CACHE_CONFIG = {
+  keys: CONFIG.cache.keys,
+  ttls: CONFIG.cache.ttl,
 };

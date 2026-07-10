@@ -2,11 +2,12 @@
 <html lang="vi">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
     <title>Huy Locket - Đăng ảnh & Video lên Locket</title>
+    <!-- <meta name="robots" content="noindex, nofollow" /> -->
     <!-- PWA Manifest -->
-    <!-- <link rel="manifest" href="/manifest.json" /> -->
-    <meta name="theme-color" content="#ff9ecf" />
+    <!-- <link rel="manifest" href="./manifest.json" /> -->
+    <meta name="theme-color" content="#ffffff" />
     <meta name="description" content="Huy Locket giúp bạn đăng ảnh và video lên Locket nhanh chóng ngay từ trình duyệt, hỗ trợ chụp/quay trực tiếp, thêm caption đầy màu sắc và chia sẻ khoảnh khắc dễ dàng." />
 
     <!-- iOS Support -->
@@ -33,7 +34,7 @@
     <!-- Cho phép các công cụ tìm kiếm lập chỉ mục và theo dõi liên kết -->
     <meta name="robots" content="index, follow" />
 
-    <!-- CDN (backend Locket Dio) -->
+    <!-- CDN Huy Locket -->
     <link rel="dns-prefetch" href="https://cdn.locket-dio.com" />
     <link rel="preconnect" href="https://cdn.locket-dio.com" crossorigin />
 
@@ -53,11 +54,19 @@
     <link rel="icon" type="image/png" sizes="96x96" href="/favicon-96x96.png" />
     
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-    <link href="./tailwind.css" rel="stylesheet" />
+    <link
+      rel="preload"
+      href="/tailwind.css"
+      as="style"
+      onload="this.onload=null;this.rel='stylesheet'"
+    />
+    <noscript>
+      <link rel="stylesheet" href="/tailwind.css" />
+    </noscript>
 
     <!-- Google Analytics -->
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-7596Z1M8BB"></script>
-    <script>
+    <script defer>
       window.dataLayer = window.dataLayer || [];
       function gtag(){dataLayer.push(arguments);}
       gtag('js', new Date());

@@ -55,7 +55,7 @@ export default function BirthdayPage() {
         {/* Content */}
         <div className="p-6 text-center">
           <img
-            src="https://img.vietqr.io/image/970422-0394709137-compact2.png?accountName=BUI%20DUC%20HUY"
+            src="https://cdn.locket-dio.com/v1/images/qr/vcb_qr.jpg"
             alt="Birthday QR"
             className="w-48 h-48 mx-auto rounded-lg shadow mb-4 border border-pink-300"
           />

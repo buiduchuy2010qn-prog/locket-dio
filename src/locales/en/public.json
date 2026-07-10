@@ -1,0 +1,32 @@
+{
+  "server": {
+    "checking": "Checking server",
+    "online": "Server is running",
+    "offline": "Server is unavailable"
+  },
+  "time": {
+    "just_now": "Just now",
+    "minutes_ago": "{{count}} minutes ago",
+    "hours_ago": "{{count}} hours ago",
+    "days_ago": "{{count}} days ago"
+  },
+  "error_boundary": {
+    "title": "Oops! Something went wrong.",
+    "description": "The Huy Locket web app encountered an unexpected error. Please try restarting the app or join our community for support.",
+    "restart": "Restart",
+    "join_community": "Join Community"
+  },
+  "not_found": {
+    "title": "Oops! The page you're looking for doesn't exist.",
+    "description": "It seems we've lost this page somewhere.",
+    "go_home": "Go to Home"
+  },
+  "loading_page": {
+    "title": "The Huy Locket is loading.",
+    "description": "Preparing your memories..."
+  },
+  "rotating_circle": {
+    "outer": "Huy Locket • Share Moments •",
+    "inner": "Huy Locket • Modern • Convenient • Cross-Platform • Security •"
+  }
+}

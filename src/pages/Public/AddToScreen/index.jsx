@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, lazy, Suspense } from "react";
+import "./styles.css";
 import {
   Smartphone,
   Monitor,
@@ -17,6 +18,7 @@ import {
   PlayCircle,
 } from "lucide-react";
 import { EMBEDVIDEO_CONFIG } from "@/config";
+const SettingAppIcon = lazy(() => import("./SettingAppIcon"));
 
 const AddToHomeScreenGuide = () => {
   const [activeTab, setActiveTab] = useState("android");
@@ -49,7 +51,7 @@ const AddToHomeScreenGuide = () => {
   }, []);
 
   return (
-    <div className="min-h-screen bg-base-200">
+    <div className="min-h-screen">
       <div className="max-w-3xl mx-auto py-10 px-4">
         {/* Header */}
         <div className="text-center mb-8">
@@ -271,6 +273,16 @@ const AddToHomeScreenGuide = () => {
           </div>
         </div>
 
+        <Suspense
+          fallback={
+            <div className="bg-base-300 rounded-2xl shadow-md p-4 h-[200px] flex items-center justify-center">
+              <span className="loading loading-spinner text-primary"></span>
+            </div>
+          }
+        >
+          <SettingAppIcon />
+        </Suspense>
+
         {/* Benefits Section */}
         <div className="bg-base-100 rounded-2xl shadow-xl p-5 mb-8">
           <h2 className="text-2xl font-bold text-base-content mb-6 flex items-center gap-2">
@@ -348,8 +360,8 @@ const AddToHomeScreenGuide = () => {
                 Không thấy biểu tượng trên màn hình?
               </h3>
               <p className="text-yellow-700 text-sm">
-                Kiểm tra các trang màn hình chính khác hoặc tìm kiếm trên thiết bị
-                "Huy Locket"
+                Kiểm tra các trang màn hình chính khác hoặc tìm kiếm trên thiết
+                bị "Huy Locket"
               </p>
             </div>
           </div>

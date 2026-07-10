@@ -40,3 +40,13 @@ stats.html
 # Google Drive admin secrets (form web)
 data/
 
+
+_upgrade_backup_*/
+package.new.json
+
+
+_upgrade_backup_*/
+package.new.json
+apps/
+public_legacy_locket/
+

@@ -1,158 +1,89 @@
-import { showError } from "@/components/Toast";
 import { getToken } from "@/utils";
 import { uploadFileAndGetInfoR2 } from "./StorageServices";
-import { getStreakDataForPost } from "@/utils/moment/streak";
-import {
-  sanitizeMediaInfo,
-  sanitizeOptionsData,
-} from "@/utils/sanitizePostOptions";
-/** Chuẩn hoá danh sách uid người nhận (string, bỏ rỗng/trùng). */
-const normalizeRecipientIds = (list) => {
-  if (!Array.isArray(list)) return [];
-  const out = [];
-  const seen = new Set();
-  for (const r of list) {
-    let id = null;
-    if (typeof r === "string" && r.trim()) id = r.trim();
-    else if (r && typeof r === "object") {
-      id = r.uid || r.localId || r.userId || r.id || r.user || null;
-      if (id != null) id = String(id).trim();
-    } else if (typeof r === "number" && Number.isFinite(r)) {
-      id = String(r);
-    }
-    if (id && !seen.has(id)) {
-      seen.add(id);
-      out.push(id);
-    }
-  }
-  return out;
+import { useOverlayEditorStore, usePostStore, useStreakStore } from "@/stores";
+import { SonnerWarning } from "@/components/ui/SonnerToast";
+
+// Hàm con xác định recipients
+const determineRecipients = (audience, selectedRecipients, localId) => {
+  if (audience === "selected") return selectedRecipients || [];
+  if (audience === "private") return localId ? [localId] : [];
+  // Trường hợp public hoặc khác trả về mảng rỗng
+  return [];
 };
 
-/**
- * Map audience UI → recipients + cờ Locket/Dio.
- * - all: sent_to_all, recipients rỗng
- * - selected: show_personally + danh sách uid đã chọn
- * - private: chỉ mình (localId)
- */
-export const resolveAudiencePayload = (
-  audience,
-  selectedRecipients,
-  localId
-) => {
-  const mode = audience === "private" || audience === "selected" ? audience : "all";
-  let recipients = [];
-
-  if (mode === "private") {
-    recipients = localId ? [String(localId)] : [];
-  } else if (mode === "selected") {
-    recipients = normalizeRecipientIds(selectedRecipients);
-    // Không gửi selected rỗng → Dio thường hiểu là all → ép private an toàn hơn
-    if (recipients.length === 0 && localId) {
-      return {
-        audience: "private",
-        recipients: [String(localId)],
-        sent_to_all: false,
-        show_personally: true,
-      };
-    }
-  }
-
-  return {
-    audience: mode,
-    recipients,
-    sent_to_all: mode === "all",
-    show_personally: mode === "selected" || mode === "private",
-  };
-};
-
-/**
- * Payload postMomentV2 — sanitize chặt để tránh Dio 500
- * (caption object, streakData boolean, recipients object, …)
- * Drive backup: tự chạy ngay sau chụp (useAutoDriveBackup), không lặp lúc post.
- */
-export const createRequestPayloadV5 = async (
-  selectedFile,
-  previewType,
-  postOverlay,
-  audience,
-  selectedRecipients
-) => {
+export const createRequestPayloadV6 = async () => {
   try {
     const { localId } = getToken() || {};
 
+    // Media Stores
+    const selectedFile = usePostStore.getState().selectedFile;
+    const previewType = usePostStore.getState().preview.type;
+
+    // Streak Stores
+    const streakData = useStreakStore.getState().getTodayIfNotUpdated();
+    const restoreStreakData = usePostStore.getState().restoreStreakData;
+
+    // Overlay Caption Stores
+    const overlayData = useOverlayEditorStore.getState().overlayData;
+
+    // Post Options
+    const audience = usePostStore.getState().audience;
+    const selectedRecipients = usePostStore.getState().selectedRecipients;
+    const selectedGroupId = usePostStore.getState().selectedGroupId;
+    const videoCropData = usePostStore.getState().videoCropData;
+
     if (!localId) {
-      showError("Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.");
+      SonnerWarning("Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.");
       return null;
     }
+    // Upload file & chuẩn bị thông tin media
+    const fileInfo = await uploadFileAndGetInfoR2(
+      selectedFile,
+      previewType,
+      localId,
+    );
+    // console.log(fileInfo);
 
-    const mediaType = String(previewType || "image").toLowerCase();
-    if (mediaType !== "image" && mediaType !== "video") {
-      throw new Error(`contentType không hợp lệ: ${mediaType}`);
+    const mediaInfo = {
+      ...fileInfo,
+      type: previewType,
+    };
+
+    // Chuẩn bị dữ liệu tùy chọn (caption, overlay, v.v.)
+    const optionsDataObj = {
+      ...overlayData,
+      audience, // Gắn audience vào options luôn
+      recipients: determineRecipients(audience, selectedRecipients, localId),
+    };
+
+    if (videoCropData) {
+      optionsDataObj.videoCropData = videoCropData;
     }
 
-    const uploaded = await uploadFileAndGetInfoR2(
-      selectedFile,
-      mediaType,
-      localId
-    );
+    // Thêm selectedGroupId vào optionsData nếu có
+    if (selectedGroupId) {
+      optionsDataObj.selectedGroupId = selectedGroupId;
+    }
 
-    const mediaInfo = sanitizeMediaInfo(
-      uploaded,
-      mediaType,
-      selectedFile?.size
-    );
+    // Ưu tiên restoreStreakData, nếu không có mới dùng streakData
+    if (restoreStreakData?.mode === "restore") {
+      optionsDataObj.restoreStreakDate = restoreStreakData;
+      optionsDataObj.restoreStreakData = restoreStreakData;
+    } else if (streakData) {
+      optionsDataObj.streakData = streakData;
+    }
 
-    const streakData = getStreakDataForPost();
-    const audienceMeta = resolveAudiencePayload(
-      audience,
-      selectedRecipients,
-      localId
-    );
-
-    const optionsData = sanitizeOptionsData(postOverlay || {}, {
-      audience: audienceMeta.audience,
-      recipients: audienceMeta.recipients,
-      sent_to_all: audienceMeta.sent_to_all,
-      show_personally: audienceMeta.show_personally,
-      streakData,
-    });
-
-    return {
+    // Tạo payload cuối cùng
+    const payload = {
       model: "Version-UploadmediaV3.1",
       mediaInfo,
-      contentType: mediaType,
-      optionsData,
-      options: optionsData,
+      contentType: previewType,
+      optionsData: optionsDataObj, // Thêm optionsData vào payload
     };
+
+    return payload;
   } catch (error) {
     console.error("Lỗi khi tạo payload:", error);
     throw error;
   }
-};
-
-export const createRequestPayloadV4 = async (
-  selectedFile,
-  previewType,
-  postOverlay,
-  restoreStreak,
-  audience,
-  selectedRecipients
-) => {
-  const base = await createRequestPayloadV5(
-    selectedFile,
-    previewType,
-    postOverlay,
-    audience,
-    selectedRecipients
-  );
-  if (!base) return null;
-  if (restoreStreak) {
-    base.optionsData = {
-      ...base.optionsData,
-      restoreStreakDate: restoreStreak,
-      restoreStreakData: restoreStreak,
-    };
-    base.options = base.optionsData;
-  }
-  return base;
 };

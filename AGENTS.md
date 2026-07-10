@@ -2,33 +2,24 @@
 
 ## Branding
 
-- **App display name:** Huy Locket (not "Locket Dio" in UI)
-- Repo folder / GitHub may still be `locket-dio`; service Docker name: **huy-locket**
+- **App display name:** Huy Locket (never "Locket Dio" / "Đào Văn Đôi" in UI)
+- Author: Bùi Đức Huy · STK MBBank 0394709137
+- Repo folder may still be `locket-dio`; Docker service: **huy-locket**
 
-## Production deploy target (user request 2026-07-10)
+## Keep when upgrading
 
-Service name: **huy-locket**  
-Runtime: **Docker** · Region: **Singapore**  
-Repo: `https://github.com/buiduchuy2010qn-prog/locket-dio.git`  
-Branch: **`main`**
+1. **Google Drive backup** (`server.mjs` OAuth + Neon, `utils/googleDrive.js`, admin-only UI)
+2. **Weather real data** (Dio API + Open-Meteo fallback)
+3. **pinksnow** theme + snow effects
+4. Deploy scripts: `npm run build:static`, `server.mjs`, Dockerfile
 
-### Auto-update rule (mandatory)
+## Production deploy (mandatory)
 
-Whenever you change code in this project for the user:
+Service: **huy-locket** · Docker · Singapore  
+Repo: `https://github.com/buiduchuy2010qn-prog/locket-dio.git` · branch **main**
 
-1. Finish the feature/fix and verify locally if practical.
-2. **Commit** with a clear message (complete sentences).
-3. **`git push origin main`** so the **huy-locket** Docker service rebuilds/redeploys.
-4. Tell the user the commit hash and that deploy to **huy-locket** was triggered (or report push/deploy errors).
+After production changes: commit + `git push origin main`.
 
-Do **not** leave production-bound changes only on the local machine.
+## API note
 
-### If push fails
-
-- Do not force-push unless the user explicitly asks.
-- Report auth/remote errors and ask the user to re-auth GitHub or check that **huy-locket** is still linked to this repo for auto-deploy from `main`.
-
-### Related (secondary)
-
-- Render static blueprint: see `DEPLOY.txt` / `render.yaml` (`locket-dio-ly9t.onrender.com`) — only use if the user asks for Render specifically.
-- Primary live target the user cares about: **huy-locket** (Docker, Singapore).
+Internal API paths/headers (`LocketDioServices`, `X-LocketDio-Member`, `api.locket-dio.com`) stay for backend compatibility — only user-facing brand is Huy Locket.

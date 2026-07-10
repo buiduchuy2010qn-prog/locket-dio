@@ -1,18 +1,15 @@
-import { useContext, useMemo } from "react";
+import { useMemo } from "react";
 import { Link, Navigate } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import GoogleDriveBackup from "@/pages/Public/Settings/GoogleDriveBackup";
-import { AuthContext } from "@/context/AuthLocket";
+import { useAuthStore } from "@/stores";
 import { isAdminUser } from "@/utils/googleDrive";
 import { getMyLocalId } from "@/utils/auth/getMyLocalId";
 
-/**
- * /admin/google-drive — chỉ admin (kết nối Drive OAuth).
- * User thường không vào được.
- */
+/** /admin/google-drive — chỉ admin */
 export default function AdminGoogleDrivePage() {
-  const { user, authTokens } = useContext(AuthContext);
-  const localId = getMyLocalId(user, authTokens);
+  const user = useAuthStore((s) => s.user);
+  const localId = getMyLocalId(user);
   const email =
     user?.email ||
     localStorage.getItem("email") ||
@@ -40,7 +37,7 @@ export default function AdminGoogleDrivePage() {
             Google Drive backup
           </h1>
           <p className="text-sm text-base-content/60 mt-1">
-            Chỉ admin · Liên kết 1 lần · Backup chung cho toàn web
+            Chỉ admin · Liên kết 1 lần · Backup chung cho Huy Locket
           </p>
         </div>
 

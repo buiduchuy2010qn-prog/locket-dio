@@ -4,8 +4,6 @@ import {
   useCamera,
   useLoading,
   useNavigation,
-  usePost,
-  useThemes,
 } from "../stores";
 
 const AppContext = createContext();
@@ -15,8 +13,6 @@ export const AppProvider = ({ children }) => {
   const navigation = useNavigation();
   const camera = useCamera();
   const useloading = useLoading();
-  const post = usePost();
-  const captiontheme = useThemes();
 
   return (
     <AppContext.Provider
@@ -24,8 +20,6 @@ export const AppProvider = ({ children }) => {
         navigation,
         camera,
         useloading,
-        post,
-        captiontheme,
       }}
     >
       {children}

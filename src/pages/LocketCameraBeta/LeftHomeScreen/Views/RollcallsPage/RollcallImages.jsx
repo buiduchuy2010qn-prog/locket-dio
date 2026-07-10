@@ -5,8 +5,11 @@ import "swiper/css";
 import "swiper/css/effect-cards";
 import { Loader2, SmilePlus } from "lucide-react";
 import { getImageSrc } from "@/utils/replace/replaceUrl";
+import { replaceFirebaseWithCDN } from "@/utils/replace/replaceFirebaseWithCDN";
+import { useTranslation } from "react-i18next";
 
 function RollcallImages({ items, onActiveChange }) {
+  const { t } = useTranslation("main");
   const [activeIndex, setActiveIndex] = useState(0);
   const total = items.length;
 
@@ -37,7 +40,7 @@ function RollcallImages({ items, onActiveChange }) {
             <SwiperSlide key={item.uid}>
               <div className="relative w-full h-full overflow-hidden rounded-lg">
                 {/* IMAGE */}
-                <LazyImage src={getImageSrc(item.main_url)} alt="" />
+                <LazyImage src={replaceFirebaseWithCDN(item.main_url)} alt="" />
 
                 {/* COUNTER – chỉ slide active */}
                 {isActive && (
@@ -106,15 +109,16 @@ function ReactionList({ reactions = [] }) {
 function LazyImage({ src, alt = "", className = "" }) {
   const [loaded, setLoaded] = useState(false);
 
-  return (
-    <div className="relative w-full h-full">
-      {/* Skeleton */}
-      {!loaded && (
-        <div className="absolute inset-0 bg-base-300 flex flex-col items-center justify-center gap-2">
-          <Loader2 className="w-6 h-6 animate-spin opacity-70" />
-          <span className="text-sm opacity-70">Đang tải…</span>
-        </div>
-      )}
+    const { t } = useTranslation("main");
+    return (
+      <div className="relative w-full h-full">
+        {/* Skeleton */}
+        {!loaded && (
+          <div className="absolute inset-0 bg-base-300 flex flex-col items-center justify-center gap-2">
+            <Loader2 className="w-6 h-6 animate-spin opacity-70" />
+            <span className="text-sm opacity-70">{t("left.image_loading")}</span>
+          </div>
+        )}
 
       <img
         src={src}

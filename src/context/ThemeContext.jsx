@@ -5,7 +5,7 @@ export const ThemeContext = createContext();
 
 export const ThemeProvider = ({ children }) => {
   const [theme, setTheme] = useState(
-    () => localStorage.getItem("theme") || PINK_SNOW_THEME
+    () => localStorage.getItem("theme") || PINK_SNOW_THEME || "pinksnow"
   );
 
   const changeTheme = (newTheme) => {

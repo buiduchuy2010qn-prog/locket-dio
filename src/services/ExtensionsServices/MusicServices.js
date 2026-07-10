@@ -1,4 +1,4 @@
-import api from "@/lib/axios";
+import api from "@/libs/axios";
 
 export const getInfoMusicByUrl = async (url, platform) => {
   if (!url || !platform) {
@@ -7,7 +7,7 @@ export const getInfoMusicByUrl = async (url, platform) => {
   }
 
   try {
-    const res = await api.post("/api/getInfoMusic", { url, platform });
+    const res = await api.post("/api/getInfoMusicV2", { url, platform });
 
     if (res?.data?.status === "success") {
       return res.data.data;

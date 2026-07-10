@@ -17,10 +17,14 @@ const manifestForPlugIn = {
     maximumFileSizeToCacheInBytes: 0, // ✅ TẮT HOÀN TOÀN cache tự động
   },
 
-  // prompt: không auto reload tab đang mở (user chọn cập nhật)
-  registerType: "prompt",
+  // ✅ Tự kiểm tra và cập nhật SW khi có bản mới
+  registerType: "autoUpdate",
 
-  includeAssets: ["favicon.ico", "apple-touch-icon.png", "maskable-icon-512x512.png"],
+  includeAssets: [
+    "favicon.ico",
+    "apple-touch-icon.png",
+    "maskable-icon-512x512.png",
+  ],
 
   manifest: {
     name: "Huy Locket",
@@ -57,9 +61,21 @@ const manifestForPlugIn = {
       },
     ],
   },
+  workbox: {
+    cleanupOutdatedCaches: true,
+    skipWaiting: true,
+    clientsClaim: true,
+
+    navigateFallbackDenylist: [/^\/assets\//],
+  },
 };
 
+const brand = process.env.VITE_BRAND;
+const publicDir = brand ? `public-${brand}` : "public";
+
 export default defineConfig({
+  publicDir,
+  base: "/",
   content: ["./index.html", "./src/**/*.{js,ts,jsx,tsx}"],
   server: {
     host: true,
@@ -74,10 +90,25 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
-          react: ["react", "react-dom"],
-          ui: ["lucide-react", "sonner", "react-icons", "react-toastify", "react-fast-marquee", "swiper"],
-          crop: ["react-easy-crop"],
-          vendor: ["axios", "zustand", "dexie"]
+          vendor: [
+            "axios",
+            "zustand",
+            "dexie",
+            "uuid",
+            "jwt-decode",
+            "clsx",
+            "prop-types",
+            "sonner",
+            "ldrs",
+          ],
+          react: ["react", "react-dom", "react-router-dom"],
+          i18n: [
+            "i18next",
+            "react-i18next",
+            "i18next-browser-languagedetector",
+          ],
+          icons: ["lucide-react", "react-icons"],
+          media: ["swiper", "react-easy-crop"],
         },
       },
     },

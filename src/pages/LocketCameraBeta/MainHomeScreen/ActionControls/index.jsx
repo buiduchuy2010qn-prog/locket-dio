@@ -1,47 +1,67 @@
-import React, { useState, useEffect } from "react";
-import { useApp } from "@/context/AppContext.jsx";
-import MediaControls from "./MediaControls/index.jsx";
-import MediaCapture from "./MediaCapture/index.jsx";
+import React from "react";
+import UploadFile from "./CameraControls/UploadFile";
+import CameraButton from "./CameraControls/CameraButton";
+import CameraToggle from "./CameraControls/CameraToggle";
+
+import SendButton from "./MediaControls/SendButton";
+import DelButton from "./MediaControls/DelButton";
+import OverlayButton from "./MediaControls/OverlayButton";
+import { usePostStore } from "@/stores";
 
 const ActionControls = () => {
-  const { post, camera } = useApp();
-  const { selectedFile } = post;
-  const { capturedMedia } = camera;
+  const selectedFile = usePostStore((s) => s.selectedFile);
 
-  const targetView = capturedMedia || selectedFile ? "controls" : "capture";
+  const hasFile = !!selectedFile;
 
-  // view hiện tại đang mount trong DOM
-  const [view, setView] = useState(targetView);
-  const [isAnimating, setIsAnimating] = useState(false);
+  const baseBtn =
+    "transition-all duration-300 ease-in-out transform active:scale-95";
 
-  useEffect(() => {
-    if (targetView === view) return;
+  const showClass = "opacity-100 scale-100";
+  const hideClass = "opacity-0 pointer-events-none absolute";
 
-    // bắt đầu animation out
-    setIsAnimating(true);
-
-    // sau 300ms (animation-duration-300), swap component
-    const timer = setTimeout(() => {
-      setView(targetView);
-      setIsAnimating(false);
-    }, 300);
-
-    return () => clearTimeout(timer);
-  }, [targetView, view]);
-
-  const animationClass = isAnimating
-    ? "opacity-0"
-    : "opacity-100";
+  const hideMainClass = "opacity-0 scale-75 pointer-events-none absolute";
 
   return (
-    <div className="relative flex w-full max-w-md justify-evenly items-center overflow-hidden">
-      <div
-        className={`w-full
-          transition-all duration-300 
-          ${animationClass}
-        `}
-      >
-        {view === "controls" ? <MediaControls /> : <MediaCapture />}
+    <div className="relative flex justify-center items-center w-full max-w-md">
+      <div className="relative w-full flex justify-evenly items-center">
+        {/* SLOT 1 */}
+        <div className="relative flex items-center justify-center">
+          {/* Upload */}
+          <div className={`${baseBtn} ${!hasFile ? showClass : hideClass}`}>
+            <UploadFile />
+          </div>
+
+          {/* Delete */}
+          <div className={`${baseBtn} ${hasFile ? showClass : hideClass}`}>
+            <DelButton />
+          </div>
+        </div>
+
+        {/* SLOT 2 (Center main button) */}
+        <div className="relative flex items-center justify-center">
+          {/* Camera */}
+          <div className={`${baseBtn} ${!hasFile ? showClass : hideMainClass}`}>
+            <CameraButton />
+          </div>
+
+          {/* Send */}
+          <div className={`${baseBtn} ${hasFile ? showClass : hideMainClass}`}>
+            <SendButton />
+          </div>
+        </div>
+
+        {/* SLOT 3 */}
+        <div className="relative flex items-center justify-center">
+          {/* Toggle camera */}
+          <div className={`${baseBtn} ${!hasFile ? showClass : hideClass}`}>
+            <CameraToggle />
+          </div>
+
+          {/* Overlay */}
+          <div className={`${baseBtn} ${hasFile ? showClass : hideClass}`}>
+            <OverlayButton />
+          </div>
+        </div>
       </div>
     </div>
   );

@@ -1,20 +1,12 @@
-import React, { useEffect } from "react";
-import { useApp } from "@/context/AppContext";
+import React from "react";
+import { useTranslation } from "react-i18next";
 
 const HistoryArrow = ({ setIsBottomOpen }) => {
-  const { navigation, post } = useApp();
-  const { recentPosts, setRecentPosts } = post;
+  const { t } = useTranslation("main");
 
   const handleClick = () => {
     setIsBottomOpen(true);
   };
-  // Khởi tạo và đồng bộ dữ liệu từ localStorage
-  useEffect(() => {
-    const savedPayloads = JSON.parse(
-      localStorage.getItem("uploadedMoments") || "[]"
-    );
-    setRecentPosts(savedPayloads); // Cập nhật state từ localStorage
-  }, [, setRecentPosts]);
 
   return (
     <>
@@ -28,7 +20,7 @@ const HistoryArrow = ({ setIsBottomOpen }) => {
           {recentPosts.length}
         </div> */}
             <span className="text-xl font-semibold text-base-content">
-              Lịch sử
+              {t("home.history")}
             </span>
           </div>
           <svg

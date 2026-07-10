@@ -109,6 +109,15 @@ export async function getAllMessages() {
   }
 }
 
+export async function deleteMessageById(id) {
+  if (!id) return;
+  try {
+    await db.messages.delete(id);
+  } catch (err) {
+    console.error("❌ Failed to delete message:", err);
+  }
+}
+
 // Thêm 1 tin nhắn mới vào messages của conversation
 export async function addMessageToConversation(
   conversationId,

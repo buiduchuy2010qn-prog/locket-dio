@@ -2,8 +2,10 @@ import React, { useState } from "react";
 import RollcallHeader from "./RollcallHeader";
 import RollcallImages from "./RollcallImages";
 import RollcallComments from "./RollcallComments";
+import { useTranslation } from "react-i18next";
 
 function RollcallCard({ post }) {
+  const { t } = useTranslation("main");
   const [openComments, setOpenComments] = useState(false);
   const [activeItem, setActiveItem] = useState(post.items?.[0] || null);
 
@@ -21,7 +23,7 @@ function RollcallCard({ post }) {
           onClick={() => setOpenComments((v) => !v)}
           className="text-sm text-blue-500"
         >
-          {openComments ? "Ẩn bình luận" : "Xem bình luận"}
+          {openComments ? t("left.hide_comments") : t("left.view_comments")}
         </button>
       )}
 

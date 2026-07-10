@@ -1,13 +1,8 @@
 import { CONFIG } from "./webConfig";
 
-// Official client: moments/messages on api.locket-dio.com (via /dio-api proxy)
-// Socket also on api.locket-dio.com — NOT chat.locket-dio.com (DNS gone)
-const isLocal =
-  typeof window !== "undefined" && window.location.hostname === "localhost";
-
-// Absolute API host for socket.io (cannot use relative path)
-const API_HOST = "api.locket-dio.com";
-
+// Chat server host
+export const BASE_SERVER_HOST = CONFIG.api.baseUrl;
+export const BETA_SERVER_HOST = import.meta.env.VITE_BETA_API_URL;
 // Namespace
 export const API_NAMESPACE = {
   main: "/api",
@@ -15,17 +10,10 @@ export const API_NAMESPACE = {
   chat: "/chat",
 };
 
-// Endpoints — REST paths are relative so axios baseURL (/dio-api) proxies them
+// Endpoints
 export const API_ENDPOINTS = {
-  // Official: socketUrl = api base (default path /socket.io)
-  socketUrl: isLocal
-    ? `http://${API_HOST}`
-    : `https://${API_HOST}`,
-
-  // Relative → /dio-api/locket/...
-  getAllMessages: "/locket/getAllMessageV2",
-  getMessagesWithUser: "/locket/getMessageWithUserV2",
-  getMoments: "/locket/getMomentV2",
+  // Socket URL
+  socketUrl: BASE_SERVER_HOST,
 };
 
 
@@ -34,11 +22,13 @@ export const PUBLIC_API = {
   donations: "v1/public/donations",
   timelines: "v1/public/timelines",
   frames: "v1/public/myframes",
+  backgroundList: "v1/public/getAllbackgrounds",
   celebrates: "v1/public/getAllCelebrate",
+  celebratesV2: "v1/public/getAllCelebrateV2",
   notifications: "v1/public/notification",
   plans: "v1/public/dio-plans",
-  // Official: overlays live at getAllOverlaysV2 (v1/public/themes is 404)
   themes: "v1/public/themes",
-  overlaysV2: "v1/public/getAllOverlaysV2",
+  getOverlaysV2: "v1/public/getAllOverlaysV2",
   incidents: "v1/public/getAllIncident",
+  collection: "v1/public/getAllCollections"
 };

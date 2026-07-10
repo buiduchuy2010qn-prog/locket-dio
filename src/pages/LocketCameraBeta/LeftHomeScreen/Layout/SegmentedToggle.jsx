@@ -1,6 +1,8 @@
 import { CalendarDays, Megaphone } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 export default function SegmentedToggle({active, setActive}) {
+  const { t } = useTranslation("main");
 
   return (
     <div className="w-full flex justify-center items-center">
@@ -16,9 +18,9 @@ export default function SegmentedToggle({active, setActive}) {
             }`}
         >
           <Megaphone size={22} />
-          <span className="text-sm font-medium">Rollcalls</span>
+          <span className="text-sm font-medium">{t("left.rollcalls")}</span>
         </button>
-
+ 
         {/* Lockets */}
         <button
           onClick={() => setActive("lockets")}
@@ -29,9 +31,9 @@ export default function SegmentedToggle({active, setActive}) {
             }`}
         >
           <CalendarDays size={22} />
-          <span className="text-sm font-medium">Lockets</span>
+          <span className="text-sm font-medium">{t("left.lockets")}</span>
         </button>
-
+ 
       </div>
     </div>
   );

@@ -1,196 +1,74 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useApp } from "@/context/AppContext";
-import UploadingQueue from "./MomentsView/UploadingQueue";
-import MomentsGrid from "./MomentsView/MomentsGrid";
-import QueueViewer from "./MomentsView/QueueViewer";
-import { useAuth } from "@/context/AuthLocket";
-
-import { Swiper, SwiperSlide } from "swiper/react";
-import { Virtual } from "swiper/modules";
-import "swiper/css";
-import MomentSlide from "./MomentsView/MomentSlide";
 import { useSocket } from "@/context/SocketContext";
-import { useMomentsStoreV2 } from "@/stores/useMomentsStoreV2";
+import { useAuthStore, useMomentsStoreV2, useSelectedStore } from "@/stores";
+
+import SwiperView from "./Views/SwiperView";
+import GridMoments from "./Views/GridMoments";
 
 const BottomHomeScreen = () => {
-  const { navigation, post } = useApp();
-  const [swiperRef, setSwiperRef] = useState(null);
+  const { navigation } = useApp();
   const {
     isHomeOpen,
     isBottomOpen,
-    setIsBottomOpen,
-    showFlyingEffect,
-    flyingEmojis,
-    setIsHomeOpen,
     isProfileOpen,
   } = navigation;
-  const {
-    recentPosts,
-    setRecentPosts,
-    uploadPayloads,
-    setuploadPayloads,
-    selectedMoment,
-    setSelectedMoment,
-    selectedQueue,
-    setSelectedQueue,
-    selectedFriendUid,
-    setSelectedMomentId,
-  } = post;
 
-  const { user } = useAuth();
+  const selectedMoment = useSelectedStore((s) => s.selectedMoment);
+  const selectedQueue = useSelectedStore((s) => s.selectedQueue);
+  const selectedFriendUid = useSelectedStore((s) => s.selectedFriendUid);
 
-  const { socket, isConnected } = useSocket();
+  const { user } = useAuthStore();
+  const { socket } = useSocket();
 
-  const selectedKey = selectedFriendUid ?? "all";
-
-  const bucket = useMomentsStoreV2((s) => s.momentsByUser[selectedKey]);
-
-  const {
-    items: moments = [],
-    loading = false,
-    hasMore = true,
-    visibleCount = 0,
-  } = bucket || {};
-
-  const {
-    fetchMoments,
-    loadMoreOlder,
-    addNewMoment,
-    syncMomentsSnapshot,
-    increaseVisibleCount,
-    resetVisible,
-  } = useMomentsStoreV2();
+  const { fetchMoments, addNewMoment, syncMomentsSnapshot, resetVisible } =
+    useMomentsStoreV2();
 
   useEffect(() => {
     resetVisible(selectedFriendUid);
-  }, [isBottomOpen, isHomeOpen, isProfileOpen, selectedFriendUid]);
+  }, [isBottomOpen, isHomeOpen, isProfileOpen, selectedFriendUid, resetVisible]);
 
-  // Fetch initial + auto-refresh feed while history screen is open
   useEffect(() => {
-    if (!user) return;
     fetchMoments(user, selectedFriendUid);
-
-    // Auto-refresh feed when tab visible (60s — lighter CPU)
-    const autoRefresh = setInterval(() => {
-      if (document.visibilityState === "visible" && !document.hidden) {
-        fetchMoments(user, selectedFriendUid);
-      }
-    }, 60000);
-
-    return () => clearInterval(autoRefresh);
-  }, [user, selectedFriendUid]);
-
-  const handleClose = () => {
-    setSelectedMoment(null);
-  };
+  }, [user, selectedFriendUid, fetchMoments]);
 
   const idToken = localStorage.getItem("idToken");
 
-  // ================= Socket init =================
   useEffect(() => {
     if (!idToken || !socket) return;
 
     const handleMoments = (data) => {
       if (!data) return;
 
-      // 🧠 Snapshot (xoá / sync)
       if (Array.isArray(data) && data.length > 1) {
         syncMomentsSnapshot(data);
         return;
       }
 
-      // 🧠 Add realtime
       addNewMoment(data);
     };
-    // LISTEN
-    socket.on("new_on_moments", handleMoments);
 
-    // EMIT để server gửi moments đầu tiên
+    socket.on("new_on_moments", handleMoments);
     socket.emit("on_moments", {
       timestamp: null,
       token: idToken,
       friendId: null,
       limit: 5,
     });
-    // console.log(socket._callbacks);
 
-    // CLEANUP — rất quan trọng
     return () => {
-      socket.off("new_on_moments", handleMoments); // phải cùng tên event!
+      socket.off("new_on_moments", handleMoments);
     };
-  }, [idToken, socket]); // nên thêm socket vào dependency
+  }, [idToken, socket, addNewMoment, syncMomentsSnapshot]);
 
-  // Tính toán selectedAnimate dựa trên selectedMoment và selectedQueue
   const selectedAnimate =
     (selectedMoment !== null && selectedQueue === null) ||
     (selectedMoment === null && selectedQueue !== null);
 
   return (
     <>
-      {/* <FlyingEmojiEffect emoji={flyingEmojis} show={showFlyingEffect} /> */}
-      {typeof selectedMoment === "number" ||
-      typeof selectedQueue === "number" ? (
-        <>
-          {/* Full màn hình mobile: 100dvh + nền hồng mờ */}
-          <div className="fixed z-50 inset-0 w-full h-[100dvh] h-screen flex flex-col justify-center items-center bg-gradient-to-b from-pink-100/95 via-pink-50/95 to-pink-200/95 backdrop-blur-[2px]">
-            {typeof selectedMoment === "number" && (
-              <Swiper
-                direction="vertical"
-                className="w-full h-full flex flex-col"
-                modules={[Virtual]}
-                onSwiper={setSwiperRef}
-                slidesPerView={1}
-                initialSlide={selectedMoment}
-                virtual
-                onSlideChange={(swiper) => {
-                  const newIndex = swiper.activeIndex;
-
-                  if (newIndex === selectedMoment) return; // <-- FIX LOOP
-
-                  if (newIndex < 0 || newIndex >= moments.length) return;
-
-                  setSelectedMoment(newIndex);
-                  setSelectedMomentId(moments[newIndex]?.id);
-                }}
-              >
-                {moments.map((slideContent, index) => (
-                  <SwiperSlide
-                    key={slideContent.id}
-                    virtualIndex={index}
-                    className="!h-full flex items-center justify-center"
-                  >
-                    <div className="w-full h-full pt-[max(0.5rem,env(safe-area-inset-top))] pb-[max(4.5rem,env(safe-area-inset-bottom))] flex items-center justify-center">
-                      <MomentSlide
-                        moment={slideContent}
-                        me={user}
-                        handleClose={handleClose}
-                      />
-                    </div>
-                  </SwiperSlide>
-                ))}
-              </Swiper>
-            )}
-            {typeof selectedQueue === "number" && <QueueViewer />}
-          </div>
-        </>
-      ) : null}
-      <div
-        className={`transition-all w-full duration-500 ${
-          selectedAnimate
-            ? "opacity-0 scale-95 pointer-events-none select-none"
-            : "opacity-100 scale-100"
-        }`}
-      >
-        <UploadingQueue />
-        <MomentsGrid
-          visibleCount={visibleCount}
-          increaseVisibleCount={() => increaseVisibleCount(selectedFriendUid)}
-          moments={moments}
-          loadMoreOlder={loadMoreOlder}
-          hasMore={hasMore}
-          loading={loading}
-        />
-      </div>
+      <SwiperView />
+      <GridMoments selectedAnimate={selectedAnimate} />
     </>
   );
 };

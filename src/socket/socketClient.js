@@ -5,11 +5,11 @@ import { io } from "socket.io-client";
 export const createSocket = (idToken, { onConnect, onDisconnect, onError } = {}) => {
   if (!idToken) return null;
 
-  // Official client: io(apiBaseUrl) with default path /socket.io
   const socketClient = io(API_ENDPOINTS.socketUrl, {
     transports: ["websocket"],
     auth: { token: idToken },
     autoConnect: false,
+    // ✅ RECONNECT CONFIG
     reconnection: true,
     reconnectionAttempts: Infinity,
     reconnectionDelay: 1000,

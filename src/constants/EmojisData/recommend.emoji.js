@@ -1,0 +1,1 @@
+export const RECOMMENDED_EMOJIS = ["💛", "❤️", "😂", "😍", "👍", "🔥"];

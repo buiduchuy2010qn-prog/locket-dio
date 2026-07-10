@@ -1,44 +1,57 @@
-import React, { useContext, useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
+
 import { Flame, FolderDown, UserRoundX } from "lucide-react";
-import { AuthContext } from "@/context/AuthLocket";
-import BottomToolBar from "./BottomToolBar";
-import DeleteFriendsTool from "./tools/DeleteFriendsTool";
 import { TbUserStar } from "react-icons/tb";
+
+import { useAuthStore } from "@/stores";
+import { useFeatureVisible } from "@/hooks/useFeature";
+
+import BottomToolBar from "./Layout/BottomToolBar";
+import LockedPremiumFeature from "./Layout/LockedPremiumFeature";
+
 import CelebrityTool from "./tools/CelebrityTool";
 import ExportDataTool from "./tools/ExportDataTool";
 import RestoreStreak from "./tools/RestoreStreak";
-
-const toolsList = [
-  {
-    key: "delete-friends",
-    label: "Clean Requests",
-    icon: <UserRoundX />,
-    content: <DeleteFriendsTool />,
-  },
-  {
-    key: "celebrity",
-    label: "Celebrity Tool",
-    icon: <TbUserStar />,
-    content: <CelebrityTool />,
-  },
-  {
-    key: "exports-tool",
-    label: "Xuất dữ liệu",
-    icon: <FolderDown />,
-    content: <ExportDataTool />,
-  },
-  {
-    key: "restore-streak",
-    label: "Khôi phục chuỗi",
-    icon: <Flame />,
-    content: <RestoreStreak />,
-  },
-];
+import DeleteFriendsTool from "./tools/DeleteFriendsTool";
 
 export default function ToolsLocket() {
-  const { user } = useContext(AuthContext);
+  const user = useAuthStore((s) => s.user);
+
+  const hasAccess = useFeatureVisible("hidden_streak_tool");
+
+  const toolsList = [
+    {
+      key: "delete-friends",
+      label: "Clean Requests",
+      icon: <UserRoundX />,
+      content: <DeleteFriendsTool />,
+      feature: "invite_cleanup_tool",
+    },
+    {
+      key: "celebrity",
+      label: "Celebrity Tool",
+      icon: <TbUserStar />,
+      content: <CelebrityTool />,
+      feature: "celebrity_tool",
+    },
+    {
+      key: "exports-tool",
+      label: "Xuất dữ liệu",
+      icon: <FolderDown />,
+      content: <ExportDataTool />,
+      feature: "data_export_tool",
+    },
+    {
+      key: "restore-streak",
+      label: "Khôi phục chuỗi",
+      icon: <Flame />,
+      content: <RestoreStreak />,
+      visible: !hasAccess,
+      feature: "restore_streak_tool",
+    },
+  ];
   const [activeTab, setActiveTab] = useState(
-    window.location.hash.replace("#", "") || toolsList[0].key
+    window.location.hash.replace("#", "") || toolsList[0].key,
   );
 
   // Đồng bộ hash khi activeTab thay đổi
@@ -60,19 +73,32 @@ export default function ToolsLocket() {
     return () => window.removeEventListener("hashchange", handleHashChange);
   }, []);
 
+  const visibleTools = toolsList.filter((tool) => tool.visible !== false);
+
+  const activeTool = visibleTools.find((t) => t.key === activeTab);
+
+  const canAccess =
+    !activeTool?.feature || useFeatureVisible(activeTool.feature);
+
   return (
-    <div className="flex flex-col min-h-[84vh] w-full p-3">
+    <div className="flex flex-col min-h-[84vh] w-full p-3 pb-24 md:pb-3">
       {/* Title */}
       <h1 className="text-3xl font-bold text-primary text-center">
-        🧰 ToolsLocket by Bùi Đức Huy
+        🧰 ToolsLocket by Dio
       </h1>
+      <div className="text-sm text-center mt-1 text-base-content">
+        Đăng nhập dưới tên:{" "}
+        <strong>
+          {user?.firstName} {user?.lastName}
+        </strong>
+      </div>
 
       {/* Layout */}
-      <div className="flex flex-col md:flex-row w-full mx-auto gap-6 py-3">
+      <div className="relative flex flex-col md:flex-row w-full mx-auto gap-6 py-3">
         {/* Sidebar */}
         <div className="hidden md:block w-1/4">
           <div className="flex flex-col gap-2 bg-base-100 p-4 rounded-xl shadow-md border">
-            {toolsList.map((tool) => (
+            {visibleTools.map((tool) => (
               <button
                 key={tool.key}
                 onClick={() => setActiveTab(tool.key)}
@@ -92,26 +118,22 @@ export default function ToolsLocket() {
 
         {/* Content */}
         <div className="flex-1 bg-base-100 border border-base-300 p-4 rounded-2xl shadow-md">
-          {toolsList.find((t) => t.key === activeTab)?.content || (
+          {!activeTool ? (
             <div>🔍 Không tìm thấy nội dung</div>
+          ) : canAccess ? (
+            activeTool.content
+          ) : (
+            <LockedPremiumFeature />
           )}
         </div>
-      </div>
 
-      {/* Footer */}
-      <div className="text-sm text-center mt-6 text-base-content">
-        Đăng nhập dưới tên:{" "}
-        <strong>
-          {user?.firstName} {user?.lastName}
-        </strong>
+        {/* Mobile Bottom Toolbar */}
+        <BottomToolBar
+          tools={visibleTools}
+          activeKey={activeTab}
+          onChange={setActiveTab}
+        />
       </div>
-
-      {/* Mobile Bottom Toolbar */}
-      <BottomToolBar
-        tools={toolsList}
-        activeKey={activeTab}
-        onChange={setActiveTab}
-      />
     </div>
   );
 }

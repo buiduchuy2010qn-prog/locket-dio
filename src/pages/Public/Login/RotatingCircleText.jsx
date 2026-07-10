@@ -1,6 +1,10 @@
 import React from "react";
+import { useTranslation } from "react-i18next";
 
 export default function RotatingCircleText() {
+
+  const { t } = useTranslation("public");
+
   return (
     <div className="absolute -z-10 -top-9 -right-9 w-24 h-24 flex items-center justify-center">
       <div className="absolute animate-spin-slow-reverse">
@@ -18,7 +22,7 @@ export default function RotatingCircleText() {
               textLength="500"
               spacing="auto"
             >
-              Huy Locket • Share Moments • Huy Locket • Share Moments •
+              {t("rotating_circle.outer")}
             </textPath>
           </text>
         </svg>
@@ -38,7 +42,7 @@ export default function RotatingCircleText() {
               textLength="500"
               spacing="auto"
             >
-              Huy Locket • Modern • Convenient • Cross-Platform • Security •
+              {t("rotating_circle.inner")}
             </textPath>
           </text>
         </svg>

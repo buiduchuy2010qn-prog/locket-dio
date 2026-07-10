@@ -1,159 +1,134 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { FaUserFriends, FaLock } from "react-icons/fa";
-import { useApp } from "@/context/AppContext";
 import clsx from "clsx";
 import { getToken } from "@/utils";
 import FriendSelectItems from "./FriendSelectItems";
-import { useFriendStore } from "@/stores/useFriendStore";
-import { SonnerInfo, SonnerWarning } from "@/components/ui/SonnerToast";
-
-const friendUid = (f) =>
-  (f?.uid || f?.localId || f?.user || f?.id || "").toString().trim() || null;
+import { SonnerInfo } from "@/components/ui/SonnerToast";
+import { useNormalFriendIds, usePostStore, useGroupChatStore } from "@/stores";
+import GroupSelectItem from "./GroupSelectItem";
+import { useTranslation } from "react-i18next";
 
 const SelectFriendsList = ({}) => {
-  const { friendDetails } = useFriendStore();
-  const { post } = useApp();
-  const { audience, setAudience, setSelectedRecipients } = post;
+  const { t } = useTranslation("main");
+  const friendIds = useNormalFriendIds();
 
-  const selectableFriends = useMemo(
-    () =>
-      (Array.isArray(friendDetails) ? friendDetails : []).filter(
-        (f) => friendUid(f) && !f?.isCelebrity
-      ),
-    [friendDetails]
-  );
+  const audience = usePostStore((s) => s.audience);
+  const setAudience = usePostStore((s) => s.setAudience);
+  const setSelectedRecipients = usePostStore((s) => s.setSelectedRecipients);
+  const selectedRecipients = usePostStore((s) => s.selectedRecipients);
+  const selectedGroupId = usePostStore((s) => s.selectedGroupId);
+  const setSelectedGroupId = usePostStore((s) => s.setSelectedGroupId);
 
-  const allSelectableIds = useMemo(
-    () => selectableFriends.map((f) => friendUid(f)).filter(Boolean),
-    [selectableFriends]
-  );
-
+  const groups = useGroupChatStore((s) => s.groups);
   const [selectedFriends, setSelectedFriends] = useState([]);
 
-  /** Cập nhật audience + recipients đồng bộ (tránh race khi bấm đăng ngay). */
-  const applyAudience = useCallback(
-    (nextAudience, nextIds) => {
-      const ids = Array.isArray(nextIds)
-        ? [...new Set(nextIds.filter((id) => typeof id === "string" && id))]
-        : [];
-      setAudience(nextAudience);
-      setSelectedFriends(ids);
-      setSelectedRecipients(ids);
-    },
-    [setAudience, setSelectedRecipients]
-  );
-
-  // Audience "all" → đánh dấu hết bạn (UI); recipients gửi API vẫn [] + sent_to_all
+  // Nếu audience là "all", chọn tất cả bạn bè
   useEffect(() => {
-    if (audience === "all" && allSelectableIds.length > 0) {
-      setSelectedFriends(allSelectableIds);
-      // Không ghi recipients đầy đủ khi all — payload dùng sent_to_all
-      setSelectedRecipients([]);
+    if (audience !== "all") return;
+
+    const allIds = friendIds;
+
+    setSelectedFriends((prev) => {
+      if (
+        prev.length === allIds.length &&
+        prev.every((id) => allIds.includes(id))
+      ) {
+        return prev; // ⛔ KHÔNG update → cắt loop
+      }
+      return allIds;
+    });
+  }, [audience, friendIds]);
+
+  useEffect(() => {
+    const shouldUpdate =
+      selectedRecipients.length !== selectedFriends.length ||
+      !selectedRecipients.every((id) => selectedFriends.includes(id));
+
+    if (shouldUpdate) {
+      setSelectedRecipients(selectedFriends);
     }
-  }, [audience, allSelectableIds, setSelectedRecipients]);
+  }, [selectedFriends, selectedRecipients]);
 
   const handleToggle = (uid) => {
-    if (!uid) return;
-    const id = String(uid);
+    setAudience("selected");
+    setSelectedGroupId(null);
+    setSelectedFriends((prev) =>
+      prev.includes(uid) ? prev.filter((id) => id !== uid) : [...prev, uid],
+    );
+  };
 
-    // Đang "all" → chuyển selected với danh sách hiện tại (all trừ/thêm uid)
-    const base =
-      audience === "all"
-        ? allSelectableIds
-        : audience === "private"
-          ? []
-          : selectedFriends;
-
-    let next = base.includes(id)
-      ? base.filter((x) => x !== id)
-      : [...base, id];
-
-    // Bỏ hết → coi như private (an toàn hơn post all nhầm)
-    if (next.length === 0) {
-      const { localId } = getToken() || {};
-      SonnerWarning(
-        "Chưa chọn ai",
-        "Đã chuyển sang Riêng tư. Chọn bạn bè để chia sẻ có chọn lọc."
-      );
-      applyAudience("private", localId ? [localId] : []);
-      return;
+  const handleToggleGroup = (groupId) => {
+    if (selectedGroupId === groupId) {
+      setSelectedGroupId(null);
+    } else {
+      setSelectedGroupId(groupId);
+      setAudience("selected");
+      setSelectedFriends([]);
     }
-
-    // Chọn lại đủ tất cả → all
-    if (
-      next.length === allSelectableIds.length &&
-      allSelectableIds.every((x) => next.includes(x))
-    ) {
-      applyAudience("all", []);
-      setSelectedFriends(allSelectableIds);
-      return;
-    }
-
-    applyAudience("selected", next);
   };
 
   const handleSelectAll = () => {
-    if (audience === "all" || selectedFriends.length === allSelectableIds.length) {
-      // Bỏ "Tất cả" → private (không để selected rỗng)
-      const { localId } = getToken() || {};
-      SonnerInfo("Chế độ riêng tư", "Bỏ chọn tất cả → chỉ mình xem.");
-      applyAudience("private", localId ? [localId] : []);
+    const allIds = friendIds;
+    setSelectedGroupId(null);
+    if (selectedFriends.length === friendIds.length) {
+      setAudience("selected");
+      setSelectedFriends([]);
     } else {
-      applyAudience("all", []);
-      setSelectedFriends(allSelectableIds);
+      setAudience("all");
+      setSelectedFriends(allIds);
     }
   };
 
   const handleSelectPrivate = () => {
-    SonnerInfo("Lưu ý chế độ đăng bài", "Bạn đang chọn chế độ riêng tư!");
-    const { localId } = getToken() || {};
-    applyAudience("private", localId ? [localId] : []);
+    SonnerInfo(t("home.post_mode_notice"), t("home.private_mode_selected"));
+    setAudience("private");
+    setSelectedGroupId(null);
+    setSelectedFriends([]);
   };
 
+  // Check xem có phải đang ở chế độ private không
   const isPrivateMode = () => {
     const { localId } = getToken() || {};
     return (
       audience === "private" ||
-      (selectedFriends.length === 1 &&
-        localId &&
-        selectedFriends.includes(localId))
+      (selectedFriends.length === 1 && selectedFriends.includes(localId))
     );
   };
 
+  // Check xem có phải đang select tất cả không
   const isSelectAll = () => {
-    return (
-      audience === "all" ||
-      (allSelectableIds.length > 0 &&
-        selectedFriends.length === allSelectableIds.length)
-    );
+    return audience === "all" || selectedFriends.length === friendIds.length;
   };
 
   const scrollRef = useRef(null);
 
   useEffect(() => {
     if (scrollRef.current) {
+      // Lấy chiều rộng viewport
       const vw = window.innerWidth;
+      // Lấy phần tử thứ hai (index 1) - "Tất cả"
       const secondChild = scrollRef.current.children[1];
       if (secondChild) {
+        // Tính vị trí scroll để căn giữa phần tử "Tất cả":
         const secondChildRect = secondChild.getBoundingClientRect();
         const offsetLeft = secondChild.offsetLeft;
         const offsetCenter = offsetLeft - vw / 2 + secondChildRect.width / 2;
         scrollRef.current.scrollLeft = offsetCenter;
       }
     }
-  }, [friendDetails]);
+  }, [friendIds]);
 
   return (
     <div className={`w-full `}>
       <div
         ref={scrollRef}
-        className="flex gap-3 overflow-x-auto no-scrollbar scroll-smooth snap-x snap-mandatory px-[47vw]"
+        className="flex items-center gap-3 overflow-x-auto no-scrollbar scroll-smooth snap-x snap-mandatory px-[47vw]"
       >
         {/* Mục "Riêng tư" */}
         <div
           className={clsx(
             "flex flex-col items-center justify-center snap-center shrink-0 transition-all duration-300",
-            isPrivateMode() ? "opacity-100" : "opacity-60"
+            isPrivateMode() ? "opacity-100" : "opacity-60",
           )}
         >
           <div
@@ -162,7 +137,7 @@ const SelectFriendsList = ({}) => {
               "flex p-0.5 flex-col items-center justify-center cursor-pointer rounded-full border-[2.5px] transition-all duration-300 transform",
               isPrivateMode()
                 ? "border-amber-400 scale-100"
-                : "border-gray-700 scale-95"
+                : "border-gray-700 scale-95",
             )}
           >
             <div className="w-11 h-11 rounded-full bg-base-300 flex items-center justify-center text-xl font-bold text-primary">
@@ -170,7 +145,7 @@ const SelectFriendsList = ({}) => {
             </div>
           </div>
           <span className="text-xs mt-1 text-base-content font-semibold">
-            Riêng tư
+            {t("home.private")}
           </span>
         </div>
 
@@ -178,7 +153,7 @@ const SelectFriendsList = ({}) => {
         <div
           className={clsx(
             "flex flex-col items-center justify-center snap-center shrink-0 transition-all duration-300",
-            isSelectAll() ? "opacity-100" : "opacity-60"
+            isSelectAll() ? "opacity-100" : "opacity-60",
           )}
         >
           <div
@@ -187,7 +162,7 @@ const SelectFriendsList = ({}) => {
               "flex p-0.5 flex-col items-center justify-center cursor-pointer rounded-full border-[2.5px] transition-all duration-300 transform",
               isSelectAll()
                 ? "border-amber-400 scale-100"
-                : "border-gray-700 scale-95"
+                : "border-gray-700 scale-95",
             )}
           >
             <div className="w-11 h-11 rounded-full bg-base-300 flex items-center justify-center text-xl font-bold text-primary">
@@ -195,25 +170,29 @@ const SelectFriendsList = ({}) => {
             </div>
           </div>
           <span className="text-xs mt-1 text-base-content font-semibold">
-            Tất cả
+            {t("home.all")}
           </span>
         </div>
 
+        {/* Danh sách nhóm */}
+        {groups.map((g) => (
+          <GroupSelectItem
+            key={g.id}
+            group={g}
+            isSelected={selectedGroupId === g.id}
+            onToggle={handleToggleGroup}
+          />
+        ))}
+
         {/* Danh sách bạn bè */}
-        {selectableFriends.map((friend) => {
-          const uid = friendUid(friend);
-          return (
-            <FriendSelectItems
-              key={uid}
-              friend={friend}
-              isSelected={
-                audience === "all" ||
-                (audience !== "private" && selectedFriends.includes(uid))
-              }
-              onToggle={handleToggle}
-            />
-          );
-        })}
+        {friendIds.map((uid) => (
+          <FriendSelectItems
+            key={uid}
+            uid={uid}
+            isSelected={selectedFriends.includes(uid)}
+            onToggle={handleToggle}
+          />
+        ))}
       </div>
     </div>
   );

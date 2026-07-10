@@ -1,4 +1,4 @@
-import { useContext, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Cloud,
   CloudOff,
@@ -12,16 +12,15 @@ import {
   fetchDriveServerStatus,
   isAdminUser,
 } from "@/utils/googleDrive";
-import { AuthContext } from "@/context/AuthLocket";
 import { getMyLocalId } from "@/utils/auth/getMyLocalId";
 import { SonnerError, SonnerSuccess } from "@/components/ui/SonnerToast";
+import { useAuthStore } from "@/stores";
 
-function pickUserEmail(user, authTokens) {
+function pickUserEmail(user) {
   return (
     user?.email ||
     user?.Email ||
     user?.mail ||
-    authTokens?.email ||
     localStorage.getItem("email") ||
     sessionStorage.getItem("email") ||
     ""
@@ -33,9 +32,9 @@ function pickUserEmail(user, authTokens) {
  * User thường: backup ngầm nếu admin đã cấu hình (không hiện phần này).
  */
 export default function GoogleDriveBackup() {
-  const { user, authTokens } = useContext(AuthContext);
-  const localId = getMyLocalId(user, authTokens);
-  const email = pickUserEmail(user, authTokens);
+  const user = useAuthStore((s) => s.user);
+  const localId = getMyLocalId(user);
+  const email = pickUserEmail(user);
 
   const [status, setStatus] = useState(null);
   const [loading, setLoading] = useState(true);

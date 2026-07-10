@@ -1,62 +1,67 @@
-export const formatTimeAgo = (timestamp) => {
+import i18n from "@/i18n";
+
+const getTimeAgo = (timestamp, isSecondTimestamp = false) => {
   if (!timestamp) return "";
+
+  if (isSecondTimestamp && String(timestamp).length === 10) {
+    timestamp *= 1000;
+  }
 
   const now = new Date();
   const target = new Date(timestamp);
-  const diffMs = now.getTime() - target.getTime();
 
+  const year = target.getFullYear();
+
+  const diffMs = now - target;
   const diffSeconds = Math.floor(diffMs / 1000);
   const diffMinutes = Math.floor(diffSeconds / 60);
   const diffHours = Math.floor(diffMinutes / 60);
   const diffDays = Math.floor(diffHours / 24);
 
-  if (diffSeconds < 60) return "Vừa xong";
-  if (diffMinutes < 60) return `${diffMinutes} phút trước`;
-  if (diffHours < 24) return `${diffHours} giờ trước`;
-  if (diffDays < 3) return `${diffDays} ngày trước`;
-
-  const day = target.getDate();
-  const month = target.getMonth() + 1;
-  const year = target.getFullYear();
-
-  // ✅ Nếu cùng năm thì chỉ hiển thị "6 thg 8"
-  if (year === now.getFullYear()) {
-    return `${day} thg ${month}`;
+  if (diffSeconds < 60) {
+    return i18n.t("common:time.just_now");
   }
 
-  // ✅ Nếu khác năm thì hiện "ngày 6 thg 8, 2024"
-  return `ngày ${day} thg ${month}, ${year}`;
+  if (diffMinutes < 60) {
+    return i18n.t("common:time.minutes_ago", {
+      count: diffMinutes,
+    });
+  }
+
+  if (diffHours < 24) {
+    return i18n.t("common:time.hours_ago", {
+      count: diffHours,
+    });
+  }
+
+  if (diffDays < 3) {
+    return i18n.t("common:time.days_ago", {
+      count: diffDays,
+    });
+  }
+
+  const localeMap = {
+    vi: "vi-VN",
+    en: "en-US",
+    ko: "ko-KR",
+    zh: "zh-CN",
+  };
+
+  return new Intl.DateTimeFormat(
+    localeMap[i18n.language] || "en-US",
+    year === now.getFullYear()
+      ? {
+          day: "numeric",
+          month: "short",
+        }
+      : {
+          day: "numeric",
+          month: "short",
+          year: "numeric",
+        },
+  ).format(target);
 };
 
-export const formatTimeAgoV2 = (timestamp) => {
-  if (!timestamp) return "";
+export const formatTimeAgo = (timestamp) => getTimeAgo(timestamp);
 
-  // Nếu timestamp là giây (10 chữ số) → nhân 1000
-  if (String(timestamp).length === 10) {
-    timestamp = timestamp * 1000;
-  }
-
-  const now = new Date();
-  const target = new Date(timestamp);
-  const diffMs = now.getTime() - target.getTime();
-
-  const diffSeconds = Math.floor(diffMs / 1000);
-  const diffMinutes = Math.floor(diffSeconds / 60);
-  const diffHours = Math.floor(diffMinutes / 60);
-  const diffDays = Math.floor(diffHours / 24);
-
-  if (diffSeconds < 60) return "Vừa xong";
-  if (diffMinutes < 60) return `${diffMinutes} phút trước`;
-  if (diffHours < 24) return `${diffHours} giờ trước`;
-  if (diffDays < 3) return `${diffDays} ngày trước`;
-
-  const day = target.getDate();
-  const month = target.getMonth() + 1;
-  const year = target.getFullYear();
-
-  if (year === now.getFullYear()) {
-    return `${day} thg ${month}`;
-  }
-
-  return `ngày ${day} thg ${month}, ${year}`;
-};
+export const formatTimeAgoV2 = (timestamp) => getTimeAgo(timestamp, true);

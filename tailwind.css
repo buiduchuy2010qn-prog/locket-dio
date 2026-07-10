@@ -3,14 +3,6 @@
   themes: all;
 }
 
-/* Override light primary (legacy) */
-@plugin "daisyui/theme" {
-  name: "light";
-  default: false;
-  --color-primary: blue;
-  --color-secondary: teal;
-}
-
 /* Theme hồng + tuyết — Huy Locket */
 @plugin "daisyui/theme" {
   name: "pinksnow";

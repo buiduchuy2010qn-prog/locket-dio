@@ -11,32 +11,24 @@ export const useNavigation = () => {
   const [isSettingTabOpen, setSettingTabOpen] = useState(false);
   const [isOptionModalOpen, setOptionModalOpen] = useState(false);
   const [isFriendHistoryOpen, setFriendHistoryOpen] = useState(false);
-  const [isFullview, setIsFullview] = useState(() => {
-    const saved = localStorage.getItem("isFullview");
-    return saved === "true";
-  });
+
   const [isPWA, setIsPWA] = useState(() => {
     const saved = localStorage.getItem("isPWA");
     return saved === "true";
   });
 
-  // Lưu vào localStorage khi isFullview thay đổi
+  // Lưu vào localStorage khi isPWA thay đổi
   useEffect(() => {
-    localStorage.setItem("isFullview", isFullview);
     localStorage.setItem("isPWA", isPWA);
-  }, [isFullview, isPWA]);
+  }, [isPWA]);
 
   // Tự động phát hiện nếu đang chạy dưới dạng PWA
   useEffect(() => {
     const isPWA = checkIfRunningAsPWA();
     if (isPWA) {
-      setIsFullview(true);
       setIsPWA(true);
     }
   }, []);
-
-  const [showFlyingEffect, setShowFlyingEffect] = useState(false);
-  const [flyingEmojis, setFlyingEmojis] = useState(null);
 
   return {
     isProfileOpen,
@@ -52,14 +44,8 @@ export const useNavigation = () => {
     isFriendsTabOpen,
     setFriendsTabOpen,
     isOptionModalOpen, setOptionModalOpen,
-    isFullview,
-    setIsFullview,
     isSettingTabOpen,
     setSettingTabOpen,
-    showFlyingEffect,
-    setShowFlyingEffect,
-    flyingEmojis,
-    setFlyingEmojis,
     isPWA, setIsPWA,
     isFriendHistoryOpen, setFriendHistoryOpen
   };

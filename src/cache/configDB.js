@@ -1,8 +1,8 @@
 import Dexie from "dexie";
 
 // 👉 Khởi tạo lại DB
-export function createLocketDioDB() {
-  const db = new Dexie("LocketDioDB");
+export function createHuyLocketDB() {
+  const db = new Dexie("HuyLocketDB");
 
   db.version(1).stores({
     meta: "&key",
@@ -12,13 +12,16 @@ export function createLocketDioDB() {
     conversations: "uid, with_user, update_time",
     messages: "id, uid, update_time, [uid+update_time]",
     rollcalls: "uid, user, week_of_year, create_time",
-    viewedMoments: "id, user, viewedAt"
+    viewedMoments: "id, user, viewedAt",
+    groups: "id, last_updated_at",
+    groupsMeta: "&key",
+    groupMembersDetail: "uid",
   });
 
   return db;
 }
 // 👉 Tạo instance ban đầu
-let db = createLocketDioDB();
+let db = createHuyLocketDB();
 
 export default db;
 

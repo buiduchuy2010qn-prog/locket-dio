@@ -4,7 +4,7 @@ const Docs = () => {
   return (
     <div className="min-h-screen px-4 flex flex-col items-center py-5">
       <h1 className="text-3xl font-semibold mb-5">
-        Hướng Dẫn Sử Dụng Trang Web Huy Locket by Bùi Đức Huy
+        Hướng Dẫn Sử Dụng Trang Web Huy Locket by Dio
       </h1>
 
       <div className="max-w-3xl text-left mb-12">
@@ -107,8 +107,9 @@ const Docs = () => {
             trong tương lai.
           </li>
           <li>
-            <b>Người quản trị Huy Locket là ai?</b> Bản web này được vận hành
-            bởi Bùi Đức Huy, với email hỗ trợ buiduchuy2010qn@gmail.com.
+            <b>Người sáng lập Huy Locket là ai?</b> Huy Locket được phát triển
+            bởi Bùi Đức Huy, sinh viên năm cuối ngành Công nghệ Thông tin,
+            với đam mê tạo ra sản phẩm sáng tạo và hữu ích.
           </li>
           <li>
             <b>Gói thành viên là gì?</b> Gói thành viên là các gói dịch vụ giúp

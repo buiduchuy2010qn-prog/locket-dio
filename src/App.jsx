@@ -1,45 +1,60 @@
-import React, { Suspense, useContext, useEffect } from "react";
+import React, { Suspense, useEffect } from "react";
 import {
   BrowserRouter as Router,
   Routes,
   Route,
   useLocation,
   Navigate,
+  useNavigate,
 } from "react-router-dom";
 
 import { publicRoutes, authRoutes, locketRoutes } from "./routes";
-import { AuthProvider, AuthContext } from "./context/AuthLocket";
 import { ThemeProvider } from "./context/ThemeContext";
 import { AppProvider } from "./context/AppContext";
-import ToastProvider from "./components/Toast";
-import GlobalThemeEffects from "./components/Effects/GlobalThemeEffects";
 import getLayout from "./layouts";
-import LoadingPage from "./components/pages/LoadingPage";
 import NotFoundPage from "./components/pages/NotFoundPage";
 import { Toaster } from "sonner";
 import { SocketProvider } from "./context/SocketContext";
+import {
+  useAuthStore,
+  useStreakStore,
+  useUploadQueueStore,
+  useFriendStoreV3,
+  useConversationsStore,
+  useGroupChatStore,
+} from "./stores";
+import { showDevWarning } from "./utils/logging/devConsole";
+import LoadingPageMain from "./components/pages/LoadPageMain";
+import LayoutWithSidebar from "./layouts/baseLayout";
+import { useOverlayDataStore } from "./stores/OverlayStores";
+import GlobalThemeEffects from "./components/Effects/GlobalThemeEffects";
 
 function App() {
   return (
     <ThemeProvider>
-      <AuthProvider>
-        <SocketProvider>
-          <AppProvider>
-            <Router>
-              <GlobalThemeEffects />
-              <AppContent />
-            </Router>
-            <ToastProvider />
-            <Toaster />
-          </AppProvider>
-        </SocketProvider>
-      </AuthProvider>
+      <SocketProvider>
+        <AppProvider>
+          <Router>
+            <GlobalThemeEffects />
+            <AppContent />
+          </Router>
+          <Toaster />
+        </AppProvider>
+      </SocketProvider>
     </ThemeProvider>
   );
 }
 
 function AppContent() {
-  const { user, loading } = useContext(AuthContext);
+  const navigate = useNavigate();
+  const { loading, isAuth, user, hydrateAuth, initAuth } = useAuthStore();
+  const syncStreak = useStreakStore((s) => s.syncStreak);
+  const fetchCaptionOverlays = useOverlayDataStore((s) => s.fetchCaptionOverlays);
+  const hydrateUploadQueue = useUploadQueueStore((s) => s.hydrateUploadQueue);
+  const fetchAndSyncFriends = useFriendStoreV3((s) => s.fetchAndSyncFriends);
+
+  const fetchConversations = useConversationsStore((s) => s.fetchConversations);
+  const fetchAndSyncGroups = useGroupChatStore((s) => s.fetchAndSyncGroups);
   const location = useLocation();
 
   const allRoutes = [...publicRoutes, ...authRoutes, ...locketRoutes];
@@ -49,6 +64,30 @@ function AppContent() {
     let el = document.querySelector(selector);
     if (el) el.setAttribute("content", content);
   }
+  useEffect(() => {
+    import("./styles/animation.css");
+    hydrateAuth();
+    initAuth();
+    showDevWarning();
+    fetchCaptionOverlays();
+  }, []);
+
+  useEffect(() => {
+    if (!loading && isAuth && location.pathname === "/login") {
+      navigate("/locket", { replace: true });
+    }
+  }, [isAuth, loading, location.pathname]);
+
+  useEffect(() => {
+    if (user) {
+      // loadFriendsV2();
+      fetchAndSyncFriends();
+      syncStreak();
+      hydrateUploadQueue();
+      fetchConversations();
+      fetchAndSyncGroups();
+    }
+  }, [user]);
 
   useEffect(() => {
     const r = allRoutes.find((route) => route.path === location.pathname);
@@ -58,7 +97,7 @@ function AppContent() {
     (
       document.querySelector("link[rel='canonical']") ||
       document.head.appendChild(
-        Object.assign(document.createElement("link"), { rel: "canonical" })
+        Object.assign(document.createElement("link"), { rel: "canonical" }),
       )
     ).href = url;
 
@@ -67,43 +106,56 @@ function AppContent() {
     setMeta("meta[name='twitter:title']", document.title);
   }, [location.pathname]);
 
-  // if (loading) return <LoadingPage isLoading={true} />;
+  // if (loading) return <LoadingPageMain isLoading={true} />;
 
   return (
-    <Suspense fallback={<LoadingPage isLoading={true} />}>
-      <Routes>
-        {(user ? privateRoutes : publicRoutes).map(
-          ({ path, component: Component }) => {
-            const Layout = getLayout(path);
-            return (
+    <>
+      <Suspense fallback={<LoadingPageMain isLoading={true} />}>
+        <Routes>
+          {(isAuth ? privateRoutes : publicRoutes).map(
+            ({ path, component: Component }) => {
+              const Layout = getLayout(path);
+              return (
+                <Route
+                  key={path}
+                  path={path}
+                  element={
+                    <LayoutWithSidebar Layout={Layout}>
+                      <Component />
+                    </LayoutWithSidebar>
+                  }
+                />
+              );
+            },
+          )}
+
+          {/* Điều hướng khi chưa đăng nhập cố vào route cần auth */}
+          {!loading &&
+            !isAuth &&
+            privateRoutes.map(({ path }) => (
               <Route
                 key={path}
                 path={path}
-                element={
-                  <Layout>
-                    <Component />
-                  </Layout>
-                }
+                element={<Navigate to="/login" replace />}
               />
-            );
-          }
-        )}
+            ))}
 
-        {/* Điều hướng khi chưa đăng nhập cố vào route cần auth */}
-        {!user &&
-          privateRoutes.map(({ path }) => (
-            <Route key={path} path={path} element={<Navigate to="/login" />} />
-          ))}
+          {/* Điều hướng ngược lại khi đã đăng nhập mà cố vào public route */}
+          {!loading &&
+            isAuth &&
+            publicRoutes.map(({ path }) => (
+              <Route
+                key={path}
+                path={path}
+                element={<Navigate to="/locket" replace />}
+              />
+            ))}
 
-        {/* Điều hướng ngược lại khi đã đăng nhập mà cố vào public route */}
-        {user &&
-          publicRoutes.map(({ path }) => (
-            <Route key={path} path={path} element={<Navigate to="/locket-beta" />} />
-          ))}
-
-        <Route path="*" element={<NotFoundPage />} />
-      </Routes>
-    </Suspense>
+          <Route path="*" element={<NotFoundPage />} />
+        </Routes>
+      </Suspense>
+      <LoadingPageMain isLoading={loading} />
+    </>
   );
 }
 

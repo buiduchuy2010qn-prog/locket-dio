@@ -1,5 +1,5 @@
 import axios from "axios";
-import api from "@/lib/axios";
+import api from "@/libs/axios";
 import { CONFIG } from "@/config";
 
 export const CreateNewOrder = async (planId, price, coupon) => {
@@ -28,20 +28,11 @@ export const GetInfoOrder = async (orderId) => {
   }
 };
 
-export const CancelToOrder = async (orderId, orderCode) => {
+export const CancelToOrder = async (orderId) => {
   try {
-    const res = await axios.post(
-      `${CONFIG.api.payment}/api/orders/cancel`,
-      {
-        orderId,
-        orderCode,
-      },
-      {
-        headers: {
-          "Content-Type": "application/json",
-        },
-      }
-    );
+    const res = await axios.post(`${CONFIG.api.payment}/api/orders/cancel`, {
+      orderId,
+    });
     const orderData = res?.data?.data;
     return orderData;
   } catch (err) {

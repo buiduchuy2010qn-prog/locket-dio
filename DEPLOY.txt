@@ -1,4 +1,4 @@
-Locket Dio — Deploy
+Huy Locket — Deploy
 
 PRIMARY (user): huy-locket
   - Docker · Singapore · auto from git push main
@@ -7,7 +7,7 @@ PRIMARY (user): huy-locket
 
 ---
 
-Locket Dio on Render — CORS proxy fix
+Huy Locket on Render — CORS proxy fix
 
 Problem:
   api.locket-dio.com only allows Origin: https://locket-dio.com (and localhost).

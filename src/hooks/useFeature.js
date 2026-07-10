@@ -1,30 +1,43 @@
-import { useContext } from "react";
-import { AuthContext } from "@/context/AuthLocket";
+import { useAuthStore } from "@/stores";
 
-// Client unlock: treat all plan feature flags as enabled
-const UNLIMITED_MB = 200;
+export const useFeatureVisible = (type) => {
+  const userPlan = useAuthStore((s) => s.userPlan);
 
-export const useFeatureVisible = (_type) => {
-  // Full features open for everyone on this client
-  return true;
+  if (!userPlan) return false;
+
+  const blocks = userPlan?.feature_blocks || {};
+  const features = userPlan?.features || {};
+
+  // Ưu tiên block trước
+  if (blocks[type]) return false;
+
+  // Không bị block thì theo plan
+  return features[type] ?? false;
 };
 
 export const useGetCode = (type) => {
-  const { userPlan } = useContext(AuthContext);
-  const code = userPlan?.customer_code;
+  const userPlan = useAuthStore((s) => s.userPlan);
+
+  const code = userPlan?.user?.customer_code;
   return code;
 };
 
 export const getMaxUploads = () => {
-  // Ignore server plan caps — no size/storage gate on UI
+  const userPlan = useAuthStore((s) => s.userPlan);
+
+  const limits = userPlan?.limits || {};
+
   return {
-    image: UNLIMITED_MB,
-    video: UNLIMITED_MB,
-    storage_limit_mb: -1, // -1 = unlimited
+    maxImageSizeMB: limits.image_storage_limit_mb ?? null,
+    maxVideoSizeMB: limits.video_storage_limit_mb ?? null,
+    storage_limit_mb: limits.storage_limit_mb ?? null,
   };
 };
 
 export const getVideoRecordLimit = () => {
-  // Long video recording (seconds)
-  return 60;
+  const userPlan = useAuthStore((s) => s.userPlan);
+
+  const limit = userPlan?.limits?.video_record_max_length ?? 10;
+
+  return limit;
 };

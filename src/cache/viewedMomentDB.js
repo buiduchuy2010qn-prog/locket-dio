@@ -6,19 +6,19 @@ export const isMomentViewed = async (momentId) => {
   return !!viewed;
 };
 
-export const markMomentViewedOnce = async (moment) => {
-  if (!moment?.id) return false;
+export const markMomentViewedOnce = async ({ id, user, celebrity }) => {
+  if (!id) return false;
 
-  const existed = await db.viewedMoments.get(moment.id);
+  const existed = await db.viewedMoments.get(id);
   if (existed) return false;
 
   // gọi API
-  await markAsViewedMoment(moment.id);
+  await markAsViewedMoment(id, celebrity);
 
   // lưu local
   await db.viewedMoments.put({
-    id: moment.id,
-    user: moment.user,
+    id,
+    user,
     viewedAt: Date.now(),
   });
 

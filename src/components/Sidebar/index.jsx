@@ -1,5 +1,4 @@
-import React, { useContext, useEffect, useMemo } from "react";
-import { createPortal } from "react-dom";
+import React, { useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   X,
@@ -18,211 +17,228 @@ import {
   Palette,
   UserRound,
   LifeBuoy,
-  Package,
   SquareArrowOutUpRight,
   Heart,
   Newspaper,
+  CalendarClock,
+  SquareArrowDown,
+  ScrollText,
+  BookUser,
   HardDrive,
 } from "lucide-react";
-import * as ultils from "@/utils";
 import { useApp } from "@/context/AppContext";
-import { AuthContext } from "@/context/AuthLocket";
-import api from "@/lib/axios";
 import { MenuItem } from "./MenuItem";
 import { AuthButton } from "./AuthButton";
 import ThemeToggle from "./ThemeToggle";
 import PlanBadge from "../ui/PlanBadge/PlanBadge";
 import { SonnerError, SonnerSuccess } from "../ui/SonnerToast";
-import { clearAllData } from "@/utils/SyncData/clearAllData";
+import { CONFIG } from "@/config";
+import { useAuthStore } from "@/stores";
+import { useTranslation } from "react-i18next";
 import { isAdminUser } from "@/utils/googleDrive";
 import { getMyLocalId } from "@/utils/auth/getMyLocalId";
 
 const Sidebar = () => {
-  const { user, authTokens, resetAuthContext } = useContext(AuthContext);
+  const user = useAuthStore((state) => state.user);
+  const clearAndlogout = useAuthStore((state) => state.clearAndlogout);
+  const { t } = useTranslation("auth");
+
   const navigate = useNavigate();
   const { navigation } = useApp();
   const { isSidebarOpen, setIsSidebarOpen } = navigation;
 
-  const myId = getMyLocalId(user, authTokens);
+  const localId = getMyLocalId(user);
   const email =
     user?.email ||
     localStorage.getItem("email") ||
     sessionStorage.getItem("email") ||
     "";
-  const isAdmin = isAdminUser(myId, { ...user, email, localId: myId });
+  const isAdmin = isAdminUser(localId, { ...user, email, localId });
 
   useEffect(() => {
     document.body.classList.toggle("overflow-hidden", isSidebarOpen);
     return () => document.body.classList.remove("overflow-hidden");
   }, [isSidebarOpen]);
 
+  const currentYear = new Date().getFullYear();
+  const { startYear } = CONFIG.app;
   const handleLogout = async () => {
     try {
-      api.get(`${ultils.API_URL.LOGOUT_URL}`);
-      resetAuthContext();
-      await clearAllData();
+      clearAndlogout();
       SonnerSuccess(
-        "Đăng xuất thành công!",
-        `Tạm biệt ${user?.displayName || "người dùng"}!`
+        t("sidebar.logout_success"),
+        t("sidebar.logout_goodbye", {
+          name: user?.displayName || t("sidebar.logout_default_user"),
+        }),
       );
       navigate("/login");
     } catch (error) {
-      SonnerError("error", "Đăng xuất thất bại!");
+      SonnerError("error", t("sidebar.logout_error"));
       console.error("❌ Lỗi khi đăng xuất:", error);
     }
   };
 
   // Menu chia theo nhóm
-  const userMenuSections = useMemo(() => {
-    const sections = [];
-
-    // Google Drive — chỉ admin thấy (kết nối / quản lý OAuth)
-    if (user && isAdmin) {
-      sections.push({
-        title: "⚡ Google Drive",
-        items: [
+  const userMenuSections = [
+    // Chỉ admin thấy kết nối Drive
+    ...(user && isAdmin
+      ? [
           {
-            to: "/admin/google-drive",
-            icon: HardDrive,
-            text: "Quản lý Drive (Admin)",
-            badge: "Admin",
+            title: "⚡ Google Drive",
+            items: [
+              {
+                to: "/admin/google-drive",
+                icon: HardDrive,
+                text: "Quản lý Drive (Admin)",
+                badge: "Admin",
+              },
+              {
+                to: "/settings",
+                icon: Settings,
+                text: "Cài đặt web",
+              },
+            ],
           },
-          {
-            to: "/settings",
-            icon: Settings,
-            text: "Cài đặt web",
-          },
-        ],
-      });
-    }
-
-    sections.push(
-      {
-        title: "Huy Locket",
-        items: [
-          { to: "/home", icon: Home, text: "Trang chủ" },
-          { to: "/about", icon: Info, text: "Huy Locket" },
-          { to: "/newsfeed", icon: Newspaper, text: "Bảng tin", badge: "New" },
-          {
-            to: "/download",
-            icon: SquareArrowOutUpRight,
-            text: "Cài đặt WebApp",
-          },
-          { to: "/sponsors", icon: Heart, text: "Ủng hộ dự án" },
-        ],
-      },
-      {
-        title: "Tính năng",
-        badge: <PlanBadge />,
-        items: [
-          { to: "/postmoments", icon: Upload, text: "Đăng ảnh, video" },
-          {
-            to: "/locket-beta",
-            icon: Smartphone,
-            text: "Locket Camera",
-            badge: "Beta",
-          },
-          { to: "/manage", icon: Palette, text: "Quản lý Caption" },
-          { to: "/tools", icon: Wrench, text: "Công cụ Locket" },
-          {
-            to: "/pricing",
-            icon: Rocket,
-            text: "Gói thành viên",
-            badge: "Hot",
-          },
-          { to: "/profile", icon: UserRound, text: "Hồ sơ của bạn" },
-        ],
-      },
-      {
-        title: "Hệ thống & Hỗ trợ",
-        items: [
-          { to: "/incidents", icon: Bug, text: "Trung tâm sự cố" },
-          { to: "/contact", icon: LifeBuoy, text: "Liên hệ & Hỗ trợ" },
-          { to: "/privacy", icon: ShieldCheck, text: "Chính sách bảo mật" },
-        ],
-      }
-    );
-
-    return sections;
-  }, [user, isAdmin]);
-
-  const guestMenuSections = [
+        ]
+      : []),
     {
       title: "Huy Locket",
       items: [
-        { to: "/", icon: Home, text: "Trang chủ" },
+        { to: "/home", icon: Home, text: t("sidebar.menu.home") },
         { to: "/about", icon: Info, text: "Huy Locket" },
-        { to: "/about-dio", icon: UserCircle, text: "Về Dio" },
-        { to: "/newsfeed", icon: Newspaper, text: "Bảng tin", badge: "New" },
-        { to: "/download", icon: SquareArrowOutUpRight, text: "Cài đặt WebApp"},
+        { to: "/newsfeed", icon: Newspaper, text: t("sidebar.menu.newsfeed"), badge: "New" },
+        {
+          to: "/download",
+          icon: SquareArrowOutUpRight,
+          text: t("sidebar.menu.download"),
+        },
+        { to: "/sponsors", icon: Heart, text: t("sidebar.menu.sponsors") },
       ],
     },
     {
-      title: "Tài nguyên",
+      title: t("sidebar.sections.features"),
+      badge: <PlanBadge />,
       items: [
-        { to: "/pricing", icon: Rocket, text: "Gói thành viên", badge: "New" },
-        { to: "/collection", icon: Package, text: "Thư viện phiên bản" },
-        { to: "/sponsors", icon: Heart, text: "Ủng hộ dự án" },
-        { to: "/timeline", icon: Clock, text: "Lịch sử Website" },
-        { to: "/docs", icon: BookText, text: "Tài liệu" },
+        { to: "/postmoments", icon: Upload, text: t("sidebar.menu.post") },
+        {
+          to: "/locket",
+          icon: Smartphone,
+          text: t("sidebar.menu.locket_camera"),
+          badge: "Beta",
+        },
+        { to: "/tools", icon: Wrench, text: t("sidebar.menu.tools") },
+        {
+          to: "/diary",
+          icon: CalendarClock,
+          text: t("sidebar.menu.diary"),
+          badge: "New",
+        },
+        { to: "/friends", icon: BookUser, text: t("sidebar.menu.friends") },
+        { to: "/pricing", icon: Rocket, text: t("sidebar.menu.pricing"), badge: "Hot" },
+        { to: "/profile", icon: UserRound, text: t("sidebar.menu.profile") },
       ],
     },
     {
-      title: "Hệ thống & Hỗ trợ",
+      title: t("sidebar.sections.partners"),
       items: [
-        // { to: "/devpage", icon: Code2, text: "Trang lập trình", badge: "New" },
-        { to: "/incidents", icon: Bug, text: "Trung tâm sự cố" },
-        { to: "/contact", icon: LifeBuoy, text: "Liên hệ & Hỗ trợ" },
-        { to: "/privacy", icon: ShieldCheck, text: "Chính sách bảo mật" },
-        { to: "/settings", icon: Settings, text: "Cài đặt" },
+        { to: "/collab/caption-kanade", icon: Palette, text: t("sidebar.menu.caption_kanade") },
+        {
+          to: "/collab/locket-upload",
+          icon: SquareArrowDown,
+          text: t("sidebar.menu.locket_upload"),
+        },
+      ],
+    },
+    {
+      title: t("sidebar.sections.system"),
+      items: [
+        { to: "/incidents", icon: Bug, text: t("sidebar.menu.incidents") },
+        { to: "/contact", icon: LifeBuoy, text: t("sidebar.menu.contact") },
+        { to: "/terms", icon: ScrollText, text: t("sidebar.menu.terms") },
+        { to: "/privacy", icon: ShieldCheck, text: t("sidebar.menu.privacy") },
+        { to: "/settings", icon: Settings, text: t("sidebar.menu.settings") },
+      ],
+    },
+  ];
+
+  const guestMenuSections = [
+    {
+      title: t("sidebar.sections.locket_dio"),
+      items: [
+        { to: "/", icon: Home, text: t("sidebar.menu.home") },
+        { to: "/about", icon: Info, text: t("sidebar.menu.about") },
+        { to: "/about-dio", icon: UserCircle, text: t("sidebar.menu.about_dio") },
+        { to: "/newsfeed", icon: Newspaper, text: t("sidebar.menu.newsfeed"), badge: "New" },
+        {
+          to: "/download",
+          icon: SquareArrowOutUpRight,
+          text: t("sidebar.menu.download"),
+        },
+      ],
+    },
+    {
+      title: t("sidebar.sections.resources"),
+      items: [
+        { to: "/pricing", icon: Rocket, text: t("sidebar.menu.pricing"), badge: "New" },
+        { to: "/sponsors", icon: Heart, text: t("sidebar.menu.sponsors") },
+        { to: "/timeline", icon: Clock, text: t("sidebar.menu.timeline") },
+        { to: "/docs", icon: BookText, text: t("sidebar.menu.docs") },
+      ],
+    },
+    {
+      title: t("sidebar.sections.partners"),
+      items: [
+        { to: "/collab/caption-kanade", icon: Palette, text: t("sidebar.menu.caption_kanade") },
+        {
+          to: "/collab/locket-upload",
+          icon: SquareArrowDown,
+          text: t("sidebar.menu.locket_upload"),
+        },
+      ],
+    },
+    {
+      title: t("sidebar.sections.system"),
+      items: [
+        { to: "/incidents", icon: Bug, text: t("sidebar.menu.incidents") },
+        { to: "/contact", icon: LifeBuoy, text: t("sidebar.menu.contact") },
+        { to: "/terms", icon: ScrollText, text: t("sidebar.menu.terms") },
+        { to: "/privacy", icon: ShieldCheck, text: t("sidebar.menu.privacy") },
+        { to: "/settings", icon: Settings, text: t("sidebar.menu.settings") },
       ],
     },
   ];
 
   const menuSections = user ? userMenuSections : guestMenuSections;
 
-  // Portal ra body — tránh bị .locket-shell / tuyết đè z-index
-  const panel = (
+  return (
     <>
-      {/* Overlay — trên tuyết (z-20), dưới vẫn bấm được menu */}
+      {/* Overlay */}
       <div
-        className={`fixed inset-0 h-screen bg-base-100/20 backdrop-blur-[2px] transition-opacity duration-300 ${
-          isSidebarOpen
+        className={`fixed h-screen z-60 inset-0 bg-base-100/10 backdrop-blur-[2px] transition-opacity duration-500 ${isSidebarOpen
             ? "opacity-100 pointer-events-auto"
             : "opacity-0 pointer-events-none"
-        }`}
-        style={{ zIndex: 100 }}
+          }`}
         onClick={() => setIsSidebarOpen(false)}
-        aria-hidden={!isSidebarOpen}
       />
 
-      {/* Sidebar panel */}
+      {/* Sidebar */}
       <div
-        role="dialog"
-        aria-modal="true"
-        aria-label="Menu"
-        className={`fixed top-0 right-0 h-full w-64 max-w-[85vw] shadow-xl transition-transform duration-300 bg-base-100 flex flex-col ${
-          isSidebarOpen ? "translate-x-0" : "translate-x-full"
-        }`}
-        style={{ zIndex: 110 }}
+        className={`fixed z-60 top-0 right-0 h-full w-64 shadow-xl transition-all duration-500 bg-base-100 flex flex-col ${isSidebarOpen
+            ? "opacity-100 translate-x-0"
+            : "opacity-0 translate-x-full"
+          }`}
       >
         {/* Header */}
         <div className="flex justify-between items-center py-3 px-2 border-b border-base-300 flex-shrink-0">
-          <Link
-            to="/"
-            className="flex items-center gap-1"
-            onClick={() => setIsSidebarOpen(false)}
-          >
+          <Link to="/" className="flex items-center gap-1">
             <span className="text-lg pl-2 font-semibold gradient-text select-none">
-              Menu
+              {t("sidebar.menu_title")}
             </span>
           </Link>
           <ThemeToggle />
           <button
-            type="button"
             onClick={() => setIsSidebarOpen(false)}
             className="p-2 rounded-md transition cursor-pointer btn"
-            aria-label="Đóng menu"
           >
             <X size={24} />
           </button>
@@ -264,17 +280,15 @@ const Sidebar = () => {
 
         <div>
           <p className="text-center text-xs pb-2 text-base-content/70">
-            © {new Date().getFullYear()}{" "}
-            <span className="font-semibold font-lovehouse">Bùi Đức Huy</span>. All
-            rights reserved.
+            © {startYear}
+            {currentYear > startYear && `–${currentYear}`}{" "}
+            <span className="font-semibold font-lovehouse">Dio</span>.{" "}
+            {t("sidebar.copyright")}
           </p>
         </div>
       </div>
     </>
   );
-
-  if (typeof document === "undefined") return null;
-  return createPortal(panel, document.body);
 };
 
 export default Sidebar;
