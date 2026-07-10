@@ -10,8 +10,10 @@ import { usePostStore } from "@/stores";
 
 const ActionControls = () => {
   const selectedFile = usePostStore((s) => s.selectedFile);
+  const preview = usePostStore((s) => s.preview);
 
-  const hasFile = !!selectedFile;
+  // Có preview = đã chụp (kể cả lúc file blob chưa encode xong)
+  const hasFile = !!(selectedFile || preview);
 
   const baseBtn =
     "transition-all duration-300 ease-in-out transform active:scale-95";

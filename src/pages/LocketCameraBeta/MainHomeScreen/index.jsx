@@ -29,6 +29,8 @@ export default function MainHomeScreen() {
     setFriendHistoryOpen,
   } = navigation;
   const selectedFile = usePostStore((s) => s.selectedFile);
+  const preview = usePostStore((s) => s.preview);
+  const hasCaptured = !!(selectedFile || preview);
 
   return (
     <>
@@ -90,8 +92,8 @@ export default function MainHomeScreen() {
           <div className="relative w-full">
             <div
               className={clsx("transition-all duration-300", {
-                "opacity-0 invisible hidden": !selectedFile,
-                "opacity-100 visible": selectedFile,
+                "opacity-0 invisible hidden": !hasCaptured,
+                "opacity-100 visible": hasCaptured,
               })}
             >
               <Suspense fallback={null}>
@@ -102,8 +104,8 @@ export default function MainHomeScreen() {
             {/* Chỉ Lịch sử — không nút calendar cạnh đó */}
             <div
               className={clsx("transition-all duration-300", {
-                "opacity-0 invisible hidden": selectedFile,
-                "opacity-100 visible": !selectedFile,
+                "opacity-0 invisible hidden": hasCaptured,
+                "opacity-100 visible": !hasCaptured,
               })}
             >
               <HistoryArrow setIsBottomOpen={setIsBottomOpen} />

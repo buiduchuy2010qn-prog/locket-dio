@@ -879,12 +879,10 @@ const MediaPreviewAndroid = () => {
             src={preview.data}
             alt=""
             draggable={false}
-            decoding="async"
-            className={`w-full h-full object-cover object-center select-none transition-opacity duration-300 bg-black ${
-              preview ? "opacity-100" : "opacity-0"
-            }`}
+            decoding="sync"
+            fetchPriority="high"
+            className="w-full h-full object-cover object-center select-none bg-black opacity-100"
             style={{
-              // Tránh méo / vỡ pixel khi scale
               imageRendering: "auto",
               WebkitUserDrag: "none",
             }}
@@ -894,7 +892,7 @@ const MediaPreviewAndroid = () => {
         <div
           className={`absolute z-10 inset-x-0 bottom-0 px-4 pb-4 transform transition-all duration-300 
           ${
-            preview && selectedFile
+            preview
               ? "opacity-100"
               : "opacity-0 scale-95 pointer-events-none"
           }`}

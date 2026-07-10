@@ -34,6 +34,7 @@ const CameraButton = () => {
   } = camera;
 
   const setMediaFromFile = usePostStore((s) => s.setMediaFromFile);
+  // usePostStore.setState used for instant preview in captureImage
 
   const holdStartTimeRef = useRef(null);
   const holdTimeoutRef = useRef(null);
@@ -292,64 +293,132 @@ const CameraButton = () => {
     }
   };
 
+  /**
+   * Chụp ảnh — hiện preview NGAY (freeze + JPEG nhanh), không chờ encode xong.
+   */
   const captureImage = () => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
     if (!video || !canvas) return;
 
-    const ctx = canvas.getContext("2d");
-    canvas.width = CAMERA_CONFIG.imageSizePx;
-    canvas.height = CAMERA_CONFIG.imageSizePx;
-
-    let sx = 0,
-      sy = 0,
-      sw = video.videoWidth,
-      sh = video.videoHeight;
-
-    if (video.videoWidth > video.videoHeight) {
-      const offset = (video.videoWidth - video.videoHeight) / 2;
-      sx = offset;
-      sw = video.videoHeight;
-    } else {
-      const offset = (video.videoHeight - video.videoWidth) / 2;
-      sy = offset;
-      sh = video.videoWidth;
+    if (!video.videoWidth || video.readyState < 2) {
+      SonnerInfo(t("home.camera_not_ready"));
+      return;
     }
 
-    if (cameraMode === "user") {
-      ctx.translate(canvas.width, 0);
-      ctx.scale(-1, 1);
+    // 1) Freeze frame ngay lập tức (0ms) — user thấy ảnh đứng yên
+    try {
+      video.pause();
+    } catch {
+      /* ignore */
     }
 
-    ctx.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+    // 2) Vẽ + hiện preview ngay sau 1 frame (không chờ toBlob quality 1.0)
+    const paintAndShow = () => {
+      const maxSize = CAMERA_CONFIG.imageSizePx || 1920;
+      // Encode nhanh hơn: cap 1440 trên máy yếu / mobile
+      const cores = navigator.hardwareConcurrency || 4;
+      const mem = navigator.deviceMemory || 4;
+      const isLite =
+        cores <= 4 ||
+        mem <= 3 ||
+        /Android/i.test(navigator.userAgent || "");
+      const outputSize = isLite
+        ? Math.min(maxSize, 1280)
+        : Math.min(maxSize, 1600);
 
-    canvas.toBlob(
-      (blob) => {
-        if (blob) {
-          const file = new File([blob], "locket_dio.jpg", {
-            type: "image/jpeg",
-          });
-          // const imgUrl = URL.createObjectURL(file);
-          // setPreview({ type: "image", data: imgUrl });
+      canvas.width = outputSize;
+      canvas.height = outputSize;
 
-          // const fileSizeInMB = file.size / (1024 * 1024);
-          // setSizeMedia(fileSizeInMB.toFixed(2));
+      const ctx = canvas.getContext("2d", {
+        alpha: false,
+        desynchronized: true,
+      });
+      if (!ctx) return;
 
-          setMediaFromFile(file);
+      // Reset transform mỗi lần chụp
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "high";
 
-          // setSelectedFile(file);
-          setCameraActive(false);
+      let sx = 0;
+      let sy = 0;
+      let sw = video.videoWidth;
+      let sh = video.videoHeight;
+
+      if (video.videoWidth > video.videoHeight) {
+        const offset = (video.videoWidth - video.videoHeight) / 2;
+        sx = offset;
+        sw = video.videoHeight;
+      } else {
+        const offset = (video.videoHeight - video.videoWidth) / 2;
+        sy = offset;
+        sh = video.videoWidth;
+      }
+
+      if (cameraMode === "user") {
+        ctx.translate(outputSize, 0);
+        ctx.scale(-1, 1);
+      }
+
+      ctx.drawImage(video, sx, sy, sw, sh, 0, 0, outputSize, outputSize);
+
+      // 3) Preview tức thì bằng toDataURL (quality vừa — nhanh, vẫn đẹp)
+      //    Rồi tắt cam + gắn file song song
+      let instantUrl = null;
+      try {
+        instantUrl = canvas.toDataURL("image/jpeg", 0.88);
+      } catch {
+        instantUrl = null;
+      }
+
+      if (instantUrl) {
+        // Hiện ảnh ngay — không chờ toBlob
+        usePostStore.setState({
+          preview: { type: "image", data: instantUrl },
+          selectedFile: null,
+          isSizeMedia: null,
+        });
+        setCameraActive(false);
+      }
+
+      // 4) File upload-ready (blob) — cập nhật khi xong, không block UI
+      const finishWithBlob = (blob) => {
+        if (!blob) {
+          // Fallback: dataURL → File nếu toBlob fail
+          if (instantUrl) {
+            try {
+              const arr = instantUrl.split(",");
+              const mime = arr[0].match(/:(.*?);/)?.[1] || "image/jpeg";
+              const bstr = atob(arr[1]);
+              const n = bstr.length;
+              const u8 = new Uint8Array(n);
+              for (let i = 0; i < n; i++) u8[i] = bstr.charCodeAt(i);
+              const file = new File([u8], "locket_dio.jpg", { type: mime });
+              setMediaFromFile(file);
+            } catch {
+              /* ignore */
+            }
+          }
+          return;
         }
-      },
-      "image/jpeg",
-      1.0
-    );
+        const file = new File([blob], "locket_dio.jpg", {
+          type: "image/jpeg",
+        });
+        // setMediaFromFile tạo blob URL mới — thay preview dataURL (tiết kiệm RAM)
+        setMediaFromFile(file);
+        setCameraActive(false);
+      };
 
-    // Fix iOS
-    setTimeout(() => {
-      const videoEl = document.querySelector("video");
-      if (videoEl) videoEl.setAttribute("playsinline", "true");
-    }, 100);
+      if (typeof canvas.toBlob === "function") {
+        canvas.toBlob(finishWithBlob, "image/jpeg", 0.9);
+      } else {
+        finishWithBlob(null);
+      }
+    };
+
+    // 1 frame: paint freeze đã hiện, rồi encode (user thấy đứng hình ngay)
+    requestAnimationFrame(paintAndShow);
   };
 
   // Cleanup khi component unmount

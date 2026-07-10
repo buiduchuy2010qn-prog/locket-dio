@@ -64,7 +64,21 @@ const SendButton = () => {
 
   // Hàm submit được cải tiến
   const handleSubmit = async () => {
-    if (!selectedFile) {
+    // Chờ blob encode xong nếu vừa chụp (preview dataURL trước, file sau)
+    let file = selectedFile || usePostStore.getState().selectedFile;
+    if (!file && preview?.data?.startsWith("data:")) {
+      try {
+        const res = await fetch(preview.data);
+        const blob = await res.blob();
+        file = new File([blob], "locket_dio.jpg", {
+          type: blob.type || "image/jpeg",
+        });
+        usePostStore.getState().setMediaFromFile(file);
+      } catch {
+        /* fall through */
+      }
+    }
+    if (!file) {
       SonnerWarning(t("home.no_data_to_upload"));
       return;
     }
