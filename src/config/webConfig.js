@@ -170,4 +170,17 @@ export const CONFIG = {
       { id: "tip", label: "Mẹo sử dụng", icon: "Lightbulb" },
     ],
   },
+
+  // Bắt buộc cho CACHE_CONFIG (userLocketCache / memberToken).
+  // Thiếu block này → crash ngay lúc load bundle → trang hồng trống.
+  cache: {
+    keys: {
+      user: "userData",
+      memberToken: "memberToken",
+      memberHeader: "memberHeader",
+    },
+    ttl: {
+      user: 24 * 60 * 60 * 1000, // 24h
+    },
+  },
 };
