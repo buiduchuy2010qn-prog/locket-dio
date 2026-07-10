@@ -43,28 +43,11 @@ const MediaPreviewIOS = () => {
   const lastZoomLevel = useRef(zoomLevel);
   const startRequestId = useRef(0);
   const [lensPills, setLensPills] = useState(["1x"]);
-  const [torchOn, setTorchOn] = useState(false);
   const [pageVisible, setPageVisible] = useState(
     () =>
       typeof document === "undefined" ||
       document.visibilityState === "visible",
   );
-
-  const handleToggleTorch = async () => {
-    const track = streamRef.current?.getVideoTracks?.()?.[0];
-    const caps = track?.getCapabilities?.() || {};
-    if (!track || !caps.torch) {
-      SonnerInfo(t("home.flash_not_supported"));
-      return;
-    }
-    const next = !torchOn;
-    try {
-      await track.applyConstraints({ advanced: [{ torch: next }] });
-      setTorchOn(next);
-    } catch {
-      SonnerInfo(t("home.flash_enable_failed"));
-    }
-  };
 
   const onCapturePage =
     !isBottomOpen && !isHomeOpen && !isProfileOpen && pageVisible;
@@ -72,13 +55,24 @@ const MediaPreviewIOS = () => {
   const cameraFrame = useUIStore((s) => s.cameraFrame);
 
   const refreshLensPills = async () => {
-    const isBack = (cameraMode || "user") === "environment";
-    // Camera sau: luôn 0.5 · 1 · 2 · 3 — không hiện ô "1" lẻ
-    if (isBack) {
-      setLensPills(["0.5x", "1x", "2x", "3x"]);
-      return;
+    const pills = new Set(["1x"]);
+    try {
+      const cameras = await getAvailableCameras();
+      // Full zoom theo lens máy
+      if (cameras?.backUltraWideCamera) pills.add("0.5x");
+      pills.add("1x");
+      if (cameras?.backZoomCamera) {
+        pills.add("2x");
+        pills.add("3x");
+      } else {
+        // Không tele: vẫn cho 2x (main)
+        pills.add("2x");
+      }
+    } catch {
+      /* ignore */
     }
-    setLensPills([]); // camera trước: ẩn pills
+    const order = ["0.5x", "1x", "2x", "3x"];
+    setLensPills(order.filter((z) => pills.has(z)));
   };
 
   const handleSelectLens = async (label) => {
@@ -404,15 +398,44 @@ const MediaPreviewIOS = () => {
 
         {!preview && !selectedFile && (
           <>
-            {/* Chỉ nút đèn — không zoom pill / số trên khung ảnh */}
-            <div className="absolute inset-0 top-7 px-7 z-30 pointer-events-none flex justify-start text-base-content text-xs font-semibold">
+            <div className="absolute inset-0 top-7 px-7 z-30 pointer-events-none flex justify-between text-base-content text-xs font-semibold">
               <button
-                onClick={handleToggleTorch}
+                onClick={() => SonnerInfo(t("home.feature_coming_soon"))}
                 className="pointer-events-auto w-7 h-7 p-1.5 rounded-full bg-white/30 backdrop-blur-md flex items-center justify-center"
               >
                 <img src="/icons/bolt.fill.png" alt="Icon sấm sét" />
               </button>
+
+              <button
+                onClick={handleCycleZoomCamera}
+                className="pointer-events-auto min-w-8 h-8 px-2 text-primary-content font-semibold rounded-full bg-white/30 backdrop-blur-md flex items-center justify-center text-xs"
+              >
+                {zoomLevel}
+              </button>
             </div>
+
+            {/* Pills zoom: 0.5 · 1 · 2 · 3 theo máy */}
+            {!preview && !selectedFile && cameraActive && lensPills.length > 0 && (
+              <div className="absolute bottom-5 left-1/2 -translate-x-1/2 z-30 flex items-center gap-1.5 pointer-events-auto px-2 py-1 rounded-full bg-black/35 backdrop-blur-md">
+                {lensPills.map((label) => {
+                  const active = zoomLevel === label;
+                  return (
+                    <button
+                      key={label}
+                      type="button"
+                      onClick={() => handleSelectLens(label)}
+                      className={`min-w-9 h-9 px-2 rounded-full text-xs font-bold transition-all active:scale-95 ${
+                        active
+                          ? "bg-white text-black shadow"
+                          : "bg-white/15 text-white"
+                      }`}
+                    >
+                      {label.replace("x", "")}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
 
             {cameraFrame?.imageSrc && (
               <div className="absolute inset-0 z-20 pointer-events-none">

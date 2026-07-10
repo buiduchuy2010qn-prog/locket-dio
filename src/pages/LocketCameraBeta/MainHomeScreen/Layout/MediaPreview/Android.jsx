@@ -166,44 +166,35 @@ const MediaPreviewAndroid = () => {
     return true;
   };
 
-  /**
-   * Pills zoom: camera SAU luôn hiện 0.5 · 1 · 2 · 3 (và 5 nếu máy hỗ trợ).
-   * Không hiện ô tròn "1" lẻ một mình.
-   */
+  /** Full zoom pills: 0.5 / 1 / 2 / 3 / 5 theo lens + digital zoom máy */
   const refreshLensPills = async (stream) => {
     const track = getActiveTrack(stream);
     const capabilities = getTrackCapabilities(track);
     const fromTrack = getZoomLabels(capabilities);
-    const isBack = (cameraMode || "user") === "environment";
-    const pills = new Set();
+    const pills = new Set(fromTrack.length ? fromTrack : ["1x"]);
 
-    if (isBack) {
-      // Camera sau: luôn đủ dải zoom UI (0.5 ultra / 1 main / 2 digital / 3 tele)
-      pills.add("0.5x");
-      pills.add("1x");
-      pills.add("2x");
-      pills.add("3x");
-      try {
-        const cameras = await getAvailableCameras();
-        if ((capabilities?.zoom?.max ?? 1) >= 4.5 || cameras?.backZoomCamera) {
-          if ((capabilities?.zoom?.max ?? 1) >= 4.5) pills.add("5x");
-        }
-      } catch {
-        /* ignore */
+    // Luôn có 1x; 0.5 nếu ultra-wide vật lý (kể cả khi track min=1)
+    pills.add("1x");
+    try {
+      const cameras = await getAvailableCameras();
+      if (cameras?.backUltraWideCamera) pills.add("0.5x");
+      if (cameras?.backZoomCamera) {
+        pills.add("3x");
+        // tele máy thường ≥3; digital 2x vẫn hữu ích trên main
+        pills.add("2x");
       }
-      fromTrack.forEach((z) => pills.add(z));
-    } else {
-      // Camera trước: chỉ hiện nếu có nhiều mức
-      pills.add("1x");
-      fromTrack.forEach((z) => pills.add(z));
-      if ((capabilities?.zoom?.min ?? 1) < 0.9) pills.add("0.5x");
+      // Camera sau: nếu track hỗ trợ zoom cao
+      if ((capabilities?.zoom?.max ?? 1) >= 1.8) pills.add("2x");
+      if ((capabilities?.zoom?.max ?? 1) >= 2.5) pills.add("3x");
+      if ((capabilities?.zoom?.max ?? 1) >= 4.5) pills.add("5x");
+    } catch {
+      /* optional */
     }
 
     const order = ["0.5x", "1x", "2x", "3x", "5x"];
-    let list = order.filter((z) => pills.has(z));
-    // Ẩn nếu chỉ còn 1x lẻ (ô tròn "1" xấu)
-    if (list.length === 1 && list[0] === "1x") list = [];
-    setLensPills(list);
+    const list = order.filter((z) => pills.has(z));
+    // Tối thiểu 0.5 + 1 nếu máy có ultra; không thì 1x
+    setLensPills(list.length ? list : ["1x"]);
     setZoomOptions(fromTrack.length ? fromTrack : ["1x"]);
   };
 
@@ -815,15 +806,48 @@ const MediaPreviewAndroid = () => {
 
         {!preview && !selectedFile && (
           <>
-            {/* Chỉ nút đèn flash — không zoom pill / số 1 trên khung ảnh */}
-            <div className="absolute inset-0 top-7 px-7 z-30 pointer-events-none flex justify-start text-base-content text-xs font-semibold">
+            <div className="absolute inset-0 top-7 px-7 z-30 pointer-events-none flex justify-between text-base-content text-xs font-semibold">
               <button
                 onClick={handleToggleTorch}
                 className="pointer-events-auto w-7 h-7 p-1.5 rounded-full bg-white/30 backdrop-blur-md flex items-center justify-center"
               >
                 <img src="/icons/bolt.fill.png" alt="Icon sấm sét" />
               </button>
+
+              <button
+                onClick={handleCycleZoomCamera}
+                className="pointer-events-auto min-w-8 h-8 px-2 text-primary-content font-semibold rounded-full bg-white/30 backdrop-blur-md flex items-center justify-center text-xs"
+                title="Cycle zoom"
+              >
+                {zoomDisplay}
+              </button>
             </div>
+
+            {/* Pills zoom full: 0.5 · 1 · 2 · 3 · 5 theo máy */}
+            {!preview && !selectedFile && cameraActive && lensPills.length > 0 && (
+              <div className="absolute bottom-5 left-1/2 -translate-x-1/2 z-30 flex items-center gap-1.5 pointer-events-auto px-2 py-1 rounded-full bg-black/35 backdrop-blur-md">
+                {lensPills.map((label) => {
+                  const active =
+                    zoomLevel === label ||
+                    (label === "1x" &&
+                      (zoomLevel === "1x" || zoomDisplay === "1x"));
+                  return (
+                    <button
+                      key={label}
+                      type="button"
+                      onClick={() => handleSelectLens(label)}
+                      className={`min-w-9 h-9 px-2 rounded-full text-xs font-bold transition-all active:scale-95 ${
+                        active
+                          ? "bg-white text-black shadow"
+                          : "bg-white/15 text-white"
+                      }`}
+                    >
+                      {label.replace("x", "")}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
 
             {cameraFrame?.imageSrc && (
               <div className="absolute inset-0 z-20 pointer-events-none">
