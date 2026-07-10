@@ -1,15 +1,48 @@
+# Blueprint Render — Web + API (auto khi sync Blueprint)
 services:
-  # MUST be Web Service (Docker) — Static Site cannot proxy API (CORS login fails)
+  # ── WEB: SPA + Drive + proxy ─────────────────────────────────
   - type: web
     name: huy-locket
     runtime: docker
     plan: free
     region: singapore
     dockerfilePath: ./Dockerfile
-    healthCheckPath: /dio-api/
+    dockerContext: .
+    healthCheckPath: /
     envVars:
       - key: NODE_ENV
         value: production
-      # Neon — lưu OAuth Drive bền (không mất khi redeploy free)
+      # Trỏ proxy /dio-api → service API (Render inject URL)
+      - key: LOCKET_API_UPSTREAM
+        fromService:
+          name: huy-locket-api
+          type: web
+          envVarKey: RENDER_EXTERNAL_URL
+      # Neon — OAuth Drive (không commit key mới; giữ env đã set trên dashboard nếu đổi)
       - key: DATABASE_URL
-        value: postgresql://neondb_owner:npg_Wd4gbkpS2JCa@ep-rough-math-atpq3c8p-pooler.c-9.us-east-1.aws.neon.tech/neondb?sslmode=require
+        sync: false
+
+  # ── API: backend Huy Locket (folder /api) ─────────────────────
+  - type: web
+    name: huy-locket-api
+    runtime: docker
+    plan: free
+    region: singapore
+    rootDir: api
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: COOKIE_SECRET
+        generateValue: true
+      - key: LOCKETDIO_JWT_SECRET
+        generateValue: true
+      - key: LOCKETDIO_SIGNATURE_SECRET
+        generateValue: true
+      # Domain web được CORS
+      - key: CORS_ORIGINS
+        value: https://huy-locket.onrender.com
+      # Login Locket: set trên Dashboard nếu có
+      # FIREBASE_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, WEATHER_API_KEY
