@@ -97,10 +97,10 @@ const Sidebar = () => {
 
     sections.push(
       {
-        title: "Locket Dio",
+        title: "Huy Locket",
         items: [
           { to: "/home", icon: Home, text: "Trang chủ" },
-          { to: "/about", icon: Info, text: "Locket Dio" },
+          { to: "/about", icon: Info, text: "Huy Locket" },
           { to: "/newsfeed", icon: Newspaper, text: "Bảng tin", badge: "New" },
           {
             to: "/download",
@@ -147,10 +147,10 @@ const Sidebar = () => {
 
   const guestMenuSections = [
     {
-      title: "Locket Dio",
+      title: "Huy Locket",
       items: [
         { to: "/", icon: Home, text: "Trang chủ" },
-        { to: "/about", icon: Info, text: "Locket Dio" },
+        { to: "/about", icon: Info, text: "Huy Locket" },
         { to: "/about-dio", icon: UserCircle, text: "Về Dio" },
         { to: "/newsfeed", icon: Newspaper, text: "Bảng tin", badge: "New" },
         { to: "/download", icon: SquareArrowOutUpRight, text: "Cài đặt WebApp"},

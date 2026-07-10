@@ -34,7 +34,7 @@ export const publicRoutes = [
   { path: "/", component: Home, title: `Trang Chủ | ${APP_NAME}` },
   { path: "/login", component: Login, title: `Đăng Nhập | ${APP_NAME}` },
 
-  { path: "/about", component: AboutLocketDio, title: `Về Website Locket Dio | ${APP_NAME}` },
+  { path: "/about", component: AboutLocketDio, title: `Về Website Huy Locket | ${APP_NAME}` },
   { path: "/about-dio", component: AboutMe, title: `Về Dio | ${APP_NAME}` },
 
   { path: "/newsfeed", component: NewsPage, title: `Bảng tin | ${APP_NAME}` },

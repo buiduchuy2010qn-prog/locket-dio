@@ -11,10 +11,10 @@ export default function AboutLocketDio() {
         {/* Header */}
         <div className="text-center mb-12">
           <h1 className="text-4xl md:text-5xl font-bold mb-3">
-            Giới thiệu về <span className="text-purple-600">Locket Dio</span>
+            Giới thiệu về <span className="text-purple-600">Huy Locket</span>
           </h1>
           <p className="text-lg text-gray-600 max-w-2xl mx-auto">
-            Locket Dio — nền tảng mở rộng dành cho Locket Widget, giúp bạn chia
+            Huy Locket — nền tảng mở rộng dành cho Locket Widget, giúp bạn chia
             sẻ ảnh và video trực tiếp với giao diện hiện đại, nhanh chóng và
             tiện lợi.
           </p>
@@ -30,12 +30,12 @@ export default function AboutLocketDio() {
           </div>
         </div>
 
-        {/* What is Locket Dio */}
+        {/* What is Huy Locket */}
         <div className="bg-white rounded-xl shadow-md p-5 mb-8">
-          <h2 className="text-2xl font-bold mb-4">Locket Dio là gì?</h2>
+          <h2 className="text-2xl font-bold mb-4">Huy Locket là gì?</h2>
           <p className="text-gray-700 leading-relaxed mb-3">
-            - Locket Dio là nền tảng web được thiết kế để mở rộng khả năng của
-            ứng dụng Locket Widget. Với Locket Dio, bạn có thể dễ dàng tải lên
+            - Huy Locket là nền tảng web được thiết kế để mở rộng khả năng của
+            ứng dụng Locket Widget. Với Huy Locket, bạn có thể dễ dàng tải lên
             và chia sẻ ảnh, video từ máy tính hoặc bất kỳ thiết bị nào có trình
             duyệt web. <br />- Là một dự án cá nhân, hoạt động độc lập. Không
             liên kết với bên thứ ba nào khác ngoài Dio.
@@ -66,13 +66,13 @@ export default function AboutLocketDio() {
               <h3 className="text-xl font-semibold">Câu chuyện</h3>
             </div>
             <p className="text-gray-600 leading-relaxed">
-              “Locket Dio” được tạo ra từ nhu cầu thực tế:
+              “Huy Locket” được tạo ra từ nhu cầu thực tế:
               <br />• Làm sao để chia sẻ ảnh từ máy tính hoặc điện thoại lên
               Locket Widget mà không cần mua gói Locket Gold? <br />• Làm sao để
               đổi màu caption theo sở thích cá nhân? <br />• Làm sao để truy cập
               các tính năng ẩn của Locket?
               <br />
-              Từ những câu hỏi đó, Locket Dio ra đời như một giải pháp mở rộng,
+              Từ những câu hỏi đó, Huy Locket ra đời như một giải pháp mở rộng,
               giúp người dùng tận hưởng trọn vẹn trải nghiệm Locket — không giới
               hạn bởi thiết bị hay nền tảng.
             </p>
@@ -137,7 +137,7 @@ export default function AboutLocketDio() {
             </h3>
 
             <p className="text-gray-600 text-sm leading-relaxed mb-2">
-              Mặc dù Locket Dio được xây dựng với nền tảng web hiện đại, mình
+              Mặc dù Huy Locket được xây dựng với nền tảng web hiện đại, mình
               vẫn gặp không ít khó khăn trong quá trình phát triển và tối ưu để
               mọi người có thể sử dụng mượt mà nhất.
             </p>
@@ -150,7 +150,7 @@ export default function AboutLocketDio() {
               Tuy vậy, mình luôn theo dõi phản hồi, tối ưu từng phần, và cố gắng
               mang lại trải nghiệm tốt nhất trên nhiều thiết bị nhất có thể — từ
               điện thoại cũ đến laptop hiện đại. Đây là hành trình lâu dài,
-              nhưng cũng chính là động lực để Locket Dio ngày càng hoàn thiện
+              nhưng cũng chính là động lực để Huy Locket ngày càng hoàn thiện
               hơn.
             </p>
           </div>
@@ -160,7 +160,7 @@ export default function AboutLocketDio() {
               👥 Cộng đồng & Cảm ơn
             </h3>
             <p className="text-gray-600 text-sm leading-relaxed mb-2">
-              Locket Dio được phát triển bởi Dio — người yêu công nghệ và đam mê
+              Huy Locket được phát triển bởi Dio — người yêu công nghệ và đam mê
               sáng tạo. Tôi luôn lắng nghe phản hồi từ cộng đồng để không ngừng
               hoàn thiện sản phẩm.
             </p>
@@ -170,7 +170,7 @@ export default function AboutLocketDio() {
               ích, giúp mình hiểu rõ hơn và phát triển dự án này.
             </p>
             <p className="text-gray-600 text-sm leading-relaxed">
-              Cảm ơn những nhà tài trợ đã đóng góp và đồng hành với "Locket Dio"
+              Cảm ơn những nhà tài trợ đã đóng góp và đồng hành với "Huy Locket"
               trong suốt thời gian phát triển vừa qua.
             </p>
           </div>

@@ -1,10 +1,10 @@
 /**
- * Locket Dio SW v2.3.7-no-auto-reload
+ * Huy Locket SW v2.3.7-no-auto-reload
  * - KHÔNG precache JS/CSS/HTML
  * - KHÔNG skipWaiting tự động → không cướp tab đang dùng → không tự reload
  * - User bấm "Cập nhật" mới SKIP_WAITING
  */
-console.log("[SW] Locket Dio SW v2.3.7-no-auto-reload - loaded");
+console.log("[SW] Huy Locket SW v2.3.7-no-auto-reload - loaded");
 
 import { precacheAndRoute, cleanupOutdatedCaches } from "workbox-precaching";
 import { registerRoute } from "workbox-routing";

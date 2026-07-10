@@ -1,4 +1,9 @@
-# Locket Dio — Agent instructions
+# Huy Locket — Agent instructions
+
+## Branding
+
+- **App display name:** Huy Locket (not "Locket Dio" in UI)
+- Repo folder / GitHub may still be `locket-dio`; service Docker name: **huy-locket**
 
 ## Production deploy target (user request 2026-07-10)
 

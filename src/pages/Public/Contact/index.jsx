@@ -50,7 +50,7 @@ export default function Contact() {
           </h1>
           <p className="mt-3 text-base-content/70 text-lg">
             Kết nối với <span className="font-semibold">Bùi Đức Huy</span>{" "}
-            - Quản trị <span className="font-semibold">Locket Dio</span>
+            - Quản trị <span className="font-semibold">Huy Locket</span>
           </p>
         </div>
 
@@ -119,7 +119,7 @@ export default function Contact() {
 
         {/* Footer */}
         <div className="text-center mt-10 text-sm text-base-content/60 animate-fadeIn">
-          © {new Date().getFullYear()} Locket Dio. Made with ❤️ by Bùi Đức Huy
+          © {new Date().getFullYear()} Huy Locket. Made with ❤️ by Bùi Đức Huy
         </div>
       </div>
     </div>

@@ -1,4 +1,4 @@
-# Locket Dio — SPA + CORS API proxy (Render Web Service)
+# Huy Locket — SPA + CORS API proxy (Render Web Service)
 FROM node:20-alpine
 WORKDIR /app
 

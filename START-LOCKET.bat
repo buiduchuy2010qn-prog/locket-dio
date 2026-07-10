@@ -1,7 +1,7 @@
 @echo off
 cd /d "%~dp0"
 set PORT=4200
-echo Starting Locket Dio (SPA + API proxy)...
+echo Starting Huy Locket (SPA + API proxy)...
 start "locket-dio-server" cmd /c "set PORT=4200&& node server.mjs"
 timeout /t 2 /nobreak >nul
 if exist "%TEMP%\cloudflared\cloudflared.exe" (

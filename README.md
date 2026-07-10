@@ -1,9 +1,9 @@
-# 📸 Locket Dio
+# 📸 Huy Locket
 
 <div align="center">
 
 <p align="center">
-  <img src="https://cdn.locket-dio.com/v1/images/locket-dio-logo.png" alt="Locket Dio Logo" width="200" />
+  <img src="https://cdn.locket-dio.com/v1/images/locket-dio-logo.png" alt="Huy Locket Logo" width="200" />
 </p>
 
 **Ứng dụng web hiện đại dành cho cộng đồng Locket Widget - Chia sẻ ảnh và video ngay lập tức từ trình duyệt**
@@ -461,7 +461,7 @@ Khi báo cáo lỗi, vui lòng bao gồm:
 
 ### ⭐ Hãy Star repository này nếu bạn thấy hữu ích!
 
-**Được tạo với ❤️ bởi [Dio](https://github.com/doi2523) | © 2025 [Locket Dio](https://locket-dio.com) | Tất cả quyền được bảo lưu**
+**Được tạo với ❤️ bởi [Dio](https://github.com/doi2523) | © 2025 [Huy Locket](https://locket-dio.com) | Tất cả quyền được bảo lưu**
 
 [![Về đầu trang](https://img.shields.io/badge/⬆️_Về_Đầu_Trang-Nhấn_Vào_Đây-blue?style=for-the-badge)](#-locket-dio)
 

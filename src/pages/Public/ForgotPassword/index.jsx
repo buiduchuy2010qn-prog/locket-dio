@@ -38,7 +38,7 @@ const ForgotPassword = () => {
     try {
       await DioService.forgotPassword(email);
       SonnerSuccess(
-        "Thông báo từ Locket Dio",
+        "Thông báo từ Huy Locket",
         "Link đặt lại mật khẩu đã được gửi đến email của bạn!"
       );
       setEmail("");

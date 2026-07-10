@@ -43,7 +43,7 @@ const Home = () => {
             </p>
 
             <p className="text-white/80 text-sm italic">
-              “Locket Dio” là dự án cá nhân, hoạt động độc lập. Không liên kết
+              “Huy Locket” là dự án cá nhân, hoạt động độc lập. Không liên kết
               với bên thứ ba nào trừ khi có thông báo chính thức từ Dio.
             </p>
 
@@ -99,7 +99,7 @@ const Home = () => {
             <div className="relative transform hover:scale-105 transition-transform duration-500">
               <img
                 src="https://cdn.locket-dio.com/v1/images/double-phone-view-locketdio.webp"
-                alt="Locket Dio WebApp Preview"
+                alt="Huy Locket WebApp Preview"
                 onLoad={() => setLoaded(true)}
                 className={`
             md:w-[380px] lg:w-[400px] h-auto object-contain 
@@ -187,7 +187,7 @@ const Home = () => {
             Bắt đầu hành trình sáng tạo
           </h2>
           <p className="text-lg md:text-xl text-white/80 mb-8 max-w-2xl mx-auto">
-            Cài đặt hoặc thêm Locket Dio vào màn hình chính ngay hôm nay và khám
+            Cài đặt hoặc thêm Huy Locket vào màn hình chính ngay hôm nay và khám
             phá thế giới photography & videography đầy màu sắc!
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">

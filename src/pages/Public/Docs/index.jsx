@@ -4,16 +4,16 @@ const Docs = () => {
   return (
     <div className="min-h-screen px-4 flex flex-col items-center py-5">
       <h1 className="text-3xl font-semibold mb-5">
-        Hướng Dẫn Sử Dụng Trang Web Locket Dio by Bùi Đức Huy
+        Hướng Dẫn Sử Dụng Trang Web Huy Locket by Bùi Đức Huy
       </h1>
 
       <div className="max-w-3xl text-left mb-12">
         {/* Giới Thiệu */}
         <h2 className="text-2xl font-semibold mt-4">
-          1. Giới Thiệu Về Locket Dio
+          1. Giới Thiệu Về Huy Locket
         </h2>
         <p className="text-sm leading-relaxed">
-          Locket Dio là nền tảng WebApp giúp bạn dễ dàng tải lên, lưu trữ và
+          Huy Locket là nền tảng WebApp giúp bạn dễ dàng tải lên, lưu trữ và
           chia sẻ ảnh, video với phong cách riêng biệt qua các caption tùy
           chỉnh. Chúng tôi cam kết mang đến cho bạn trải nghiệm quản lý nội dung
           thuận tiện, bảo mật và tối ưu nhất trên web.
@@ -107,7 +107,7 @@ const Docs = () => {
             trong tương lai.
           </li>
           <li>
-            <b>Người quản trị Locket Dio là ai?</b> Bản web này được vận hành
+            <b>Người quản trị Huy Locket là ai?</b> Bản web này được vận hành
             bởi Bùi Đức Huy, với email hỗ trợ buiduchuy2010qn@gmail.com.
           </li>
           <li>
@@ -122,7 +122,7 @@ const Docs = () => {
             khoản hoặc ví điện tử khác.
           </li>
           <li>
-            <b>Trang web hỗ trợ các trình duyệt nào?</b> Locket Dio hỗ trợ tất
+            <b>Trang web hỗ trợ các trình duyệt nào?</b> Huy Locket hỗ trợ tất
             cả các trình duyệt hiện đại như Chrome, Firefox, Safari, Edge và
             trình duyệt di động Android/iOS.
           </li>
@@ -143,11 +143,11 @@ const Docs = () => {
           </li>
           <li>
             <b>Mã nguồn API?</b> Nếu bạn muốn tìm hiểu hoặc tích hợp API từ
-            Locket Dio, hãy liên hệ quản trị viên qua email để được cấp quyền
+            Huy Locket, hãy liên hệ quản trị viên qua email để được cấp quyền
             hoặc tài liệu hướng dẫn.
           </li>
           <li>
-            <b>Trang web có quảng cáo không?</b> Không. Locket Dio hoạt động
+            <b>Trang web có quảng cáo không?</b> Không. Huy Locket hoạt động
             hoàn toàn không có quảng cáo để giữ trải nghiệm người dùng liền mạch và
             sạch sẽ.
           </li>
@@ -162,7 +162,7 @@ const Docs = () => {
         {/* Cam Đoan Bảo Mật */}
         <h2 className="text-2xl font-semibold mt-6">6. Chính Sách Bảo Mật</h2>
         <p className="text-sm">
-          Locket Dio cam kết bảo mật thông tin tài khoản của bạn. Tất cả các tệp
+          Huy Locket cam kết bảo mật thông tin tài khoản của bạn. Tất cả các tệp
           tin và dữ liệu mà bạn tải lên sẽ được bảo vệ bằng các biện pháp an
           toàn, và tôi không lưu trữ bất kỳ thông tin nhạy cảm nào liên quan đến
           tài khoản của bạn. Tôi luôn nỗ lực để đảm bảo rằng các thông tin cá

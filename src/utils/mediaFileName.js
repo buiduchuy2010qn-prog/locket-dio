@@ -62,7 +62,7 @@ export function contentTypeFromMedia(file, mediaHint = "") {
 export function buildDownloadFileName(file, mediaHint = "") {
   const ext = extensionFromMedia(file, mediaHint);
   const ts = new Date().toISOString().replace(/[:.]/g, "-");
-  return `locketdio_${ts}.${ext}`;
+  return `huylocket_${ts}.${ext}`;
 }
 
 /** File mới với type + tên sạch (giữ blob) */
@@ -71,7 +71,7 @@ export function normalizeMediaFile(file, mediaHint = "") {
   const type = contentTypeFromMedia(file, mediaHint);
   const ext = extensionFromMedia(file, mediaHint);
   const base =
-    (file.name && file.name.replace(/\.[^.]+$/, "")) || `locket_dio_${Date.now()}`;
+    (file.name && file.name.replace(/\.[^.]+$/, "")) || `huy_locket_${Date.now()}`;
   const safeBase = String(base).replace(/[^\w.\-()+]+/g, "_").slice(0, 80);
   return new File([file], `${safeBase}.${ext}`, {
     type,

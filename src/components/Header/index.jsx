@@ -13,11 +13,11 @@ const Header = () => {
       <header className="sticky top-0 z-50 shadow-md bg-base-100 navbar flex items-center justify-between px-6 py-3 text-base-content border-base-300">
         <Link to="/" className="flex items-center gap-2" aria-label="Trang chủ">
           <span className="font-semibold gradient-text disable-select">
-            Locket Dio
+            Huy Locket
           </span>
           <img
             src="/images/locket-dio.png"
-            alt="Locket icon"
+            alt="Huy Locket icon"
             className="w-7 h-7 object-contain -ml-1 disable-select"
             draggable="false"
           />

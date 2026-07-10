@@ -30,12 +30,12 @@ export const CONFIG = {
   },
 
   app: {
-    name: "Locket Dio", // Tên app hiển thị (API Dio)
+    name: "Huy Locket", // Tên app hiển thị
     // Tên web / watermark góc màn camera
     watermark: "huy-locket",
-    author: "dio",
-    shortname: "locketdio",
-    fullName: "Locket Dio - Đăng ảnh & Video lên Locket", // Tên đầy đủ
+    author: "Huy",
+    shortname: "huylocket",
+    fullName: "Huy Locket - Đăng ảnh & Video lên Locket", // Tên đầy đủ
     // Align with production client so Dio backend accepts requests
     clientVersion: "Beta1.3.4",
     apiVersion: "v2.2.1", // Version API
@@ -109,11 +109,11 @@ export const CONFIG = {
     videoTutorials: {
       youtubeChannel: "https://www.youtube.com/@LocketDio",
       iosAddscreen: {
-        title: "Hướng dẫn thêm Locket Dio vào màn hình chính trên iPhone!",
+        title: "Hướng dẫn thêm Huy Locket vào màn hình chính trên iPhone!",
         url: "https://www.youtube.com/embed/iElPAnQ7lNY",
       }, // Hướng dẫn thêm trang web vào màn hình chính trên iPhone (Safari)
       androidAddscreen: {
-        title: "Hướng dẫn thêm Locket Dio vào màn hình chính trên Android!",
+        title: "Hướng dẫn thêm Huy Locket vào màn hình chính trên Android!",
         url: "https://www.youtube.com/embed/JtgfTNbKTZY",
       }, // Hướng dẫn thêm trang web vào màn hình chính trên Android (Chrome)
     },

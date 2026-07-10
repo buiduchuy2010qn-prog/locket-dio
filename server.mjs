@@ -1,5 +1,5 @@
 /**
- * Locket Dio static + API proxy
+ * Huy Locket static + API proxy
  * Browser → same origin → this server → api.locket-dio.com / storage.locket-dio.com
  * Shared Google Drive backup (1 Drive for whole site, admin env only)
  */
@@ -232,7 +232,7 @@ async function initNeon() {
   return false;
 }
 
-/** Tìm hoặc tạo folder gốc "Locket Dio Web" trên Drive của user OAuth */
+/** Tìm hoặc tạo folder gốc "Huy Locket Web" trên Drive của user OAuth */
 async function ensureRootBackupFolder(token, preferredId) {
   // 1) Thử folder ID form (nếu còn)
   if (preferredId && String(preferredId).length >= 10) {
@@ -250,42 +250,44 @@ async function ensureRootBackupFolder(token, preferredId) {
         !meta.trashed &&
         String(meta.mimeType || "").includes("folder")
       ) {
-        return { id: meta.id, name: meta.name || "Locket Dio Web", created: false };
+        return { id: meta.id, name: meta.name || "Huy Locket Web", created: false };
       }
     } catch {
       /* fall through */
     }
   }
 
-  // 2) Tìm folder tên Locket Dio Web
-  const q = [
-    "name='Locket Dio Web'",
-    "mimeType='application/vnd.google-apps.folder'",
-    "trashed=false",
-    "'root' in parents",
-  ].join(" and ");
-  const listUrl =
-    "https://www.googleapis.com/drive/v3/files?" +
-    new URLSearchParams({
-      q,
-      fields: "files(id,name)",
-      pageSize: "5",
-      spaces: "drive",
-    }).toString();
-  try {
-    const listRes = await fetch(listUrl, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    const listData = await listRes.json().catch(() => ({}));
-    if (listRes.ok && listData.files?.[0]?.id) {
-      return {
-        id: listData.files[0].id,
-        name: listData.files[0].name,
-        created: false,
-      };
+  // 2) Tìm folder Huy Locket Web (hoặc tên cũ Locket Dio Web)
+  for (const folderName of ["Huy Locket Web", "Locket Dio Web"]) {
+    const q = [
+      `name='${folderName}'`,
+      "mimeType='application/vnd.google-apps.folder'",
+      "trashed=false",
+      "'root' in parents",
+    ].join(" and ");
+    const listUrl =
+      "https://www.googleapis.com/drive/v3/files?" +
+      new URLSearchParams({
+        q,
+        fields: "files(id,name)",
+        pageSize: "5",
+        spaces: "drive",
+      }).toString();
+    try {
+      const listRes = await fetch(listUrl, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const listData = await listRes.json().catch(() => ({}));
+      if (listRes.ok && listData.files?.[0]?.id) {
+        return {
+          id: listData.files[0].id,
+          name: listData.files[0].name,
+          created: false,
+        };
+      }
+    } catch {
+      /* try next name */
     }
-  } catch {
-    /* fall through */
   }
 
   // 3) Tạo folder mới trên My Drive
@@ -298,7 +300,7 @@ async function ensureRootBackupFolder(token, preferredId) {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        name: "Locket Dio Web",
+        name: "Huy Locket Web",
         mimeType: "application/vnd.google-apps.folder",
       }),
     }
@@ -307,10 +309,10 @@ async function ensureRootBackupFolder(token, preferredId) {
   if (!createRes.ok || !created.id) {
     throw new Error(
       created?.error?.message ||
-        "Không tạo được folder Locket Dio Web trên Drive"
+        "Không tạo được folder Huy Locket Web trên Drive"
     );
   }
-  return { id: created.id, name: created.name || "Locket Dio Web", created: true };
+  return { id: created.id, name: created.name || "Huy Locket Web", created: true };
 }
 
 async function readDriveConfigFromNeon() {
@@ -1026,7 +1028,7 @@ async function handleDriveConfigSave(req, res) {
     nextOauth.refreshToken = String(body.refreshToken).trim();
   }
 
-  // Folder ID tuỳ chọn — OAuth xong server tự tạo "Locket Dio Web" nếu thiếu
+  // Folder ID tuỳ chọn — OAuth xong server tự tạo "Huy Locket Web" nếu thiếu
   if (folderId && folderId.length > 0 && folderId.length < 10) {
     return corsJson(req, res, 400, {
       error: "Folder ID quá ngắn. Để trống để tự tạo folder, hoặc dán ID đúng.",
@@ -1134,7 +1136,7 @@ async function handleDriveOAuthStart(req, res) {
       error: "Thiếu OAuth Client ID / Secret. Lưu form trước.",
     });
   }
-  // folderId có thể rỗng → callback tự tạo "Locket Dio Web"
+  // folderId có thể rỗng → callback tự tạo "Huy Locket Web"
 
   // State ký — sống sót qua restart Render (không còn “Hết hạn” do mất RAM)
   const state = signOauthState({
@@ -1256,7 +1258,7 @@ async function handleDriveOAuthCallback(req, res) {
       mode: "oauth",
     };
 
-    // Tự tìm / tạo folder Locket Dio Web trên Drive Gmail vừa login
+    // Tự tìm / tạo folder Huy Locket Web trên Drive Gmail vừa login
     let testMsg = "";
     let rootFolderId = oauthCtx.folderId || prev.folderId || "";
     try {
@@ -1278,7 +1280,7 @@ async function handleDriveOAuthCallback(req, res) {
       };
       const test = await uploadToSharedDrive(
         Buffer.from(
-          `Locket Dio backup test ${new Date().toISOString()}\n`,
+          `Huy Locket backup test ${new Date().toISOString()}\n`,
           "utf8"
         ),
         "text/plain",
@@ -1725,9 +1727,9 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(PORT, "0.0.0.0", async () => {
-  console.log(`[locket-dio] listening on :${PORT}`);
-  console.log(`[locket-dio] static: ${PUBLIC_DIR}`);
-  console.log(`[locket-dio] proxies: ${PROXIES.map((p) => p.prefix).join(", ")}, /dio-r2-put`);
+  console.log(`[huy-locket] listening on :${PORT}`);
+  console.log(`[huy-locket] static: ${PUBLIC_DIR}`);
+  console.log(`[huy-locket] proxies: ${PROXIES.map((p) => p.prefix).join(", ")}, /dio-r2-put`);
   await warmDriveConfig();
   const folder = getDriveFolderId();
   const mode = driveAuthMode();

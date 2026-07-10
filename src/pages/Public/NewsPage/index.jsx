@@ -101,7 +101,7 @@ export default function NewsPage() {
             Bảng tin
           </h1>
           <p className="text-base-content mt-1 max-w-xl">
-            Các bài viết về bản cập nhật mới nhất về tính năng, sự kiện hoặc sự cải tiến của Locket Dio 🎉.
+            Các bài viết về bản cập nhật mới nhất về tính năng, sự kiện hoặc sự cải tiến của Huy Locket 🎉.
           </p>
         </div>
 

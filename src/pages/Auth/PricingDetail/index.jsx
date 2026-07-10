@@ -41,7 +41,7 @@ export default function PlanDetailPage() {
       if (coupon) {
         const data = await services.CheckCoupon(coupon, planData.id);
         if (!data.valid) {
-          SonnerWarning("Thông báo từ Locket Dio", data.message);
+          SonnerWarning("Thông báo từ Huy Locket", data.message);
           setCoupon("");
           setDiscountAmount("");
           setCouponStatus(null);

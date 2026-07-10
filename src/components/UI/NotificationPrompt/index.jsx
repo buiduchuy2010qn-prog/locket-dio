@@ -63,7 +63,7 @@ const NotificationPrompt = () => {
         });
 
         await axios.post(API_URL.REGISTER_PUSH_URL, { subscription });
-        SonnerSuccess("Đăng ký thành công", "Bạn sẽ nhận được thông báo mới nhất từ Locket Dio.");
+        SonnerSuccess("Đăng ký thành công", "Bạn sẽ nhận được thông báo mới nhất từ Huy Locket.");
       }
     } catch (error) {
       console.error("Subscribe user error:", error);
@@ -81,7 +81,7 @@ const NotificationPrompt = () => {
       />
       <div className="flex-1">
         <p className="font-medium mb-2">
-          Bạn có muốn nhận thông báo từ Locket Dio?
+          Bạn có muốn nhận thông báo từ Huy Locket?
         </p>
         <div className="flex gap-2 justify-end mt-3">
           <button

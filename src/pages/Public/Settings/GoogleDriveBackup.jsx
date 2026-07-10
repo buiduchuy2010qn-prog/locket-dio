@@ -90,7 +90,7 @@ export default function GoogleDriveBackup({ forceShow = false }) {
     setSaving(true);
     setOauthStarting(true);
     try {
-      // Folder ID tuỳ chọn — để trống server tự tạo "Locket Dio Web"
+      // Folder ID tuỳ chọn — để trống server tự tạo "Huy Locket Web"
       const fid = folderId.trim() || "auto";
       const saveRes = await fetch("/api/drive-config", {
         method: "POST",
@@ -220,7 +220,7 @@ export default function GoogleDriveBackup({ forceShow = false }) {
           </label>
           <label className="form-control w-full">
             <span className="label-text text-xs mb-1">
-              Folder ID (tuỳ chọn — để trống = tự tạo «Locket Dio Web»)
+              Folder ID (tuỳ chọn — để trống = tự tạo «Huy Locket Web»)
             </span>
             <input
               type="text"

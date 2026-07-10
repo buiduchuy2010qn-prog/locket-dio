@@ -25,14 +25,14 @@ const AboutMe = () => {
             Bùi Đức Huy
           </h1>
           <p className="text-lg md:text-xl mt-2">
-            Quản trị web | Locket Dio
+            Quản trị web | Huy Locket
           </p>
         </div>
 
         {/* About */}
         <div className="max-w-3xl text-left mb-12 px-4">
           <p className="text-lg leading-relaxed">
-            Mình là Bùi Đức Huy — vận hành và hỗ trợ bản web Locket Dio.
+            Mình là Bùi Đức Huy — vận hành và hỗ trợ bản web Huy Locket.
             Liên hệ hỗ trợ qua email bên dưới.
           </p>
         </div>

@@ -10,7 +10,7 @@ export default function Settings() {
     <div className="w-full min-h-screen bg-base-200 py-6 px-4 sm:px-6 lg:px-8 flex justify-center">
       <div className="w-full max-w-7xl space-y-6">
         <h1 className="text-4xl font-lovehouse font-semibold text-base-content mb-2 text-center">
-          Setting Locket Dio
+          Setting Huy Locket
         </h1>
 
         {/* ADMIN: Google Drive — full width, nổi bật trên cùng */}

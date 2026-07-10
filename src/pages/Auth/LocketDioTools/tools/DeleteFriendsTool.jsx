@@ -40,9 +40,9 @@ export default function DeleteFriendsTool() {
       });
 
       if (friends.length === 0) {
-        SonnerSuccess("Thông báo từ Locket Dio","Không có lời mời nào.");
+        SonnerSuccess("Thông báo từ Huy Locket","Không có lời mời nào.");
       } else {
-        SonnerSuccess("Thông báo từ Locket Dio",`Tải xong ${friends.length} lời mời.`);
+        SonnerSuccess("Thông báo từ Huy Locket",`Tải xong ${friends.length} lời mời.`);
       }
     } catch (error) {
       SonnerError("❌ Lỗi khi tải lời mời: " + error.message);

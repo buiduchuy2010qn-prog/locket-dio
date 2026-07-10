@@ -55,12 +55,12 @@ const IncomingFriendRequests = () => {
 
         // ✅ Hiển thị thông báo
         SonnerSuccess(
-          "Thông báo từ Locket Dio",
+          "Thông báo từ Huy Locket",
           `Đã chấp nhận ${data.firstName}`
         );
       } else {
         SonnerError(
-          "Thông báo từ Locket Dio",
+          "Thông báo từ Huy Locket",
           "Không tìm thấy lời mời để chấp nhận."
         );
       }

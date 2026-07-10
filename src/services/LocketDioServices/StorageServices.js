@@ -142,7 +142,7 @@ export const uploadFileAndGetInfoR2 = async (
   const contentType = normalizeContentType(file, safeType);
   const extension = extensionFor(file, safeType, contentType);
 
-  const fileName = `locketdio_${timestamp}_${localId}_cli${CONFIG.app.clientVersion}.${extension}`;
+  const fileName = `huylocket_${timestamp}_${localId}_cli${CONFIG.app.clientVersion}.${extension}`;
 
   const storageBase = (CONFIG.api.storage || "/dio-storage").replace(/\/$/, "");
   const presignUrl = storageBase.startsWith("http")

@@ -50,7 +50,7 @@ function AppContent() {
 
   useEffect(() => {
     const r = allRoutes.find((route) => route.path === location.pathname);
-    document.title = r?.title || "Locket Dio - Đăng ảnh & Video lên Locket";
+    document.title = r?.title || "Huy Locket - Đăng ảnh & Video lên Locket";
 
     const url = "https://locket-dio.com" + location.pathname;
     (
