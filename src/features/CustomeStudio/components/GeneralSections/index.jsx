@@ -284,7 +284,7 @@ export default function GeneralThemes({ title }) {
       background: weatherInfo.background.colors,
       color: "#FFFFFF",
       label: weatherInfo?.text || t("custom_studio.weather_label"),
-      cover: "./images/cloud_cover.png",
+      cover: "/images/cloud_cover.png",
     },
     {
       id: "review",
@@ -341,10 +341,15 @@ export default function GeneralThemes({ title }) {
               {btn.cover && (
                 <img
                   src={btn.cover}
-                  alt="Cover"
+                  alt=""
+                  aria-hidden="true"
+                  draggable={false}
+                  onError={(e) => {
+                    e.currentTarget.style.display = "none";
+                  }}
                   className="absolute inset-0 w-full h-full object-cover rounded-3xl select-none pointer-events-none"
                   style={{
-                    opacity: weatherInfo?.payload?.cloud_cover ?? 0.5,
+                    opacity: weatherInfo?.payload?.cloud_cover ?? 0.35,
                   }}
                 />
               )}

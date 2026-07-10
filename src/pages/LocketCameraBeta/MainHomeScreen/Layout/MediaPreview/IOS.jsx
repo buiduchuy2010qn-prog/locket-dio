@@ -241,10 +241,13 @@ const MediaPreviewIOS = () => {
         {preview?.type === "image" && (
           <img
             src={preview.data}
-            alt="Preview"
-            className={`w-full h-full object-cover select-none transition-all duration-300 ${
+            alt=""
+            draggable={false}
+            decoding="async"
+            className={`w-full h-full object-cover object-center select-none transition-opacity duration-300 bg-black ${
               preview ? "opacity-100" : "opacity-0"
             }`}
+            style={{ imageRendering: "auto", WebkitUserDrag: "none" }}
           />
         )}
 

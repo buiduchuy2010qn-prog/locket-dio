@@ -17,7 +17,8 @@ const SFSymbolIcon = ({ data, className = "w-6 h-6 object-contain" }) => {
   return (
     <img
       src={src}
-      alt={data}
+      alt=""
+      aria-hidden="true"
       className={className}
       draggable={false}
       loading="lazy"
