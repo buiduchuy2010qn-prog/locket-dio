@@ -66,18 +66,28 @@ const Sidebar = () => {
   const currentYear = new Date().getFullYear();
   const { startYear } = CONFIG.app;
   const handleLogout = async () => {
+    const displayName =
+      user?.displayName || t("sidebar.logout_default_user");
     try {
-      clearAndlogout();
+      setIsSidebarOpen(false);
+      // await để isAuth=false trước khi chuyển trang (tránh bị đẩy lại /locket)
+      await clearAndlogout();
       SonnerSuccess(
         t("sidebar.logout_success"),
-        t("sidebar.logout_goodbye", {
-          name: user?.displayName || t("sidebar.logout_default_user"),
-        }),
+        t("sidebar.logout_goodbye", { name: displayName }),
       );
-      navigate("/login");
+      // Hard redirect → màn khám phá (trang chủ public); chắc chắn thoát app auth
+      window.location.assign("/");
     } catch (error) {
       SonnerError("error", t("sidebar.logout_error"));
       console.error("❌ Lỗi khi đăng xuất:", error);
+      // Vẫn cố về public
+      try {
+        await clearAndlogout();
+      } catch {
+        /* ignore */
+      }
+      window.location.assign("/login");
     }
   };
 

@@ -173,25 +173,36 @@ export const useAuthStore = create(
       // LOGOUT
       // =========================
       clearAndlogout: async () => {
-        // clear indexDB
-        await clearAllDB();
-
-        // ⚡ clear cache
+        // 1) Xóa token / storage TRƯỚC — tránh hydrateAuth set lại isAuth
         removeLocalStorage();
         removeToken();
         clearMemberToken();
         clearUserCache();
 
-        // clear state
+        // 2) Clear state ngay (sync) để route public mở được
         set({
           user: null,
           userPlan: null,
           uploadStats: null,
           isAuth: false,
+          loading: false,
           lastSyncAt: 0,
           lastFetchPlanAt: 0,
         });
-        await logout();
+
+        // 3) Clear IndexedDB (không chặn UI)
+        try {
+          await clearAllDB();
+        } catch (e) {
+          console.warn("clearAllDB:", e?.message || e);
+        }
+
+        // 4) Gọi API logout — lỗi cũng bỏ qua (đã clear local)
+        try {
+          await logout();
+        } catch (e) {
+          console.warn("logout API:", e?.message || e);
+        }
       },
     }),
     {
