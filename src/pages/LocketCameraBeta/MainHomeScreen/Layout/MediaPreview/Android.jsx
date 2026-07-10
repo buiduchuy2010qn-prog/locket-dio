@@ -1,5 +1,5 @@
 import React, { lazy, Suspense, useEffect, useRef, useState } from "react";
-import { getAvailableCameras } from "@/utils";
+import { getAvailableCameras, pickCameraDeviceId } from "@/utils";
 const EditorCaption = lazy(() => import("@/features/EditorCaption"));
 import { useApp } from "@/context/AppContext";
 import { CONFIG } from "@/config";
@@ -178,9 +178,18 @@ const MediaPreviewAndroid = () => {
       return;
     }
 
-    const nextZoomLevel = supportedZoomOptions.includes(zoomLevel)
-      ? zoomLevel
-      : supportedZoomOptions[0];
+    // Luôn ưu tiên 1x (camera thường) — không fallback sang 0.5x
+    let nextZoomLevel = "1x";
+    if (supportedZoomOptions.includes(zoomLevel) && zoomLevel !== "0.5x") {
+      nextZoomLevel = zoomLevel;
+    } else if (supportedZoomOptions.includes("1x")) {
+      nextZoomLevel = "1x";
+    } else {
+      nextZoomLevel =
+        supportedZoomOptions.find((z) => z !== "0.5x") ||
+        supportedZoomOptions[0] ||
+        "1x";
+    }
 
     if (nextZoomLevel !== zoomLevel) {
       setZoomLevel(nextZoomLevel);
@@ -303,15 +312,31 @@ const MediaPreviewAndroid = () => {
         stopCamera();
       }
 
-      let videoConstraints = deviceId
-        ? { deviceId: { exact: deviceId } }
-        : { facingMode: cameraMode || "user" };
+      // Chọn lens chính 1x — tránh Android mở ultra-wide 0.5x mặc định
+      let resolvedDeviceId = deviceId;
+      if (!resolvedDeviceId) {
+        const preferred = await pickCameraDeviceId(
+          cameraMode || "user",
+          zoomLevel === "0.5x" ? "0.5x" : "1x",
+        );
+        if (preferred) {
+          resolvedDeviceId = preferred;
+          setDeviceId(preferred);
+        }
+      }
+
+      let videoConstraints = resolvedDeviceId
+        ? { deviceId: { ideal: resolvedDeviceId } }
+        : {
+            facingMode: { ideal: cameraMode || "user" },
+          };
 
       const isUser = cameraMode === "user";
       const isZoom05 = zoomLevel === "0.5x";
 
       if (!(isUser && isZoom05)) {
         // Android: 960×540@24 — mượt hơn 1280×720@30 trên máy yếu
+        // ideal width cao hơn giúp browser chọn lens chính thay vì ultra-wide
         videoConstraints = {
           ...videoConstraints,
           ...getCameraPreviewConstraints(CONFIG.app.camera.constraints.default),
@@ -319,10 +344,24 @@ const MediaPreviewAndroid = () => {
       }
 
       // Ưu tiên mượt preview; tránh constraint "exact" gây fail/khựng
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: videoConstraints,
-        audio: false,
-      });
+      let stream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: videoConstraints,
+          audio: false,
+        });
+      } catch (firstErr) {
+        // Fallback: chỉ facingMode nếu deviceId ideal fail
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: cameraMode || "user" },
+            ...getCameraPreviewConstraints(
+              CONFIG.app.camera.constraints.default,
+            ),
+          },
+          audio: false,
+        });
+      }
 
       if (requestId !== startRequestId.current) {
         stream.getTracks().forEach((track) => track.stop());
@@ -332,7 +371,14 @@ const MediaPreviewAndroid = () => {
       streamRef.current = stream;
       cameraInitialized.current = true;
       lastCameraMode.current = cameraMode;
-      lastDeviceId.current = deviceId;
+      lastDeviceId.current = resolvedDeviceId || deviceId;
+
+      // Cập nhật deviceId thực tế từ track (nếu browser chọn khác)
+      const actualId = getActiveTrack(stream)?.getSettings?.()?.deviceId;
+      if (actualId && actualId !== deviceId) {
+        setDeviceId(actualId);
+        lastDeviceId.current = actualId;
+      }
 
       if (videoRef.current) {
         const v = videoRef.current;
@@ -350,7 +396,18 @@ const MediaPreviewAndroid = () => {
       }
 
       try {
+        // Ép zoom về 1x sau khi mở stream
         await syncTrackFeatures(stream);
+        if (zoomLevel === "0.5x" && cameraMode === "environment") {
+          // chỉ giữ 0.5 khi user chủ động chọn
+        } else {
+          await applyZoomLevel("1x", stream);
+          currentZoomValue.current = 1;
+          setZoomDisplay("1x");
+          if (zoomLevel !== "1x" && zoomLevel !== "2x" && zoomLevel !== "3x") {
+            setZoomLevel("1x");
+          }
+        }
       } catch (error) {
         console.error("Không thể đồng bộ tính năng camera:", error);
       }
@@ -363,6 +420,7 @@ const MediaPreviewAndroid = () => {
         }
       }
     } catch (err) {
+      console.error("startCamera:", err);
       setCameraActive(false);
       cameraInitialized.current = false;
     }

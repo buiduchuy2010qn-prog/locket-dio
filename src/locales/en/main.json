@@ -148,7 +148,8 @@
     "media_not_exist_error": "This photo/video does not exist.",
     "media_not_found": "Media not found",
     "retry": "Retry",
-    "feature_in_development": "This feature is under development!"
+    "feature_in_development": "This feature is under development!",
+    "open_calendar": "Locket streak calendar"
   },
   "home": {
     "everyone": "Everyone",

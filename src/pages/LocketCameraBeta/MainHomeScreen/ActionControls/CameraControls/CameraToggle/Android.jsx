@@ -1,6 +1,6 @@
 import React from "react";
 import { useApp } from "@/context/AppContext";
-import { getAvailableCameras } from "@/utils";
+import { pickCameraDeviceId } from "@/utils";
 import { RefreshCcw } from "lucide-react";
 
 const CameraToggleAndroid = () => {
@@ -33,22 +33,8 @@ const CameraToggleAndroid = () => {
     let nextDeviceId = null;
 
     try {
-      const cameras = await getAvailableCameras();
-      const currentTrack = streamRef.current?.getVideoTracks?.()?.[0] || null;
-      const currentDeviceId = currentTrack?.getSettings?.()?.deviceId;
-      const fallbackDevice = cameras?.allCameras?.find(
-        (device) => device.deviceId !== currentDeviceId
-      );
-
-      nextDeviceId =
-        newMode === "environment"
-          ? cameras?.backNormalCamera?.deviceId ||
-            cameras?.backCameras?.[0]?.deviceId ||
-            fallbackDevice?.deviceId ||
-            null
-          : cameras?.frontCameras?.[0]?.deviceId ||
-            fallbackDevice?.deviceId ||
-            null;
+      // Luôn chọn lens chính 1x khi lật camera sau (không ultra 0.5x)
+      nextDeviceId = await pickCameraDeviceId(newMode, "1x");
     } catch (error) {
       console.error("Lỗi khi lấy danh sách camera:", error);
     }

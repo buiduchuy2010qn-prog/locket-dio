@@ -31,22 +31,14 @@ const CameraToggleIOS = () => {
     const newMode = cameraMode === "user" ? "environment" : "user";
     setCameraMode(newMode);
     setZoomLevel("1x");
+    // MediaPreview sẽ pick lens 1x qua pickCameraDeviceId
     setDeviceId(null);
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
     }
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: newMode },
-        audio: false,
-      });
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-      }
-    } catch (error) {
-      console.error("Lỗi khi đổi camera:", error);
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
     }
   };
 

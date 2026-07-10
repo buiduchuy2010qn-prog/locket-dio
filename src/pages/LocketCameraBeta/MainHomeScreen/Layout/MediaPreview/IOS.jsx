@@ -1,5 +1,5 @@
 import React, { lazy, Suspense, useEffect, useRef } from "react";
-import { getAvailableCameras, isIOS } from "@/utils";
+import { getAvailableCameras, isIOS, pickCameraDeviceId } from "@/utils";
 const EditorCaption = lazy(() => import("@/features/EditorCaption"));
 import { useApp } from "@/context/AppContext";
 import { CONFIG } from "@/config";
@@ -63,12 +63,22 @@ const MediaPreviewIOS = () => {
         stopCamera();
       }
 
+      // Ưu tiên lens chính 1x (tránh ultra-wide)
+      let resolvedDeviceId = deviceId;
+      if (!resolvedDeviceId && iosDevice) {
+        resolvedDeviceId = await pickCameraDeviceId(
+          cameraMode || "user",
+          zoomLevel === "0.5x" ? "0.5x" : "1x",
+        );
+        if (resolvedDeviceId) setDeviceId(resolvedDeviceId);
+      }
+
       let videoConstraints = {
-        facingMode: cameraMode || "user",
+        facingMode: { ideal: cameraMode || "user" },
       };
 
-      if (iosDevice && deviceId) {
-        videoConstraints.deviceId = { exact: deviceId };
+      if (iosDevice && resolvedDeviceId) {
+        videoConstraints.deviceId = { ideal: resolvedDeviceId };
       }
 
       const isUser = cameraMode === "user";

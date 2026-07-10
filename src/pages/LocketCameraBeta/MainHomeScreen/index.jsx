@@ -1,5 +1,6 @@
 import React, { lazy, Suspense } from "react";
 import { useApp } from "@/context/AppContext";
+import { CalendarDays } from "lucide-react";
 
 import HeaderHome from "./Layout/HeaderHome";
 import BottomMenu from "../BottomHomeScreen/Layout/BottomMenu";
@@ -29,6 +30,11 @@ export default function MainHomeScreen() {
     setFriendHistoryOpen,
   } = navigation;
   const selectedFile = usePostStore((s) => s.selectedFile);
+
+  const openStreakCalendar = () => {
+    setIsBottomOpen(false);
+    setIsProfileOpen(true);
+  };
 
   return (
     <>
@@ -71,6 +77,7 @@ export default function MainHomeScreen() {
           <BottomMenu
             setIsBottomOpen={setIsBottomOpen}
             setOptionModalOpen={setOptionModalOpen}
+            setIsProfileOpen={setIsProfileOpen}
           />
         </div>
         <div
@@ -83,7 +90,23 @@ export default function MainHomeScreen() {
           )}
         >
           <div className="h-10" />
-          <MediaPreview />
+          {/* Camera + nút lịch chuỗi (bên phải) */}
+          <div className="relative w-full max-w-md flex items-center justify-center px-2">
+            <div className="w-full">
+              <MediaPreview />
+            </div>
+            {!selectedFile && (
+              <button
+                type="button"
+                onClick={openStreakCalendar}
+                aria-label="Mở lịch chuỗi"
+                title="Lịch chuỗi Locket"
+                className="absolute -right-1 sm:right-0 z-40 flex items-center justify-center w-12 h-12 rounded-full bg-base-300/80 backdrop-blur-md border border-base-content/10 text-base-content shadow-lg active:scale-95 transition hover:bg-base-300"
+              >
+                <CalendarDays size={26} strokeWidth={1.75} />
+              </button>
+            )}
+          </div>
           <ActionControls />
           {/* Click để mở lịch sử */}
           <div className="relative w-full">

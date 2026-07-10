@@ -127,6 +127,7 @@
   },
   "bottom": {
     "feature_in_development": "Chức năng này đang phát triển!",
+    "open_calendar": "Lịch chuỗi Locket",
     "reaction_sent_success": "Gửi cảm xúc thành công!",
     "reaction_sent_failed": "Gửi cảm xúc thất bại!",
     "sending_message": "Đang gửi tin nhắn...",

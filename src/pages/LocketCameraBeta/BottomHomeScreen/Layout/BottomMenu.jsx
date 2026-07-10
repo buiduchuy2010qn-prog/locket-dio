@@ -1,10 +1,13 @@
 import { CalendarHeart, LayoutGrid, Share } from "lucide-react";
-import { SonnerInfo } from "@/components/ui/SonnerToast";
 import { useMomentActivityStore, useSelectedStore } from "@/stores";
 import MomentInteraction from "./MomentInteraction";
 import { useTranslation } from "react-i18next";
 
-const BottomMenu = ({ setIsBottomOpen, setOptionModalOpen }) => {
+const BottomMenu = ({
+  setIsBottomOpen,
+  setOptionModalOpen,
+  setIsProfileOpen,
+}) => {
   const { t } = useTranslation("main");
   const selectedMoment = useSelectedStore((s) => s.selectedMoment);
   const selectedQueue = useSelectedStore((s) => s.selectedQueue);
@@ -32,6 +35,13 @@ const BottomMenu = ({ setIsBottomOpen, setOptionModalOpen }) => {
 
   const handleClose = () => {
     resetSelection();
+  };
+
+  /** Mở lịch streak / Locket calendar (màn profile trái) */
+  const handleOpenCalendar = () => {
+    resetSelection();
+    setIsBottomOpen?.(false);
+    setIsProfileOpen?.(true);
   };
 
   return (
@@ -70,10 +80,16 @@ const BottomMenu = ({ setIsBottomOpen, setOptionModalOpen }) => {
                 <Share size={28} />
               </button>
             )}
-            {/* CALENDAR – mặc định hiện, ẩn khi có selection */}
+            {/* CALENDAR – mở lịch chuỗi / streak Lockets */}
             {selectedMoment === null && selectedQueue === null && (
               <button
-                onClick={() => SonnerInfo(t("bottom.feature_in_development"))}
+                onClick={handleOpenCalendar}
+                aria-label={t("bottom.open_calendar", {
+                  defaultValue: "Mở lịch chuỗi",
+                })}
+                title={t("bottom.open_calendar", {
+                  defaultValue: "Lịch chuỗi Locket",
+                })}
                 className="btn btn-circle btn-lg backdrop-blur-xs bg-base-100/30 text-base-content cursor-pointer hover:bg-base-200/50 transition-colors"
               >
                 <CalendarHeart size={28} />
