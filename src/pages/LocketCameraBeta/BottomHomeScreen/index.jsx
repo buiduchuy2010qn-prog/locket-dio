@@ -6,10 +6,10 @@ import { useAuthStore, useMomentsStoreV2, useSelectedStore } from "@/stores";
 import SwiperView from "./Views/SwiperView";
 import GridMoments from "./Views/GridMoments";
 
-/** Soft poll interval when socket is down (ms) */
-const POLL_OFFLINE_MS = 12_000;
-/** Soft poll interval when socket is connected (ms) — backup only */
-const POLL_ONLINE_MS = 45_000;
+/** Soft poll when socket down — chỉ khi mở lịch sử (ms) */
+const POLL_OFFLINE_MS = 30_000;
+/** Soft poll when socket connected (ms) */
+const POLL_ONLINE_MS = 90_000;
 
 const BottomHomeScreen = () => {
   const { navigation } = useApp();
@@ -96,9 +96,9 @@ const BottomHomeScreen = () => {
     };
   }, [socket, user, addNewMoment, syncMomentsSnapshot]);
 
-  // Tab focus / visibility + periodic soft pull (backup for broken socket)
+  // Poll backup — chỉ khi đang mở panel lịch sử (tránh giật camera)
   useEffect(() => {
-    if (!user) return;
+    if (!user || !isBottomOpen) return;
 
     const pull = () => {
       if (typeof document !== "undefined" && document.hidden) return;
@@ -106,21 +106,19 @@ const BottomHomeScreen = () => {
     };
 
     const onVisible = () => {
-      if (!document.hidden) pull();
+      if (!document.hidden && isBottomOpen) pull();
     };
 
     document.addEventListener("visibilitychange", onVisible);
-    window.addEventListener("focus", pull);
 
     const intervalMs = isConnected ? POLL_ONLINE_MS : POLL_OFFLINE_MS;
     const timer = window.setInterval(pull, intervalMs);
 
     return () => {
       document.removeEventListener("visibilitychange", onVisible);
-      window.removeEventListener("focus", pull);
       window.clearInterval(timer);
     };
-  }, [user, isConnected, pullLatestMoments]);
+  }, [user, isConnected, isBottomOpen, pullLatestMoments]);
 
   const selectedAnimate =
     (selectedMoment !== null && selectedQueue === null) ||

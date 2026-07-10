@@ -64,16 +64,27 @@ const SnowEffect = ({
       }, life);
     };
 
-    // Seed vài bông ngay khi mount
-    for (let i = 0; i < 8; i++) {
-      window.setTimeout(spawn, i * 40);
+    // Seed nhẹ — tránh spawn ồ ạt làm jank camera
+    const seed = Math.min(4, maxFlakes);
+    for (let i = 0; i < seed; i++) {
+      window.setTimeout(spawn, i * 80);
     }
 
-    timer = window.setInterval(spawn, spawnEvery);
+    // Dùng rAF throttle thay setInterval dày khi tab ẩn
+    let last = 0;
+    const tick = (now) => {
+      if (!alive) return;
+      if (!document.hidden && now - last >= spawnEvery) {
+        last = now;
+        spawn();
+      }
+      timer = window.requestAnimationFrame(tick);
+    };
+    timer = window.requestAnimationFrame(tick);
 
     return () => {
       alive = false;
-      if (timer) clearInterval(timer);
+      if (timer) window.cancelAnimationFrame(timer);
       if (layer) layer.innerHTML = "";
       countRef.current = 0;
     };

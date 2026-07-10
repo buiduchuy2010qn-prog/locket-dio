@@ -91,7 +91,17 @@ const MediaPreviewIOS = () => {
       lastCameraMode.current = cameraMode;
 
       if (videoRef.current) {
-        videoRef.current.srcObject = stream;
+        const v = videoRef.current;
+        v.srcObject = stream;
+        v.muted = true;
+        v.playsInline = true;
+        v.setAttribute("playsinline", "true");
+        v.setAttribute("webkit-playsinline", "true");
+        try {
+          await v.play();
+        } catch {
+          /* ignore */
+        }
       }
     } catch (err) {
       setCameraActive(false);
@@ -103,17 +113,22 @@ const MediaPreviewIOS = () => {
     if (cameraActive && !preview && !selectedFile) {
       startCamera();
     } else if (!cameraActive || preview || selectedFile) {
-      if (streamRef.current && (preview || selectedFile)) {
+      if (streamRef.current) {
         stopCamera();
       }
     }
-
-    return () => {
-      if (!preview && !selectedFile) {
-        stopCamera();
-      }
-    };
   }, [cameraActive, cameraMode, preview, selectedFile]);
+
+  useEffect(() => {
+    return () => {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
+      }
+      if (videoRef.current) videoRef.current.srcObject = null;
+      cameraInitialized.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!preview && !selectedFile && !cameraActive) {
@@ -173,15 +188,19 @@ const MediaPreviewIOS = () => {
             autoPlay
             playsInline
             muted
-            className={`
-              w-full h-full object-cover transition-all duration-500 ease-in-out
-              ${cameraMode === "user" ? "scale-x-[-1]" : ""}
-              ${
-                cameraActive
-                  ? "opacity-100 scale-100"
-                  : "opacity-0 scale-95 pointer-events-none"
-              }
-            `}
+            disablePictureInPicture
+            disableRemotePlayback
+            className={`w-full h-full object-cover object-center ${
+              cameraActive ? "opacity-100" : "opacity-0 pointer-events-none"
+            }`}
+            style={{
+              transform:
+                cameraMode === "user"
+                  ? "translateZ(0) scaleX(-1)"
+                  : "translateZ(0)",
+              willChange: "contents",
+              backfaceVisibility: "hidden",
+            }}
           />
         )}
 

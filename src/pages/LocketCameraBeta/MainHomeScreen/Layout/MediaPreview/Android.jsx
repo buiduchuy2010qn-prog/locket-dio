@@ -316,6 +316,7 @@ const MediaPreviewAndroid = () => {
         };
       }
 
+      // Ưu tiên mượt preview; tránh constraint "exact" gây fail/khựng
       const stream = await navigator.mediaDevices.getUserMedia({
         video: videoConstraints,
         audio: false,
@@ -332,7 +333,18 @@ const MediaPreviewAndroid = () => {
       lastDeviceId.current = deviceId;
 
       if (videoRef.current) {
-        videoRef.current.srcObject = stream;
+        const v = videoRef.current;
+        v.srcObject = stream;
+        v.muted = true;
+        v.playsInline = true;
+        v.setAttribute("playsinline", "true");
+        v.setAttribute("webkit-playsinline", "true");
+        // play() có thể reject nếu tab đang ẩn — bỏ qua
+        try {
+          await v.play();
+        } catch {
+          /* ignore */
+        }
       }
 
       try {
@@ -358,17 +370,25 @@ const MediaPreviewAndroid = () => {
     if (cameraActive && !preview && !selectedFile) {
       startCamera();
     } else if (!cameraActive || preview || selectedFile) {
-      if (streamRef.current && (preview || selectedFile)) {
+      // Chỉ tắt khi chụp xong / tắt camera — không stop trong cleanup mỗi lần re-render
+      if (streamRef.current) {
         stopCamera();
       }
     }
-
-    return () => {
-      if (!preview && !selectedFile) {
-        stopCamera();
-      }
-    };
   }, [cameraActive, cameraMode, deviceId, preview, selectedFile]);
+
+  // Unmount: giải phóng camera (không stop giữa chừng khi chỉ đổi deps đã xử lý ở trên)
+  useEffect(() => {
+    return () => {
+      startRequestId.current += 1;
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
+      }
+      if (videoRef.current) videoRef.current.srcObject = null;
+      cameraInitialized.current = false;
+    };
+  }, []);
 
   const handleToggleTorch = async () => {
     if (!torchSupported) {
@@ -472,15 +492,20 @@ const MediaPreviewAndroid = () => {
             autoPlay
             playsInline
             muted
-            className={`
-              w-full h-full object-cover transition-all duration-500 ease-in-out
-              ${cameraMode === "user" ? "scale-x-[-1]" : ""}
-              ${
-                cameraActive
-                  ? "opacity-100 scale-100"
-                  : "opacity-0 scale-95 pointer-events-none"
-              }
-            `}
+            disablePictureInPicture
+            disableRemotePlayback
+            className={`w-full h-full object-cover object-center ${
+              cameraActive ? "opacity-100" : "opacity-0 pointer-events-none"
+            }`}
+            style={{
+              // GPU layer — giảm jank; mirror front camera
+              transform:
+                cameraMode === "user"
+                  ? "translateZ(0) scaleX(-1)"
+                  : "translateZ(0)",
+              willChange: "contents",
+              backfaceVisibility: "hidden",
+            }}
           />
         )}
 

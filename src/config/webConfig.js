@@ -45,13 +45,16 @@ export const CONFIG = {
         videoResolutionPx: 1080,
       },
       constraints: {
+        // Preview mượt trên web/mobile — capture vẫn scale canvas lên imageSizePx
         default: {
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
+          width: { ideal: 1280, max: 1920 },
+          height: { ideal: 720, max: 1080 },
+          frameRate: { ideal: 30, max: 30 },
         },
         ultraHD: {
-          width: { ideal: 3840 },
-          height: { ideal: 2160 },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+          frameRate: { ideal: 30, max: 30 },
         },
       },
     },
