@@ -1,46 +1,38 @@
-import React, { useState } from "react";
-import { Check, RotateCcw } from "lucide-react";
-import { Link } from "react-router-dom";
+import React, { useEffect, useState } from "react";
+import { Check, RotateCcw, X } from "lucide-react";
 import LoadingOverlay from "@/components/ui/Loading/LineSpinner";
 import { useSelectedStore, useUploadQueueStore } from "@/stores";
-import { useTranslation } from "react-i18next";
 
+/**
+ * Hàng đợi đăng — gọn, không chữ dài.
+ * Tự retry + dọn item kẹt khi mount.
+ */
 const UploadingQueue = () => {
-  const { t } = useTranslation("main");
-  const [loadedItems, setLoadedItems] = useState([]);
+  const [brokenIds, setBrokenIds] = useState(() => new Set());
 
-  const selectedQueue = useSelectedStore((s) => s.selectedQueue);
   const setSelectedQueue = useSelectedStore((s) => s.setSelectedQueue);
-
-  const selectedQueueId = useSelectedStore((s) => s.selectedQueueId);
   const setSelectedQueueId = useSelectedStore((s) => s.setSelectedQueueId);
 
   const uploadItems = useUploadQueueStore((s) => s.uploadItems);
-  const handleLoaded = (id) => {
-    setLoadedItems((prev) => (prev.includes(id) ? prev : [...prev, id]));
-  };
+  const removeUploadItemById = useUploadQueueStore((s) => s.removeUploadItemById);
+  const resumeQueue = useUploadQueueStore((s) => s.resumeQueue);
 
-  if (uploadItems.length === 0)
-    return (
-      <div className="flex justify-center items-center w-full">
-        <p className="text-sm">i love Huy Locket</p>
-      </div>
-    );
+  // Tự resume / dọn khi mở feed
+  useEffect(() => {
+    resumeQueue?.();
+  }, [resumeQueue]);
+
+  // Chỉ hiện item chưa xong (queued / uploading / failed)
+  const visible = uploadItems.filter(
+    (item) => item.status !== "done" && !brokenIds.has(item.id),
+  );
+
+  if (visible.length === 0) return null;
 
   return (
     <>
-      <h1 className="text-base font-semibold">{t("bottom.uploading_media_title")}</h1>
-      <p className="text-sm italic">
-        {t("bottom.uploading_media_note")}
-      </p>
-      <p>
-        {t("bottom.uploading_media_retry_note")}
-      </p>
-      <Link to={"/incidents"} className="text-sm underline cursor-pointer">
-        {t("bottom.incident_ref_page")}
-      </Link>
-      <div className="grid grid-cols-3 md:grid-cols-6 gap-2 mt-2">
-        {uploadItems.map((item, index) => {
+      <div className="grid grid-cols-3 md:grid-cols-6 gap-2 mb-2">
+        {visible.map((item) => {
           const media = item.mediaInfo;
           const status = item.status || "uploading";
           const isVideo = media?.type === "video";
@@ -48,60 +40,71 @@ const UploadingQueue = () => {
 
           return (
             <div
-              key={index}
-              className="relative aspect-square overflow-hidden rounded-xl bg-gray-100 shadow group"
+              key={item.id}
+              className="relative aspect-square overflow-hidden rounded-xl bg-base-300 shadow group cursor-pointer"
               onClick={() => {
-                setSelectedQueue(index);
+                setSelectedQueue(item.id);
                 setSelectedQueueId(item.id);
               }}
             >
-              {isVideo ? (
-                <>
+              {url ? (
+                isVideo ? (
                   <video
                     src={url}
                     className="object-cover w-full h-full"
-                    autoPlay
-                    loop
                     muted
                     playsInline
-                    onLoad={() => handleLoaded(item.id)}
+                    preload="metadata"
+                    onError={() =>
+                      setBrokenIds((prev) => new Set(prev).add(item.id))
+                    }
                   />
-                  <div className="absolute top-2 right-2 bg-black/50 z-30 p-1 rounded-full">
-                    <svg
-                      className="w-4 h-4 text-white"
-                      fill="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path d="M8 5v14l11-7z" />
-                    </svg>
-                  </div>
-                </>
+                ) : (
+                  <img
+                    src={url}
+                    alt=""
+                    className="object-cover w-full h-full"
+                    onError={() =>
+                      setBrokenIds((prev) => new Set(prev).add(item.id))
+                    }
+                  />
+                )
               ) : (
-                <img
-                  src={url}
-                  alt="Media"
-                  className="object-cover w-full h-full"
-                  onLoad={() => handleLoaded(item.id)}
-                />
+                <div className="w-full h-full bg-base-300" />
               )}
 
-              {/* Overlay theo trạng thái */}
-              <div className="absolute inset-0 bg-black/40 flex items-center justify-center z-10">
-                {status === "uploading" && <LoadingOverlay color="white" />}
+              {/* Xóa nhanh */}
+              <button
+                type="button"
+                className="absolute top-1 right-1 z-30 p-1 rounded-full bg-black/50 text-white opacity-0 group-hover:opacity-100 transition-opacity"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  removeUploadItemById(item.id);
+                }}
+                aria-label="Xóa"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+
+              <div className="absolute inset-0 bg-black/35 flex items-center justify-center z-10 pointer-events-none">
+                {(status === "uploading" || status === "queued") && (
+                  <LoadingOverlay color="white" />
+                )}
                 {status === "done" && (
-                  <Check className="text-green-400 w-6 h-6 animate-bounce" />
+                  <Check className="text-green-400 w-6 h-6" />
                 )}
                 {status === "failed" && (
-                  <div className="flex flex-col items-center font-semibold text-error">
-                    <RotateCcw strokeWidth={1.5} className={`w-12 h-12 `} />
-                  </div>
+                  <RotateCcw
+                    strokeWidth={1.5}
+                    className="w-10 h-10 text-error"
+                  />
                 )}
               </div>
             </div>
           );
         })}
       </div>
-      <hr className="my-3" />
+      <hr className="my-2 border-base-300" />
     </>
   );
 };

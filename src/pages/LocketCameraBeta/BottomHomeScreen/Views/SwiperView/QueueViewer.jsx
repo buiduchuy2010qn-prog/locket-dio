@@ -25,10 +25,13 @@ const QueueViewer = () => {
   const [isMediaLoading, setIsMediaLoading] = useState(true);
   const [mediaFailed, setMediaFailed] = useState(false);
   // Mở hiệu ứng khi có selectedQueue
+  const removeUploadItemById = useUploadQueueStore((s) => s.removeUploadItemById);
+
   useEffect(() => {
     if (selectedQueue !== null) {
       setIsVisible(true);
-      setIsMediaLoading(true); // reset loading khi chuyển queue
+      setIsMediaLoading(true);
+      setMediaFailed(false);
     }
   }, [selectedQueue]);
 
@@ -37,9 +40,29 @@ const QueueViewer = () => {
     setIsVisible(false);
     setTimeout(() => {
       setSelectedQueue(null);
+      setSelectedQueueId(null);
       setIsAnimating(false);
     }, 300);
   };
+
+  // Item biến mất (auto cleanup) → đóng modal
+  useEffect(() => {
+    if (selectedQueueId && !queueInfo) {
+      handleClose();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedQueueId, queueInfo]);
+
+  // Media URL chết → xóa item + đóng
+  useEffect(() => {
+    if (!mediaFailed || !queueInfo?.id) return;
+    const t = setTimeout(() => {
+      removeUploadItemById(queueInfo.id);
+      handleClose();
+    }, 1500);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mediaFailed, queueInfo?.id]);
 
   // Khóa cuộn khi mở modal
   useEffect(() => {
@@ -111,18 +134,18 @@ const QueueViewer = () => {
           {/* Nội dung media */}
           <div className="h-full w-full flex items-center justify-center relative">
             {mediaFailed ? (
-              <div className="h-full w-full rounded-2xl flex flex-col bg-base-200 select-none p-10">
-                <span className="text-7xl tracking-tight font-semibold">
-                  {":("}
-                </span>
-
-                <p className="mt-3 text-sm font-medium">{t("bottom.media_not_found")}</p>
-
-                {mediaUrl && (
-                  <p className="mt-1 text-center text-[10px] break-all font-mono">
-                    {mediaUrl}
-                  </p>
-                )}
+              <div className="h-full w-full rounded-2xl flex flex-col items-center justify-center bg-base-200 select-none p-8 gap-3">
+                <span className="text-5xl font-semibold">{":("}</span>
+                <button
+                  type="button"
+                  className="btn btn-sm btn-error btn-outline rounded-full"
+                  onClick={async () => {
+                    if (queueInfo?.id) await removeUploadItemById(queueInfo.id);
+                    handleClose();
+                  }}
+                >
+                  Xóa
+                </button>
               </div>
             ) : mediaType === "video" ? (
               <video
@@ -143,64 +166,23 @@ const QueueViewer = () => {
               />
             )}
 
-            {/* Status Icon */}
-            {queueInfo?.status && (
-              <>
-                <div className="absolute w-full top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-20">
-                  {queueInfo?.status === "uploading" && (
-                    <LoadingOverlay color="white" />
-                  )}
-                  {queueInfo?.status === "done" && (
-                    <Check className="text-green-400 w-6 h-6 animate-bounce" />
-                  )}
-                  {queueInfo?.status === "failed" && (
-                    <div className="flex flex-col items-center justify-center text-error">
-                      <TriangleAlert
-                        strokeWidth={1.5}
-                        className="w-16 h-16 transition-transform duration-700"
-                      />
-
-                      {queueInfo?.errorMessage && (
-                        <div className="mt-3 w-full bg-base-300/70 backdrop-blur-md p-4 shadow-lg">
-                          <div className="space-y-2 text-sm">
-                            <div className="flex items-start gap-2">
-                              <span className="badge badge-error badge-sm shrink-0">
-                                CODE
-                              </span>
-
-                              <p className="font-mono font-semibold break-all text-base-content">
-                                {queueInfo?.errorCode || "UNKNOWN_ERROR"}
-                              </p>
-                            </div>
-
-                            <div className="flex items-start gap-2">
-                              <span className="badge badge-warning badge-sm shrink-0">
-                                MSG
-                              </span>
-
-                              <p className="font-mono break-words text-base-content/80">
-                                {queueInfo?.errorMessage}
-                              </p>
-                            </div>
-
-                            {!!queueInfo?.retryCount && (
-                              <div className="flex items-center gap-2 pt-1">
-                                <span className="badge badge-ghost badge-sm shrink-0">
-                                  RETRY
-                                </span>
-
-                                <p className="font-mono text-base-content/60">
-                                  #{queueInfo.retryCount}
-                                </p>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </>
+            {/* Status Icon — gọn, không CODE/MSG dài */}
+            {queueInfo?.status && !mediaFailed && (
+              <div className="absolute w-full top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-20 flex justify-center">
+                {(queueInfo?.status === "uploading" ||
+                  queueInfo?.status === "queued") && (
+                  <LoadingOverlay color="white" />
+                )}
+                {queueInfo?.status === "done" && (
+                  <Check className="text-green-400 w-8 h-8 animate-bounce" />
+                )}
+                {queueInfo?.status === "failed" && (
+                  <TriangleAlert
+                    strokeWidth={1.5}
+                    className="w-14 h-14 text-error"
+                  />
+                )}
+              </div>
             )}
 
             {/* Caption nếu có */}

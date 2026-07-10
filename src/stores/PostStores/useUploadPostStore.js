@@ -27,6 +27,11 @@ export const STATUS_UPLOAD_MOMENT = {
   FAILED: "failed",
 };
 
+/** Item kẹt uploading/queued quá lâu → coi failed / drop */
+const STALE_MS = 8 * 60 * 1000; // 8 phút
+/** Failed auto-retry tối đa */
+const MAX_AUTO_RETRY = 2;
+
 export const useUploadQueueStore = create((set, get) => ({
   uploadItems: [],
   postedMoments: [],
@@ -45,11 +50,69 @@ export const useUploadQueueStore = create((set, get) => ({
     const posted = await getPostedMoments();
     set({ postedMoments: posted });
 
-    get().autoCleanupItem();
-    // nếu còn queued thì chạy tiếp
-    // if (items.some((i) => i.status === STATUS_UPLOAD_MOMENT.QUEUED)) {
-    //   get().runQueue();
-    // }
+    // Dọn done + resume queue kẹt
+    await get().resumeQueue();
+  },
+
+  /**
+   * Tự dọn item cũ / done, đưa uploading kẹt về queued, auto-retry failed,
+   * rồi chạy queue. Gọi khi mở feed / mount UploadingQueue.
+   */
+  resumeQueue: async () => {
+    const now = Date.now();
+    const items = [...get().uploadItems];
+
+    for (const item of items) {
+      const created = new Date(item.createdAt || 0).getTime();
+      const age = now - created;
+      const retries = Number(item.retryCount) || 0;
+
+      // Done → xóa ngay
+      if (item.status === STATUS_UPLOAD_MOMENT.DONE) {
+        await get().removeUploadItemById(item.id);
+        continue;
+      }
+
+      // Uploading kẹt quá lâu → về queued để thử lại (hoặc drop nếu quá retry)
+      if (
+        item.status === STATUS_UPLOAD_MOMENT.UPLOADING &&
+        age > STALE_MS
+      ) {
+        if (retries >= MAX_AUTO_RETRY) {
+          await get().removeUploadItemById(item.id);
+        } else {
+          await get().updateUploadItem(item.id, {
+            status: STATUS_UPLOAD_MOMENT.QUEUED,
+            retryCount: retries + 1,
+            lastTried: new Date().toISOString(),
+          });
+        }
+        continue;
+      }
+
+      // Failed: auto-retry vài lần rồi xóa im lặng
+      if (item.status === STATUS_UPLOAD_MOMENT.FAILED) {
+        if (retries >= MAX_AUTO_RETRY) {
+          await get().removeUploadItemById(item.id);
+        } else {
+          await get().updateUploadItem(item.id, {
+            status: STATUS_UPLOAD_MOMENT.QUEUED,
+            retryCount: retries + 1,
+            lastTried: new Date().toISOString(),
+            errorCode: null,
+            errorMessage: null,
+          });
+        }
+      }
+    }
+
+    // Còn queued → chạy
+    const hasQueued = get().uploadItems.some(
+      (i) => i.status === STATUS_UPLOAD_MOMENT.QUEUED,
+    );
+    if (hasQueued) {
+      get().runQueue();
+    }
   },
 
   enqueueUploadItem: async (data) => {
@@ -57,6 +120,7 @@ export const useUploadQueueStore = create((set, get) => ({
       ...data,
       status: STATUS_UPLOAD_MOMENT.QUEUED,
       createdAt: new Date().toISOString(),
+      retryCount: 0,
     };
 
     set((s) => ({ uploadItems: [item, ...s.uploadItems] }));
@@ -65,9 +129,14 @@ export const useUploadQueueStore = create((set, get) => ({
   },
 
   retryUploadItem: async (itemId) => {
+    const current = get().uploadItems.find((i) => i.id === itemId);
+    const retries = Number(current?.retryCount) || 0;
     get().updateUploadItem(itemId, {
       status: STATUS_UPLOAD_MOMENT.QUEUED,
       lastTried: new Date().toISOString(),
+      retryCount: retries + 1,
+      errorCode: null,
+      errorMessage: null,
     });
     get().runQueue();
   },
@@ -125,18 +194,7 @@ export const useUploadQueueStore = create((set, get) => ({
 
       get().autoCleanupItem(item.id);
     } catch (err) {
-      // ❌ Response trả về không hợp lệ
-      if (err?.message === "INVALID_UPLOAD_RESPONSE") {
-        SonnerError("Đăng tải thất bại!", "Dữ liệu trả về không hợp lệ.");
-
-        get().updateUploadItem(item.id, {
-          status: STATUS_UPLOAD_MOMENT.FAILED,
-          errorCode: "INVALID_RESPONSE",
-          errorMessage: "Dữ liệu trả về không hợp lệ",
-        });
-
-        return;
-      }
+      const retries = Number(item.retryCount) || 0;
 
       // ⚠️ Bài đăng đã tồn tại
       if (err?.response?.status === 409) {
@@ -145,33 +203,52 @@ export const useUploadQueueStore = create((set, get) => ({
         });
 
         await deleteUploadItemFromDB(item.id);
+        get().removeUploadItemById(item.id);
         SonnerWarning("Bài đăng đã tồn tại!");
         return;
       }
 
-      // ❌ File / upload item không tồn tại
-      if (err?.response?.status === 404) {
-        SonnerError("File không tồn tại hoặc đã bị xoá");
-
-        get().updateUploadItem(item.id, {
-          status: STATUS_UPLOAD_MOMENT.FAILED,
-          errorCode: "UPLOAD_ITEM_NOT_FOUND",
-          errorMessage: "File không tồn tại hoặc đã bị xoá",
-        });
-
-        // await deleteUploadItemFromDB(item.id);
+      // Media temp hết hạn / 404 → xóa luôn (retry vô ích)
+      if (
+        err?.response?.status === 404 ||
+        err?.message === "INVALID_UPLOAD_RESPONSE"
+      ) {
+        SonnerError(
+          "Đăng tải thất bại!",
+          err?.response?.data?.message || "Media không còn, hãy chụp lại.",
+        );
+        await get().removeUploadItemById(item.id);
         return;
       }
 
-      // ❌ Lỗi khác
-      SonnerError("Đăng tải thất bại!");
+      // Lỗi khác: failed + auto-retry sau vài giây (nếu còn lượt)
+      const msg =
+        err?.response?.data?.message || "Đăng tải thất bại, vui lòng thử lại";
 
       get().updateUploadItem(item.id, {
         status: STATUS_UPLOAD_MOMENT.FAILED,
         errorCode: "UPLOAD_FAILED",
-        errorMessage:
-          err?.response?.data?.message || "Đăng tải thất bại, vui lòng thử lại",
+        errorMessage: msg,
       });
+
+      if (retries < MAX_AUTO_RETRY) {
+        // Auto retry im lặng sau 4s
+        setTimeout(() => {
+          const still = get().uploadItems.find((i) => i.id === item.id);
+          if (still?.status === STATUS_UPLOAD_MOMENT.FAILED) {
+            get().retryUploadItem(item.id);
+          }
+        }, 4000);
+      } else {
+        SonnerError("Đăng tải thất bại!", msg);
+        // Xóa sau 12s để UI gọn
+        setTimeout(() => {
+          const still = get().uploadItems.find((i) => i.id === item.id);
+          if (still?.status === STATUS_UPLOAD_MOMENT.FAILED) {
+            get().removeUploadItemById(item.id);
+          }
+        }, 12000);
+      }
     }
   },
 
@@ -188,7 +265,7 @@ export const useUploadQueueStore = create((set, get) => ({
   },
   /* ================= CLEANUP ================= */
 
-  autoCleanupItem: (itemId, delay = 3000) => {
+  autoCleanupItem: (itemId, delay = 2500) => {
     setTimeout(async () => {
       if (!itemId) return;
       const item = await getUploadItemFromDB(itemId);
