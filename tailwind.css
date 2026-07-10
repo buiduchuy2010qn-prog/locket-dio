@@ -3,28 +3,34 @@
   themes: all;
 }
 
-/* Theme hồng + tuyết — Huy Locket */
+/* ═══════════════════════════════════════════
+   Theme: Hồng tuyết ❄ — hồng + mưa tuyết
+   ═══════════════════════════════════════════ */
 @plugin "daisyui/theme" {
   name: "pinksnow";
   default: true;
   prefersdark: false;
   color-scheme: light;
 
-  --color-base-100: oklch(97% 0.02 350);
-  --color-base-200: oklch(94% 0.035 350);
-  --color-base-300: oklch(90% 0.05 350);
-  --color-base-content: oklch(28% 0.04 350);
+  /* Nền hồng kem → hồng sữa */
+  --color-base-100: oklch(97.5% 0.025 350);
+  --color-base-200: oklch(94% 0.045 350);
+  --color-base-300: oklch(89% 0.07 350);
+  --color-base-content: oklch(28% 0.06 350);
 
-  --color-primary: oklch(72% 0.18 350);
-  --color-primary-content: oklch(98% 0.01 350);
+  /* Primary hồng đậm (nút, badge) */
+  --color-primary: oklch(68% 0.22 350);
+  --color-primary-content: oklch(99% 0.01 350);
 
-  --color-secondary: oklch(80% 0.12 20);
-  --color-secondary-content: oklch(28% 0.05 20);
+  /* Secondary hồng cam nhẹ */
+  --color-secondary: oklch(78% 0.14 20);
+  --color-secondary-content: oklch(25% 0.05 20);
 
-  --color-accent: oklch(78% 0.14 330);
-  --color-accent-content: oklch(25% 0.04 330);
+  /* Accent hồng tím */
+  --color-accent: oklch(72% 0.16 330);
+  --color-accent-content: oklch(98% 0.01 330);
 
-  --color-neutral: oklch(35% 0.04 350);
+  --color-neutral: oklch(32% 0.05 350);
   --color-neutral-content: oklch(98% 0.01 350);
 
   --color-info: oklch(75% 0.1 230);
@@ -38,5 +44,28 @@
 
   --radius-selector: 1rem;
   --radius-field: 0.75rem;
-  --radius-box: 1rem;
+  --radius-box: 1.25rem;
+}
+
+/* Nền gradient hồng toàn app khi theme Hồng tuyết */
+html.theme-pink-snow,
+html.theme-pink-snow body,
+body.theme-pink-snow {
+  min-height: 100%;
+  background:
+    radial-gradient(ellipse 120% 80% at 50% -20%, rgba(255, 160, 200, 0.45), transparent 55%),
+    radial-gradient(ellipse 80% 50% at 100% 100%, rgba(255, 192, 220, 0.35), transparent 50%),
+    radial-gradient(ellipse 70% 40% at 0% 80%, rgba(255, 200, 230, 0.28), transparent 45%),
+    linear-gradient(180deg, #ffe4f0 0%, #ffd0e8 40%, #ffc4dd 100%) !important;
+  background-attachment: fixed;
+}
+
+html.theme-pink-snow .bg-base-100 {
+  background-color: color-mix(in oklab, var(--color-base-100) 88%, transparent);
+}
+
+/* Locket camera: giữ hồng nhưng đỡ chói lên preview */
+html.theme-pink-snow body:has([data-locket-camera]) {
+  background:
+    linear-gradient(180deg, #ffe8f2 0%, #ffd6ea 50%, #ffcce4 100%) !important;
 }

@@ -1,15 +1,31 @@
 // utils/themeUtils.js
+import { CONFIG } from "@/config/webConfig";
 
-/** Theme có nền gradient hồng + tuyết */
+/** Theme hồng + mưa tuyết (mặc định Huy Locket) */
 export const PINK_SNOW_THEME = "pinksnow";
+
+/** Theme bật hiệu ứng tuyết rơi */
+export const SNOW_THEME_IDS = new Set(["pinksnow", "valentine", "winter"]);
 
 export const isPinkSnowTheme = (theme) =>
   theme === PINK_SNOW_THEME || theme === "valentine";
 
+export const hasSnowEffect = (theme) => SNOW_THEME_IDS.has(theme);
+
+/** Tên hiển thị đẹp trong Settings */
+export function getThemeLabel(themeId) {
+  const labels = CONFIG?.ui?.themeLabels || {};
+  if (labels[themeId]) return labels[themeId];
+  return themeId;
+}
+
 export const applyTheme = (theme) => {
   const t = theme || PINK_SNOW_THEME;
   document.documentElement.setAttribute("data-theme", t);
-  document.documentElement.classList.toggle("theme-pink-snow", isPinkSnowTheme(t));
+  document.documentElement.classList.toggle(
+    "theme-pink-snow",
+    isPinkSnowTheme(t),
+  );
   document.body?.classList.toggle("theme-pink-snow", isPinkSnowTheme(t));
   localStorage.setItem("theme", t);
 
@@ -17,9 +33,11 @@ export const applyTheme = (theme) => {
   let baseColor =
     computedStyle.getPropertyValue("--color-base-100")?.trim() || "#ffc4dd";
 
-  // pinksnow: thanh status bar hồng rõ
+  // pinksnow: status bar hồng đậm
   if (t === PINK_SNOW_THEME) {
-    baseColor = "#ff9ecf";
+    baseColor = "#ff8fc4";
+  } else if (t === "valentine") {
+    baseColor = "#ff6b9d";
   }
 
   let metaTheme = document.querySelector('meta[name="theme-color"]');

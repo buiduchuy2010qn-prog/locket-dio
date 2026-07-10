@@ -2,13 +2,11 @@ import React, { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { useTheme } from "@/hooks/useTheme";
 import SnowEffect from "./SnowEffect";
-
-/** Theme bật hiệu ứng tuyết rơi */
-export const SNOW_THEMES = new Set(["pinksnow", "valentine", "winter"]);
+import { hasSnowEffect, isPinkSnowTheme } from "@/utils/theme/themeUtils";
 
 /**
- * Tuyết toàn app — pinksnow: hồng + tim + lấp lánh.
- * /locket: giảm mật độ để camera mượt.
+ * Mưa tuyết toàn app khi theme: pinksnow | valentine | winter
+ * pinksnow: hồng + tim + lấp lánh (đậm nhất)
  */
 const GlobalThemeEffects = () => {
   const { theme } = useTheme();
@@ -31,16 +29,35 @@ const GlobalThemeEffects = () => {
     };
   }, []);
 
-  if (!SNOW_THEMES.has(theme) || hidden || reduceMotion) return null;
+  if (!hasSnowEffect(theme) || hidden || reduceMotion) return null;
 
   const onCameraRoute =
     location.pathname.startsWith("/locket") ||
     location.pathname.startsWith("/camera");
 
-  const isPink = theme === "pinksnow" || theme === "valentine";
+  const isPink = isPinkSnowTheme(theme);
+  const isPinkSnow = theme === "pinksnow";
 
-  const intervalMs = onCameraRoute ? 150 : isPink ? 85 : 130;
-  const maxFlakes = onCameraRoute ? 26 : isPink ? 52 : 34;
+  // pinksnow: tuyết dày + hồng; camera: giảm để mượt preview
+  const intervalMs = onCameraRoute
+    ? isPinkSnow
+      ? 120
+      : 160
+    : isPinkSnow
+      ? 70
+      : isPink
+        ? 90
+        : 130;
+
+  const maxFlakes = onCameraRoute
+    ? isPinkSnow
+      ? 36
+      : 24
+    : isPinkSnow
+      ? 64
+      : isPink
+        ? 48
+        : 32;
 
   return (
     <SnowEffect
