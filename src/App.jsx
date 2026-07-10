@@ -66,6 +66,10 @@ function AppContent() {
   }
   useEffect(() => {
     import("./styles/animation.css");
+    // Đánh thức API Render free (tránh 502 lần đầu)
+    fetch("/dio-api/health", { method: "GET", credentials: "include" }).catch(
+      () => {},
+    );
     hydrateAuth();
     initAuth();
     showDevWarning();

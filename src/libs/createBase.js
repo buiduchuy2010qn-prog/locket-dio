@@ -32,11 +32,32 @@ const attachHeaders = (config) => {
   return config;
 };
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** Retry 502/503 (Render free cold start) */
+function attachGatewayRetry(instance) {
+  instance.interceptors.response.use(
+    (res) => res,
+    async (error) => {
+      const status = error.response?.status || error.status;
+      const cfg = error.config;
+      if (!cfg || (status !== 502 && status !== 503 && status !== 504)) {
+        return Promise.reject(error);
+      }
+      const attempt = cfg._gatewayRetry || 0;
+      if (attempt >= 2) return Promise.reject(error);
+      cfg._gatewayRetry = attempt + 1;
+      await sleep(attempt === 0 ? 2500 : 5000);
+      return instance(cfg);
+    },
+  );
+}
+
 // Tạo axios instance factory
 export const createHttpClient = (baseURL) => {
   const instance = axios.create({
     baseURL,
-    timeout: 30000,
+    timeout: 45000,
     withCredentials: true,
     headers: {
       "Content-Type": "application/json",
@@ -47,6 +68,7 @@ export const createHttpClient = (baseURL) => {
   instance.interceptors.request.use(attachHeaders, (error) =>
     Promise.reject(error),
   );
+  attachGatewayRetry(instance);
 
   return instance;
 };
@@ -54,6 +76,7 @@ export const createHttpClient = (baseURL) => {
 export const createUploadClient = (baseURL) => {
   const instance = axios.create({
     baseURL,
+    timeout: 45000,
     withCredentials: true,
     headers: {
       "Content-Type": "application/json",
@@ -62,5 +85,6 @@ export const createUploadClient = (baseURL) => {
   });
 
   instance.interceptors.request.use(attachHeaders);
+  attachGatewayRetry(instance);
   return instance;
 };

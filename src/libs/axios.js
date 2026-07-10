@@ -128,6 +128,24 @@ api.interceptors.request.use(async (config) => {
   return config;
 });
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Render free: API sleep → 502; retry 1–2 lần sau khi wake
+async function retryOnGatewayError(client, error) {
+  const status = error.response?.status || error.status;
+  const originalRequest = error.config;
+  if (!originalRequest) return null;
+  if (status !== 502 && status !== 503 && status !== 504) return null;
+
+  const attempt = originalRequest._gatewayRetry || 0;
+  if (attempt >= 2) return null;
+
+  originalRequest._gatewayRetry = attempt + 1;
+  // Lần 1: 2.5s, lần 2: 5s — đủ thời gian cold start Render
+  await sleep(attempt === 0 ? 2500 : 5000);
+  return client(originalRequest);
+}
+
 // ==== Response Interceptor ====
 api.interceptors.response.use(
   (response) => response,
@@ -140,6 +158,10 @@ api.interceptors.response.use(
       "Có lỗi xảy ra";
 
     const originalRequest = error.config;
+
+    // Cold start / Bad Gateway — tự thử lại trước khi báo lỗi
+    const retried = await retryOnGatewayError(api, error);
+    if (retried) return retried;
 
     if (!originalRequest || originalRequest._retry) {
       return Promise.reject(error);
@@ -203,15 +225,9 @@ api.interceptors.response.use(
       SonnerInfo(message || "Lỗi máy chủ. Vui lòng thử lại sau.");
     }
 
-    if (status === 502) {
+    if (status === 502 || status === 503) {
       SonnerInfo(
-        message || "Máy chủ phản hồi không hợp lệ. Vui lòng thử lại sau.",
-      );
-    }
-
-    if (status === 503 && !isOptionalConfigMsg) {
-      SonnerInfo(
-        message || "Dịch vụ hiện không khả dụng. Vui lòng quay lại sau.",
+        "API đang khởi động (Render free). Đợi 10–20 giây rồi thử lại.",
       );
     }
 
