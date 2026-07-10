@@ -1,3 +1,12 @@
+Locket Dio — Deploy
+
+PRIMARY (user): huy-locket
+  - Docker · Singapore · auto from git push main
+  - Repo: https://github.com/buiduchuy2010qn-prog/locket-dio.git
+  - After code changes: commit + push origin main → service rebuilds
+
+---
+
 Locket Dio on Render — CORS proxy fix
 
 Problem:
@@ -20,3 +29,8 @@ IMPORTANT — service type must be WEB (Node), not Static:
   6. Or open existing service Settings → if Static, create NEW Web Service instead
 
 URL: https://locket-dio-ly9t.onrender.com  (or new URL if recreated)
+
+SECONDARY — Render Static (Blueprint)
+  Build: cd apps/web && npm install && npm run build && cd ../.. && node scripts/copy-web-dist.mjs
+  Publish: dist
+  Manual Deploy → Deploy latest commit after push.
