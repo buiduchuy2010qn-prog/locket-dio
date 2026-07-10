@@ -192,7 +192,14 @@ api.interceptors.response.use(
       );
     }
 
-    if (status === 500) {
+    // Không spam toast cho lỗi cấu hình optional (Supabase membership DB)
+    const isOptionalConfigMsg =
+      typeof message === "string" &&
+      (/supabase/i.test(message) ||
+        /SUPABASE_/i.test(message) ||
+        /chưa cấu hình/i.test(message));
+
+    if (status === 500 && !isOptionalConfigMsg) {
       SonnerInfo(message || "Lỗi máy chủ. Vui lòng thử lại sau.");
     }
 
@@ -202,7 +209,7 @@ api.interceptors.response.use(
       );
     }
 
-    if (status === 503) {
+    if (status === 503 && !isOptionalConfigMsg) {
       SonnerInfo(
         message || "Dịch vụ hiện không khả dụng. Vui lòng quay lại sau.",
       );

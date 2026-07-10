@@ -69,6 +69,11 @@ const SyncRegisterPush = async (data, localId) => {
 };
 
 const sendPushNotification = async ({ title, body, url }) => {
+  if (!isSupabaseConfigured) {
+    logInfo("pushSend", "Supabase off — skip sendPushNotification");
+    return { total: 0, sent: 0, failed: 0, failedDetails: [] };
+  }
+
   const payload = JSON.stringify({
     title,
     body,
@@ -188,6 +193,10 @@ const sendPushNotification = async ({ title, body, url }) => {
 };
 
 const testPushNotification = async ({ endpoint, title, body, url }) => {
+  if (!isSupabaseConfigured) {
+    return { success: false, endpoint, skipped: true };
+  }
+
   const payload = JSON.stringify({ title, body, url });
 
   const { data, error } = await supabase
