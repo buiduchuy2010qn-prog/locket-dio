@@ -1,5 +1,5 @@
 const webPush = require("web-push");
-const { supabase } = require("../../../config/supabase");
+const { supabase, isSupabaseConfigured } = require("../../../config/supabase");
 const { logInfo, logError } = require("../../../utils/logEventUtils");
 
 // Thiết lập VAPID Keys cho web-push (optional — không có key thì push tắt, server vẫn boot)
@@ -29,6 +29,11 @@ const RegisterPush = async (subscription, origin) => {
   if (!endpoint) throw new Error("Thiếu endpoint trong subscription");
   console.log(subscription);
 
+  if (!isSupabaseConfigured) {
+    logInfo("RegisterPush", "Supabase off — skip push registration");
+    return null;
+  }
+
   const { data, error } = await supabase.from("push_subscriptions").upsert(
     {
       endpoint,
@@ -49,6 +54,11 @@ const SyncRegisterPush = async (data, localId) => {
   // Trích xuất endpoint để kiểm tra trùng lặp
   const endpoint = data?.endpoint;
   if (!endpoint) throw new Error("Thiếu endpoint trong subscription");
+
+  if (!isSupabaseConfigured) {
+    logInfo("SyncRegisterPush", "Supabase off — skip push sync");
+    return null;
+  }
 
   const { error } = await supabase.rpc("save_push_subscription_v2", {
     p_user_id: localId,

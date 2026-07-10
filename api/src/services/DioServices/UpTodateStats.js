@@ -1,5 +1,5 @@
 // utils/uploadStats.js
-const { supabase } = require("../../config/supabase");
+const { supabase, isSupabaseConfigured } = require("../../config/supabase");
 const { formatFileSize } = require("../../helpers/formatHelpers");
 const {
   logInfo,
@@ -34,6 +34,11 @@ const updateUploadStats = async ({
       },
       `${isError ? "❌ Upload Error" : "✅ Upload Success"} - User ${uid}`,
     );
+
+    if (!isSupabaseConfigured) {
+      logInfo("updateUploadStats", "Supabase off — skip upload stats RPC");
+      return true;
+    }
 
     const { error } = await supabase.rpc("increment_upload_stats_v3", {
       p_uid: uid,

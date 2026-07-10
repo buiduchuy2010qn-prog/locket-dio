@@ -21,9 +21,20 @@ const planControllerV2 = async (req, res, next) => {
         `👤 User chưa có gói. Tự động đăng ký cho UID: ${uid}`,
       );
 
-      await planServices.registerDefaultPlan(uid, email, phone, name, picture);
+      const registered = await planServices.registerDefaultPlan(
+        uid,
+        email,
+        phone,
+        name,
+        picture,
+      );
 
-      userPlan = await planServices.getUserPlanV3(uid);
+      // Local free plan when Supabase is off (registerDefaultPlan returns the object)
+      userPlan =
+        registered && registered.user
+          ? registered
+          : (await planServices.getUserPlanV3(uid)) ||
+            planServices.getLocalFreePlan(uid, email, phone, name, picture);
 
       logSuccess("planController", "✅ Đăng ký gói mặc định thành công");
     } else {

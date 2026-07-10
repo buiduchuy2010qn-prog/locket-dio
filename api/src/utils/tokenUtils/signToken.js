@@ -1,7 +1,12 @@
 const jwt = require("jsonwebtoken");
-const { security } = require("../../config/app.config")
+const { security } = require("../../config/app.config");
 
-const jwtToken = security.jwtSecret;
+// Render generateValue sets LOCKETDIO_JWT_SECRET; fallback keeps plan session working
+const jwtToken =
+  security.jwtSecret ||
+  process.env.LOCKETDIO_JWT_SECRET ||
+  process.env.COOKIE_SECRET ||
+  "huy-locket-dev-jwt-secret";
 
 const signToken = (payload, expiresIn = "30d") => {
   return jwt.sign(payload, jwtToken, { expiresIn });

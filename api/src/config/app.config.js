@@ -10,7 +10,11 @@ const serverConfig = {
 
   firebase: {
     projectId: process.env.FIREBASE_PROJECT_ID || "locket-4252a",
-    apiKey: process.env.FIREBASE_API_KEY || "",
+    // Public Identity Toolkit key of Locket app (same key ships in mobile clients).
+    // Override with FIREBASE_API_KEY on Render if Locket rotates it.
+    apiKey:
+      process.env.FIREBASE_API_KEY ||
+      "AIzaSyCQngaaXQIfJaH0aS2l7REgIjD7nL431So",
     apiBase: {
       appCheck:
         process.env.FIREBASE_APPCHECK_API_BASE ||

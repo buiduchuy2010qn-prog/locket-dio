@@ -44,5 +44,8 @@ services:
       # Domain web được CORS
       - key: CORS_ORIGINS
         value: https://huy-locket.onrender.com
-      # Login Locket: set trên Dashboard nếu có
-      # FIREBASE_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, WEATHER_API_KEY
+      # Locket Firebase public API key (login Identity Toolkit) — override trên Dashboard nếu cần
+      - key: FIREBASE_API_KEY
+        value: AIzaSyCQngaaXQIfJaH0aS2l7REgIjD7nL431So
+      # Supabase optional: membership DB. Không set → gói Free local, login vẫn OK
+      # SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, WEATHER_API_KEY

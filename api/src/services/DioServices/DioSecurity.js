@@ -1,4 +1,4 @@
-const { supabase } = require("../../config/supabase");
+const { supabase, isSupabaseConfigured } = require("../../config/supabase");
 
 const logUserAction = async (req, action, count = 1) => {
   const uid = req.user?.localId;
@@ -8,19 +8,26 @@ const logUserAction = async (req, action, count = 1) => {
     return;
   }
 
-  const { error } = await supabase.from("user_action_logs").insert({
-    uid,
-    action,
-    count,
-    created_at: new Date().toISOString(),
-  });
+  // Self-host without Supabase: skip action logs (login still works)
+  if (!isSupabaseConfigured) return;
 
-  if (error) {
-    console.error("❌ Lỗi khi ghi log hành động:", error.message);
-  } else {
-    console.log(
-      `📌 Đã ghi log hành động: ${action} (${count} lượt) của ${uid}`
-    );
+  try {
+    const { error } = await supabase.from("user_action_logs").insert({
+      uid,
+      action,
+      count,
+      created_at: new Date().toISOString(),
+    });
+
+    if (error) {
+      console.error("❌ Lỗi khi ghi log hành động:", error.message);
+    } else {
+      console.log(
+        `📌 Đã ghi log hành động: ${action} (${count} lượt) của ${uid}`
+      );
+    }
+  } catch (err) {
+    console.warn("[logUserAction] skipped:", err.message);
   }
 };
 

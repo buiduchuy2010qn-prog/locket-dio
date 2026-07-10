@@ -74,18 +74,25 @@ export const useAuthStore = create(
 
         try {
           // =========================
-          // 1. Fetch plan nếu quá TTL
+          // 1. Fetch plan nếu quá TTL (không đá login nếu plan API lỗi)
           // =========================
           if (!lastFetchPlanAt || now - lastFetchPlanAt > 5 * 60 * 1000) {
-            const planRes = await GetUserDataV2();
-
-            saveMemberToken(planRes?.session);
-
-            set({
-              userPlan: planRes,
-              uploadStats: planRes?.upload_stats,
-              lastFetchPlanAt: now,
-            });
+            try {
+              const planRes = await GetUserDataV2();
+              if (planRes) {
+                saveMemberToken(planRes?.session);
+                set({
+                  userPlan: planRes,
+                  uploadStats: planRes?.upload_stats,
+                  lastFetchPlanAt: now,
+                });
+              }
+            } catch (planErr) {
+              console.warn(
+                "Plan fetch failed (login still kept):",
+                planErr?.message || planErr,
+              );
+            }
           }
 
           // =========================
@@ -94,30 +101,44 @@ export const useAuthStore = create(
           let { user } = get();
 
           if (!user) {
-            user = await GetUserLocket();
-            set({ user });
+            try {
+              user = await GetUserLocket();
+              if (user) set({ user });
+            } catch (userErr) {
+              console.warn(
+                "GetUserLocket failed:",
+                userErr?.message || userErr,
+              );
+            }
           }
 
           // =========================
           // 3. Background sync (1 ngày)
           // =========================
           if (!lastSyncAt || now - lastSyncAt > ONE_DAY) {
-            updateUserInfo(user).catch(() => {});
+            if (user) updateUserInfo(user).catch(() => {});
             syncPushSubscription().catch(() => {});
 
             set({ lastSyncAt: now });
           }
 
+          // Token còn → giữ session; plan/user lỗi không được đá ra login
           set({ isAuth: true, loading: false });
         } catch (err) {
           console.error("Auth init error:", err);
-
-          set({
-            user: null,
-            userPlan: null,
-            uploadStats: null,
-            isAuth: false,
-          });
+          // Chỉ clear session nếu token thực sự hỏng (401 do interceptor)
+          const status = err?.status || err?.response?.status;
+          if (status === 401) {
+            set({
+              user: null,
+              userPlan: null,
+              uploadStats: null,
+              isAuth: false,
+              loading: false,
+            });
+          } else {
+            set({ isAuth: true, loading: false });
+          }
         }
       },
 

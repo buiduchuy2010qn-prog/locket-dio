@@ -72,7 +72,9 @@ const loginV2 = async (req, res, next) => {
     });
   }
 
-  if (!process.env.FIREBASE_API_KEY) {
+  // FIREBASE_API_KEY defaults to Locket public key in app.config — only block if empty after resolve
+  const { firebase } = require("../config/app.config");
+  if (!firebase?.apiKey && !process.env.FIREBASE_API_KEY) {
     return res.status(503).json({
       success: false,
       message:
