@@ -582,9 +582,97 @@ const fetchMusicApi = async (url, platform = "spotify") => {
   throw err;
 };
 
+/**
+ * Tìm nhạc theo tên — KHÔNG cần user OAuth.
+ * 1) Spotify Web API search (client credentials)
+ * 2) Fallback Deezer search
+ */
+async function searchMusicByQuery(query, limit = 15) {
+  const q = String(query || "").trim();
+  if (!q || q.length < 1) {
+    const err = new Error("Nhập tên bài hát để tìm");
+    err.status = 400;
+    throw err;
+  }
+  const lim = Math.min(Math.max(Number(limit) || 15, 1), 25);
+
+  // 1) Spotify official search
+  try {
+    const token = await getSpotifyAppToken();
+    if (token) {
+      const r = await axios.get("https://api.spotify.com/v1/search", {
+        params: { q, type: "track", limit: lim, market: "US" },
+        headers: { Authorization: `Bearer ${token}` },
+        timeout: 12000,
+      });
+      const items = r.data?.tracks?.items || [];
+      if (items.length) {
+        return items.map((t) => ({
+          id: t.id,
+          song_name: t.name || "",
+          song_title: t.name || "",
+          name: t.name || "",
+          artist: (t.artists || []).map((a) => a.name).join(", "),
+          album: t.album?.name || "",
+          image_url:
+            t.album?.images?.[0]?.url ||
+            t.album?.images?.[1]?.url ||
+            "",
+          preview_url: t.preview_url || null,
+          isrc: t.external_ids?.isrc || null,
+          spotify_url:
+            t.external_urls?.spotify ||
+            `https://open.spotify.com/track/${t.id}`,
+          duration_ms: t.duration_ms || 0,
+          platform: "spotify",
+          source: "spotify-search",
+          title: [t.name, (t.artists || []).map((a) => a.name).join(", ")]
+            .filter(Boolean)
+            .join(" - "),
+        }));
+      }
+    }
+  } catch (e) {
+    console.warn("searchMusicByQuery spotify:", e.message);
+  }
+
+  // 2) Deezer fallback (không cần key)
+  try {
+    const s = await http.get("https://api.deezer.com/search", {
+      params: { q, limit: lim },
+      timeout: 12000,
+    });
+    const hits = s.data?.data || [];
+    return hits.map((t) => ({
+      id: String(t.id),
+      song_name: t.title || "",
+      song_title: t.title || "",
+      name: t.title || "",
+      artist: t.artist?.name || "",
+      album: t.album?.title || "",
+      image_url:
+        t.album?.cover_xl || t.album?.cover_big || t.album?.cover_medium || "",
+      preview_url: t.preview || null,
+      isrc: t.isrc || null,
+      spotify_url: null,
+      deezer_url: t.link || null,
+      duration_ms: (t.duration || 0) * 1000,
+      platform: "spotify",
+      source: "deezer-search",
+      title: [t.title, t.artist?.name].filter(Boolean).join(" - "),
+    }));
+  } catch (e) {
+    console.warn("searchMusicByQuery deezer:", e.message);
+  }
+
+  return [];
+}
+
 module.exports = {
   fetchMusicApi,
   getSpotifyMusicInfo,
   getAppleMusicInfoLocal,
   extractSpotifyTrackId,
+  searchMusicByQuery,
+  getSpotifyAppToken,
 };

@@ -3,7 +3,10 @@ const {
   logError,
   logSuccess,
 } = require("../../../utils/logEventUtils");
-const { fetchMusicApi } = require("../services/fetchMusicApi");
+const {
+  fetchMusicApi,
+  searchMusicByQuery,
+} = require("../services/fetchMusicApi");
 const {
   getAppleMusicMeta,
   getSpotifyTrackInfo,
@@ -167,7 +170,39 @@ const getInfoMusicControllerV3 = async (req, res, next) => {
   }
 };
 
+/**
+ * Tìm nhạc theo tên (không cần liên kết Spotify user).
+ * POST /api/searchMusic { query, limit? }
+ */
+const searchMusicController = async (req, res, next) => {
+  try {
+    const query = req.body?.query || req.body?.q || req.query?.q;
+    const limit = req.body?.limit || req.query?.limit || 15;
+    if (!query || !String(query).trim()) {
+      return res.status(400).json({
+        status: "error",
+        message: "Thiếu từ khóa tìm kiếm",
+      });
+    }
+    logInfo("searchMusic", `🔍 Search: ${String(query).slice(0, 80)}`);
+    const list = await searchMusicByQuery(query, limit);
+    logSuccess("searchMusic", `✅ ${list.length} kết quả`);
+    return res.status(200).json({
+      status: "success",
+      message: "ok",
+      data: list,
+    });
+  } catch (error) {
+    logError("searchMusic", error.message);
+    if (error.status === 400) {
+      return res.status(400).json({ status: "error", message: error.message });
+    }
+    next(error);
+  }
+};
+
 module.exports = {
   getInfoMusicControllerV2,
   getInfoMusicControllerV3,
+  searchMusicController,
 };

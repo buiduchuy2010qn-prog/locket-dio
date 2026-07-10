@@ -398,20 +398,14 @@ const MediaPreviewIOS = () => {
 
         {!preview && !selectedFile && (
           <>
-            <div className="absolute inset-0 top-7 px-7 z-30 pointer-events-none flex justify-between text-base-content text-xs font-semibold">
+            <div className="absolute inset-0 top-7 px-7 z-30 pointer-events-none flex justify-start text-base-content text-xs font-semibold">
               <button
                 onClick={() => SonnerInfo(t("home.feature_coming_soon"))}
                 className="pointer-events-auto w-7 h-7 p-1.5 rounded-full bg-white/30 backdrop-blur-md flex items-center justify-center"
               >
                 <img src="/icons/bolt.fill.png" alt="Icon sấm sét" />
               </button>
-
-              <button
-                onClick={handleCycleZoomCamera}
-                className="pointer-events-auto min-w-8 h-8 px-2 text-primary-content font-semibold rounded-full bg-white/30 backdrop-blur-md flex items-center justify-center text-xs"
-              >
-                {zoomLevel}
-              </button>
+              {/* Bỏ ô tròn 1x — dùng pills zoom dưới */}
             </div>
 
             {/* Pills zoom: 0.5 · 1 · 2 · 3 theo máy */}

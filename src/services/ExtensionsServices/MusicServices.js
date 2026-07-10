@@ -20,3 +20,21 @@ export const getInfoMusicByUrl = async (url, platform) => {
     return null;
   }
 };
+
+/** Tìm nhạc theo tên — không cần liên kết Spotify */
+export const searchMusicByQuery = async (query, limit = 15) => {
+  if (!query || !String(query).trim()) return [];
+  try {
+    const res = await api.post("/api/searchMusic", {
+      query: String(query).trim(),
+      limit,
+    });
+    if (res?.data?.status === "success" && Array.isArray(res.data.data)) {
+      return res.data.data;
+    }
+    return [];
+  } catch (error) {
+    console.error("🚨 searchMusicByQuery:", error.message);
+    return [];
+  }
+};

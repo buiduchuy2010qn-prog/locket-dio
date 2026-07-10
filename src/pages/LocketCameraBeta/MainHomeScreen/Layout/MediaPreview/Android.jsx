@@ -806,21 +806,14 @@ const MediaPreviewAndroid = () => {
 
         {!preview && !selectedFile && (
           <>
-            <div className="absolute inset-0 top-7 px-7 z-30 pointer-events-none flex justify-between text-base-content text-xs font-semibold">
+            <div className="absolute inset-0 top-7 px-7 z-30 pointer-events-none flex justify-start text-base-content text-xs font-semibold">
               <button
                 onClick={handleToggleTorch}
                 className="pointer-events-auto w-7 h-7 p-1.5 rounded-full bg-white/30 backdrop-blur-md flex items-center justify-center"
               >
                 <img src="/icons/bolt.fill.png" alt="Icon sấm sét" />
               </button>
-
-              <button
-                onClick={handleCycleZoomCamera}
-                className="pointer-events-auto min-w-8 h-8 px-2 text-primary-content font-semibold rounded-full bg-white/30 backdrop-blur-md flex items-center justify-center text-xs"
-                title="Cycle zoom"
-              >
-                {zoomDisplay}
-              </button>
+              {/* Bỏ ô tròn 1x góc phải — dùng pills zoom dưới khung */}
             </div>
 
             {/* Pills zoom full: 0.5 · 1 · 2 · 3 · 5 theo máy */}

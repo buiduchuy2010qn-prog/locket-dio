@@ -193,9 +193,9 @@ export default function GeneralThemes({ title }) {
     }
   };
 
-  /** Chọn bài từ Spotify live (TikTok-style picker) */
+  /** Chọn bài từ tìm kiếm (không liên kết tài khoản) */
   const handleSpotifyLivePick = async (track) => {
-    if (!track?.spotify_url && !track?.id) {
+    if (!track?.spotify_url && !track?.id && !track?.song_name) {
       SonnerError(t("custom_studio.music_failed"));
       return;
     }
@@ -203,16 +203,21 @@ export default function GeneralThemes({ title }) {
     try {
       const url =
         track.spotify_url ||
-        `https://open.spotify.com/track/${track.id}`;
-      // Enrich ISRC + preview ổn định qua API hiện có
+        (track.id && String(track.source || "").includes("spotify")
+          ? `https://open.spotify.com/track/${track.id}`
+          : track.id && track.source !== "deezer-search"
+            ? `https://open.spotify.com/track/${track.id}`
+            : null);
+
       let musicData = null;
-      try {
-        musicData = await getInfoMusicByUrl(url, "spotify");
-      } catch {
-        musicData = null;
+      if (url) {
+        try {
+          musicData = await getInfoMusicByUrl(url, "spotify");
+        } catch {
+          musicData = null;
+        }
       }
 
-      // Fallback từ Spotify user API nếu enrich chậm/fail
       const merged = {
         ...(track || {}),
         ...(musicData || {}),
@@ -222,18 +227,12 @@ export default function GeneralThemes({ title }) {
           track.song_title ||
           track.song_name,
         song_name:
-          musicData?.song_name ||
-          track.song_name ||
-          track.song_title,
-        artist: musicData?.artist || track.artist,
+          musicData?.song_name || track.song_name || track.song_title,
+        artist: musicData?.artist || track.artist || "",
         isrc: musicData?.isrc || track.isrc || null,
-        preview_url:
-          musicData?.preview_url ||
-          track.preview_url ||
-          null,
-        image_url:
-          musicData?.image_url || track.image_url || "",
-        spotify_url: url,
+        preview_url: musicData?.preview_url || track.preview_url || null,
+        image_url: musicData?.image_url || track.image_url || "",
+        spotify_url: url || musicData?.spotify_url || null,
         platform: "spotify",
         title:
           musicData?.title ||
@@ -243,8 +242,49 @@ export default function GeneralThemes({ title }) {
             .join(" - "),
       };
 
-      const ok = applyMusicOverlay(merged, "spotify");
-      if (ok) setSpotifyPickerOpen(false);
+      const caption =
+        merged.title ||
+        [merged.song_title || merged.song_name, merged.artist]
+          .filter(Boolean)
+          .join(" - ");
+
+      if (!caption) {
+        SonnerError(t("custom_studio.music_failed"));
+        return;
+      }
+
+      // Gắn luôn — server ensureMusic bổ sung ISRC khi đăng nếu thiếu
+      applyOverlay({
+        overlay_id: "caption:music",
+        caption,
+        text: caption,
+        icon: {
+          data: merged.image_url,
+          type: "image",
+          source: "url",
+        },
+        type: "music",
+        payload: {
+          ...merged,
+          song_title: merged.song_title || merged.song_name || "",
+          song_name: merged.song_name || merged.song_title || "",
+          artist: merged.artist || "",
+          isrc: merged.isrc || null,
+          preview_url: merged.preview_url || null,
+          image_url: merged.image_url || "",
+          spotify_url: merged.spotify_url || null,
+          platform: "spotify",
+        },
+        platform: "spotify",
+      });
+
+      SonnerSuccess(
+        "Tìm nhạc",
+        merged.isrc
+          ? t("custom_studio.music_success")
+          : "Đã gắn nhạc — server sẽ bổ sung ISRC khi đăng nếu cần.",
+      );
+      setSpotifyPickerOpen(false);
     } catch {
       SonnerError(t("custom_studio.music_failed"));
     } finally {
@@ -399,7 +439,7 @@ export default function GeneralThemes({ title }) {
     {
       id: "music_spotify_live",
       icon: <Music2 className="w-5 h-5 mr-1" />,
-      label: "Nhạc live",
+      label: "Tìm nhạc",
       background: ["#FE2C55", "#25F4EE"],
       color: "#FFFFFF",
     },
