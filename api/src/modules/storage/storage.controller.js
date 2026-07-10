@@ -3,8 +3,8 @@ const tempMedia = require("./tempMediaStore");
 const { logInfo, logError } = require("../../utils/logEventUtils");
 
 /**
- * POST /api/presignedV3 — self-host temp media (thay storage.locket-dio.com).
- * Client vẫn PUT lên uploadUrl, postMoment tải về qua publicUrl.
+ * POST /api/presignedV3 — self-host temp media.
+ * Trả uploadUrl + publicUrl. Client PUT binary; postMoment đọc lại.
  */
 const presignedV3 = async (req, res) => {
   try {
@@ -23,7 +23,11 @@ const presignedV3 = async (req, res) => {
 
     const mediaSignature = tokenUltils.signature.generateSignature(id);
 
-    // Public base: same host as API (Render external URL or request host)
+    // Ưu tiên PUBLIC_API_URL (Render API) → tránh host web proxy thiếu /api
+    const envBase = (process.env.PUBLIC_API_URL || process.env.RENDER_EXTERNAL_URL || "")
+      .toString()
+      .replace(/\/$/, "");
+
     const proto = (req.headers["x-forwarded-proto"] || req.protocol || "https")
       .toString()
       .split(",")[0]
@@ -36,12 +40,32 @@ const presignedV3 = async (req, res) => {
       .toString()
       .split(",")[0]
       .trim();
-    const base = `${proto}://${host}`;
 
-    const publicUrl = `${base}/api/media-temp/${id}`;
-    const uploadUrl = `${base}/api/media-upload/${id}?sig=${mediaSignature}`;
+    // Nếu request qua web proxy (host khác API), client nên dùng same-origin /dio-api
+    const viaProxyHint = Boolean(
+      req.headers["x-forwarded-host"] &&
+        process.env.RENDER_EXTERNAL_URL &&
+        !String(req.headers["x-forwarded-host"]).includes(
+          String(new URL(process.env.RENDER_EXTERNAL_URL).hostname || ""),
+        ),
+    );
 
-    logInfo("presignedV3", `Temp slot ${id} for ${uid} (${type || "file"})`);
+    let base = envBase || `${proto}://${host}`;
+    // Khi client gọi qua /dio-api, trả URL relative-friendly cho browser
+    const publicPath = `/api/media-temp/${id}`;
+    const uploadPath = `/api/media-upload/${id}?sig=${mediaSignature}`;
+
+    const publicUrl = `${base}${publicPath}`;
+    const uploadUrl = `${base}${uploadPath}`;
+
+    // Same-origin proxy path (web server.mjs → /dio-api)
+    const proxyPublicUrl = `/dio-api${publicPath}`;
+    const proxyUploadUrl = `/dio-api${uploadPath}`;
+
+    logInfo(
+      "presignedV3",
+      `Temp slot ${id} for ${uid} (${type || "file"}) base=${base}`,
+    );
 
     return res.status(200).json({
       success: true,
@@ -51,6 +75,10 @@ const presignedV3 = async (req, res) => {
         publicURL: publicUrl,
         downloadURL: publicUrl,
         uploadUrl,
+        // Client ưu tiên nếu same-origin
+        proxyUploadUrl,
+        proxyPublicUrl,
+        viaProxy: viaProxyHint,
         key: id,
         path: id,
         name: filename || id,
@@ -71,8 +99,31 @@ const presignedV3 = async (req, res) => {
 };
 
 /**
- * PUT /api/media-upload/:id?sig= — nhận body binary (như R2 presigned PUT).
- * Không bắt buộc Authorization (sig trong query).
+ * Đọc body binary: express.raw() → req.body là Buffer.
+ * KHÔNG stream lại req (đã bị middleware consume → buffer rỗng).
+ */
+async function readBinaryBody(req) {
+  if (Buffer.isBuffer(req.body) && req.body.length > 0) {
+    return req.body;
+  }
+  // Một số parser bọc Buffer
+  if (req.body && req.body.type === "Buffer" && Array.isArray(req.body.data)) {
+    return Buffer.from(req.body.data);
+  }
+  if (typeof req.body === "string" && req.body.length) {
+    return Buffer.from(req.body, "binary");
+  }
+
+  // Fallback stream (khi không dùng express.raw)
+  const chunks = [];
+  for await (const chunk of req) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
+}
+
+/**
+ * PUT /api/media-upload/:id?sig=
  */
 const mediaUpload = async (req, res) => {
   try {
@@ -85,11 +136,13 @@ const mediaUpload = async (req, res) => {
       return res.status(403).send("Invalid signature");
     }
 
-    const chunks = [];
-    for await (const chunk of req) {
-      chunks.push(chunk);
+    const buffer = await readBinaryBody(req);
+
+    if (!buffer || buffer.length === 0) {
+      logError("mediaUpload", `Empty body for ${id}`);
+      return res.status(400).send("empty body");
     }
-    const buffer = Buffer.concat(chunks);
+
     const result = tempMedia.putBuffer(
       id,
       buffer,
@@ -114,12 +167,12 @@ const mediaUpload = async (req, res) => {
 };
 
 /**
- * GET /api/media-temp/:id — public read for postMoment download.
+ * GET /api/media-temp/:id
  */
 const mediaTempGet = async (req, res) => {
   try {
     const item = tempMedia.get(req.params.id);
-    if (!item || !item.ready || !item.buffer) {
+    if (!item || !item.ready || !item.buffer || !item.buffer.length) {
       return res.status(404).send("Not found");
     }
     res.setHeader(
@@ -127,6 +180,7 @@ const mediaTempGet = async (req, res) => {
       item.contentType || "application/octet-stream",
     );
     res.setHeader("Cache-Control", "private, max-age=60");
+    res.setHeader("Content-Length", String(item.buffer.length));
     return res.status(200).send(item.buffer);
   } catch (err) {
     logError("mediaTempGet", err.message);

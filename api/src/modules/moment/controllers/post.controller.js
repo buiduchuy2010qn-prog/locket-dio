@@ -171,31 +171,63 @@ const uploadMediaV3 = async (req, res, next) => {
           .json({ error: "File quá lớn (tối đa 15MB được phép)" });
       }
 
-      logLoading("uploadMediaV3", "Downloading media from S2");
+      logLoading("uploadMediaV3", "Loading media buffer");
 
       const sourceUrl = publicUrl || publicURL || downloadURL || url;
+      let mediaBuffer = null;
+      let mediaPath = null;
 
-      if (!sourceUrl) {
-        return res.status(400).json({ message: "Missing media URL" });
+      // 1) Ưu tiên temp store in-process (tránh HTTP + buffer rỗng khi multi-path)
+      try {
+        const tempMedia = require("../../storage/tempMediaStore");
+        const local = path && tempMedia.get(path);
+        if (local?.buffer?.length) {
+          mediaBuffer = local.buffer;
+          mediaPath = local.filePath || null;
+          logSuccess(
+            "uploadMediaV3",
+            `Loaded from temp store: ${formatFileSize(mediaBuffer.length)}`,
+          );
+        }
+      } catch (e) {
+        logWarning("uploadMediaV3", `temp store skip: ${e.message}`);
       }
 
-      const media = await storageServices.downloadMediaOnStorage(
-        sourceUrl,
-        type,
-        name,
-      );
+      // 2) Fallback: tải qua URL public
+      if (!mediaBuffer?.length) {
+        if (!sourceUrl) {
+          return res.status(400).json({ message: "Missing media URL" });
+        }
 
-      if (!media) {
-        logWarning("uploadMediaV3", "Failed to download media buffer");
-        return res.status(404).json({ message: "Không thể tải media từ URL!" });
+        const media = await storageServices.downloadMediaOnStorage(
+          sourceUrl,
+          type,
+          name,
+        );
+
+        if (!media?.buffer?.length) {
+          logWarning(
+            "uploadMediaV3",
+            `Failed to download media buffer (empty or null) url=${String(sourceUrl).slice(0, 120)}`,
+          );
+          return res.status(404).json({
+            message:
+              "Không thể tải media (file rỗng hoặc hết hạn). Hãy chụp/chọn lại ảnh.",
+          });
+        }
+        mediaBuffer = media.buffer;
+        mediaPath = media.path;
+        logSuccess(
+          "uploadMediaV3",
+          `Downloaded media successfully: ${formatFileSize(mediaBuffer.length)}`,
+        );
       }
-      const mediaBuffer = media.buffer;
-      const mediaPath = media.path;
 
-      logSuccess(
-        "uploadMediaV3",
-        `Downloaded media successfully: ${formatFileSize(mediaBuffer.length)}`,
-      );
+      if (!mediaBuffer?.length) {
+        return res.status(400).json({
+          message: "Media buffer rỗng — không thể xử lý ảnh/video.",
+        });
+      }
 
       let processedBuffer;
       let thumbBuffer;

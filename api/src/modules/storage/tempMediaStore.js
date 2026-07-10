@@ -57,6 +57,9 @@ function putBuffer(id, buffer, contentType) {
     store.delete(id);
     return { ok: false, error: "expired" };
   }
+  if (!buffer || !Buffer.isBuffer(buffer) || buffer.length === 0) {
+    return { ok: false, error: "empty" };
+  }
   if (buffer.length > MAX_BYTES) {
     return { ok: false, error: "too_large" };
   }

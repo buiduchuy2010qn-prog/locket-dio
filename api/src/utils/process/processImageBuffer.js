@@ -8,17 +8,24 @@ const logInfo = (tag, message) => {
 
 const prepareImageForProcessing = async (imageBuffer) => {
   try {
-    let image = sharp(imageBuffer).rotate(); // 🟢 Auto-fix orientation
+    if (!imageBuffer || !Buffer.isBuffer(imageBuffer) || imageBuffer.length === 0) {
+      throw new Error("Input Buffer is empty");
+    }
+
+    let image = sharp(imageBuffer, { failOn: "none" }).rotate(); // Auto-fix
     const metadata = await image.metadata();
     const { format } = metadata;
 
-    logInfo("prepareImage", `Detected format: ${format}`);
+    logInfo(
+      "prepareImage",
+      `Detected format: ${format || "unknown"}, bytes=${imageBuffer.length}`,
+    );
     const unsupportedFormats = ["heif", "heic"];
 
     if (unsupportedFormats.includes(format?.toLowerCase())) {
       logInfo(
         "prepareImage",
-        `Using heic-convert to convert ${format} to JPEG`
+        `Using heic-convert to convert ${format} to JPEG`,
       );
 
       const jpegBuffer = await heicConvert({
@@ -27,7 +34,11 @@ const prepareImageForProcessing = async (imageBuffer) => {
         quality: 1,
       });
 
-      image = sharp(jpegBuffer).rotate(); // 🟢 Rotate again after converting
+      if (!jpegBuffer?.length) {
+        throw new Error("HEIC convert produced empty buffer");
+      }
+
+      image = sharp(jpegBuffer, { failOn: "none" }).rotate();
       logInfo("prepareImage", "✅ Successfully converted HEIC to JPEG");
     }
 
@@ -44,6 +55,12 @@ const processImageBuffer = async ({
   resolution = 1440, // px cho chiều dài mỗi cạnh
 }) => {
   try {
+    if (!imageBuffer || !Buffer.isBuffer(imageBuffer) || imageBuffer.length < 32) {
+      throw new Error(
+        `Input Buffer is empty or too small (${imageBuffer?.length ?? 0} bytes)`,
+      );
+    }
+
     logInfo("processImageBuffer", "Start processing image buffer to webp...");
 
     let image = await prepareImageForProcessing(imageBuffer);
