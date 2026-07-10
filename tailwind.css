@@ -2,10 +2,49 @@
 @plugin "daisyui" {
   themes: all;
 }
+
+/* Override light primary (legacy) */
 @plugin "daisyui/theme" {
   name: "light";
-  default: true;
+  default: false;
   --color-primary: blue;
   --color-secondary: teal;
 }
 
+/* Theme hồng + tuyết — Huy Locket */
+@plugin "daisyui/theme" {
+  name: "pinksnow";
+  default: true;
+  prefersdark: false;
+  color-scheme: light;
+
+  --color-base-100: oklch(97% 0.02 350);
+  --color-base-200: oklch(94% 0.035 350);
+  --color-base-300: oklch(90% 0.05 350);
+  --color-base-content: oklch(28% 0.04 350);
+
+  --color-primary: oklch(72% 0.18 350);
+  --color-primary-content: oklch(98% 0.01 350);
+
+  --color-secondary: oklch(80% 0.12 20);
+  --color-secondary-content: oklch(28% 0.05 20);
+
+  --color-accent: oklch(78% 0.14 330);
+  --color-accent-content: oklch(25% 0.04 330);
+
+  --color-neutral: oklch(35% 0.04 350);
+  --color-neutral-content: oklch(98% 0.01 350);
+
+  --color-info: oklch(75% 0.1 230);
+  --color-info-content: oklch(25% 0.04 230);
+  --color-success: oklch(72% 0.14 155);
+  --color-success-content: oklch(20% 0.04 155);
+  --color-warning: oklch(85% 0.12 85);
+  --color-warning-content: oklch(30% 0.05 85);
+  --color-error: oklch(65% 0.2 25);
+  --color-error-content: oklch(98% 0.01 25);
+
+  --radius-selector: 1rem;
+  --radius-field: 0.75rem;
+  --radius-box: 1rem;
+}

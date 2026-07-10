@@ -1,22 +1,22 @@
 import React, { createContext, useEffect, useState } from "react";
-import { applyTheme } from "@/utils/theme/themeUtils";
+import { applyTheme, PINK_SNOW_THEME } from "@/utils/theme/themeUtils";
 
 export const ThemeContext = createContext();
 
 export const ThemeProvider = ({ children }) => {
   const [theme, setTheme] = useState(
-    () => localStorage.getItem("theme") || "light"
+    () => localStorage.getItem("theme") || PINK_SNOW_THEME
   );
 
   const changeTheme = (newTheme) => {
     setTheme(newTheme);
     localStorage.setItem("theme", newTheme);
-    applyTheme(newTheme); // chỉ cần gọi ở đây thôi
+    applyTheme(newTheme);
   };
 
   useEffect(() => {
     applyTheme(theme);
-  }, []); // chỉ chạy 1 lần khi mount
+  }, [theme]);
 
   return (
     <ThemeContext.Provider value={{ theme, changeTheme }}>

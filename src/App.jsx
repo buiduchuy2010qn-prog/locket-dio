@@ -12,6 +12,7 @@ import { AuthProvider, AuthContext } from "./context/AuthLocket";
 import { ThemeProvider } from "./context/ThemeContext";
 import { AppProvider } from "./context/AppContext";
 import ToastProvider from "./components/Toast";
+import GlobalThemeEffects from "./components/Effects/GlobalThemeEffects";
 import getLayout from "./layouts";
 import LoadingPage from "./components/pages/LoadingPage";
 import NotFoundPage from "./components/pages/NotFoundPage";
@@ -25,6 +26,7 @@ function App() {
         <SocketProvider>
           <AppProvider>
             <Router>
+              <GlobalThemeEffects />
               <AppContent />
             </Router>
             <ToastProvider />

@@ -1,11 +1,26 @@
 // utils/themeUtils.js
+
+/** Theme có nền gradient hồng + tuyết */
+export const PINK_SNOW_THEME = "pinksnow";
+
+export const isPinkSnowTheme = (theme) =>
+  theme === PINK_SNOW_THEME || theme === "valentine";
+
 export const applyTheme = (theme) => {
-  document.documentElement.setAttribute("data-theme", theme);
-  localStorage.setItem("theme", theme);
+  const t = theme || PINK_SNOW_THEME;
+  document.documentElement.setAttribute("data-theme", t);
+  document.documentElement.classList.toggle("theme-pink-snow", isPinkSnowTheme(t));
+  document.body?.classList.toggle("theme-pink-snow", isPinkSnowTheme(t));
+  localStorage.setItem("theme", t);
 
   const computedStyle = getComputedStyle(document.documentElement);
-  const baseColor =
+  let baseColor =
     computedStyle.getPropertyValue("--color-base-100")?.trim() || "#ffc4dd";
+
+  // pinksnow: thanh status bar hồng rõ
+  if (t === PINK_SNOW_THEME) {
+    baseColor = "#ff9ecf";
+  }
 
   let metaTheme = document.querySelector('meta[name="theme-color"]');
   if (!metaTheme) {
@@ -13,6 +28,6 @@ export const applyTheme = (theme) => {
     metaTheme.name = "theme-color";
     document.head.appendChild(metaTheme);
   }
-  // Ưu tiên hồng Locket cho thanh status điện thoại
   metaTheme.setAttribute("content", baseColor || "#ffc4dd");
 };
+

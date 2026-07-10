@@ -107,6 +107,16 @@
   animation-fill-mode: forwards;
 }
 
+/* Tuyết trên theme hồng — bông trắng + viền hồng nhẹ */
+.snow-layer--pink .snowflake-emoji {
+  color: #ffffff;
+  text-shadow:
+    0 0 6px rgba(255, 255, 255, 0.95),
+    0 0 14px rgba(255, 158, 207, 0.65),
+    0 1px 2px rgba(255, 105, 180, 0.25);
+  filter: drop-shadow(0 0 2px rgba(255, 182, 217, 0.5));
+}
+
 @keyframes snowflake-fall {
   0% {
     transform: translate3d(0, 0, 0) rotate(0deg);

@@ -33,6 +33,26 @@ body {
     var(--locket-pink-bot) 100%
   );
   background-attachment: fixed;
+  transition: background 0.35s ease;
+}
+
+/* Theme Hồng tuyết — nền hồng nổi bật toàn app */
+html[data-theme="pinksnow"] body,
+body.theme-pink-snow,
+html.theme-pink-snow body {
+  background: linear-gradient(
+    180deg,
+    #ff9ecf 0%,
+    #ffc4dd 35%,
+    #ffcce6 65%,
+    #ffe6f2 100%
+  );
+  background-attachment: fixed;
+}
+
+html[data-theme="pinksnow"] .bg-base-200,
+html[data-theme="pinksnow"] main.bg-base-200 {
+  background: transparent !important;
 }
 
 .locket-shell {

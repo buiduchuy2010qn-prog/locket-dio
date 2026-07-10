@@ -119,8 +119,9 @@ export const CONFIG = {
     },
   },
   ui: {
-    theme: "light", // hoặc "dark"
+    theme: "pinksnow", // mặc định: hồng + tuyết rơi
     themes: [
+      "pinksnow", // 💗❄ Hồng tuyết (Huy Locket)
       "light",
       "dark",
       "cupcake",
@@ -149,6 +150,12 @@ export const CONFIG = {
       "coffee",
       "winter",
     ],
+    /** Nhãn hiển thị trong Setting Theme */
+    themeLabels: {
+      pinksnow: "Hồng tuyết ❄",
+      valentine: "Valentine 💕",
+      winter: "Winter ❄",
+    },
     maxToastVisible: 3,
     dateFormat: "DD/MM/YYYY",
     timeFormat: "HH:mm:ss",
