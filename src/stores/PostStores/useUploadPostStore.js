@@ -169,11 +169,41 @@ export const useUploadQueueStore = create((set, get) => ({
       const res = await PostMoments(item);
       let normalized = normalizeMoment(res?.data);
 
-      // Response Locket đôi khi thiếu overlays → ghép từ optionsData lúc đăng
-      // (music / poll / review cần type + payload + icon)
-      if (normalized && !normalized.overlays && item?.optionsData) {
-        const ov = overlayFromOptionsData(item.optionsData);
-        if (ov) normalized = { ...normalized, overlays: ov };
+      // Response Locket thường thiếu / cắt payload music → luôn ghép từ optionsData
+      // khi type đặc biệt (music/poll/review) hoặc overlays rỗng
+      if (normalized && item?.optionsData) {
+        const od = item.optionsData;
+        const special =
+          od.type === "music" ||
+          od.type === "poll" ||
+          od.type === "review" ||
+          od.type === "color_palette";
+        const ov = overlayFromOptionsData(od);
+        const incoming = normalized.overlays;
+        const missingPayload =
+          special &&
+          (!incoming ||
+            !incoming.payload ||
+            (od.type === "music" &&
+              !incoming.payload?.isrc &&
+              !incoming.payload?.preview_url));
+        if (ov && (!incoming || missingPayload || special)) {
+          normalized = {
+            ...normalized,
+            overlays: {
+              ...(incoming || {}),
+              ...ov,
+              // Giữ payload/icon đầy đủ từ lúc đăng
+              payload: {
+                ...(incoming?.payload || {}),
+                ...(ov.payload || {}),
+              },
+              icon: ov.icon?.data ? ov.icon : incoming?.icon || ov.icon,
+              type: ov.type || incoming?.type,
+              overlay_id: ov.overlay_id || incoming?.overlay_id,
+            },
+          };
+        }
       }
 
       // Nếu API không trả id, vẫn thử gắn id tạm để hiện feed + overlay

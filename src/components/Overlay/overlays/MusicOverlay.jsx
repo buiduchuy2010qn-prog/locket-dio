@@ -63,7 +63,12 @@ const MusicOverlay = ({ overlayData, momentId }) => {
       <MusicPlayer
         thumbnail={urlImage}
         payload={music}
-        isVisible={selectedMomentId === momentId || !selectedMomentId}
+        // Phát khi moment đang chọn, hoặc khi chưa có selection (preview editor)
+        isVisible={
+          !momentId ||
+          !selectedMomentId ||
+          selectedMomentId === momentId
+        }
       />
     </div>
   );

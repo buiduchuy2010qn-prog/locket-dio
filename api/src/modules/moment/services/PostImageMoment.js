@@ -2,18 +2,42 @@ const {
   logInfo,
   logError,
   logBanner,
+  logWarning,
 } = require("../../../utils/logEventUtils");
 const { instanceLocketV2 } = require("../../../libs");
 const { uploadMomentImage } = require("../../firestore");
 const { imagePayloadV2 } = require("../payloads");
+const {
+  ensureMusicOptionsData,
+} = require("../../music/services/ensureMusicPayload");
 
 const postImageToLocketV2 = async ({
   idToken,
   localId,
   mediaData,
-  optionsData,
+  optionsData: rawOptions,
 }) => {
   // Lấy các giá trị từ tokenData và optionsData
+  let optionsData = rawOptions || {};
+  // Music: re-enrich isrc + preview ổn định trước khi build payload Locket
+  if (optionsData.type === "music") {
+    try {
+      optionsData = await ensureMusicOptionsData(optionsData);
+      if (!optionsData?.payload?.isrc) {
+        logWarning(
+          "postImageToLocketV2",
+          "Music thiếu ISRC sau enrich — Locket app có thể không hiện nhạc",
+        );
+      } else {
+        logInfo(
+          "postImageToLocketV2",
+          `Music OK isrc=${optionsData.payload.isrc}`,
+        );
+      }
+    } catch (e) {
+      logWarning("postImageToLocketV2", `ensureMusic: ${e.message}`);
+    }
+  }
   const { type } = optionsData;
   const { fileBuffer } = mediaData;
   try {

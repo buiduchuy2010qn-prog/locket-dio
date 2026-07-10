@@ -62,7 +62,11 @@ const MusicOverlay = ({ overlayData, momentId }) => {
       <MusicPlayer
         thumbnail={urlImage}
         payload={music}
-        isVisible={selectedMomentId === momentId || !selectedMomentId}
+        isVisible={
+          !momentId ||
+          !selectedMomentId ||
+          selectedMomentId === momentId
+        }
       />
     </div>
   );

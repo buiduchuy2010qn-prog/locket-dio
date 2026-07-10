@@ -4,6 +4,7 @@ const {
   logInfo,
   logError,
   logBanner,
+  logWarning,
 } = require("../../../utils/logEventUtils");
 const { videoPayloadV2 } = require("../payloads");
 const { instanceLocketV2 } = require("../../../libs");
@@ -12,15 +13,32 @@ const {
   uploadMomentVideo,
 } = require("../../firestore");
 const { generateFirestoreId } = require("../../../utils");
+const {
+  ensureMusicOptionsData,
+} = require("../../music/services/ensureMusicPayload");
 
 //#region postVideoToLocket
 const postVideoToLocket = async (
   idToken,
   videoUrl,
   thumbnailUrl,
-  optionsData,
+  rawOptions,
 ) => {
   try {
+    let optionsData = rawOptions || {};
+    if (optionsData.type === "music") {
+      try {
+        optionsData = await ensureMusicOptionsData(optionsData);
+        if (!optionsData?.payload?.isrc) {
+          logWarning(
+            "postVideoToLocket",
+            "Music thiếu ISRC sau enrich — Locket app có thể không hiện nhạc",
+          );
+        }
+      } catch (e) {
+        logWarning("postVideoToLocket", `ensureMusic: ${e.message}`);
+      }
+    }
     const { type } = optionsData;
     // Xử lý theo từng loại type
     const postData = (() => {

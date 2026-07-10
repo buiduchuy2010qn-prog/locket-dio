@@ -148,6 +148,10 @@ export default function GeneralThemes({ title }) {
           "[music] thiếu ISRC — Locket app có thể không hiện nhạc",
           musicPayload,
         );
+        SonnerError(
+          "Không lấy được mã ISRC bài hát. Thử link Spotify/Apple khác hoặc đợi API khởi động rồi dán lại.",
+        );
+        return;
       }
       if (!musicPayload.preview_url) {
         console.warn("[music] thiếu preview_url — web không phát được");
@@ -168,8 +172,10 @@ export default function GeneralThemes({ title }) {
       });
 
       SonnerSuccess(
-        `${formType === "apple" ? "Apple Music" : "Spotify"} by Dio`,
-        t("custom_studio.music_success"),
+        `${formType === "apple" ? "Apple Music" : "Spotify"}`,
+        musicPayload.preview_url
+          ? t("custom_studio.music_success")
+          : "Đã gắn nhạc (ISRC OK). Preview web có thể im — app Locket vẫn hiện.",
       );
 
       closeMusicForm();

@@ -44,31 +44,49 @@ function normalizeMoment(doc) {
     return false;
   };
 
+  // type thật nằm trong data.type (music/poll/review/...),
+  // overlay_type luôn là "caption" → nếu lấy nhầm sẽ mất MusicOverlay trên web
+  const overlayId = overlay.overlay_id?.stringValue || null;
+  const dataType =
+    overlayData.type?.stringValue ||
+    (overlayId === "caption:music" ? "music" : null) ||
+    overlay.overlay_type?.stringValue ||
+    null;
+
   return {
     id: f.canonical_uid?.stringValue || doc.name.split("/").pop(),
     caption: f.caption?.stringValue || overlay.alt_text?.stringValue || "",
     user: f.user?.stringValue || null,
     thumbnailUrl: replaceFirebaseWithCDN(f.thumbnail_url?.stringValue),
     videoUrl: replaceFirebaseWithCDN(f.video_url?.stringValue),
+    image_url: replaceFirebaseWithCDN(
+      f.thumbnail_url?.stringValue || f.image_url?.stringValue,
+    ),
     md5: f.md5?.stringValue || null,
     date: f.date?.timestampValue || doc.createTime || null,
     isPublic: getIsPublic(f),
     overlays: {
-      id: overlay.overlay_id?.stringValue || null,
-      type: overlay.overlay_type?.stringValue || null,
+      id: overlayId,
+      overlay_id: overlayId,
+      overlay_type: overlay.overlay_type?.stringValue || "caption",
+      type: dataType,
       text: overlayData.text?.stringValue || null,
+      text_color: overlayData.text_color?.stringValue || null,
       textColor: overlayData.text_color?.stringValue || null,
       maxLines: overlayData.max_lines?.integerValue
         ? parseInt(overlayData.max_lines.integerValue, 10)
         : null,
       background: {
+        material_blur:
+          overlayData.background?.mapValue?.fields?.material_blur
+            ?.stringValue || null,
         materialBlur:
           overlayData.background?.mapValue?.fields?.material_blur
             ?.stringValue || null,
         colors: parseFirestoreValue(backgroundFields.colors) || [],
       },
       icon: parseFirestoreValue(overlayData.icon),
-      payload: parseFirestoreValue(overlayData.payload),
+      payload: parseFirestoreValue(overlayData.payload) || {},
     },
     createTime: doc.createTime || null,
     updateTime: doc.updateTime || null,

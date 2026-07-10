@@ -51,9 +51,26 @@ export function normalizeMoment(data) {
   // (API simplifyMoment already returns object; Locket raw is array)
   let overlayObj = null;
   if (overlays && typeof overlays === "object" && !Array.isArray(overlays)) {
+    const oid = overlays.overlay_id || overlays.id || null;
+    // REST normalize đôi khi gán type = overlay_type ("caption") — suy ra music từ id/payload
+    let resolvedType = overlays.type || null;
+    if (
+      !resolvedType ||
+      resolvedType === "caption" ||
+      resolvedType === "standard"
+    ) {
+      if (oid === "caption:music" || oid === "music") resolvedType = "music";
+      else if (oid === "caption:review" || oid === "review")
+        resolvedType = "review";
+      else if (oid === "caption:color_palette") resolvedType = "color_palette";
+      else if (overlays.payload?.isrc || overlays.payload?.song_title)
+        resolvedType = "music";
+      else resolvedType = resolvedType || "caption";
+    }
     overlayObj = {
       ...overlays,
-      type: overlays.type || "caption",
+      overlay_id: oid,
+      type: resolvedType,
       text: overlays.text || overlays.caption || "",
       payload: overlays.payload || {},
       icon: overlays.icon || {},
@@ -61,10 +78,18 @@ export function normalizeMoment(data) {
   } else if (Array.isArray(overlays) && overlays.length > 0) {
     const first = overlays.find((o) => o?.overlay_type || o?.data) || overlays[0];
     const d = first?.data || first || {};
+    const oid =
+      first?.overlay_id || d.overlay_id || d.type || "caption:standard";
+    let resolvedType = d.type || null;
+    if (!resolvedType || resolvedType === "caption") {
+      if (oid === "caption:music" || oid === "music") resolvedType = "music";
+      else if (d.payload?.isrc || d.payload?.song_title) resolvedType = "music";
+      else resolvedType = "caption";
+    }
     overlayObj = {
-      overlay_id: first?.overlay_id || d.overlay_id || d.type || "caption:standard",
+      overlay_id: oid,
       overlay_type: first?.overlay_type || "caption",
-      type: d.type || "caption",
+      type: resolvedType,
       text: d.text || first?.alt_text || caption || "",
       text_color: d.text_color,
       max_lines: d.max_lines,

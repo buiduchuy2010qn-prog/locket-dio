@@ -107,33 +107,46 @@ async function fetchSpotifyOembed(url) {
   }
 }
 
-/** Deezer track → isrc + preview (quan trọng cho Locket) */
+/** Deezer track → isrc + preview (quan trọng cho Locket). Luôn GET /track/{id} vì search đôi khi thiếu isrc. */
 async function enrichFromDeezer(deezerId, songName, artist) {
   try {
-    let track = null;
-    if (deezerId) {
-      const r = await http.get(`https://api.deezer.com/track/${deezerId}`, {
-        timeout: 10000,
-      });
-      if (r.status === 200 && r.data?.id) track = r.data;
-    }
-    if (!track && songName) {
+    let trackId = deezerId ? String(deezerId).replace(/^deezer:track:/i, "") : null;
+
+    if (!trackId && songName) {
       const q = [songName, artist].filter(Boolean).join(" ");
       const s = await http.get("https://api.deezer.com/search", {
-        params: { q, limit: 5 },
-        timeout: 10000,
+        params: { q, limit: 8 },
+        timeout: 12000,
       });
       const hits = s.data?.data || [];
-      track =
+      const nameL = songName.toLowerCase();
+      const artistL = (artist || "").toLowerCase();
+      const best =
         hits.find(
           (t) =>
-            t.title?.toLowerCase() === songName.toLowerCase() ||
-            t.title?.toLowerCase().includes(songName.toLowerCase().slice(0, 12)),
-        ) || hits[0];
+            t.title?.toLowerCase() === nameL &&
+            (!artistL || t.artist?.name?.toLowerCase().includes(artistL.slice(0, 8))),
+        ) ||
+        hits.find(
+          (t) =>
+            t.title?.toLowerCase() === nameL ||
+            t.title?.toLowerCase().includes(nameL.slice(0, 12)),
+        ) ||
+        hits[0];
+      trackId = best?.id ? String(best.id) : null;
     }
+
+    if (!trackId) return null;
+
+    const r = await http.get(`https://api.deezer.com/track/${trackId}`, {
+      timeout: 12000,
+    });
+    const track = r.status === 200 && r.data?.id ? r.data : null;
     if (!track) return null;
+
     return {
       isrc: track.isrc || null,
+      // Deezer preview signed — chỉ dùng tạm; iTunes sẽ ghi đè
       preview_url: track.preview || null,
       song_name: track.title || songName,
       artist: track.artist?.name || artist,
@@ -276,8 +289,17 @@ async function fetchAppleItunes(url) {
   }
 }
 
+function isEphemeralPreview(url = "") {
+  const u = String(url || "");
+  if (!u) return true;
+  if (/dzcdn\.net|hdnea=/i.test(u)) return true;
+  if (/p\.scdn\.co/i.test(u)) return true;
+  return false;
+}
+
 /**
  * Gộp metadata + bắt buộc cố gắng lấy isrc + preview ổn định.
+ * Chạy Deezer + iTunes song song để giảm timeout cold-start Render.
  */
 async function enrichMusicMeta(base) {
   let song_name = base.song_name || "";
@@ -290,29 +312,63 @@ async function enrichMusicMeta(base) {
   let spotify_url = base.spotify_url || null;
   let source = base.source || "local";
 
-  // Deezer: ISRC (Locket app cần)
-  if (!isrc || !preview_url) {
-    const dz = await enrichFromDeezer(base.deezerId, song_name, artist);
-    if (dz) {
-      isrc = isrc || dz.isrc;
-      if (!preview_url && dz.preview_url) preview_url = dz.preview_url;
-      if (!image_url && dz.image_url) image_url = dz.image_url;
-      if (!artist && dz.artist) artist = dz.artist;
-      if (!album && dz.album) album = dz.album;
-      if (dz.isrc) source = `${source}+deezer`;
-    }
+  const needIsrc = !isrc;
+  const needPreview = !preview_url || isEphemeralPreview(preview_url);
+
+  const [dz, it] = await Promise.all([
+    needIsrc || needPreview
+      ? enrichFromDeezer(base.deezerId, song_name, artist)
+      : Promise.resolve(null),
+    song_name ? enrichFromItunes(song_name, artist) : Promise.resolve(null),
+  ]);
+
+  if (dz) {
+    isrc = isrc || dz.isrc;
+    // Chỉ dùng Deezer preview nếu chưa có gì (sẽ bị iTunes ghi đè nếu có)
+    if (!preview_url && dz.preview_url) preview_url = dz.preview_url;
+    if (!image_url && dz.image_url) image_url = dz.image_url;
+    if (!artist && dz.artist) artist = dz.artist;
+    if (!album && dz.album) album = dz.album;
+    if (dz.isrc) source = `${source}+deezer`;
   }
 
-  // iTunes: preview ổn định cho web (m4a, không signed expire nhanh)
-  const it = await enrichFromItunes(song_name, artist);
   if (it) {
-    // Ưu tiên iTunes preview cho playback web (ổn định hơn Deezer signed URL)
+    // Ưu tiên iTunes preview (m4a ổn định, CORS *, không signed expire)
     if (it.preview_url) preview_url = it.preview_url;
     isrc = isrc || it.isrc;
     if (!image_url && it.image_url) image_url = it.image_url;
     if (!apple_music_url && it.apple_music_url) apple_music_url = it.apple_music_url;
     if (!album && it.album) album = it.album;
+    if (!artist && it.artist) artist = it.artist;
     if (it.preview_url) source = `${source}+itunes`;
+  }
+
+  // Retry iTunes nếu vẫn thiếu isrc/preview (đổi country VN)
+  if ((!isrc || isEphemeralPreview(preview_url)) && song_name) {
+    try {
+      const r = await http.get("https://itunes.apple.com/search", {
+        params: {
+          term: [song_name, artist].filter(Boolean).join(" "),
+          entity: "song",
+          limit: 5,
+          country: "VN",
+        },
+        timeout: 10000,
+      });
+      const hit = (r.data?.results || [])[0];
+      if (hit) {
+        if (hit.previewUrl && isEphemeralPreview(preview_url)) {
+          preview_url = hit.previewUrl;
+          source = `${source}+itunes-vn`;
+        }
+        isrc = isrc || hit.isrc || null;
+        if (!apple_music_url && hit.trackViewUrl) {
+          apple_music_url = hit.trackViewUrl;
+        }
+      }
+    } catch (e) {
+      console.warn("enrichMusicMeta itunes-vn:", e.message);
+    }
   }
 
   return {
