@@ -3,10 +3,10 @@ import { useLocation } from "react-router-dom";
 import { useTheme } from "@/hooks/useTheme";
 import SnowEffect from "./SnowEffect";
 import { hasSnowEffect, isPinkSnowTheme } from "@/utils/theme/themeUtils";
+import { getSnowPerfConfig } from "@/utils/device/perfProfile";
 
 /**
- * Mưa tuyết toàn app khi theme: pinksnow | valentine | winter
- * pinksnow: hồng + tim + lấp lánh (đậm nhất)
+ * Mưa tuyết — Android/lite: rất nhẹ (hoặc tắt trên camera).
  */
 const GlobalThemeEffects = () => {
   const { theme } = useTheme();
@@ -38,33 +38,16 @@ const GlobalThemeEffects = () => {
   const isPink = isPinkSnowTheme(theme);
   const isPinkSnow = theme === "pinksnow";
 
-  // pinksnow: tuyết dày + hồng; camera: giảm để mượt preview
-  const intervalMs = onCameraRoute
-    ? isPinkSnow
-      ? 120
-      : 160
-    : isPinkSnow
-      ? 70
-      : isPink
-        ? 90
-        : 130;
-
-  const maxFlakes = onCameraRoute
-    ? isPinkSnow
-      ? 36
-      : 24
-    : isPinkSnow
-      ? 64
-      : isPink
-        ? 48
-        : 32;
+  const cfg = getSnowPerfConfig({ onCameraRoute, isPinkSnow, isPink });
+  if (!cfg.enabled) return null;
 
   return (
     <SnowEffect
-      intervalMs={intervalMs}
-      maxFlakes={maxFlakes}
-      pinkMode={isPink}
-      className={isPink ? "snow-layer--pink" : ""}
+      intervalMs={cfg.intervalMs}
+      maxFlakes={cfg.maxFlakes}
+      pinkMode={isPink && !cfg.lite}
+      lite={cfg.lite}
+      className={`${isPink ? "snow-layer--pink" : ""} ${cfg.lite ? "snow-layer--lite" : ""}`.trim()}
     />
   );
 };

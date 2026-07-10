@@ -6,9 +6,11 @@ import { useAuthStore, useMomentsStoreV2, useSelectedStore } from "@/stores";
 import SwiperView from "./Views/SwiperView";
 import GridMoments from "./Views/GridMoments";
 
-/** Tự làm mới bài đăng khi mở lịch sử (không nút Làm mới) */
-const POLL_OFFLINE_MS = 12_000;
-const POLL_ONLINE_MS = 25_000;
+/** Tự làm mới — Android poll thưa hơn (tiết kiệm CPU/pin) */
+const isAndroidUA =
+  typeof navigator !== "undefined" && /Android/i.test(navigator.userAgent || "");
+const POLL_OFFLINE_MS = isAndroidUA ? 25_000 : 12_000;
+const POLL_ONLINE_MS = isAndroidUA ? 45_000 : 25_000;
 
 const BottomHomeScreen = () => {
   const { navigation } = useApp();

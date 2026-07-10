@@ -6,6 +6,10 @@ import App from "./App.jsx";
 
 import ErrorBoundary from "./components/pages/ErrorBoundary";
 import { initChunkRecovery, initPWA, initReloadState } from "./utils";
+import { applyPerfClasses } from "./utils/device/perfProfile";
+
+// Android / mobile: class perf-lite để giảm blur + effect
+applyPerfClasses();
 
 // init PWA
 initPWA();

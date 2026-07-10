@@ -45,11 +45,17 @@ export const CONFIG = {
         videoResolutionPx: 1080,
       },
       constraints: {
-        // Preview mượt trên web/mobile — capture vẫn scale canvas lên imageSizePx
+        // Preview mặc định — Android override qua getCameraPreviewConstraints()
         default: {
-          width: { ideal: 1280, max: 1920 },
-          height: { ideal: 720, max: 1080 },
+          width: { ideal: 1280, max: 1280 },
+          height: { ideal: 720, max: 720 },
           frameRate: { ideal: 30, max: 30 },
+        },
+        // Android/low-end preview
+        android: {
+          width: { ideal: 960, max: 1280 },
+          height: { ideal: 540, max: 720 },
+          frameRate: { ideal: 24, max: 30 },
         },
         ultraHD: {
           width: { ideal: 1920 },
@@ -59,9 +65,10 @@ export const CONFIG = {
       },
     },
     moments: {
-      initialVisible: 50,
-      maxDisplayLimit: 5000,
-      loadMoreLimit: 50,
+      // Mobile load ít hơn → scroll mượt
+      initialVisible: 30,
+      maxDisplayLimit: 3000,
+      loadMoreLimit: 30,
       duplicateThreshold: 3,
     },
     messages: {

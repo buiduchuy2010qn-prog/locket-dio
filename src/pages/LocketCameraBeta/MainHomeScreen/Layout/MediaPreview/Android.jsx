@@ -7,6 +7,7 @@ import BorderProgress from "../../Widgets/SquareProgress";
 import { SonnerInfo } from "@/components/ui/SonnerToast";
 import { usePostStore, useUIStore } from "@/stores";
 import { useTranslation } from "react-i18next";
+import { getCameraPreviewConstraints } from "@/utils/device/perfProfile";
 
 const MediaPreviewAndroid = () => {
   const { useloading, camera } = useApp();
@@ -310,9 +311,10 @@ const MediaPreviewAndroid = () => {
       const isZoom05 = zoomLevel === "0.5x";
 
       if (!(isUser && isZoom05)) {
+        // Android: 960×540@24 — mượt hơn 1280×720@30 trên máy yếu
         videoConstraints = {
           ...videoConstraints,
-          ...CONFIG.app.camera.constraints.default,
+          ...getCameraPreviewConstraints(CONFIG.app.camera.constraints.default),
         };
       }
 

@@ -91,8 +91,48 @@
   }
 }
 
+/* Android / lite: bỏ glow + wash nặng */
+.snow-layer--lite .snowflake-emoji,
+html.perf-lite .snowflake-emoji {
+  filter: none !important;
+  text-shadow: none !important;
+  will-change: auto;
+}
+
+.snow-layer--lite.snow-layer--pink::before,
+html.perf-lite .snow-layer--pink::before {
+  display: none;
+}
+
+html.perf-lite .snowflake-emoji {
+  font-size: 12px !important;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .snow-layer {
     display: none !important;
   }
+}
+
+/* Giảm backdrop-blur nặng trên Android (rất tốn GPU) */
+html.perf-lite .backdrop-blur-\[4px\],
+html.perf-android .backdrop-blur-\[4px\],
+html.perf-lite .backdrop-blur-md,
+html.perf-android .backdrop-blur-md,
+html.perf-lite .backdrop-blur-2xl,
+html.perf-android .backdrop-blur-2xl,
+html.perf-lite .backdrop-blur-3xl,
+html.perf-android .backdrop-blur-3xl,
+html.perf-lite .backdrop-blur-4xl,
+html.perf-android .backdrop-blur-4xl {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  background-color: color-mix(in oklab, var(--color-base-300) 75%, transparent);
+}
+
+/* Pink gradient nền đơn giản hơn trên Android */
+html.perf-lite.theme-pink-snow body,
+html.perf-android.theme-pink-snow body {
+  background: linear-gradient(180deg, #ffe8f2 0%, #ffd0e8 100%) !important;
+  background-attachment: scroll !important;
 }
