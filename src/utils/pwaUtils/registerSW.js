@@ -27,7 +27,7 @@ function removeBanner() {
 }
 
 /**
- * Banner cố định: Cập nhật | Hủy — không tự reload.
+ * Chip mini: chỉ chữ "Cập nhật" + × — không banner to.
  */
 function showUpdateBanner(onUpdate, onCancel) {
   if (document.getElementById(BANNER_ID)) return;
@@ -37,68 +37,59 @@ function showUpdateBanner(onUpdate, onCancel) {
   wrap.id = BANNER_ID;
   wrap.setAttribute("role", "status");
   wrap.setAttribute("aria-live", "polite");
+  wrap.setAttribute("aria-label", "Có bản cập nhật mới");
 
   Object.assign(wrap.style, {
     position: "fixed",
     left: "50%",
-    bottom: "max(20px, env(safe-area-inset-bottom))",
+    bottom: "max(12px, env(safe-area-inset-bottom))",
     transform: "translateX(-50%)",
     zIndex: "999990",
-    maxWidth: "min(420px, calc(100vw - 24px))",
-    width: "100%",
-    padding: "14px 16px",
-    borderRadius: "16px",
-    background: "rgba(30, 20, 40, 0.94)",
+    padding: "4px 6px 4px 10px",
+    borderRadius: "999px",
+    background: "rgba(30, 20, 40, 0.88)",
     color: "#fff",
-    boxShadow: "0 8px 32px rgba(0,0,0,0.28)",
-    backdropFilter: "blur(12px)",
-    WebkitBackdropFilter: "blur(12px)",
+    boxShadow: "0 4px 16px rgba(0,0,0,0.22)",
+    backdropFilter: "blur(10px)",
+    WebkitBackdropFilter: "blur(10px)",
     border: "1px solid rgba(255,255,255,0.12)",
     fontFamily: "system-ui, -apple-system, sans-serif",
-    display: "flex",
-    flexDirection: "column",
-    gap: "12px",
-  });
-
-  const text = document.createElement("div");
-  text.innerHTML =
-    "<div style='font-weight:700;font-size:15px;margin-bottom:4px'>Có bản cập nhật mới</div>" +
-    "<div style='font-size:13px;opacity:0.85;line-height:1.4'>Ứng dụng đã có phiên bản mới. Bạn có muốn cập nhật ngay không?</div>";
-
-  const actions = document.createElement("div");
-  Object.assign(actions.style, {
-    display: "flex",
-    gap: "10px",
-    justifyContent: "flex-end",
-  });
-
-  const btnCancel = document.createElement("button");
-  btnCancel.type = "button";
-  btnCancel.textContent = "Hủy";
-  Object.assign(btnCancel.style, {
-    flex: "1",
-    padding: "10px 14px",
-    borderRadius: "12px",
-    border: "1px solid rgba(255,255,255,0.2)",
-    background: "transparent",
-    color: "#fff",
-    fontWeight: "600",
-    fontSize: "14px",
-    cursor: "pointer",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "6px",
+    maxWidth: "calc(100vw - 24px)",
   });
 
   const btnUpdate = document.createElement("button");
   btnUpdate.type = "button";
   btnUpdate.textContent = "Cập nhật";
   Object.assign(btnUpdate.style, {
-    flex: "1",
-    padding: "10px 14px",
-    borderRadius: "12px",
+    padding: "0",
+    margin: "0",
     border: "none",
-    background: "linear-gradient(135deg, #f472b6, #ec4899)",
-    color: "#fff",
-    fontWeight: "700",
+    background: "transparent",
+    color: "#f9a8d4",
+    fontWeight: "600",
+    fontSize: "12px",
+    lineHeight: "1.2",
+    letterSpacing: "0.01em",
+    cursor: "pointer",
+    whiteSpace: "nowrap",
+  });
+
+  const btnCancel = document.createElement("button");
+  btnCancel.type = "button";
+  btnCancel.textContent = "×";
+  btnCancel.setAttribute("aria-label", "Hủy");
+  Object.assign(btnCancel.style, {
+    padding: "0 4px",
+    margin: "0",
+    border: "none",
+    background: "transparent",
+    color: "rgba(255,255,255,0.55)",
+    fontWeight: "500",
     fontSize: "14px",
+    lineHeight: "1",
     cursor: "pointer",
   });
 
@@ -110,15 +101,13 @@ function showUpdateBanner(onUpdate, onCancel) {
 
   btnUpdate.onclick = () => {
     btnUpdate.disabled = true;
-    btnUpdate.textContent = "Đang cập nhật…";
+    btnUpdate.textContent = "…";
     btnCancel.disabled = true;
     onUpdate?.();
   };
 
-  actions.appendChild(btnCancel);
-  actions.appendChild(btnUpdate);
-  wrap.appendChild(text);
-  wrap.appendChild(actions);
+  wrap.appendChild(btnUpdate);
+  wrap.appendChild(btnCancel);
   document.body.appendChild(wrap);
 }
 
