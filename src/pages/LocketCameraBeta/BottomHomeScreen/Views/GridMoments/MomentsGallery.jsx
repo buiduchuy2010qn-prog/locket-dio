@@ -1,9 +1,12 @@
 import { useEffect, useState, useRef } from "react";
 import { MdSlowMotionVideo } from "react-icons/md";
-import { useMomentsStoreV2, useSelectedStore } from "@/stores";
-import { SonnerSuccess } from "@/components/ui/SonnerToast";
+import { useSelectedStore } from "@/stores";
 import { useTranslation } from "react-i18next";
 
+/**
+ * Lưới khoảnh khắc — không nút "Làm mới / Đang tải".
+ * Feed tự pull ở BottomHomeScreen (socket + soft poll).
+ */
 const MomentsGallery = ({
   visibleCount,
   increaseVisibleCount,
@@ -17,29 +20,13 @@ const MomentsGallery = ({
   const setSelectedMomentId = useSelectedStore((s) => s.setSelectedMomentId);
   const selectedFriendUid = useSelectedStore((s) => s.selectedFriendUid);
 
-  const reloadMoments = useMomentsStoreV2((s) => s.reloadMoments);
-  const [loadingMoments, setLoadingMoments] = useState(false);
-
   const [loadedItems, setLoadedItems] = useState([]);
   const lastElementRef = useRef(null);
   const observerRef = useRef(null);
 
-  // Slice moments theo visibleCount
   const visibleMoments = moments.slice(0, visibleCount);
 
-  const refreshMoments = async () => {
-    setLoadingMoments(true);
-    try {
-      await reloadMoments(selectedFriendUid);
-      SonnerSuccess(t("bottom.refresh_success"));
-    } catch (err) {
-      console.warn("Failed", err);
-    } finally {
-      setLoadingMoments(false);
-    }
-  };
-
-  // Intersection Observer
+  // Infinite scroll — tự load thêm khi chạm cuối
   useEffect(() => {
     if (!lastElementRef.current) return;
 
@@ -50,13 +37,11 @@ const MomentsGallery = ({
         const entry = entries[0];
         if (!entry.isIntersecting) return;
 
-        // 1️⃣ còn local thì show tiếp
         if (visibleCount < moments.length) {
           increaseVisibleCount();
           return;
         }
 
-        // 2️⃣ hết local → load API theo friend
         if (loadMoreOlder && hasMore) {
           loadMoreOlder(selectedFriendUid);
         }
@@ -70,120 +55,89 @@ const MomentsGallery = ({
     observerRef.current.observe(lastElementRef.current);
 
     return () => observerRef.current?.disconnect();
-  }, [visibleCount, moments.length, hasMore, loadMoreOlder, selectedFriendUid]);
+  }, [
+    visibleCount,
+    moments.length,
+    hasMore,
+    loadMoreOlder,
+    selectedFriendUid,
+    increaseVisibleCount,
+  ]);
 
   const handleLoaded = (id) => {
-    setLoadedItems((prev) => [...prev, id]);
-  };
-
-  const handleLoadMore = () => {
-    if (visibleCount < moments.length) {
-      increaseVisibleCount();
-    } else if (hasMore && selectedFriendUid) {
-      loadMoreOlder(selectedFriendUid);
-    }
+    setLoadedItems((prev) => (prev.includes(id) ? prev : [...prev, id]));
   };
 
   if (moments.length === 0) {
+    // Loading skeleton im lặng — không chữ "Đang tải"
+    if (loading) {
+      return (
+        <div className="grid gap-1 grid-cols-3 md:grid-cols-6 md:gap-2 w-full">
+          {Array.from({ length: 6 }).map((_, idx) => (
+            <div
+              key={`empty-sk-${idx}`}
+              className="aspect-square rounded-2xl skeleton"
+            />
+          ))}
+        </div>
+      );
+    }
     return (
       <div className="grid grid-cols-3 md:grid-cols-6 md:gap-2 w-full h-full">
-        <div className="aspect-square bg-base-300 rounded-2xl border-2 border-dashed border-base-content/30 flex flex-col justify-center items-center">
-          <div className="text-2xl mb-1">+</div>
-          <div className="text-xs font-medium text-base-content/70">
-            {t("bottom.no_data")}
-          </div>
-        </div>
+        <div className="aspect-square bg-base-300/40 rounded-2xl border border-dashed border-base-content/15" />
       </div>
     );
   }
 
   return (
-    <>
-      <div className="flex w-full justify-center items-center mb-2">
-        <button
-          className="btn rounded-full"
-          disabled={loadingMoments}
-          onClick={() => refreshMoments()}
-        >
-          {loadingMoments ? (
-            <>
-              {t("bottom.loading")} <span className="loading loading-dots loading-sm"></span>
-            </>
-          ) : (
-            t("bottom.refresh")
-          )}
-        </button>
-      </div>
-      <div className="grid gap-1 grid-cols-3 md:grid-cols-6 md:gap-2">
-        {visibleMoments.map((item, index) => {
-          const isLoaded = loadedItems.includes(item.id);
-          const isLastItem = index === visibleMoments.length - 1;
+    <div className="grid gap-1 grid-cols-3 md:grid-cols-6 md:gap-2">
+      {visibleMoments.map((item, index) => {
+        const isLoaded = loadedItems.includes(item.id);
+        const isLastItem = index === visibleMoments.length - 1;
 
-          return (
-            <div
-              key={item.id}
-              ref={isLastItem ? lastElementRef : null}
-              onClick={() => {
-                setSelectedMoment(index);
-                setSelectedMomentId(item.id);
-              }}
-              className="aspect-square overflow-hidden cursor-pointer rounded-2xl relative group"
-            >
-              {!isLoaded && (
-                <div className="absolute inset-0 skeleton w-full h-full rounded-2xl z-10" />
-              )}
-
-              <img
-                src={item.thumbnail_url || item.image_url || item.thumbnailUrl}
-                alt={item.caption || "Image"}
-                className={`object-cover w-full h-full rounded-2xl transition-all duration-300 ${
-                  isLoaded ? "opacity-100" : "opacity-0"
-                }`}
-                onLoad={() => handleLoaded(item.id)}
-                loading="lazy"
-              />
-
-              {(item.video_url || item.videoUrl) && (
-                <div className="absolute top-2 right-2 bg-primary/30 rounded-full z-20">
-                  <MdSlowMotionVideo className="text-white" />
-                </div>
-              )}
-            </div>
-          );
-        })}
-
-        {loading &&
-          Array.from({ length: 7 }).map((_, idx) => (
-            <div
-              key={`skeleton-${idx}`}
-              className="aspect-square overflow-hidden bg-base-300 rounded-2xl relative group border-2 border-dashed border-gray-400 opacity-50"
-            >
-              <div className="absolute inset-0 skeleton w-full h-full rounded-2xl" />
-            </div>
-          ))}
-
-        {!hasMore ? (
-          <div className="aspect-square overflow-hidden cursor-pointer bg-base-300 rounded-2xl relative group flex items-center justify-center border-2 border-dashed border-base-content/30 hover:bg-base-200 transition-colors">
-            <div className="text-center">
-              <div className="text-2xl mb-1">-</div>
-              <div className="text-xs text-base-content/70">
-                {t("bottom.all_posts_loaded")}
-              </div>
-            </div>
-          </div>
-        ) : (
+        return (
           <div
-            onClick={handleLoadMore}
-            className="aspect-square overflow-hidden cursor-pointer bg-base-300 rounded-2xl relative group flex items-center justify-center border-2 border-dashed border-base-content/30 hover:bg-base-200 transition-colors"
+            key={item.id}
+            ref={isLastItem ? lastElementRef : null}
+            onClick={() => {
+              setSelectedMoment(index);
+              setSelectedMomentId(item.id);
+            }}
+            className="aspect-square overflow-hidden cursor-pointer rounded-2xl relative group"
           >
-            <div className="text-center">
-              <div className="text-2xl mb-1">+</div>
-              <div className="text-xs text-base-content/70">{t("bottom.see_more")}</div>
-            </div>
+            {!isLoaded && (
+              <div className="absolute inset-0 skeleton w-full h-full rounded-2xl z-10" />
+            )}
+
+            <img
+              src={item.thumbnail_url || item.image_url || item.thumbnailUrl}
+              alt=""
+              className={`object-cover w-full h-full rounded-2xl transition-all duration-300 ${
+                isLoaded ? "opacity-100" : "opacity-0"
+              }`}
+              onLoad={() => handleLoaded(item.id)}
+              loading="lazy"
+            />
+
+            {(item.video_url || item.videoUrl) && (
+              <div className="absolute top-2 right-2 bg-primary/30 rounded-full z-20 p-0.5">
+                <MdSlowMotionVideo className="text-white" />
+              </div>
+            )}
           </div>
-        )}
-      </div>
-    </>
+        );
+      })}
+
+      {loading &&
+        Array.from({ length: 3 }).map((_, idx) => (
+          <div
+            key={`skeleton-${idx}`}
+            className="aspect-square overflow-hidden rounded-2xl relative"
+          >
+            <div className="absolute inset-0 skeleton w-full h-full rounded-2xl" />
+          </div>
+        ))}
+    </div>
   );
 };
 
