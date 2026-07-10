@@ -192,12 +192,23 @@ const MusicOverlay = ({ postOverlay }) => {
 };
 
 const WeatherOverlay = ({ postOverlay }) => {
-  // caption có thể là string "25°C" (mới) hoặc object weather (cũ)
+  // caption: string "25°C" (mới) | object weather (cũ)
+  // icon: postOverlay.icon (URL) khi chọn theme weather
   const cap = postOverlay?.caption;
   const isObj = cap && typeof cap === "object";
-  const iconSrc = isObj && cap.icon ? `https:${cap.icon}` : "./images/sun_max_indicator.png";
+  const rawIcon =
+    (isObj && cap.icon) ||
+    (typeof postOverlay?.icon === "string" ? postOverlay.icon : "") ||
+    "";
+  const iconSrc = rawIcon
+    ? rawIcon.startsWith("http")
+      ? rawIcon
+      : rawIcon.startsWith("//")
+        ? `https:${rawIcon}`
+        : rawIcon
+    : "./images/sun_max_indicator.png";
   const label = isObj
-    ? cap.temp_c_rounded !== undefined
+    ? cap.temp_c_rounded != null
       ? `${cap.temp_c_rounded}°C`
       : cap.condition || "Thời tiết"
     : typeof cap === "string" && cap

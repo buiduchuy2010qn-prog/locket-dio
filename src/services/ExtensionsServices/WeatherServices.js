@@ -1,22 +1,34 @@
 import { instanceMain } from "@/lib/axios.main";
 
-export const getInfoWeather = async ({lat, lon}) => {
-  if (!lat || !lon) {
-    console.warn("⚠️ Thieu lat or lon");
+/**
+ * Gọi API thời tiết Dio.
+ * Trả về object `{ current, location }` hoặc null — KHÔNG bọc axios response.
+ */
+export const getInfoWeather = async ({ lat, lon }) => {
+  if (lat == null || lon == null || Number.isNaN(Number(lat)) || Number.isNaN(Number(lon))) {
+    console.warn("⚠️ getInfoWeather: thiếu lat/lon");
     return null;
   }
 
   try {
-    const res = await instanceMain.post("/api/weatherV2", { lat, lon });
+    const res = await instanceMain.post("/api/weatherV2", {
+      lat: Number(lat),
+      lon: Number(lon),
+    });
 
-    if (res?.data?.status === "success") {
-      return res.data.data;
+    const body = res?.data;
+    if (body?.status === "success" && body?.data) {
+      return body.data; // { current, location }
     }
 
-    console.error("❌ getInfoWeather: Không có dữ liệu hợp lệ", res?.data);
+    // Một số proxy trả thẳng data
+    if (body?.current) return body;
+    if (body?.data?.current) return body.data;
+
+    console.error("❌ getInfoWeather: response không hợp lệ", body);
     return null;
   } catch (error) {
-    console.error("🚨 Lỗi khi gọi getInfoWeather:", error.message);
+    console.error("🚨 getInfoWeather:", error?.message || error);
     return null;
   }
 };

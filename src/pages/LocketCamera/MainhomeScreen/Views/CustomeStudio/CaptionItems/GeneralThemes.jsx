@@ -12,7 +12,8 @@ export default function GeneralThemes({ title }) {
   const { setIsFilterOpen } = navigation;
   const { setPostOverlay } = post;
   const { addressOptions } = useLocationOptions();
-  const { weather } = useLocationWeather();
+  const { weather, loading: weatherLoading, error: weatherError, refresh: refreshWeather } =
+    useLocationWeather();
   const { level, charging } = useBatteryStatus();
 
   const [time, setTime] = useState(() => new Date());
@@ -145,11 +146,22 @@ export default function GeneralThemes({ title }) {
         });
         break;
       case "weather":
+        if (!weather && !weatherLoading) refreshWeather?.();
         handleCustomeSelect({
           preset_id: "weather",
-          caption: weather?.temp_c_rounded
-            ? `${weather.temp_c_rounded}°C`
-            : "Thời tiết",
+          caption:
+            weather?.temp_c_rounded != null
+              ? `${weather.temp_c_rounded}°C`
+              : weatherLoading
+                ? "Đang tải..."
+                : weatherError
+                  ? "Cho phép vị trí"
+                  : "Thời tiết",
+          icon: weather?.icon
+            ? weather.icon.startsWith("//")
+              ? `https:${weather.icon}`
+              : weather.icon
+            : "",
           type: "weather",
         });
         break;
@@ -179,12 +191,25 @@ export default function GeneralThemes({ title }) {
       id: "weather",
       icon: (
         <img
-          src={weather?.icon ? `https:${weather.icon}` : "./icons/sun_max_indicator.png"}
+          src={
+            weather?.icon
+              ? weather.icon.startsWith("http")
+                ? weather.icon
+                : `https:${weather.icon}`
+              : "./icons/sun_max_indicator.png"
+          }
           alt="Weather"
           className="w-6 h-6 mr-1"
         />
       ),
-      label: weather?.temp_c_rounded !== undefined ? `${weather.temp_c_rounded}°C` : "Thời tiết",
+      label:
+        weather?.temp_c_rounded != null
+          ? `${weather.temp_c_rounded}°C`
+          : weatherLoading
+            ? "Đang tải..."
+            : weatherError
+              ? "Vị trí?"
+              : "Thời tiết",
     },
     {
       id: "battery",
