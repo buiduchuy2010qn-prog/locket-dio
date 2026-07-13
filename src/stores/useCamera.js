@@ -16,7 +16,7 @@ export const useCamera = () => {
   const [countdown, setCountdown] = useState(null);
   /** "user" | "environment" */
   const [cameraMode, setCameraMode] = useState("user");
-  /** "0.5x" | "1x" | "2x" | "max" — default main x1 */
+  /** "0.5x" | "1x" | "2x" — default main x1 */
   const [zoomLevel, setZoomLevel] = useState("1x");
   const [deviceId, setDeviceId] = useState(null);
 
@@ -27,13 +27,14 @@ export const useCamera = () => {
   const [maxZoom, setMaxZoom] = useState(1);
   const [zoomStep, setZoomStep] = useState(0.1);
   const [availableZoomModes, setAvailableZoomModes] = useState({
-    "0.5x": false,
+    "0.5x": true,
     "1x": true,
     "2x": false,
-    max: false,
   });
   const [isSwitchingCamera, setIsSwitchingCamera] = useState(false);
-  /** Detected devices snapshot for UI */
+  const [isPinching, setIsPinching] = useState(false);
+  /** "0.5x" | "1x" | "2x" | "custom" */
+  const [activeZoomMode, setActiveZoomMode] = useState("1x");
   const [detectedCameras, setDetectedCameras] = useState(null);
 
   return {
@@ -76,6 +77,10 @@ export const useCamera = () => {
     setAvailableZoomModes,
     isSwitchingCamera,
     setIsSwitchingCamera,
+    isPinching,
+    setIsPinching,
+    activeZoomMode,
+    setActiveZoomMode,
     detectedCameras,
     setDetectedCameras,
   };

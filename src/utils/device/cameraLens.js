@@ -1,12 +1,12 @@
 /**
- * Camera lens selection + zoom system.
+ * Camera lens selection + pinch zoom system.
  *
  * Rules:
- * - Default rear = main wide @ 1x (never telephoto / macro / depth).
- * - 0.5x → ultra-wide device if exposed, else digital zoom.min.
- * - 2x → tele only when user selects it; else digital zoom 2.
- * - Max → capabilities.zoom.max (hardware zoom only).
- * - Always stop old tracks before opening a new camera.
+ * - Default rear = main wide @ 1x (never telephoto / macro).
+ * - 0.5x → ultra-wide if exposed, else zoom.min.
+ * - Pinch: continuous zoom min→max; badge top-left only.
+ * - No zoom slider / caption zoom controls.
+ * - Stop old tracks before switching lens.
  */
 
 import { getCameraPreviewConstraints } from "./perfProfile";
@@ -20,7 +20,6 @@ const FRONT_RE =
 const BACK_RE =
   /mặt\s*sau|back|rear|environment|sau|facing\s*back|outer|world|camera2\s*0|camera1\s*0/;
 
-/** Lenses we never want as default (and avoid for 1x) */
 const AVOID_RE =
   /telephoto|\btele\b|\bzoom\b|macro|depth|portrait|periscope|chụp\s*xa|siêu\s*xa|bokeh|tof|time[\s-]?of[\s-]?flight/;
 
@@ -36,7 +35,11 @@ const MAIN_HINT_RE =
 const PREFER_RE =
   /back\s*camera|rear\s*camera|\bwide\b(?!\s*angle)|main|environment|primary|standard/;
 
-export const ZOOM_MODES = ["0.5x", "1x", "2x", "max"];
+/** Preset buttons only — no Max pill, no slider */
+export const ZOOM_PRESETS = ["0.5x", "1x", "2x"];
+export const ZOOM_MODES = ZOOM_PRESETS;
+
+// ─── Labels ───────────────────────────────────────────────────────
 
 export function isUltraLabel(label = "") {
   return ULTRA_RE.test(String(label).toLowerCase());
@@ -70,10 +73,7 @@ function scoreMainCamera(device, index, total) {
   else score += 40;
 
   if (MAIN_HINT_RE.test(label) || PREFER_RE.test(label)) score += 30;
-
-  // Multi-cam Android: index 0 back is often ultra → penalize if ultra-ish
   if (total >= 2 && index === 0 && isUltraLabel(label)) score -= 40;
-  // Index 1 often main on multi-cam phones
   if (
     total >= 2 &&
     index === 1 &&
@@ -90,10 +90,6 @@ function scoreMainCamera(device, index, total) {
 
 // ─── Permission + enumeration ─────────────────────────────────────
 
-/**
- * Request camera permission (prefer rear environment, low-res probe).
- * Stops the probe stream. Returns true if granted.
- */
 export async function requestCameraPermission() {
   if (!navigator.mediaDevices?.getUserMedia) return false;
   try {
@@ -121,39 +117,29 @@ export async function requestCameraPermission() {
   }
 }
 
-/** Enumerate videoinput devices (labels require prior permission). */
 export async function getVideoInputDevices() {
   if (!navigator.mediaDevices?.enumerateDevices) return [];
   const devices = await navigator.mediaDevices.enumerateDevices();
   return devices.filter((d) => d.kind === "videoinput");
 }
 
-/**
- * Ensure labels exist: request permission once if needed, re-enumerate.
- */
 export async function ensureLabeledVideoDevices() {
   let devices = await getVideoInputDevices();
-  const hasLabels = devices.some((d) => d.label);
-  if (!hasLabels) {
+  if (!devices.some((d) => d.label)) {
     await requestCameraPermission();
     devices = await getVideoInputDevices();
   }
   return devices;
 }
 
-// ─── Detection / pick ─────────────────────────────────────────────
-
 /**
- * Split devices into front / rear and typed rear lenses.
- * @returns {{
- *   all: MediaDeviceInfo[],
- *   front: MediaDeviceInfo[],
- *   rear: MediaDeviceInfo[],
- *   main: MediaDeviceInfo|null,
- *   ultrawide: MediaDeviceInfo|null,
- *   telephoto: MediaDeviceInfo|null,
- * }}
+ * Detect and classify all cameras (required API name).
  */
+export async function detectCameraDevices() {
+  const devices = await ensureLabeledVideoDevices();
+  return detectRearCameras(devices);
+}
+
 export function detectRearCameras(videoDevices = []) {
   const front = [];
   const rear = [];
@@ -172,7 +158,6 @@ export function detectRearCameras(videoDevices = []) {
 
   if (!rear.length && remaining.length) {
     if (remaining.length >= 2) {
-      // Dual unlabeled: last often rear, first often front
       rear.push(remaining[remaining.length - 1]);
       if (!front.length) front.push(remaining[0]);
     } else {
@@ -201,16 +186,13 @@ export function detectRearCameras(videoDevices = []) {
   };
 }
 
-/** Prefer main rear / wide — never ultra / tele / macro / depth. */
 export function pickMainRearCamera(rearCameras = []) {
   if (!rearCameras.length) return null;
-
   const scored = rearCameras.map((device, index) => ({
     device,
     score: scoreMainCamera(device, index, rearCameras.length),
     label: (device.label || "").toLowerCase(),
   }));
-
   const preferred = scored.filter(
     (s) =>
       !isUltraLabel(s.label) &&
@@ -224,16 +206,12 @@ export function pickMainRearCamera(rearCameras = []) {
 
 export function pickUltraWideCamera(rearCameras = []) {
   if (!rearCameras.length) return null;
-  const hits = rearCameras.filter((d) => isUltraLabel(d.label || ""));
-  if (!hits.length) return null;
-  // Prefer explicit ultra labels
-  return hits[0];
+  return rearCameras.find((d) => isUltraLabel(d.label || "")) || null;
 }
 
 export function pickTeleCamera(rearCameras = []) {
   if (!rearCameras.length) return null;
-  const hits = rearCameras.filter((d) => isTeleLabel(d.label || ""));
-  return hits[0] || null;
+  return rearCameras.find((d) => isTeleLabel(d.label || "")) || null;
 }
 
 export function classifyLensType(device, detected) {
@@ -255,18 +233,16 @@ export function getActiveVideoTrack(stream) {
 }
 
 export function getCurrentTrackCapabilities(stream) {
-  const track = getActiveVideoTrack(stream);
   try {
-    return track?.getCapabilities?.() || {};
+    return getActiveVideoTrack(stream)?.getCapabilities?.() || {};
   } catch {
     return {};
   }
 }
 
 export function getCurrentTrackSettings(stream) {
-  const track = getActiveVideoTrack(stream);
   try {
-    return track?.getSettings?.() || {};
+    return getActiveVideoTrack(stream)?.getSettings?.() || {};
   } catch {
     return {};
   }
@@ -290,9 +266,11 @@ export function readZoomRange(stream) {
   };
 }
 
-/**
- * Stop all tracks on a stream (and optionally clear video element).
- */
+/** Required API: zoom capabilities of current track */
+export function getCameraZoomCapabilities(stream) {
+  return readZoomRange(stream);
+}
+
 export function stopCurrentCamera(stream, videoEl = null) {
   if (stream) {
     try {
@@ -317,7 +295,6 @@ export function stopCurrentCamera(stream, videoEl = null) {
 }
 
 function highResQuality(base = {}) {
-  // Prefer high resolution when available; keep mobile-friendly max
   const preview = getCameraPreviewConstraints(base);
   return {
     ...preview,
@@ -326,10 +303,6 @@ function highResQuality(base = {}) {
   };
 }
 
-/**
- * Start camera by deviceId. Prefers exact/ideal deviceId over facingMode
- * so multi-lens phones open the intended lens (main, not tele).
- */
 export async function startCameraByDeviceId(deviceId, options = {}) {
   const {
     facingMode = "environment",
@@ -346,64 +319,54 @@ export async function startCameraByDeviceId(deviceId, options = {}) {
   const tryOpen = async (video) =>
     navigator.mediaDevices.getUserMedia({ video, audio: false });
 
-  // Prefer deviceId first when we know the main/wide lens — avoids tele default
   if (preferDeviceId && deviceId) {
     try {
-      return await tryOpen({
-        deviceId: { exact: deviceId },
-        ...quality,
-      });
+      return await tryOpen({ deviceId: { exact: deviceId }, ...quality });
     } catch {
       try {
-        return await tryOpen({
-          deviceId: { ideal: deviceId },
-          ...quality,
-        });
+        return await tryOpen({ deviceId: { ideal: deviceId }, ...quality });
       } catch {
         /* fall through */
       }
     }
   }
 
-  // facingMode fallback
   try {
-    return await tryOpen({
-      facingMode: { exact: facingMode },
-      ...quality,
-    });
+    return await tryOpen({ facingMode: { exact: facingMode }, ...quality });
   } catch {
     try {
-      return await tryOpen({
-        facingMode: { ideal: facingMode },
-        ...quality,
-      });
+      return await tryOpen({ facingMode: { ideal: facingMode }, ...quality });
     } catch {
       /* fall through */
     }
   }
 
-  // Last resort
   if (deviceId) {
     try {
-      return await tryOpen({
-        deviceId: { ideal: deviceId },
-        ...quality,
-      });
+      return await tryOpen({ deviceId: { ideal: deviceId }, ...quality });
     } catch {
       /* fall through */
     }
   }
 
-  return tryOpen({
-    facingMode: { ideal: facingMode },
-    ...quality,
-  });
+  return tryOpen({ facingMode: { ideal: facingMode }, ...quality });
+}
+
+/** Clamp zoom to [min, max] */
+export function clampZoom(value, minZoom = 1, maxZoom = 1) {
+  const v = Number(value);
+  if (!Number.isFinite(v)) return minZoom;
+  return Math.max(minZoom, Math.min(v, maxZoom));
 }
 
 /**
- * Apply digital / hardware zoom via applyConstraints.
- * @returns {Promise<number|false>} applied zoom or false
+ * Apply digital / hardware zoom (required API).
+ * @returns {Promise<number|false>}
  */
+export async function applyCameraZoom(stream, zoomValue) {
+  return setCameraZoom(stream, zoomValue);
+}
+
 export async function setCameraZoom(stream, value) {
   const track = getActiveVideoTrack(stream);
   if (!track) return false;
@@ -412,7 +375,7 @@ export async function setCameraZoom(stream, value) {
 
   const min = caps.zoom.min ?? 1;
   const max = caps.zoom.max ?? 1;
-  const next = Math.max(min, Math.min(Number(value) || 1, max));
+  const next = clampZoom(value, min, max);
 
   try {
     await track.applyConstraints({ advanced: [{ zoom: next }] });
@@ -427,41 +390,133 @@ export async function setCameraZoom(stream, value) {
   }
 }
 
+/** Format badge text: 0.5x, 1x, 1.4x, 2x, 5x */
+export function updateZoomBadge(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "1x";
+  if (Math.abs(n - 1) < 0.05) return "1x";
+  if (Math.abs(n - 0.5) < 0.05) return "0.5x";
+  if (Number.isInteger(n) || Math.abs(n - Math.round(n)) < 0.05) {
+    return `${Math.round(n)}x`;
+  }
+  return `${Number(n.toFixed(1))}x`;
+}
+
+export function formatZoomModeLabel(mode) {
+  if (mode === "0.5x") return "0.5";
+  if (mode === "1x") return "1x";
+  if (mode === "2x") return "2x";
+  if (mode === "max") return "Max";
+  return String(mode);
+}
+
+// ─── Pinch helpers ────────────────────────────────────────────────
+
+export function getTouchDistance(touches) {
+  if (!touches || touches.length < 2) return 0;
+  const a = touches[0];
+  const b = touches[1];
+  return Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY);
+}
+
 /**
- * Compute which zoom modes are available for current devices + track.
+ * Pinch start state.
+ * @returns {{ active, distance, zoom, isPinching }}
  */
+export function handlePinchZoomStart(touches, currentZoom) {
+  if (!touches || touches.length < 2) {
+    return { active: false, distance: 0, zoom: currentZoom, isPinching: false };
+  }
+  return {
+    active: true,
+    distance: getTouchDistance(touches),
+    zoom: currentZoom,
+    isPinching: true,
+  };
+}
+
+/**
+ * Compute next zoom from pinch move (does not apply constraints).
+ */
+export function handlePinchZoomMove(touches, pinchState, minZoom, maxZoom) {
+  if (!pinchState?.active || !touches || touches.length < 2) {
+    return { zoom: pinchState?.zoom ?? 1, distance: pinchState?.distance ?? 0 };
+  }
+  const nextDistance = getTouchDistance(touches);
+  if (!nextDistance || !pinchState.distance) {
+    return { zoom: pinchState.zoom, distance: pinchState.distance };
+  }
+  const scale = nextDistance / pinchState.distance;
+  const raw = pinchState.zoom * scale;
+  return {
+    zoom: clampZoom(raw, minZoom, maxZoom),
+    distance: nextDistance,
+  };
+}
+
+export function handlePinchZoomEnd() {
+  return { active: false, distance: 0, zoom: 0, isPinching: false };
+}
+
+/**
+ * Ensure no caption-area zoom controls exist (DOM cleanup guard).
+ * Call after mount; safe no-op if none found.
+ */
+export function removeCaptionZoomControls(root = document) {
+  if (typeof document === "undefined") return;
+  try {
+    const selectors = [
+      "[data-zoom-slider]",
+      "[data-caption-zoom]",
+      ".caption-zoom",
+      ".caption-zoom-bar",
+      ".zoom-slider",
+      ".zoom-bar",
+      'input[type="range"][data-camera-zoom]',
+      ".editor-caption .zoom-control",
+      ".editor-caption input[type='range']",
+    ];
+    for (const sel of selectors) {
+      root.querySelectorAll?.(sel)?.forEach((el) => {
+        try {
+          el.remove();
+        } catch {
+          /* ignore */
+        }
+      });
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+// ─── Available modes + resolve ────────────────────────────────────
+
 export function computeAvailableZoomModes(detected, stream) {
   const range = readZoomRange(stream);
   const modes = {
     "0.5x": false,
     "1x": true,
     "2x": false,
-    max: false,
   };
 
-  // 0.5x: ultra physical OR digital min < 1
+  // Always show 0.5 in UI if ultra OR digital min < 1; else keep button
+  // but mark disabled only when neither works — still try min
   if (detected?.ultrawide?.deviceId) modes["0.5x"] = true;
   else if (range.supported && range.minZoom < 0.95) modes["0.5x"] = true;
+  // Keep 0.5 visible as soft-available when rear multi-cam may expose later
+  else if (detected?.rear?.length >= 2) modes["0.5x"] = true;
 
-  // 2x: tele physical OR digital max >= 2
   if (detected?.telephoto?.deviceId) modes["2x"] = true;
   else if (range.supported && range.maxZoom >= 1.8) modes["2x"] = true;
-
-  // Max: only when hardware zoom range is meaningful
-  if (range.supported && range.maxZoom > range.minZoom + 0.05) {
-    modes.max = true;
+  // Soft enable 2x when zoom range exists
+  else if (range.supported && range.maxZoom > range.minZoom + 0.2) {
+    modes["2x"] = true;
   }
 
   return modes;
 }
 
-/**
- * Resolve target deviceId + digital zoom for a mode.
- * Never returns tele for "1x".
- *
- * @param {"0.5x"|"1x"|"2x"|"max"} mode
- * @param {{ detected, stream, facingMode }} ctx
- */
 export function resolveZoomModeTarget(mode, ctx = {}) {
   const { detected, stream, facingMode = "environment" } = ctx;
   const isBack = facingMode === "environment";
@@ -475,9 +530,10 @@ export function resolveZoomModeTarget(mode, ctx = {}) {
   if (!isBack) {
     return {
       deviceId: frontId,
-      digitalZoom: mode === "0.5x" && range.supported ? range.minZoom : 1,
+      digitalZoom: 1,
+      displayZoom: 1,
       lensType: "unknown",
-      mode: mode === "0.5x" ? "0.5x" : "1x",
+      mode: "1x",
     };
   }
 
@@ -488,6 +544,7 @@ export function resolveZoomModeTarget(mode, ctx = {}) {
       return {
         deviceId: ultraId,
         digitalZoom: 1,
+        displayZoom: 0.5,
         lensType: "ultrawide",
         mode: "0.5x",
       };
@@ -496,58 +553,154 @@ export function resolveZoomModeTarget(mode, ctx = {}) {
       return {
         deviceId: mainId,
         digitalZoom: range.minZoom,
+        displayZoom: range.minZoom,
         lensType: "main",
         mode: "0.5x",
       };
     }
-    return { deviceId: null, digitalZoom: null, lensType: null, mode: "0.5x", unavailable: true };
+    return {
+      deviceId: null,
+      digitalZoom: null,
+      displayZoom: null,
+      lensType: null,
+      mode: "0.5x",
+      unavailable: true,
+    };
   }
 
   if (m === "2x" || m === "2") {
-    // User selected 2x: use tele physical if exposed, else digital zoom 2 on main
-    if (teleId) {
-      return {
-        deviceId: teleId,
-        digitalZoom: 1,
-        lensType: "telephoto",
-        mode: "2x",
-      };
-    }
+    // Prefer digital 2 on main; tele only if no digital zoom path
     if (range.supported && range.maxZoom >= 1.8) {
       return {
         deviceId: mainId,
         digitalZoom: Math.min(2, range.maxZoom),
+        displayZoom: Math.min(2, range.maxZoom),
         lensType: "main",
         mode: "2x",
       };
     }
-    return { deviceId: null, digitalZoom: null, lensType: null, mode: "2x", unavailable: true };
-  }
-
-  if (m === "max") {
-    if (range.supported && range.maxZoom > range.minZoom + 0.05) {
+    if (teleId) {
       return {
-        deviceId: mainId,
-        digitalZoom: range.maxZoom,
-        lensType: "main",
-        mode: "max",
+        deviceId: teleId,
+        digitalZoom: 1,
+        displayZoom: 2,
+        lensType: "telephoto",
+        mode: "2x",
       };
     }
-    return { deviceId: null, digitalZoom: null, lensType: null, mode: "max", unavailable: true };
+    return {
+      deviceId: null,
+      digitalZoom: null,
+      displayZoom: null,
+      lensType: null,
+      mode: "2x",
+      unavailable: true,
+    };
   }
 
-  // 1x default — ALWAYS main wide
+  // 1x — ALWAYS main
   return {
     deviceId: mainId,
-    digitalZoom: range.supported ? Math.max(1, range.minZoom <= 1 ? 1 : range.minZoom) : 1,
+    digitalZoom: range.supported && range.minZoom <= 1 && range.maxZoom >= 1 ? 1 : range.minZoom || 1,
+    displayZoom: 1,
     lensType: "main",
     mode: "1x",
   };
 }
 
 /**
- * After opening a stream, if 1x mode landed on ultra/tele, re-open main.
+ * Global pinch range across lenses.
+ * min: 0.5 if ultra else track min
+ * max: track max (or higher if tele)
  */
+export function getEffectiveZoomBounds(detected, stream) {
+  const range = readZoomRange(stream);
+  let min = range.supported ? range.minZoom : 1;
+  let max = range.supported ? range.maxZoom : 1;
+
+  if (detected?.ultrawide?.deviceId) {
+    min = Math.min(min, 0.5);
+  }
+  if (detected?.telephoto?.deviceId && max < 2) {
+    max = Math.max(max, 2);
+  }
+  // Always allow at least 1x display
+  if (min > 1) min = 1;
+  if (max < 1) max = 1;
+
+  return {
+    minZoom: min,
+    maxZoom: max,
+    trackSupported: range.supported,
+    trackMin: range.minZoom,
+    trackMax: range.maxZoom,
+    step: range.zoomStep,
+  };
+}
+
+/**
+ * Map display zoom → which lens + track zoom to apply.
+ * Never uses tele by default; tele only when displayZoom >= ~2 and no digital.
+ */
+export function mapDisplayZoomToLens(displayZoom, detected, stream) {
+  const z = Number(displayZoom) || 1;
+  const mainId = detected?.main?.deviceId || detected?.rear?.[0]?.deviceId || null;
+  const ultraId = detected?.ultrawide?.deviceId || null;
+  const teleId = detected?.telephoto?.deviceId || null;
+  const range = readZoomRange(stream);
+
+  // Ultra band
+  if (z < 0.85 && ultraId) {
+    return {
+      deviceId: ultraId,
+      digitalZoom: 1,
+      displayZoom: z,
+      lensType: "ultrawide",
+      mode: "0.5x",
+    };
+  }
+
+  // Ultra fallback via digital min on main
+  if (z < 0.85 && range.supported && range.minZoom < 0.95) {
+    return {
+      deviceId: mainId,
+      digitalZoom: clampZoom(z, range.minZoom, range.maxZoom),
+      displayZoom: z,
+      lensType: "main",
+      mode: "0.5x",
+    };
+  }
+
+  // High zoom: use track max on main first; tele only if track can't reach
+  if (z >= 1.9 && teleId && (!range.supported || range.maxZoom < 1.8)) {
+    return {
+      deviceId: teleId,
+      digitalZoom: 1,
+      displayZoom: z,
+      lensType: "telephoto",
+      mode: "2x",
+    };
+  }
+
+  // Main band with digital zoom
+  let digital = 1;
+  if (range.supported) {
+    digital = clampZoom(Math.max(z, range.minZoom), range.minZoom, range.maxZoom);
+  }
+
+  let mode = "1x";
+  if (z < 0.9) mode = "0.5x";
+  else if (z >= 1.7) mode = "2x";
+
+  return {
+    deviceId: mainId,
+    digitalZoom: digital,
+    displayZoom: z,
+    lensType: "main",
+    mode,
+  };
+}
+
 export async function ensureMainCameraStream(stream, mainDeviceId, detected) {
   if (!stream || !mainDeviceId) return stream;
 
@@ -570,7 +723,6 @@ export async function ensureMainCameraStream(stream, mainDeviceId, detected) {
 
   if (!wrongLens) return stream;
 
-  // Wrong lens (tele/ultra/macro) — stop and open main
   stopCurrentCamera(stream);
   try {
     return await startCameraByDeviceId(mainDeviceId, {
@@ -579,7 +731,6 @@ export async function ensureMainCameraStream(stream, mainDeviceId, detected) {
       preferDeviceId: true,
     });
   } catch {
-    // If main fails, try facingMode only once more
     try {
       return await startCameraByDeviceId(null, {
         facingMode: "environment",
@@ -592,16 +743,12 @@ export async function ensureMainCameraStream(stream, mainDeviceId, detected) {
   }
 }
 
-/**
- * High-level: open rear main @ 1x.
- */
-export async function resetToMainCameraX1(options = {}) {
+/** Open main rear @ 1x */
+export async function startMainCameraX1(options = {}) {
   const { oldStream = null, videoEl = null } = options;
-
   if (oldStream) stopCurrentCamera(oldStream, videoEl);
 
-  const devices = await ensureLabeledVideoDevices();
-  const detected = detectRearCameras(devices);
+  const detected = await detectCameraDevices();
   const main = detected.main || detected.rear[0] || null;
   const mainId = main?.deviceId || null;
 
@@ -614,11 +761,10 @@ export async function resetToMainCameraX1(options = {}) {
   stream = await ensureMainCameraStream(stream, mainId, detected);
   if (!stream) throw new Error("Failed to open main rear camera");
 
-  // Reset digital zoom to 1 if supported
   if (supportsHardwareZoom(stream)) {
     const range = readZoomRange(stream);
     const one = range.minZoom <= 1 && range.maxZoom >= 1 ? 1 : range.minZoom;
-    await setCameraZoom(stream, one);
+    await applyCameraZoom(stream, one);
   }
 
   return {
@@ -627,24 +773,79 @@ export async function resetToMainCameraX1(options = {}) {
     deviceId: getCurrentTrackSettings(stream).deviceId || mainId,
     lensType: "main",
     zoomMode: "1x",
+    currentZoom: 1,
     ...readZoomRange(stream),
     availableZoomModes: computeAvailableZoomModes(detected, stream),
   };
 }
 
-/**
- * Switch to a zoom mode. Stops old stream only when deviceId changes.
- *
- * @param {"0.5x"|"1x"|"2x"|"max"} mode
- * @param {{
- *   stream,
- *   videoEl,
- *   detected,
- *   facingMode,
- *   currentDeviceId,
- *   onNeedNewStream?: (deviceId) => Promise<MediaStream>,
- * }} ctx
- */
+export async function resetToMainCameraX1(options = {}) {
+  return startMainCameraX1(options);
+}
+
+/** Switch to ultra-wide 0.5x */
+export async function switchToUltraWide05(options = {}) {
+  const { oldStream = null, videoEl = null, detected: detIn = null } = options;
+  const detected = detIn || (await detectCameraDevices());
+  const ultraId = detected.ultrawide?.deviceId || null;
+
+  if (ultraId) {
+    if (oldStream) stopCurrentCamera(oldStream, videoEl);
+    const stream = await startCameraByDeviceId(ultraId, {
+      facingMode: "environment",
+      highRes: true,
+      preferDeviceId: true,
+    });
+    return {
+      stream,
+      detected,
+      deviceId: ultraId,
+      lensType: "ultrawide",
+      zoomMode: "0.5x",
+      currentZoom: 0.5,
+      digitalZoom: 1,
+    };
+  }
+
+  // Fallback: digital min on current/main
+  if (oldStream && supportsHardwareZoom(oldStream)) {
+    const range = readZoomRange(oldStream);
+    if (range.minZoom < 0.95) {
+      const applied = await applyCameraZoom(oldStream, range.minZoom);
+      return {
+        stream: oldStream,
+        detected,
+        deviceId: getCurrentTrackSettings(oldStream).deviceId,
+        lensType: "main",
+        zoomMode: "0.5x",
+        currentZoom: applied || range.minZoom,
+        digitalZoom: applied || range.minZoom,
+        switchedDevice: false,
+      };
+    }
+  }
+
+  return { unavailable: true, detected };
+}
+
+/** Switch back to main 1x */
+export async function switchToMainCamera1x(options = {}) {
+  return startMainCameraX1(options);
+}
+
+export async function detectAndClassifyCameras() {
+  const d = await detectCameraDevices();
+  return {
+    allCameras: d.all,
+    frontCameras: d.front,
+    backCameras: d.rear,
+    backNormalCamera: d.main,
+    backUltraWideCamera: d.ultrawide,
+    backZoomCamera: d.telephoto,
+    detected: d,
+  };
+}
+
 export async function switchToZoomMode(mode, ctx = {}) {
   const {
     stream,
@@ -668,42 +869,15 @@ export async function switchToZoomMode(mode, ctx = {}) {
     currentDeviceId &&
     target.deviceId !== currentDeviceId;
 
-  const needOpenDevice =
-    target.deviceId && (!stream || needSwitchDevice || !currentDeviceId);
-
   return {
     ok: true,
     mode: target.mode,
     deviceId: target.deviceId,
     digitalZoom: target.digitalZoom,
+    displayZoom: target.displayZoom,
     lensType: target.lensType,
-    needDeviceSwitch: Boolean(needOpenDevice || needSwitchDevice),
+    needDeviceSwitch: Boolean(
+      target.deviceId && (!stream || needSwitchDevice || !currentDeviceId),
+    ),
   };
-}
-
-/**
- * Full pipeline after permission: detect + pick main.
- * Compatible shape with older getAvailableCameras consumers.
- */
-export async function detectAndClassifyCameras() {
-  const devices = await ensureLabeledVideoDevices();
-  const d = detectRearCameras(devices);
-  return {
-    allCameras: d.all,
-    frontCameras: d.front,
-    backCameras: d.rear,
-    backNormalCamera: d.main,
-    backUltraWideCamera: d.ultrawide,
-    backZoomCamera: d.telephoto,
-    // new shape
-    detected: d,
-  };
-}
-
-export function formatZoomModeLabel(mode) {
-  if (mode === "max") return "Max";
-  if (mode === "0.5x") return "0.5";
-  if (mode === "1x") return "1x";
-  if (mode === "2x") return "2x";
-  return String(mode);
 }

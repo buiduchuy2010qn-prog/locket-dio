@@ -13,6 +13,8 @@ const CameraToggleAndroid = () => {
     setZoomLevel,
     setCurrentLensType,
     setIsSwitchingCamera,
+    setCurrentZoom,
+    setActiveZoomMode,
   } = camera;
 
   /** Flip front/back — always land on main rear @ 1x (never tele). */
@@ -23,6 +25,8 @@ const CameraToggleAndroid = () => {
     setCameraMode(newMode);
     // Reset zoom to 1x; MediaPreview opens main wide via deviceId prefer
     setZoomLevel("1x");
+    setActiveZoomMode?.("1x");
+    setCurrentZoom?.(1);
     setDeviceId(null);
     setCurrentLensType?.(newMode === "environment" ? "main" : "unknown");
   };

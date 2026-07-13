@@ -13,6 +13,8 @@ const CameraToggleIOS = () => {
     setZoomLevel,
     setCurrentLensType,
     setIsSwitchingCamera,
+    setCurrentZoom,
+    setActiveZoomMode,
   } = camera;
 
   /** Flip front/back — always land on main rear @ 1x (never tele). */
@@ -22,6 +24,8 @@ const CameraToggleIOS = () => {
     setIsSwitchingCamera?.(true);
     setCameraMode(newMode);
     setZoomLevel("1x");
+    setActiveZoomMode?.("1x");
+    setCurrentZoom?.(1);
     setDeviceId(null);
     setCurrentLensType?.(newMode === "environment" ? "main" : "unknown");
   };

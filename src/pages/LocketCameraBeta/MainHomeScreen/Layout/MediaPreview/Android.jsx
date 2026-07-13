@@ -1,4 +1,11 @@
-import React, { lazy, Suspense, useEffect, useRef, useState, useCallback } from "react";
+import React, {
+  lazy,
+  Suspense,
+  useEffect,
+  useRef,
+  useState,
+  useCallback,
+} from "react";
 import {
   getAvailableCameras,
   getMainBackCameraId,
@@ -8,17 +15,22 @@ import {
   getCurrentTrackSettings,
   getActiveVideoTrack,
   supportsHardwareZoom,
-  setCameraZoom,
+  applyCameraZoom,
   readZoomRange,
   computeAvailableZoomModes,
   ensureMainCameraStream,
   resolveZoomModeTarget,
   classifyLensType,
-  formatZoomModeLabel,
-  ZOOM_MODES,
+  getEffectiveZoomBounds,
+  mapDisplayZoomToLens,
+  handlePinchZoomStart,
+  handlePinchZoomMove,
+  handlePinchZoomEnd,
+  removeCaptionZoomControls,
   isUltraLabel,
   isTeleLabel,
 } from "@/utils";
+import ZoomPresets from "./ZoomPresets";
 const EditorCaption = lazy(() => import("@/features/EditorCaption"));
 import { useApp } from "@/context/AppContext";
 import BorderProgress from "../../Widgets/SquareProgress";
@@ -26,21 +38,23 @@ import { SonnerInfo } from "@/components/ui/SonnerToast";
 import { usePostStore, useUIStore } from "@/stores";
 import { useTranslation } from "react-i18next";
 
+const PINCH_THROTTLE_MS = 45;
+
 const MediaPreviewAndroid = () => {
-  const { useloading, camera, navigation } = useApp();
+  const { camera, navigation } = useApp();
   const { t } = useTranslation("main");
   const {
     streamRef,
     videoRef,
     cameraActive,
-    setCameraActive,
     cameraMode,
     zoomLevel,
     setZoomLevel,
     deviceId,
     setDeviceId,
-    setCurrentLensType,
+    currentZoom,
     setCurrentZoom,
+    setCurrentLensType,
     setMinZoom,
     setMaxZoom,
     setZoomStep,
@@ -48,9 +62,12 @@ const MediaPreviewAndroid = () => {
     setAvailableZoomModes,
     isSwitchingCamera,
     setIsSwitchingCamera,
+    isPinching,
+    setIsPinching,
+    activeZoomMode,
+    setActiveZoomMode,
     setDetectedCameras,
   } = camera;
-  const { setSendLoading } = useloading;
   const { isBottomOpen, isHomeOpen, isProfileOpen } = navigation || {};
 
   const selectedFile = usePostStore((s) => s.selectedFile);
@@ -63,10 +80,18 @@ const MediaPreviewAndroid = () => {
   const lastZoomLevel = useRef(zoomLevel);
   const startRequestId = useRef(0);
   const startingRef = useRef(false);
-  const pinchState = useRef({ active: false, distance: 0, zoom: 1 });
+  const pinchState = useRef({
+    active: false,
+    distance: 0,
+    zoom: 1,
+    isPinching: false,
+  });
   const currentZoomValue = useRef(1);
-  const lastPinchUpdate = useRef(0);
+  const lastPinchApply = useRef(0);
+  const pendingZoom = useRef(null);
+  const applyInFlight = useRef(false);
   const detectedRef = useRef(null);
+  const boundsRef = useRef({ minZoom: 1, maxZoom: 1 });
 
   const [pageVisible, setPageVisible] = useState(
     () =>
@@ -85,40 +110,53 @@ const MediaPreviewAndroid = () => {
   );
   const [videoEpoch, setVideoEpoch] = useState(0);
 
+  const toDetectedShape = (cameras) => ({
+    main: cameras?.backNormalCamera,
+    ultrawide: cameras?.backUltraWideCamera,
+    telephoto: cameras?.backZoomCamera,
+    rear: cameras?.backCameras || [],
+    front: cameras?.frontCameras || [],
+    all: cameras?.allCameras || [],
+  });
+
   const syncZoomStateFromStream = useCallback(
-    (stream, detected, modeLabel) => {
-      const range = readZoomRange(stream);
-      setMinZoom(range.minZoom);
-      setMaxZoom(range.maxZoom);
-      setZoomStep(range.zoomStep);
-      const modes = computeAvailableZoomModes(detected, stream);
-      // Always keep 1x available
+    (stream, cameras) => {
+      const shape = toDetectedShape(cameras);
+      const bounds = getEffectiveZoomBounds(shape, stream);
+      boundsRef.current = {
+        minZoom: bounds.minZoom,
+        maxZoom: bounds.maxZoom,
+      };
+      setMinZoom(bounds.minZoom);
+      setMaxZoom(bounds.maxZoom);
+      setZoomStep(bounds.step || 0.1);
+
+      const modes = computeAvailableZoomModes(shape, stream);
       modes["1x"] = true;
+      // Always keep 0.5 in UI (disable only if truly impossible)
+      if (!modes["0.5x"] && bounds.minZoom < 0.95) modes["0.5x"] = true;
+      if (!modes["0.5x"] && shape.ultrawide) modes["0.5x"] = true;
       setAvailableZoomModes(modes);
 
       const settings = getCurrentTrackSettings(stream);
       const actualId = settings.deviceId || null;
       const device =
-        detected?.allCameras?.find((d) => d.deviceId === actualId) ||
-        detected?.backCameras?.find((d) => d.deviceId === actualId) ||
-        null;
-      const lens = classifyLensType(device, {
-        main: detected?.backNormalCamera,
-        ultrawide: detected?.backUltraWideCamera,
-        telephoto: detected?.backZoomCamera,
-        all: detected?.allCameras,
-        rear: detected?.backCameras,
-        front: detected?.frontCameras,
-      });
-      setCurrentLensType(lens);
+        cameras?.allCameras?.find((d) => d.deviceId === actualId) || null;
+      setCurrentLensType(classifyLensType(device, shape));
 
       const z = settings.zoom ?? currentZoomValue.current ?? 1;
-      currentZoomValue.current = z;
-      setCurrentZoom(z);
-
-      if (actualId) {
-        lastDeviceId.current = actualId;
+      // Display: if on ultra, show 0.5-ish unless track reports higher
+      let display = z;
+      if (
+        shape.ultrawide?.deviceId &&
+        actualId === shape.ultrawide.deviceId &&
+        z <= 1.1
+      ) {
+        display = 0.5;
       }
+      currentZoomValue.current = display;
+      setCurrentZoom(display);
+      if (actualId) lastDeviceId.current = actualId;
 
       setTorchSupported(Boolean(getCurrentTrackCapabilities(stream)?.torch));
     },
@@ -140,57 +178,137 @@ const MediaPreviewAndroid = () => {
     return true;
   };
 
-  const applyDigitalZoom = async (value, stream = streamRef.current) => {
-    const applied = await setCameraZoom(stream, value);
-    if (applied !== false) {
-      currentZoomValue.current = applied;
-      setCurrentZoom(applied);
-      return true;
-    }
-    return false;
-  };
+  /** Throttled apply for pinch smoothness */
+  const applyDisplayZoom = useCallback(
+    async (displayZoom, { force = false } = {}) => {
+      const stream = streamRef.current;
+      if (!stream) return false;
 
-  /** Select zoom mode: 0.5x | 1x | 2x | max */
+      const cameras = detectedRef.current;
+      const shape = toDetectedShape(cameras);
+      const bounds = boundsRef.current;
+      const clamped = Math.max(
+        bounds.minZoom ?? 0.5,
+        Math.min(displayZoom, bounds.maxZoom ?? 1),
+      );
+
+      currentZoomValue.current = clamped;
+      setCurrentZoom(clamped);
+
+      // Update active mode nearest preset
+      let mode = "custom";
+      if (Math.abs(clamped - 0.5) < 0.12) mode = "0.5x";
+      else if (Math.abs(clamped - 1) < 0.15) mode = "1x";
+      else if (Math.abs(clamped - 2) < 0.25) mode = "2x";
+      setActiveZoomMode(mode);
+      if (mode !== "custom") {
+        setZoomLevel(mode);
+        lastZoomLevel.current = mode;
+      }
+
+      const mapped = mapDisplayZoomToLens(clamped, shape, stream);
+      const curId = lastDeviceId.current || deviceId;
+
+      // Lens switch only when needed (not every pinch frame)
+      if (
+        mapped.deviceId &&
+        curId &&
+        mapped.deviceId !== curId &&
+        (mapped.lensType === "ultrawide" ||
+          mapped.lensType === "main" ||
+          mapped.lensType === "telephoto")
+      ) {
+        // Only switch when crossing lens thresholds intentionally
+        const crossingUltra =
+          mapped.lensType === "ultrawide" && clamped < 0.85;
+        const leavingUltra =
+          mapped.lensType === "main" &&
+          shape.ultrawide?.deviceId === curId &&
+          clamped >= 0.85;
+        const needTele =
+          mapped.lensType === "telephoto" && clamped >= 1.9;
+
+        if (crossingUltra || leavingUltra || needTele) {
+          if (!force && isSwitchingCamera) return false;
+          setDeviceId(mapped.deviceId);
+          setZoomLevel(mapped.mode);
+          return true;
+        }
+      }
+
+      if (supportsHardwareZoom(stream) && mapped.digitalZoom != null) {
+        if (applyInFlight.current && !force) {
+          pendingZoom.current = mapped.digitalZoom;
+          return false;
+        }
+        applyInFlight.current = true;
+        try {
+          const applied = await applyCameraZoom(stream, mapped.digitalZoom);
+          if (applied !== false) {
+            // Keep display as clamped continuous value
+            return true;
+          }
+        } finally {
+          applyInFlight.current = false;
+          if (pendingZoom.current != null) {
+            const p = pendingZoom.current;
+            pendingZoom.current = null;
+            applyCameraZoom(stream, p).catch(() => {});
+          }
+        }
+      }
+      return false;
+    },
+    [
+      deviceId,
+      isSwitchingCamera,
+      setActiveZoomMode,
+      setCurrentZoom,
+      setDeviceId,
+      setZoomLevel,
+    ],
+  );
+
   const handleSelectZoomMode = async (mode) => {
-    if (isSwitchingCamera) return;
-    if (mode === zoomLevel && mode !== "0.5x") return;
+    if (isSwitchingCamera || isPinching) return;
 
-    const isBack = cameraMode === "environment";
     const cameras =
       detectedRef.current || (await getAvailableCameras({ force: false }));
     detectedRef.current = cameras;
     setDetectedCameras(cameras);
-
-    const detectedShape = {
-      main: cameras?.backNormalCamera,
-      ultrawide: cameras?.backUltraWideCamera,
-      telephoto: cameras?.backZoomCamera,
-      rear: cameras?.backCameras || [],
-      front: cameras?.frontCameras || [],
-      all: cameras?.allCameras || [],
-    };
+    const shape = toDetectedShape(cameras);
 
     const modes =
       availableZoomModes ||
-      computeAvailableZoomModes(detectedShape, streamRef.current);
+      computeAvailableZoomModes(shape, streamRef.current);
 
     if (mode !== "1x" && modes[mode] === false) {
-      const msgKey =
-        mode === "0.5x"
-          ? "home.zoom_05_unsupported"
-          : mode === "2x"
-            ? "home.zoom_2x_unsupported"
-            : mode === "max"
-              ? "home.zoom_max_unsupported"
-              : "home.camera_no_zoom";
-      SonnerInfo(t(msgKey, { defaultValue: t("home.camera_no_zoom") }));
-      return;
+      // Try anyway for 0.5 via min zoom
+      if (mode === "0.5x") {
+        const range = readZoomRange(streamRef.current);
+        if (!(range.supported && range.minZoom < 0.95) && !shape.ultrawide) {
+          SonnerInfo(
+            t("home.zoom_05_unsupported", {
+              defaultValue: "0.5x is not supported on this device",
+            }),
+          );
+          return;
+        }
+      } else {
+        SonnerInfo(
+          t("home.zoom_2x_unsupported", {
+            defaultValue: t("home.camera_no_zoom"),
+          }),
+        );
+        return;
+      }
     }
 
     const target = resolveZoomModeTarget(mode, {
-      detected: detectedShape,
+      detected: shape,
       stream: streamRef.current,
-      facingMode: isBack ? "environment" : "user",
+      facingMode:
+        cameraMode === "environment" ? "environment" : "user",
     });
 
     if (target.unavailable) {
@@ -198,9 +316,7 @@ const MediaPreviewAndroid = () => {
         t(
           mode === "0.5x"
             ? "home.zoom_05_unsupported"
-            : mode === "max"
-              ? "home.zoom_max_unsupported"
-              : "home.camera_no_zoom",
+            : "home.camera_no_zoom",
           { defaultValue: t("home.camera_no_zoom") },
         ),
       );
@@ -212,100 +328,128 @@ const MediaPreviewAndroid = () => {
       (target.deviceId === deviceId ||
         target.deviceId === lastDeviceId.current);
 
-    // Same device → only digital zoom
+    setActiveZoomMode(target.mode);
+    setZoomLevel(target.mode);
+    lastZoomLevel.current = target.mode;
+
+    const display =
+      target.displayZoom ??
+      (mode === "0.5x" ? 0.5 : mode === "2x" ? 2 : 1);
+    currentZoomValue.current = display;
+    setCurrentZoom(display);
+
     if (sameDevice || (!target.deviceId && streamRef.current)) {
-      setZoomLevel(target.mode);
-      lastZoomLevel.current = target.mode;
-      if (target.digitalZoom != null && supportsHardwareZoom(streamRef.current)) {
+      if (
+        target.digitalZoom != null &&
+        supportsHardwareZoom(streamRef.current)
+      ) {
         try {
-          await applyDigitalZoom(target.digitalZoom);
+          await applyCameraZoom(streamRef.current, target.digitalZoom);
         } catch {
           /* ignore */
         }
-      } else if (target.mode === "1x" && supportsHardwareZoom(streamRef.current)) {
-        const range = readZoomRange(streamRef.current);
-        const one = range.minZoom <= 1 && range.maxZoom >= 1 ? 1 : range.minZoom;
-        await applyDigitalZoom(one);
       }
       return;
     }
 
-    // Device switch
     setIsSwitchingCamera(true);
-    setZoomLevel(target.mode);
-    if (target.deviceId) {
-      setDeviceId(target.deviceId);
-    } else {
-      setDeviceId(null);
-    }
+    setDeviceId(target.deviceId || null);
   };
 
-  const getTouchDistance = (touches) => {
-    if (touches.length < 2) return 0;
-    const [a, b] = touches;
-    return Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY);
-  };
+  // ─── Pinch gestures ─────────────────────────────────────────────
 
-  const resetPinchState = () => {
-    pinchState.current = {
-      active: false,
-      distance: 0,
-      zoom: currentZoomValue.current,
-    };
-  };
-
-  const handlePreviewTouchStart = (event) => {
+  const onTouchStart = (event) => {
+    if (preview || selectedFile) return;
+    if (cameraMode !== "environment") return;
     if (event.touches.length !== 2) return;
-    if (!supportsHardwareZoom(streamRef.current)) return;
+
     event.preventDefault();
-    pinchState.current = {
-      active: true,
-      distance: getTouchDistance(event.touches),
-      zoom: currentZoomValue.current,
-    };
+    const state = handlePinchZoomStart(
+      event.touches,
+      currentZoomValue.current,
+    );
+    pinchState.current = state;
+    setIsPinching(true);
   };
 
-  const handlePreviewTouchMove = async (event) => {
+  const onTouchMove = async (event) => {
     if (!pinchState.current.active || event.touches.length !== 2) return;
-    if (!supportsHardwareZoom(streamRef.current)) return;
-    const now = Date.now();
-    if (now - lastPinchUpdate.current < 40) return;
-    const nextDistance = getTouchDistance(event.touches);
-    if (!nextDistance || !pinchState.current.distance) return;
+    if (cameraMode !== "environment") return;
+
     event.preventDefault();
-    lastPinchUpdate.current = now;
-    const scale = nextDistance / pinchState.current.distance;
-    try {
-      await applyDigitalZoom(pinchState.current.zoom * scale);
-    } catch {
-      /* ignore */
+    const now = Date.now();
+    if (now - lastPinchApply.current < PINCH_THROTTLE_MS) return;
+    lastPinchApply.current = now;
+
+    const { minZoom: mn, maxZoom: mx } = boundsRef.current;
+    const moved = handlePinchZoomMove(
+      event.touches,
+      pinchState.current,
+      mn,
+      mx,
+    );
+
+    // Keep base distance for continuous scale from start
+    // Re-anchor zoom for next frame relative to start distance
+    const scale =
+      moved.distance && pinchState.current.distance
+        ? moved.distance / pinchState.current.distance
+        : 1;
+    // Use start zoom * total scale from original distance
+    const startZoom = pinchState.current.zoom;
+    const startDist = pinchState.current.distance || moved.distance;
+    const totalScale = startDist ? moved.distance / startDist : 1;
+    const nextZoom = Math.max(
+      mn,
+      Math.min(startZoom * totalScale, mx),
+    );
+
+    currentZoomValue.current = nextZoom;
+    setCurrentZoom(nextZoom);
+    setActiveZoomMode("custom");
+
+    await applyDisplayZoom(nextZoom);
+  };
+
+  const onTouchEnd = () => {
+    if (!pinchState.current.active && !isPinching) return;
+    pinchState.current = {
+      ...handlePinchZoomEnd(),
+      zoom: currentZoomValue.current,
+    };
+    setIsPinching(false);
+
+    // Snap active mode to nearest preset for highlight
+    const z = currentZoomValue.current;
+    if (Math.abs(z - 0.5) < 0.12) {
+      setActiveZoomMode("0.5x");
+      setZoomLevel("0.5x");
+    } else if (Math.abs(z - 1) < 0.15) {
+      setActiveZoomMode("1x");
+      setZoomLevel("1x");
+    } else if (Math.abs(z - 2) < 0.25) {
+      setActiveZoomMode("2x");
+      setZoomLevel("2x");
+    } else {
+      setActiveZoomMode("custom");
     }
   };
 
-  const handlePreviewTouchEnd = () => {
-    resetPinchState();
-  };
-
-  const stopCamera = ({ keepDisplay = false } = {}) => {
+  const stopCamera = () => {
     startRequestId.current += 1;
     startingRef.current = false;
-    resetPinchState();
-    stopCurrentCamera(
-      streamRef.current,
-      keepDisplay ? null : videoRef.current,
-    );
+    pinchState.current = handlePinchZoomEnd();
+    setIsPinching(false);
+    stopCurrentCamera(streamRef.current, videoRef.current);
     streamRef.current = null;
     cameraInitialized.current = false;
     setTorchSupported(false);
     setTorchEnabled(false);
     currentZoomValue.current = 1;
     setCurrentZoom(1);
+    setActiveZoomMode("1x");
   };
 
-  /**
-   * Start camera.
-   * Default rear: main wide @ 1x via deviceId (never telephoto).
-   */
   const startCamera = async () => {
     const requestId = startRequestId.current + 1;
     startRequestId.current = requestId;
@@ -355,59 +499,51 @@ const MediaPreviewAndroid = () => {
       const ultraId = cameras?.backUltraWideCamera?.deviceId || null;
       const teleId = cameras?.backZoomCamera?.deviceId || null;
       const frontId = cameras?.frontCameras?.[0]?.deviceId || null;
+      const shape = toDetectedShape(cameras);
 
-      const detectedShape = {
-        main: cameras?.backNormalCamera,
-        ultrawide: cameras?.backUltraWideCamera,
-        telephoto: cameras?.backZoomCamera,
-        rear: cameras?.backCameras || [],
-        front: cameras?.frontCameras || [],
-        all: cameras?.allCameras || [],
-      };
-
-      // Resolve target lens for zoom mode
       let resolvedDeviceId = null;
       let digitalZoomTarget = 1;
+      let displayZoom = 1;
 
       if (!isBack) {
         resolvedDeviceId = frontId || deviceId;
-        digitalZoomTarget = 1;
       } else {
         const target = resolveZoomModeTarget(z, {
-          detected: detectedShape,
+          detected: shape,
           stream: streamRef.current,
           facingMode: "environment",
         });
-        // Explicit overrides for device switch from setDeviceId
+
         if (deviceId && z === "0.5x" && ultraId && deviceId === ultraId) {
           resolvedDeviceId = ultraId;
-          digitalZoomTarget = 1;
+          displayZoom = 0.5;
         } else if (deviceId && z === "2x" && teleId && deviceId === teleId) {
           resolvedDeviceId = teleId;
-          digitalZoomTarget = 1;
+          displayZoom = 2;
         } else if (target.unavailable && z !== "1x") {
-          // Fall back to 1x main
           resolvedDeviceId = mainId;
-          digitalZoomTarget = 1;
           setZoomLevel("1x");
+          setActiveZoomMode("1x");
+          displayZoom = 1;
         } else {
           resolvedDeviceId = target.deviceId || mainId;
           digitalZoomTarget =
             target.digitalZoom != null ? target.digitalZoom : 1;
+          displayZoom = target.displayZoom ?? digitalZoomTarget;
         }
 
-        // HARD RULE: 1x never tele / ultra
+        // HARD RULE: 1x always main
         if (z === "1x" || !z) {
           resolvedDeviceId = mainId;
           digitalZoomTarget = 1;
+          displayZoom = 1;
         }
       }
 
-      // Stop old stream before opening new (especially facing flip)
       const oldStream = streamRef.current;
       if (oldStream) {
         try {
-          oldStream.getTracks().forEach((t) => t.stop());
+          oldStream.getTracks().forEach((tr) => tr.stop());
         } catch {
           /* ignore */
         }
@@ -421,7 +557,6 @@ const MediaPreviewAndroid = () => {
         setVideoEpoch((n) => n + 1);
       }
 
-      // Prefer main deviceId over facingMode so Android doesn't open tele
       let stream = await startCameraByDeviceId(resolvedDeviceId, {
         facingMode: mode,
         highRes: true,
@@ -433,10 +568,9 @@ const MediaPreviewAndroid = () => {
         return;
       }
 
-      // 1x: if browser still opened ultra/tele → force main
       if (isBack && (z === "1x" || !z) && mainId) {
         stream = await ensureMainCameraStream(stream, mainId, {
-          ...detectedShape,
+          ...shape,
           all: cameras?.allCameras,
           rear: cameras?.backCameras,
         });
@@ -463,7 +597,6 @@ const MediaPreviewAndroid = () => {
       if (actualId) lastDeviceId.current = actualId;
       else if (resolvedDeviceId) lastDeviceId.current = resolvedDeviceId;
 
-      // Mirror only real front streams
       const facing = String(settings.facingMode || "").toLowerCase();
       const isFrontStream =
         facing === "user" ||
@@ -499,29 +632,26 @@ const MediaPreviewAndroid = () => {
         }
       }
 
-      // Apply digital zoom for mode (reset 1x to 1)
       if (supportsHardwareZoom(stream)) {
         try {
           if (z === "1x" || !z) {
             const range = readZoomRange(stream);
             const one =
               range.minZoom <= 1 && range.maxZoom >= 1 ? 1 : range.minZoom;
-            await applyDigitalZoom(one, stream);
-          } else if (digitalZoomTarget != null && digitalZoomTarget !== 1) {
-            await applyDigitalZoom(digitalZoomTarget, stream);
+            await applyCameraZoom(stream, one);
+            displayZoom = 1;
+          } else if (digitalZoomTarget != null) {
+            await applyCameraZoom(stream, digitalZoomTarget);
           }
         } catch {
           /* ignore */
         }
       }
 
-      syncZoomStateFromStream(stream, cameras, z);
-
-      // Keep store deviceId in sync without re-triggering if same
-      if (actualId && actualId !== deviceId && isBack && (z === "1x" || !z)) {
-        // Don't setState deviceId here — causes restart loops.
-        // lastDeviceId is enough for switch logic.
-      }
+      currentZoomValue.current = displayZoom;
+      setCurrentZoom(displayZoom);
+      setActiveZoomMode(z === "0.5x" || z === "2x" || z === "1x" ? z : "1x");
+      syncZoomStateFromStream(stream, cameras);
 
       if (torchEnabled) {
         try {
@@ -538,6 +668,10 @@ const MediaPreviewAndroid = () => {
       setIsSwitchingCamera(false);
     }
   };
+
+  useEffect(() => {
+    removeCaptionZoomControls();
+  }, []);
 
   useEffect(() => {
     const onVis = () => {
@@ -595,24 +729,22 @@ const MediaPreviewAndroid = () => {
     }
   };
 
-  const showZoomUi =
-    cameraMode === "environment" && !preview && !selectedFile && cameraActive;
-
-  const modeEnabled = (mode) => {
-    if (mode === "1x") return true;
-    if (!availableZoomModes) return false;
-    return Boolean(availableZoomModes[mode]);
-  };
+  const showCameraUi =
+    !preview && !selectedFile && cameraActive;
+  const showZoomUi = showCameraUi && cameraMode === "environment";
 
   return (
     <>
       <div
-        onTouchStart={handlePreviewTouchStart}
-        onTouchMove={handlePreviewTouchMove}
-        onTouchEnd={handlePreviewTouchEnd}
-        onTouchCancel={handlePreviewTouchEnd}
-        className={`relative w-full max-w-md aspect-square bg-gray-800 rounded-[65px] overflow-hidden transition-transform duration-500 `}
-        style={{ touchAction: preview || selectedFile ? "auto" : "none" }}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+        onTouchCancel={onTouchEnd}
+        className="relative w-full max-w-md aspect-square bg-gray-800 rounded-[65px] overflow-hidden transition-transform duration-500"
+        style={{
+          // Prevent browser page-zoom while pinching camera
+          touchAction: preview || selectedFile ? "auto" : "none",
+        }}
       >
         {!preview && !selectedFile && cameraActive && (
           <video
@@ -636,54 +768,56 @@ const MediaPreviewAndroid = () => {
           />
         )}
 
-        {/* Switching lens overlay */}
-        {isSwitchingCamera && !preview && !selectedFile && (
+        {isSwitchingCamera && showCameraUi && (
           <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/30 pointer-events-none">
             <div className="w-8 h-8 rounded-full border-2 border-white/80 border-t-transparent animate-spin" />
           </div>
         )}
 
-        {!preview && !selectedFile && (
+        {showCameraUi && (
           <>
-            <div className="absolute inset-0 top-7 px-7 z-30 pointer-events-none flex justify-start text-base-content text-xs font-semibold">
+            {/* Torch top-left area — zoom badge sits beside it */}
+            <div className="absolute top-7 left-7 z-30 pointer-events-none flex items-center gap-2">
               <button
                 onClick={handleToggleTorch}
                 className="pointer-events-auto w-7 h-7 p-1.5 rounded-full bg-white/30 backdrop-blur-md flex items-center justify-center"
               >
-                <img src="/icons/bolt.fill.png" alt="Icon sấm sét" />
+                <img src="/icons/bolt.fill.png" alt="Flash" />
               </button>
             </div>
 
-            {/* Zoom selector: 0.5 / 1x / 2x / Max — lower part of frame */}
+            {/* ONLY zoom indicator: top-left badge (offset right of flash) */}
             {showZoomUi && (
-              <div className="absolute inset-x-0 bottom-5 z-30 pointer-events-none flex justify-center">
-                <div className="pointer-events-auto flex items-center gap-1.5 px-2 py-1 rounded-full bg-black/40 backdrop-blur-md">
-                  {ZOOM_MODES.map((mode) => {
-                    const active = (zoomLevel || "1x") === mode;
-                    const enabled = modeEnabled(mode);
-                    return (
-                      <button
-                        key={mode}
-                        type="button"
-                        disabled={!enabled || isSwitchingCamera}
-                        onClick={() => handleSelectZoomMode(mode)}
-                        className={`min-w-[2.25rem] h-8 px-2 rounded-full text-xs font-semibold transition-all
-                          ${
-                            active
-                              ? "bg-white text-black scale-105"
-                              : enabled
-                                ? "bg-white/15 text-white hover:bg-white/25"
-                                : "bg-white/5 text-white/30 cursor-not-allowed"
-                          }`}
-                        aria-label={`Zoom ${formatZoomModeLabel(mode)}`}
-                      >
-                        {formatZoomModeLabel(mode)}
-                      </button>
-                    );
-                  })}
+              <div className="absolute top-7 left-[3.75rem] z-30 pointer-events-none">
+                <div
+                  className="min-w-[2.5rem] h-7 px-2.5 rounded-full flex items-center justify-center
+                    text-[11px] font-semibold tracking-wide text-white
+                    bg-white/20 backdrop-blur-md border border-white/25 shadow-sm"
+                  data-zoom-badge="true"
+                  style={{ textShadow: "0 1px 2px rgba(0,0,0,0.35)" }}
+                >
+                  {(() => {
+                    const n = Number(currentZoom);
+                    if (!Number.isFinite(n)) return "1x";
+                    if (Math.abs(n - 1) < 0.05) return "1x";
+                    if (Math.abs(n - 0.5) < 0.05) return "0.5x";
+                    if (Number.isInteger(n) || Math.abs(n - Math.round(n)) < 0.05)
+                      return `${Math.round(n)}x`;
+                    return `${Number(n.toFixed(1))}x`;
+                  })()}
                 </div>
               </div>
             )}
+
+            {/* Presets 0.5 / 1x / 2x — bottom inside frame, NOT caption */}
+            <ZoomPresets
+              visible={showZoomUi}
+              activeMode={activeZoomMode || zoomLevel || "1x"}
+              currentZoom={currentZoom}
+              available={availableZoomModes}
+              disabled={isSwitchingCamera}
+              onSelect={handleSelectZoomMode}
+            />
 
             {cameraFrame?.imageSrc && (
               <div className="absolute inset-0 z-20 pointer-events-none">
@@ -740,6 +874,7 @@ const MediaPreviewAndroid = () => {
           />
         )}
 
+        {/* Caption ONLY — no zoom controls here */}
         <div
           className={`absolute z-10 inset-x-0 bottom-0 px-4 pb-4 transform transition-all duration-300 
           ${
@@ -747,6 +882,7 @@ const MediaPreviewAndroid = () => {
               ? "opacity-100"
               : "opacity-0 scale-95 pointer-events-none"
           }`}
+          data-caption-area="true"
         >
           <Suspense fallback={null}>
             <EditorCaption />

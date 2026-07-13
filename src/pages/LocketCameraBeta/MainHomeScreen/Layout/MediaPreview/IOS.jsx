@@ -1,4 +1,11 @@
-import React, { lazy, Suspense, useEffect, useRef, useState, useCallback } from "react";
+import React, {
+  lazy,
+  Suspense,
+  useEffect,
+  useRef,
+  useState,
+  useCallback,
+} from "react";
 import {
   getAvailableCameras,
   getMainBackCameraId,
@@ -8,17 +15,22 @@ import {
   getCurrentTrackSettings,
   getActiveVideoTrack,
   supportsHardwareZoom,
-  setCameraZoom,
+  applyCameraZoom,
   readZoomRange,
   computeAvailableZoomModes,
   ensureMainCameraStream,
   resolveZoomModeTarget,
   classifyLensType,
-  formatZoomModeLabel,
-  ZOOM_MODES,
+  getEffectiveZoomBounds,
+  mapDisplayZoomToLens,
+  handlePinchZoomStart,
+  handlePinchZoomMove,
+  handlePinchZoomEnd,
+  removeCaptionZoomControls,
   isUltraLabel,
   isTeleLabel,
 } from "@/utils";
+import ZoomPresets from "./ZoomPresets";
 const EditorCaption = lazy(() => import("@/features/EditorCaption"));
 import { useApp } from "@/context/AppContext";
 import BorderProgress from "../../Widgets/SquareProgress";
@@ -26,8 +38,10 @@ import { SonnerInfo } from "@/components/ui/SonnerToast";
 import { usePostStore, useUIStore } from "@/stores";
 import { useTranslation } from "react-i18next";
 
+const PINCH_THROTTLE_MS = 45;
+
 const MediaPreviewIOS = () => {
-  const { useloading, camera, navigation } = useApp();
+  const { camera, navigation } = useApp();
   const { t } = useTranslation("main");
 
   const selectedFile = usePostStore((s) => s.selectedFile);
@@ -44,8 +58,9 @@ const MediaPreviewIOS = () => {
     setZoomLevel,
     deviceId,
     setDeviceId,
-    setCurrentLensType,
+    currentZoom,
     setCurrentZoom,
+    setCurrentLensType,
     setMinZoom,
     setMaxZoom,
     setZoomStep,
@@ -53,9 +68,12 @@ const MediaPreviewIOS = () => {
     setAvailableZoomModes,
     isSwitchingCamera,
     setIsSwitchingCamera,
+    isPinching,
+    setIsPinching,
+    activeZoomMode,
+    setActiveZoomMode,
     setDetectedCameras,
   } = camera;
-  const { setSendLoading } = useloading;
   const { isBottomOpen, isHomeOpen, isProfileOpen } = navigation || {};
 
   const cameraInitialized = useRef(false);
@@ -63,8 +81,18 @@ const MediaPreviewIOS = () => {
   const lastDeviceId = useRef(deviceId);
   const lastZoomLevel = useRef(zoomLevel);
   const startRequestId = useRef(0);
-  const detectedRef = useRef(null);
+  const pinchState = useRef({
+    active: false,
+    distance: 0,
+    zoom: 1,
+    isPinching: false,
+  });
   const currentZoomValue = useRef(1);
+  const lastPinchApply = useRef(0);
+  const pendingZoom = useRef(null);
+  const applyInFlight = useRef(false);
+  const detectedRef = useRef(null);
+  const boundsRef = useRef({ minZoom: 1, maxZoom: 1 });
 
   const [previewMirror, setPreviewMirror] = useState(
     () => cameraMode === "user",
@@ -81,35 +109,50 @@ const MediaPreviewIOS = () => {
 
   const cameraFrame = useUIStore((s) => s.cameraFrame);
 
+  const toDetectedShape = (cameras) => ({
+    main: cameras?.backNormalCamera,
+    ultrawide: cameras?.backUltraWideCamera,
+    telephoto: cameras?.backZoomCamera,
+    rear: cameras?.backCameras || [],
+    front: cameras?.frontCameras || [],
+    all: cameras?.allCameras || [],
+  });
+
   const syncZoomStateFromStream = useCallback(
     (stream, cameras) => {
-      const range = readZoomRange(stream);
-      setMinZoom(range.minZoom);
-      setMaxZoom(range.maxZoom);
-      setZoomStep(range.zoomStep);
-
-      const detectedShape = {
-        main: cameras?.backNormalCamera,
-        ultrawide: cameras?.backUltraWideCamera,
-        telephoto: cameras?.backZoomCamera,
-        rear: cameras?.backCameras || [],
-        front: cameras?.frontCameras || [],
-        all: cameras?.allCameras || [],
+      const shape = toDetectedShape(cameras);
+      const bounds = getEffectiveZoomBounds(shape, stream);
+      boundsRef.current = {
+        minZoom: bounds.minZoom,
+        maxZoom: bounds.maxZoom,
       };
-      const modes = computeAvailableZoomModes(detectedShape, stream);
+      setMinZoom(bounds.minZoom);
+      setMaxZoom(bounds.maxZoom);
+      setZoomStep(bounds.step || 0.1);
+
+      const modes = computeAvailableZoomModes(shape, stream);
       modes["1x"] = true;
+      if (!modes["0.5x"] && bounds.minZoom < 0.95) modes["0.5x"] = true;
+      if (!modes["0.5x"] && shape.ultrawide) modes["0.5x"] = true;
       setAvailableZoomModes(modes);
 
       const settings = getCurrentTrackSettings(stream);
       const actualId = settings.deviceId || null;
       const device =
         cameras?.allCameras?.find((d) => d.deviceId === actualId) || null;
-      setCurrentLensType(
-        classifyLensType(device, detectedShape),
-      );
+      setCurrentLensType(classifyLensType(device, shape));
+
       const z = settings.zoom ?? currentZoomValue.current ?? 1;
-      currentZoomValue.current = z;
-      setCurrentZoom(z);
+      let display = z;
+      if (
+        shape.ultrawide?.deviceId &&
+        actualId === shape.ultrawide.deviceId &&
+        z <= 1.1
+      ) {
+        display = 0.5;
+      }
+      currentZoomValue.current = display;
+      setCurrentZoom(display);
       if (actualId) lastDeviceId.current = actualId;
     },
     [
@@ -122,59 +165,125 @@ const MediaPreviewIOS = () => {
     ],
   );
 
-  const applyDigitalZoom = async (value, stream = streamRef.current) => {
-    const applied = await setCameraZoom(stream, value);
-    if (applied !== false) {
-      currentZoomValue.current = applied;
-      setCurrentZoom(applied);
-      return true;
-    }
-    return false;
-  };
+  const applyDisplayZoom = useCallback(
+    async (displayZoom) => {
+      const stream = streamRef.current;
+      if (!stream) return false;
+
+      const cameras = detectedRef.current;
+      const shape = toDetectedShape(cameras);
+      const bounds = boundsRef.current;
+      const clamped = Math.max(
+        bounds.minZoom ?? 0.5,
+        Math.min(displayZoom, bounds.maxZoom ?? 1),
+      );
+
+      currentZoomValue.current = clamped;
+      setCurrentZoom(clamped);
+
+      let mode = "custom";
+      if (Math.abs(clamped - 0.5) < 0.12) mode = "0.5x";
+      else if (Math.abs(clamped - 1) < 0.15) mode = "1x";
+      else if (Math.abs(clamped - 2) < 0.25) mode = "2x";
+      setActiveZoomMode(mode);
+      if (mode !== "custom") {
+        setZoomLevel(mode);
+        lastZoomLevel.current = mode;
+      }
+
+      const mapped = mapDisplayZoomToLens(clamped, shape, stream);
+      const curId = lastDeviceId.current || deviceId;
+
+      if (
+        mapped.deviceId &&
+        curId &&
+        mapped.deviceId !== curId
+      ) {
+        const crossingUltra =
+          mapped.lensType === "ultrawide" && clamped < 0.85;
+        const leavingUltra =
+          mapped.lensType === "main" &&
+          shape.ultrawide?.deviceId === curId &&
+          clamped >= 0.85;
+        const needTele =
+          mapped.lensType === "telephoto" && clamped >= 1.9;
+
+        if (crossingUltra || leavingUltra || needTele) {
+          if (isSwitchingCamera) return false;
+          setDeviceId(mapped.deviceId);
+          setZoomLevel(mapped.mode);
+          return true;
+        }
+      }
+
+      if (supportsHardwareZoom(stream) && mapped.digitalZoom != null) {
+        if (applyInFlight.current) {
+          pendingZoom.current = mapped.digitalZoom;
+          return false;
+        }
+        applyInFlight.current = true;
+        try {
+          await applyCameraZoom(stream, mapped.digitalZoom);
+        } finally {
+          applyInFlight.current = false;
+          if (pendingZoom.current != null) {
+            const p = pendingZoom.current;
+            pendingZoom.current = null;
+            applyCameraZoom(stream, p).catch(() => {});
+          }
+        }
+      }
+      return false;
+    },
+    [
+      deviceId,
+      isSwitchingCamera,
+      setActiveZoomMode,
+      setCurrentZoom,
+      setDeviceId,
+      setZoomLevel,
+    ],
+  );
 
   const handleSelectZoomMode = async (mode) => {
-    if (isSwitchingCamera) return;
-    if (mode === zoomLevel && mode !== "0.5x") return;
+    if (isSwitchingCamera || isPinching) return;
 
-    const isBack = cameraMode === "environment";
     const cameras =
       detectedRef.current || (await getAvailableCameras({ force: false }));
     detectedRef.current = cameras;
     setDetectedCameras(cameras);
-
-    const detectedShape = {
-      main: cameras?.backNormalCamera,
-      ultrawide: cameras?.backUltraWideCamera,
-      telephoto: cameras?.backZoomCamera,
-      rear: cameras?.backCameras || [],
-      front: cameras?.frontCameras || [],
-      all: cameras?.allCameras || [],
-    };
+    const shape = toDetectedShape(cameras);
 
     const modes =
       availableZoomModes ||
-      computeAvailableZoomModes(detectedShape, streamRef.current);
+      computeAvailableZoomModes(shape, streamRef.current);
 
     if (mode !== "1x" && modes[mode] === false) {
-      SonnerInfo(
-        t(
-          mode === "0.5x"
-            ? "home.zoom_05_unsupported"
-            : mode === "2x"
-              ? "home.zoom_2x_unsupported"
-              : mode === "max"
-                ? "home.zoom_max_unsupported"
-                : "home.camera_no_zoom",
-          { defaultValue: t("home.camera_no_zoom") },
-        ),
-      );
-      return;
+      if (mode === "0.5x") {
+        const range = readZoomRange(streamRef.current);
+        if (!(range.supported && range.minZoom < 0.95) && !shape.ultrawide) {
+          SonnerInfo(
+            t("home.zoom_05_unsupported", {
+              defaultValue: "0.5x is not supported on this device",
+            }),
+          );
+          return;
+        }
+      } else {
+        SonnerInfo(
+          t("home.zoom_2x_unsupported", {
+            defaultValue: t("home.camera_no_zoom"),
+          }),
+        );
+        return;
+      }
     }
 
     const target = resolveZoomModeTarget(mode, {
-      detected: detectedShape,
+      detected: shape,
       stream: streamRef.current,
-      facingMode: isBack ? "environment" : "user",
+      facingMode:
+        cameraMode === "environment" ? "environment" : "user",
     });
 
     if (target.unavailable) {
@@ -182,9 +291,7 @@ const MediaPreviewIOS = () => {
         t(
           mode === "0.5x"
             ? "home.zoom_05_unsupported"
-            : mode === "max"
-              ? "home.zoom_max_unsupported"
-              : "home.camera_no_zoom",
+            : "home.camera_no_zoom",
           { defaultValue: t("home.camera_no_zoom") },
         ),
       );
@@ -196,33 +303,106 @@ const MediaPreviewIOS = () => {
       (target.deviceId === deviceId ||
         target.deviceId === lastDeviceId.current);
 
+    setActiveZoomMode(target.mode);
+    setZoomLevel(target.mode);
+    lastZoomLevel.current = target.mode;
+
+    const display =
+      target.displayZoom ??
+      (mode === "0.5x" ? 0.5 : mode === "2x" ? 2 : 1);
+    currentZoomValue.current = display;
+    setCurrentZoom(display);
+
     if (sameDevice || (!target.deviceId && streamRef.current)) {
-      setZoomLevel(target.mode);
-      lastZoomLevel.current = target.mode;
-      if (target.digitalZoom != null && supportsHardwareZoom(streamRef.current)) {
+      if (
+        target.digitalZoom != null &&
+        supportsHardwareZoom(streamRef.current)
+      ) {
         try {
-          await applyDigitalZoom(target.digitalZoom);
+          await applyCameraZoom(streamRef.current, target.digitalZoom);
         } catch {
           /* ignore */
         }
-      } else if (target.mode === "1x" && supportsHardwareZoom(streamRef.current)) {
-        const range = readZoomRange(streamRef.current);
-        const one = range.minZoom <= 1 && range.maxZoom >= 1 ? 1 : range.minZoom;
-        await applyDigitalZoom(one);
       }
       return;
     }
 
     setIsSwitchingCamera(true);
-    setZoomLevel(target.mode);
     setDeviceId(target.deviceId || null);
+  };
+
+  const onTouchStart = (event) => {
+    if (preview || selectedFile) return;
+    if (cameraMode !== "environment") return;
+    if (event.touches.length !== 2) return;
+    event.preventDefault();
+    pinchState.current = handlePinchZoomStart(
+      event.touches,
+      currentZoomValue.current,
+    );
+    setIsPinching(true);
+  };
+
+  const onTouchMove = async (event) => {
+    if (!pinchState.current.active || event.touches.length !== 2) return;
+    if (cameraMode !== "environment") return;
+    event.preventDefault();
+
+    const now = Date.now();
+    if (now - lastPinchApply.current < PINCH_THROTTLE_MS) return;
+    lastPinchApply.current = now;
+
+    const { minZoom: mn, maxZoom: mx } = boundsRef.current;
+    const moved = handlePinchZoomMove(
+      event.touches,
+      pinchState.current,
+      mn,
+      mx,
+    );
+    const startZoom = pinchState.current.zoom;
+    const startDist = pinchState.current.distance || moved.distance;
+    const totalScale = startDist ? moved.distance / startDist : 1;
+    const nextZoom = Math.max(mn, Math.min(startZoom * totalScale, mx));
+
+    currentZoomValue.current = nextZoom;
+    setCurrentZoom(nextZoom);
+    setActiveZoomMode("custom");
+    await applyDisplayZoom(nextZoom);
+  };
+
+  const onTouchEnd = () => {
+    if (!pinchState.current.active && !isPinching) return;
+    pinchState.current = {
+      ...handlePinchZoomEnd(),
+      zoom: currentZoomValue.current,
+    };
+    setIsPinching(false);
+
+    const z = currentZoomValue.current;
+    if (Math.abs(z - 0.5) < 0.12) {
+      setActiveZoomMode("0.5x");
+      setZoomLevel("0.5x");
+    } else if (Math.abs(z - 1) < 0.15) {
+      setActiveZoomMode("1x");
+      setZoomLevel("1x");
+    } else if (Math.abs(z - 2) < 0.25) {
+      setActiveZoomMode("2x");
+      setZoomLevel("2x");
+    } else {
+      setActiveZoomMode("custom");
+    }
   };
 
   const stopCamera = () => {
     startRequestId.current += 1;
+    pinchState.current = handlePinchZoomEnd();
+    setIsPinching(false);
     stopCurrentCamera(streamRef.current, videoRef.current);
     streamRef.current = null;
     cameraInitialized.current = false;
+    currentZoomValue.current = 1;
+    setCurrentZoom(1);
+    setActiveZoomMode("1x");
   };
 
   const startCamera = async () => {
@@ -272,49 +452,48 @@ const MediaPreviewIOS = () => {
       const ultraId = cameras?.backUltraWideCamera?.deviceId || null;
       const teleId = cameras?.backZoomCamera?.deviceId || null;
       const frontId = cameras?.frontCameras?.[0]?.deviceId || null;
-
-      const detectedShape = {
-        main: cameras?.backNormalCamera,
-        ultrawide: cameras?.backUltraWideCamera,
-        telephoto: cameras?.backZoomCamera,
-        rear: cameras?.backCameras || [],
-        front: cameras?.frontCameras || [],
-        all: cameras?.allCameras || [],
-      };
+      const shape = toDetectedShape(cameras);
 
       let resolvedDeviceId = null;
       let digitalZoomTarget = 1;
+      let displayZoom = 1;
 
       if (!isBack) {
         resolvedDeviceId = frontId || deviceId;
       } else {
         const target = resolveZoomModeTarget(z, {
-          detected: detectedShape,
+          detected: shape,
           stream: streamRef.current,
           facingMode: "environment",
         });
         if (deviceId && z === "0.5x" && ultraId && deviceId === ultraId) {
           resolvedDeviceId = ultraId;
+          displayZoom = 0.5;
         } else if (deviceId && z === "2x" && teleId && deviceId === teleId) {
           resolvedDeviceId = teleId;
+          displayZoom = 2;
         } else if (target.unavailable && z !== "1x") {
           resolvedDeviceId = mainId;
           setZoomLevel("1x");
+          setActiveZoomMode("1x");
+          displayZoom = 1;
         } else {
           resolvedDeviceId = target.deviceId || mainId;
           digitalZoomTarget =
             target.digitalZoom != null ? target.digitalZoom : 1;
+          displayZoom = target.displayZoom ?? digitalZoomTarget;
         }
         if (z === "1x" || !z) {
           resolvedDeviceId = mainId;
           digitalZoomTarget = 1;
+          displayZoom = 1;
         }
       }
 
       const oldStream = streamRef.current;
       if (oldStream) {
         try {
-          oldStream.getTracks().forEach((t) => t.stop());
+          oldStream.getTracks().forEach((tr) => tr.stop());
         } catch {
           /* ignore */
         }
@@ -341,7 +520,7 @@ const MediaPreviewIOS = () => {
 
       if (isBack && (z === "1x" || !z) && mainId) {
         stream = await ensureMainCameraStream(stream, mainId, {
-          ...detectedShape,
+          ...shape,
           all: cameras?.allCameras,
           rear: cameras?.backCameras,
         });
@@ -403,15 +582,19 @@ const MediaPreviewIOS = () => {
             const range = readZoomRange(stream);
             const one =
               range.minZoom <= 1 && range.maxZoom >= 1 ? 1 : range.minZoom;
-            await applyDigitalZoom(one, stream);
-          } else if (digitalZoomTarget != null && digitalZoomTarget !== 1) {
-            await applyDigitalZoom(digitalZoomTarget, stream);
+            await applyCameraZoom(stream, one);
+            displayZoom = 1;
+          } else if (digitalZoomTarget != null) {
+            await applyCameraZoom(stream, digitalZoomTarget);
           }
         } catch {
           /* ignore */
         }
       }
 
+      currentZoomValue.current = displayZoom;
+      setCurrentZoom(displayZoom);
+      setActiveZoomMode(z === "0.5x" || z === "2x" || z === "1x" ? z : "1x");
       syncZoomStateFromStream(stream, cameras);
     } catch (err) {
       console.error("startCamera iOS:", err);
@@ -420,6 +603,10 @@ const MediaPreviewIOS = () => {
       setIsSwitchingCamera(false);
     }
   };
+
+  useEffect(() => {
+    removeCaptionZoomControls();
+  }, []);
 
   useEffect(() => {
     const onVis = () => setPageVisible(document.visibilityState === "visible");
@@ -462,19 +649,20 @@ const MediaPreviewIOS = () => {
     }
   }, [preview, selectedFile, cameraActive, onCapturePage, setCameraActive]);
 
-  const showZoomUi =
-    cameraMode === "environment" && !preview && !selectedFile && cameraActive;
-
-  const modeEnabled = (mode) => {
-    if (mode === "1x") return true;
-    if (!availableZoomModes) return false;
-    return Boolean(availableZoomModes[mode]);
-  };
+  const showCameraUi = !preview && !selectedFile && cameraActive;
+  const showZoomUi = showCameraUi && cameraMode === "environment";
 
   return (
     <>
       <div
-        className={`relative w-full max-w-md aspect-square bg-gray-800 rounded-[65px] overflow-hidden transition-transform duration-500 `}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+        onTouchCancel={onTouchEnd}
+        className="relative w-full max-w-md aspect-square bg-gray-800 rounded-[65px] overflow-hidden transition-transform duration-500"
+        style={{
+          touchAction: preview || selectedFile ? "auto" : "none",
+        }}
       >
         {!preview && !selectedFile && cameraActive && (
           <video
@@ -497,52 +685,56 @@ const MediaPreviewIOS = () => {
           />
         )}
 
-        {isSwitchingCamera && !preview && !selectedFile && (
+        {isSwitchingCamera && showCameraUi && (
           <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/30 pointer-events-none">
             <div className="w-8 h-8 rounded-full border-2 border-white/80 border-t-transparent animate-spin" />
           </div>
         )}
 
-        {!preview && !selectedFile && (
+        {showCameraUi && (
           <>
-            <div className="absolute inset-0 top-7 px-7 z-30 pointer-events-none flex justify-start text-base-content text-xs font-semibold">
+            <div className="absolute top-7 left-7 z-30 pointer-events-none flex items-center gap-2">
               <button
                 onClick={() => SonnerInfo(t("home.feature_coming_soon"))}
                 className="pointer-events-auto w-7 h-7 p-1.5 rounded-full bg-white/30 backdrop-blur-md flex items-center justify-center"
               >
-                <img src="/icons/bolt.fill.png" alt="Icon sấm sét" />
+                <img src="/icons/bolt.fill.png" alt="Flash" />
               </button>
             </div>
 
             {showZoomUi && (
-              <div className="absolute inset-x-0 bottom-5 z-30 pointer-events-none flex justify-center">
-                <div className="pointer-events-auto flex items-center gap-1.5 px-2 py-1 rounded-full bg-black/40 backdrop-blur-md">
-                  {ZOOM_MODES.map((mode) => {
-                    const active = (zoomLevel || "1x") === mode;
-                    const enabled = modeEnabled(mode);
-                    return (
-                      <button
-                        key={mode}
-                        type="button"
-                        disabled={!enabled || isSwitchingCamera}
-                        onClick={() => handleSelectZoomMode(mode)}
-                        className={`min-w-[2.25rem] h-8 px-2 rounded-full text-xs font-semibold transition-all
-                          ${
-                            active
-                              ? "bg-white text-black scale-105"
-                              : enabled
-                                ? "bg-white/15 text-white hover:bg-white/25"
-                                : "bg-white/5 text-white/30 cursor-not-allowed"
-                          }`}
-                        aria-label={`Zoom ${formatZoomModeLabel(mode)}`}
-                      >
-                        {formatZoomModeLabel(mode)}
-                      </button>
-                    );
-                  })}
+              <div className="absolute top-7 left-[3.75rem] z-30 pointer-events-none">
+                <div
+                  className="min-w-[2.5rem] h-7 px-2.5 rounded-full flex items-center justify-center
+                    text-[11px] font-semibold tracking-wide text-white
+                    bg-white/20 backdrop-blur-md border border-white/25 shadow-sm"
+                  data-zoom-badge="true"
+                  style={{ textShadow: "0 1px 2px rgba(0,0,0,0.35)" }}
+                >
+                  {(() => {
+                    const n = Number(currentZoom);
+                    if (!Number.isFinite(n)) return "1x";
+                    if (Math.abs(n - 1) < 0.05) return "1x";
+                    if (Math.abs(n - 0.5) < 0.05) return "0.5x";
+                    if (
+                      Number.isInteger(n) ||
+                      Math.abs(n - Math.round(n)) < 0.05
+                    )
+                      return `${Math.round(n)}x`;
+                    return `${Number(n.toFixed(1))}x`;
+                  })()}
                 </div>
               </div>
             )}
+
+            <ZoomPresets
+              visible={showZoomUi}
+              activeMode={activeZoomMode || zoomLevel || "1x"}
+              currentZoom={currentZoom}
+              available={availableZoomModes}
+              disabled={isSwitchingCamera}
+              onSelect={handleSelectZoomMode}
+            />
 
             {cameraFrame?.imageSrc && (
               <div className="absolute inset-0 z-20 pointer-events-none">
@@ -596,6 +788,7 @@ const MediaPreviewIOS = () => {
           />
         )}
 
+        {/* Caption ONLY — never put zoom controls here */}
         <div
           className={`absolute z-10 inset-x-0 bottom-0 px-4 pb-4 transform transition-all duration-300 
           ${
@@ -603,6 +796,7 @@ const MediaPreviewIOS = () => {
               ? "opacity-100"
               : "opacity-0 scale-95 pointer-events-none"
           }`}
+          data-caption-area="true"
         >
           <Suspense fallback={null}>
             <EditorCaption />
