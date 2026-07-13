@@ -52,31 +52,63 @@ function normalizeQ(s) {
     .trim();
 }
 
-/** Điểm khớp tên — 0 = ẩn (không hiện Basket Case khi gõ "tim em") */
+/** Điểm khớp tên bài HOẶC ca sĩ — 0 = ẩn rác (tim em ≠ Basket Case) */
 function scoreTitleMatch(query, track) {
   const qn = normalizeQ(query);
   const title = normalizeQ(
     track?.song_title || track?.song_name || track?.name || track?.title || "",
   );
-  if (!qn || !title) return 0;
+  const artist = normalizeQ(track?.artist || "");
+  if (!qn || (!title && !artist)) return 0;
   const tokens = qn.split(" ").filter((t) => t.length >= 2);
+  if (!tokens.length) return 0;
+  const joined = tokens.join(" ");
+
+  const wordIn = (tok, text) => {
+    if (!tok || !text) return false;
+    const re = new RegExp(
+      `(?:^|\\s)${tok.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:\\s|$)`,
+    );
+    return re.test(text);
+  };
+
+  const phraseTitle =
+    title && (title === qn || title.includes(qn) || title.startsWith(qn));
+  const phraseArtist =
+    artist &&
+    (artist === qn || artist.includes(qn) || artist.startsWith(qn));
+  const allInArtist =
+    artist && tokens.every((t) => wordIn(t, artist) || artist.includes(joined));
+  const allInTitle =
+    title && tokens.every((t) => wordIn(t, title) || title.includes(joined));
+
+  // Phải khớp title hoặc artist (tìm theo ca sĩ được)
+  if (!phraseTitle && !phraseArtist && !allInArtist && !allInTitle) return 0;
+
+  // Token ngắn trong title-only path: chặn substring time/remember
+  if (!phraseArtist && !allInArtist && phraseTitle === false && allInTitle) {
+    for (const tok of tokens.filter((t) => t.length <= 3)) {
+      if (!wordIn(tok, title) && !title.includes(joined)) return 0;
+    }
+  }
+
   let s = 0;
   if (title === qn) s += 8000;
   else if (title.startsWith(qn)) s += 4000;
   else if (title.includes(qn)) s += 2500;
-  if (tokens.length > 1 && title.includes(tokens.join(" "))) s += 2000;
+  if (tokens.length > 1 && title.includes(joined)) s += 2000;
   for (const tok of tokens) {
-    // word-boundary only — không substring (tim∈time, em∈remember)
-    const re = new RegExp(
-      `(?:^|\\s)${tok.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:\\s|$)`,
-    );
-    if (re.test(title)) s += 800;
-    else if (tokens.length >= 2) {
-      // multi-token: mọi token phải có trong title (word)
-      return 0;
-    }
+    if (wordIn(tok, title)) s += 800;
   }
-  if (tokens.length >= 2 && s < 800) return 0;
+
+  // Tìm theo tên ca sĩ
+  if (artist === qn) s += 5500;
+  else if (artist.includes(qn) || artist.startsWith(qn)) s += 4200;
+  else if (allInArtist) s += 3200;
+  for (const tok of tokens) {
+    if (wordIn(tok, artist)) s += 500;
+  }
+
   if (s <= 0) return 0;
   if (track?.isrc) s += 100;
   if (track?.spotify_url) s += 40;
@@ -693,7 +725,7 @@ export default function FormSpotifyPicker({
               <div className="flex-1 min-w-0">
                 <h3 className="text-lg font-bold leading-tight">Tìm nhạc</h3>
                 <p className="text-xs text-base-content/60 truncate">
-                  Giống Spotify · chạm bài → cắt đoạn → gắn
+                  Tên bài hoặc ca sĩ · chạm → cắt đoạn → gắn
                 </p>
               </div>
               <button
@@ -715,7 +747,7 @@ export default function FormSpotifyPicker({
                   type="search"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Tìm Em, Sơn Tùng, Blinding Lights..."
+                  placeholder="Tên bài hoặc ca sĩ (Sơn Tùng, Tìm Em...)"
                   className="bg-transparent outline-none w-full text-sm font-medium placeholder:text-base-content/40"
                   autoFocus
                   disabled={busy}

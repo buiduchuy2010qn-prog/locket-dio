@@ -211,22 +211,40 @@ function rankTracksByQuery(query, tracks, limit = 40) {
     const inFull = tokens.filter((t) => tokenAsWord(t, full));
     const phrase = title.includes(q) || title === q;
 
-    // Bắt buộc khớp query — không boost ISRC cho bài rác
-    if (!phrase && inTitle.length === 0 && tokens.length >= 1) {
-      // token ngắn: không cho substring (tim∈time)
-      const allShortInTitle = tokens.every((tok) => tokenAsWord(tok, title));
-      if (!allShortInTitle && !title.includes(tokens.join(" "))) {
-        return { track, s: 0 };
-      }
+    const artistN = normalizeSearchText(track.artist || "");
+    const inArtist = tokens.filter((t) => tokenAsWord(t, artistN));
+    const joined = tokens.join(" ");
+    const phraseArtist =
+      artistN &&
+      (artistN === q || artistN.includes(q) || artistN.startsWith(q));
+    const allInArtist =
+      artistN &&
+      tokens.every((tok) => tokenAsWord(tok, artistN) || artistN.includes(joined));
+
+    // Khớp title HOẶC artist (tìm theo ca sĩ)
+    const titleOk =
+      phrase ||
+      inTitle.length > 0 ||
+      (tokens.length >= 1 && title.includes(joined));
+    const artistOk = phraseArtist || allInArtist;
+
+    if (!titleOk && !artistOk) {
+      return { track, s: 0 };
     }
 
     let s = 10;
     if (title === q) s += 5000;
     else if (title.startsWith(q)) s += 2500;
     if (phrase) s += 1500;
-    if (tokens.length > 1 && title.includes(tokens.join(" "))) s += 1200;
+    if (tokens.length > 1 && title.includes(joined)) s += 1200;
     s += (inTitle.length / Math.max(1, tokens.length)) * 800;
     s += (inFull.length / Math.max(1, tokens.length)) * 100;
+
+    if (artistN === q) s += 5500;
+    else if (phraseArtist) s += 4200;
+    else if (allInArtist) s += 3200;
+    s += (inArtist.length / Math.max(1, tokens.length)) * 500;
+
     if (track.isrc && s > 10) s += 200;
     if (
       (track.spotify_url || track.source === "spotify-search") &&

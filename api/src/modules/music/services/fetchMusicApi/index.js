@@ -726,8 +726,10 @@ function tokenAsWord(token, text) {
 }
 
 /**
- * Điểm khớp query — BẮT BUỘC liên quan tên bài.
- * Token ngắn (em, ti, me) chỉ tính khi là từ riêng / phrase, không dính "time"/"remember".
+ * Điểm khớp query — tên bài HOẶC tên ca sĩ (như Spotify).
+ * - "tim em" → khớp title
+ * - "sơn tùng" → khớp artist
+ * Token ngắn (em, tim) chỉ word-boundary, không dính "time"/"remember".
  */
 function scoreTrackMatch(query, track) {
   const q = normalizeSearchText(query);
@@ -736,68 +738,98 @@ function scoreTrackMatch(query, track) {
   );
   const artist = normalizeSearchText(track.artist || "");
   const full = `${title} ${artist}`.trim();
-  if (!q || !title) return 0;
+  if (!q || (!title && !artist)) return 0;
 
-  // Bỏ token 1 ký tự (noise)
   const tokens = q.split(" ").filter((t) => t.length >= 2);
   if (!tokens.length) return 0;
 
-  const phraseInTitle = title === q || title.includes(q);
-  const phraseExact = title === q;
-  const phraseStarts = title.startsWith(q) || title.startsWith(`${q} `);
+  const joined = tokens.join(" ");
+  const phraseInTitle = Boolean(title) && (title === q || title.includes(q));
+  const phraseExactTitle = title === q;
+  const phraseStartsTitle = Boolean(title) && (title.startsWith(q) || title.startsWith(`${q} `));
+  const phraseInArtist =
+    Boolean(artist) &&
+    (artist === q || artist.includes(q) || artist.startsWith(q));
+  const phraseExactArtist = artist === q;
 
-  // Mọi token phải xuất hiện trong title (ưu tiên) hoặc full — token ngắn (≤3) chỉ trong title
   const shortTokens = tokens.filter((t) => t.length <= 3);
-  const longTokens = tokens.filter((t) => t.length > 3);
-
-  const inTitle = tokens.filter((t) => tokenAsWord(t, title));
+  const inTitle = title
+    ? tokens.filter((t) => tokenAsWord(t, title))
+    : [];
+  const inArtist = artist
+    ? tokens.filter((t) => tokenAsWord(t, artist))
+    : [];
   const inFull = tokens.filter((t) => tokenAsWord(t, full));
 
-  // Phrase đầy đủ trong title → pass
-  if (!phraseInTitle) {
-    const joined = tokens.join(" ");
-    // Cụm liền trong title (sau normalize): "tim em" ∈ "tim em (remix)"
-    const hasJoined = title.includes(joined);
+  // ── Path A: khớp NGHỆ SĨ (tìm theo tên ca sĩ) ──
+  const allInArtist =
+    artist &&
+    tokens.length >= 1 &&
+    tokens.every((t) => tokenAsWord(t, artist) || artist.includes(joined));
+  const artistOk =
+    phraseInArtist ||
+    (allInArtist &&
+      // token ngắn: bắt buộc word-boundary trong artist (tránh tim∈timbaland lỏng)
+      shortTokens.every((t) => tokenAsWord(t, artist) || phraseInArtist));
 
-    // Token ngắn (≤3: em, tim) — CHỈ word-boundary, KHÔNG includes substring
-    // (tránh "tim"∈"time", "em"∈"remember")
+  // ── Path B: khớp TITLE ──
+  let titleOk = phraseInTitle;
+  if (!titleOk && title) {
+    const hasJoined = title.includes(joined);
+    let ok = true;
     for (const t of shortTokens) {
-      if (!tokenAsWord(t, title) && !hasJoined) return 0;
-    }
-    // Token dài: word hoặc prefix title
-    for (const t of longTokens) {
-      if (!tokenAsWord(t, title) && !title.startsWith(t) && !hasJoined) {
-        // cho phép trong full (artist) nếu title đã khớp token khác
-        if (!tokenAsWord(t, full)) return 0;
+      if (!tokenAsWord(t, title) && !hasJoined) {
+        ok = false;
+        break;
       }
     }
-    // ≥2 token: cần khớp gần hết trong title (hoặc cụm liền)
-    if (tokens.length >= 2 && !hasJoined) {
-      if (inTitle.length < Math.ceil(tokens.length * 0.75)) return 0;
-    } else if (tokens.length === 1) {
+    if (ok) {
+      for (const t of tokens.filter((x) => x.length > 3)) {
+        if (
+          !tokenAsWord(t, title) &&
+          !title.startsWith(t) &&
+          !hasJoined &&
+          !tokenAsWord(t, full)
+        ) {
+          ok = false;
+          break;
+        }
+      }
+    }
+    if (ok && tokens.length >= 2 && !hasJoined) {
+      if (inTitle.length < Math.ceil(tokens.length * 0.75)) ok = false;
+    } else if (ok && tokens.length === 1) {
       if (!tokenAsWord(tokens[0], title) && !title.startsWith(tokens[0])) {
-        return 0;
+        ok = false;
       }
     }
+    titleOk = ok;
   }
+
+  if (!titleOk && !artistOk) return 0;
 
   let score = 0;
-  if (phraseExact) score += 8000;
-  else if (phraseStarts) score += 4000;
+
+  // Ưu tiên title match (đúng bài) hơn artist-only
+  if (phraseExactTitle) score += 8000;
+  else if (phraseStartsTitle) score += 4000;
   else if (phraseInTitle) score += 2500;
-  if (tokens.length > 1 && title.includes(tokens.join(" "))) score += 2000;
+  if (tokens.length > 1 && title.includes(joined)) score += 2000;
+  score += (inTitle.length / tokens.length) * 1000;
 
-  const ratioTitle = inTitle.length / tokens.length;
-  score += ratioTitle * 1000;
-  score += (inFull.length / tokens.length) * 80;
+  // Artist search — điểm cao đủ để hiện list bài của ca sĩ
+  if (phraseExactArtist) score += 5500;
+  else if (phraseInArtist) score += 4200;
+  else if (artistOk) score += 3200;
+  score += (inArtist.length / tokens.length) * 600;
+  score += (inFull.length / tokens.length) * 40;
 
-  // Phạt khớp lỏng (chỉ 1/2 token)
-  if (tokens.length >= 2 && inTitle.length < tokens.length && !phraseInTitle) {
-    score *= 0.15 + 0.35 * ratioTitle;
+  // Title lỏng khi đang match artist: không phạt
+  if (titleOk && tokens.length >= 2 && inTitle.length < tokens.length && !phraseInTitle) {
+    score *= 0.4 + 0.4 * (inTitle.length / tokens.length);
   }
 
-  // Bài không dính query → 0 (không cứu bằng ISRC)
-  if (score < 50 && !phraseInTitle) return 0;
+  if (score < 40) return 0;
 
   if (typeof track.popularity === "number" && score >= 200) {
     score += Math.min(40, track.popularity * 0.25);
