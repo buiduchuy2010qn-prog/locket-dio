@@ -1,4 +1,9 @@
-# Blueprint Render — Web + API (auto khi sync Blueprint)
+# Blueprint Render — LEGACY (đã chuyển production sang Railway).
+# ĐỪNG bật Auto-Deploy trên Dashboard Render (hết pipeline minutes free).
+# Production: https://huy-locket-production.up.railway.app
+#             https://huy-locket-api-production.up.railway.app
+#
+# Giữ file để tham khảo env; không dùng làm deploy chính.
 services:
   # ── WEB: SPA + Drive + proxy ─────────────────────────────────
   - type: web

@@ -15,10 +15,21 @@
 
 ## Production deploy (mandatory)
 
-Service: **huy-locket** · Docker · Singapore  
+**Primary host: Railway** (không dùng Render auto-deploy — hết pipeline minutes)
+
+| Service | URL |
+|---------|-----|
+| **Web** | https://huy-locket-production.up.railway.app |
+| **API** | https://huy-locket-api-production.up.railway.app |
+
 Repo: `https://github.com/buiduchuy2010qn-prog/locket-dio.git` · branch **main**
 
-After production changes: commit + `git push origin main`.
+After production changes: `npm run build:static` → commit `public/` + source → `git push origin main`  
+→ Railway auto-deploy (Render: **tắt Auto-Deploy** trên Dashboard để khỏi spam lỗi pipeline minutes).
+
+### Tắt auto-deploy Render (1 lần)
+
+Dashboard Render → service **huy-locket** và **huy-locket-api** → Settings → **Auto-Deploy = No** (ho suspend service).
 
 ## API note
 
