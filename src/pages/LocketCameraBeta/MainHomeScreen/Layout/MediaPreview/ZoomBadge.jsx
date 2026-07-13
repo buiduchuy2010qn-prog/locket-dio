@@ -2,14 +2,14 @@ import React from "react";
 import { updateZoomBadge } from "@/utils";
 
 /**
- * Small glassmorphism zoom badge — top-left of square camera frame only.
- * Never place near caption.
+ * Small glassmorphism zoom badge — top-right of square camera frame only.
+ * Never place near caption / top-left.
  */
 const ZoomBadge = ({ zoom = 1, visible = true }) => {
   if (!visible) return null;
   return (
     <div
-      className="absolute top-7 left-7 z-30 pointer-events-none"
+      className="absolute top-7 right-7 z-30 pointer-events-none"
       data-zoom-badge="true"
       aria-live="polite"
     >

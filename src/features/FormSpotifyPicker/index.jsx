@@ -1,12 +1,12 @@
 import clsx from "clsx";
-import React, { useEffect, useRef, useState, useCallback, useMemo } from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import ReactDOM from "react-dom";
 import {
   Loader2,
   Music2,
   Search,
   Play,
-  Square,
+  Pause,
   X,
 } from "lucide-react";
 import { searchMusicByQuery } from "@/services/ExtensionsServices/MusicServices";
@@ -16,8 +16,6 @@ import {
   uploadMusicTrack,
 } from "@/services/ExtensionsServices/MusicLibraryServices";
 import { SonnerError, SonnerInfo, SonnerSuccess } from "@/components/ui/SonnerToast";
-
-const CLIP_OPTIONS = [30, 45, 60];
 
 function formatSec(sec = 0) {
   const s = Math.max(0, Math.floor(Number(sec) || 0));
@@ -30,11 +28,15 @@ function formatMs(ms = 0) {
   return formatSec(Number(ms) / 1000);
 }
 
+function trackSrc(track) {
+  return track?.preview_url || track?.audioUrl || track?.audio_url || "";
+}
+
 function metaDurationSec(track) {
   if (!track) return 30;
   if (track.duration_ms > 0) return track.duration_ms / 1000;
   if (track.duration > 0) return Number(track.duration);
-  if (track.preview_url) return 30;
+  if (trackSrc(track)) return 30;
   return 30;
 }
 
@@ -45,40 +47,29 @@ function loadPlayableDuration(src, fallback = 30) {
       resolve(fallback);
       return;
     }
+    let settled = false;
+    const done = (v) => {
+      if (settled) return;
+      settled = true;
+      const n = Number(v);
+      resolve(Number.isFinite(n) && n > 0 && n < 1e6 ? n : fallback);
+    };
     try {
       const a = new Audio();
       a.preload = "metadata";
-      const done = (v) => {
-        const n = Number(v);
-        resolve(Number.isFinite(n) && n > 0 && n < 1e6 ? n : fallback);
-      };
       a.onloadedmetadata = () => done(a.duration);
       a.onerror = () => done(fallback);
-      setTimeout(() => done(fallback), 8000);
+      setTimeout(() => done(fallback), 6000);
       a.src = src;
     } catch {
-      resolve(fallback);
+      done(fallback);
     }
   });
 }
 
-/** Fake waveform bars (stable per track id) */
-function useWaveBars(seed = "x", count = 64) {
-  return useMemo(() => {
-    let h = 0;
-    for (let i = 0; i < String(seed).length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
-    const bars = [];
-    for (let i = 0; i < count; i++) {
-      h = (h * 1103515245 + 12345) >>> 0;
-      const v = 0.25 + ((h % 1000) / 1000) * 0.75;
-      bars.push(v);
-    }
-    return bars;
-  }, [seed, count]);
-}
-
 /**
- * Tìm nhạc + UI cắt đoạn (30/45/60s) kiểu Locket.
+ * Tìm nhạc + nghe thử bằng 1 thanh progress (không waveform / không chip 30-45-60).
+ * Spotify preview ~30s = cả khúc; upload dài hơn thì kéo thanh để chọn vị trí.
  */
 export default function FormSpotifyPicker({
   open,
@@ -95,33 +86,62 @@ export default function FormSpotifyPicker({
   const [library, setLibrary] = useState([]);
 
   const [selected, setSelected] = useState(null);
+  /** Full length of playable audio file */
   const [playableDur, setPlayableDur] = useState(30);
-  const [clipLen, setClipLen] = useState(30); // 30 | 45 | 60
+  /** Clip window: for short previews = full track; for long uploads user can scrub start */
   const [startTime, setStartTime] = useState(0);
+  const [clipLen, setClipLen] = useState(30);
   const [clipPlaying, setClipPlaying] = useState(false);
-  const [clipPos, setClipPos] = useState(0);
+  /** Position relative to clip start (0..clipLen) for the single progress bar */
+  const [clipProgress, setClipProgress] = useState(0);
   const [loadingMeta, setLoadingMeta] = useState(false);
 
   const searchTimer = useRef(null);
   const audioRef = useRef(null);
+  const srcKeyRef = useRef("");
   const inputRef = useRef(null);
   const fileRef = useRef(null);
-  const waveRef = useRef(null);
-  const dragRef = useRef(null);
+  const startTimeRef = useRef(0);
+  const endTimeRef = useRef(30);
+  const playingRef = useRef(false);
 
   const endTime = Math.min(playableDur, startTime + clipLen);
-  const waveBars = useWaveBars(
-    selected?.id || selected?.spotify_url || selected?.song_title || "x",
-    72,
-  );
+  const actualClipLen = Math.max(0.5, endTime - startTime);
+
+  startTimeRef.current = startTime;
+  endTimeRef.current = endTime;
 
   const stopAudio = useCallback(() => {
+    playingRef.current = false;
     try {
-      audioRef.current?.pause();
+      const a = audioRef.current;
+      if (a) {
+        a.pause();
+      }
     } catch {
       /* ignore */
     }
     setClipPlaying(false);
+  }, []);
+
+  const ensureAudio = useCallback((src) => {
+    if (!src) return null;
+    if (!audioRef.current) {
+      audioRef.current = new Audio();
+      audioRef.current.preload = "auto";
+    }
+    const a = audioRef.current;
+    a.volume = 1;
+    if (srcKeyRef.current !== src) {
+      srcKeyRef.current = src;
+      a.src = src;
+      try {
+        a.load();
+      } catch {
+        /* ignore */
+      }
+    }
+    return a;
   }, []);
 
   useEffect(() => {
@@ -146,6 +166,7 @@ export default function FormSpotifyPicker({
       setResults([]);
       setSelected(null);
       stopAudio();
+      srcKeyRef.current = "";
     }
   }, [open, stopAudio]);
 
@@ -201,90 +222,93 @@ export default function FormSpotifyPicker({
     };
   }, [query, open]);
 
-  // Loop clip segment while playing
+  // Keep playback inside [start, end] and update the single progress bar
   useEffect(() => {
     const a = audioRef.current;
     if (!a || !selected) return;
 
     const onTime = () => {
+      if (!playingRef.current) return;
       const t = a.currentTime;
-      setClipPos(t);
-      if (t >= endTime - 0.08 || t < startTime - 0.05) {
+      const s = startTimeRef.current;
+      const e = endTimeRef.current;
+      if (t >= e - 0.05) {
+        // Loop only the selected clip
         try {
-          a.currentTime = startTime;
+          a.currentTime = s;
         } catch {
           /* ignore */
         }
+        setClipProgress(0);
+        return;
       }
+      if (t < s - 0.1) {
+        try {
+          a.currentTime = s;
+        } catch {
+          /* ignore */
+        }
+        setClipProgress(0);
+        return;
+      }
+      setClipProgress(Math.max(0, t - s));
     };
+
     const onEnded = () => {
+      if (!playingRef.current) return;
       try {
-        a.currentTime = startTime;
-        a.play().catch(() => setClipPlaying(false));
+        a.currentTime = startTimeRef.current;
+        a.play().catch(() => {
+          playingRef.current = false;
+          setClipPlaying(false);
+        });
       } catch {
+        playingRef.current = false;
         setClipPlaying(false);
       }
     };
+
+    const onPause = () => {
+      // only sync UI if we didn't intend to play
+    };
+
     a.addEventListener("timeupdate", onTime);
     a.addEventListener("ended", onEnded);
+    a.addEventListener("pause", onPause);
     return () => {
       a.removeEventListener("timeupdate", onTime);
       a.removeEventListener("ended", onEnded);
+      a.removeEventListener("pause", onPause);
     };
-  }, [selected, startTime, endTime]);
+  }, [selected]);
 
   const openClipEditor = async (track) => {
     if (!track || loading) return;
     stopAudio();
     setSelected(track);
     setLoadingMeta(true);
-    setClipPos(0);
+    setClipProgress(0);
+    setStartTime(0);
 
-    const src = track.preview_url || track.audioUrl;
+    const src = trackSrc(track);
+    if (!src) {
+      setLoadingMeta(false);
+      SonnerInfo("Bài này không có file nghe thử");
+      return;
+    }
+
     const fallback = metaDurationSec(track);
     const playable = await loadPlayableDuration(src, fallback);
-    const dur = Math.max(1, Math.min(playable, 600));
+    // Cap weird Infinity / NaN
+    const dur = Math.max(1, Math.min(Number(playable) || fallback, 600));
     setPlayableDur(dur);
-
-    // Default clip length: longest allowed ≤ track
-    const allowed = CLIP_OPTIONS.filter((n) => n <= dur + 0.25);
-    const len = allowed.length ? allowed[allowed.length - 1] : Math.min(30, dur);
-    setClipLen(len);
+    // Clip = toàn bộ file nghe được (preview Spotify ~30s hoặc full upload)
+    setClipLen(dur);
     setStartTime(0);
+    setClipProgress(0);
     setLoadingMeta(false);
 
-    // Prefetch audio for smooth play
-    try {
-      if (!audioRef.current) audioRef.current = new Audio();
-      const a = audioRef.current;
-      a.preload = "auto";
-      a.volume = 1;
-      if (src) {
-        a.src = src;
-        a.load();
-      }
-    } catch {
-      /* ignore */
-    }
-  };
-
-  const setClipLength = (sec) => {
-    const len = Math.min(sec, playableDur);
-    setClipLen(len);
-    setStartTime((s) => Math.min(s, Math.max(0, playableDur - len)));
-  };
-
-  const setWindowStart = (s) => {
-    const maxStart = Math.max(0, playableDur - clipLen);
-    const next = Math.max(0, Math.min(Number(s) || 0, maxStart));
-    setStartTime(next);
-    if (audioRef.current && clipPlaying) {
-      try {
-        audioRef.current.currentTime = next;
-      } catch {
-        /* ignore */
-      }
-    }
+    ensureAudio(src);
   };
 
   const handleUploadFile = async (e) => {
@@ -337,67 +361,107 @@ export default function FormSpotifyPicker({
     }
   };
 
+  /** List-row quick listen (separate from clip editor) */
   const previewPlay = (track) => {
-    const src = track?.preview_url || track?.audioUrl;
+    const src = trackSrc(track);
     if (!src) {
       SonnerInfo("Bài này không có preview");
       return;
     }
     try {
-      if (!audioRef.current) audioRef.current = new Audio();
-      const a = audioRef.current;
-      if (a.src === src && !a.paused) {
+      const a = ensureAudio(src);
+      if (!a) return;
+      if (!a.paused && srcKeyRef.current === src) {
         a.pause();
         return;
       }
-      a.src = src;
-      a.volume = 1;
-      a.play().catch(() => {});
+      a.currentTime = 0;
+      a.play().catch(() => {
+        SonnerInfo("Không phát được preview");
+      });
     } catch {
       /* ignore */
     }
   };
 
   const toggleClipPreview = async () => {
-    const src = selected?.preview_url || selected?.audioUrl;
+    const src = trackSrc(selected);
     if (!src) {
-      SonnerInfo("Không có audio để nghe đoạn này");
+      SonnerInfo("Không có audio để nghe");
       return;
     }
+
     try {
-      if (!audioRef.current) audioRef.current = new Audio();
-      const a = audioRef.current;
-      a.volume = 1;
-      if (!a.src || !a.src.includes(src.split("?")[0].slice(-20))) {
-        a.src = src;
-        a.load();
-        await new Promise((r) => {
-          a.oncanplay = () => r();
-          setTimeout(r, 2000);
-        });
-      }
-      if (!a.paused && clipPlaying) {
+      const a = ensureAudio(src);
+      if (!a) return;
+
+      // Pause if already playing this clip
+      if (playingRef.current && !a.paused) {
         a.pause();
+        playingRef.current = false;
         setClipPlaying(false);
         return;
       }
-      // Seek to clip start then play
-      const seek = () => {
+
+      // Wait until we can seek/play
+      if (a.readyState < 2) {
+        await new Promise((resolve) => {
+          const done = () => {
+            a.removeEventListener("canplay", done);
+            a.removeEventListener("loadeddata", done);
+            resolve();
+          };
+          a.addEventListener("canplay", done);
+          a.addEventListener("loadeddata", done);
+          setTimeout(done, 4000);
+        });
+      }
+
+      const s = startTimeRef.current;
+      try {
+        a.currentTime = s;
+      } catch {
+        /* ignore */
+      }
+
+      await a.play();
+      // Re-seek after play (some mobile browsers jump to 0)
+      requestAnimationFrame(() => {
         try {
-          a.currentTime = startTime;
+          if (Math.abs(a.currentTime - s) > 0.4) a.currentTime = s;
         } catch {
           /* ignore */
         }
-      };
-      seek();
-      await a.play();
-      // Some browsers reset time on play — re-seek once
-      requestAnimationFrame(seek);
-      setTimeout(seek, 50);
+      });
+      setTimeout(() => {
+        try {
+          if (Math.abs(a.currentTime - s) > 0.4) a.currentTime = s;
+        } catch {
+          /* ignore */
+        }
+      }, 80);
+
+      playingRef.current = true;
       setClipPlaying(true);
-    } catch {
+      setClipProgress(Math.max(0, a.currentTime - s));
+    } catch (err) {
+      playingRef.current = false;
       setClipPlaying(false);
-      SonnerInfo("Không phát được — chạm lại để thử");
+      console.warn("[clip preview]", err);
+      SonnerInfo("Không phát được — chạm Play lại");
+    }
+  };
+
+  /** User drags the single progress bar → seek inside clip */
+  const onProgressChange = (e) => {
+    const rel = Number(e.target.value) || 0;
+    setClipProgress(rel);
+    const a = audioRef.current;
+    if (!a) return;
+    try {
+      a.currentTime = startTimeRef.current + rel;
+    } catch {
+      /* ignore */
     }
   };
 
@@ -420,36 +484,7 @@ export default function FormSpotifyPicker({
   const backToList = () => {
     stopAudio();
     setSelected(null);
-  };
-
-  // Waveform drag to move selection window
-  const onWavePointerDown = (e) => {
-    if (!waveRef.current || playableDur <= 0) return;
-    const rect = waveRef.current.getBoundingClientRect();
-    const ratio = (e.clientX - rect.left) / rect.width;
-    const clickT = ratio * playableDur;
-    // Center window on click if possible
-    const maxStart = Math.max(0, playableDur - clipLen);
-    setWindowStart(clickT - clipLen / 2);
-    dragRef.current = { rect, maxStart };
-    waveRef.current.setPointerCapture?.(e.pointerId);
-  };
-
-  const onWavePointerMove = (e) => {
-    if (!dragRef.current || !waveRef.current) return;
-    const { rect, maxStart } = dragRef.current;
-    const ratio = (e.clientX - rect.left) / rect.width;
-    const t = ratio * playableDur - clipLen / 2;
-    setWindowStart(Math.max(0, Math.min(t, maxStart)));
-  };
-
-  const onWavePointerUp = (e) => {
-    dragRef.current = null;
-    try {
-      waveRef.current?.releasePointerCapture?.(e.pointerId);
-    } catch {
-      /* ignore */
-    }
+    setClipProgress(0);
   };
 
   if (!showModal) return null;
@@ -457,11 +492,6 @@ export default function FormSpotifyPicker({
   const title =
     selected?.song_title || selected?.song_name || selected?.name || "";
   const artist = selected?.artist || "";
-  const selLeft = playableDur > 0 ? (startTime / playableDur) * 100 : 0;
-  const selWidth =
-    playableDur > 0 ? (Math.min(clipLen, playableDur) / playableDur) * 100 : 100;
-  const playHead =
-    playableDur > 0 ? Math.min(100, (clipPos / playableDur) * 100) : 0;
 
   return ReactDOM.createPortal(
     <div
@@ -491,9 +521,9 @@ export default function FormSpotifyPicker({
           </div>
         )}
 
-        {/* ═══ CLIP EDITOR (Locket-style) ═══ */}
+        {/* ═══ CLIP EDITOR — 1 thanh phát khúc ═══ */}
         {selected ? (
-          <div className="flex flex-col min-h-[70vh]">
+          <div className="flex flex-col min-h-[55vh]">
             <header className="flex items-center justify-between px-4 pt-4 pb-2">
               <button
                 type="button"
@@ -506,15 +536,15 @@ export default function FormSpotifyPicker({
               <button
                 type="button"
                 onClick={confirmClip}
-                disabled={loading || loadingMeta}
+                disabled={loading || loadingMeta || !trackSrc(selected)}
                 className="text-[17px] font-semibold text-sky-500 disabled:opacity-40 px-2"
               >
                 {loading ? "…" : "Xong"}
               </button>
             </header>
 
-            <div className="flex-1 flex flex-col items-center px-6 pt-6 pb-4">
-              <div className="w-24 h-24 rounded-full overflow-hidden bg-neutral-200 shadow-md mb-5">
+            <div className="flex-1 flex flex-col items-center px-6 pt-4 pb-8">
+              <div className="w-28 h-28 rounded-full overflow-hidden bg-neutral-200 shadow-md mb-5">
                 {selected.image_url ? (
                   <img
                     src={selected.image_url}
@@ -531,130 +561,58 @@ export default function FormSpotifyPicker({
               <h2 className="text-lg font-bold text-center text-neutral-900 px-2 leading-snug">
                 {title}
               </h2>
-              <p className="text-sm text-neutral-500 mt-1 mb-8">{artist}</p>
+              <p className="text-sm text-neutral-500 mt-1 mb-10">{artist}</p>
 
               {loadingMeta ? (
                 <Loader2 className="w-6 h-6 animate-spin text-neutral-400 my-8" />
+              ) : !trackSrc(selected) ? (
+                <p className="text-sm text-neutral-500 text-center">
+                  Bài này không có file nghe thử
+                </p>
               ) : (
-                <>
-                  {/* Duration chips: 30 / 45 / 60 */}
-                  <div className="flex items-center gap-3 mb-6 w-full max-w-sm justify-center">
-                    {CLIP_OPTIONS.map((sec) => {
-                      const ok = playableDur + 0.2 >= sec || sec === CLIP_OPTIONS[0];
-                      const active = Math.abs(clipLen - sec) < 0.5 ||
-                        (sec === CLIP_OPTIONS[0] && clipLen < 30 && clipLen === Math.min(30, playableDur));
-                      const disabled = playableDur < sec - 0.5 && sec > 30;
-                      // Allow 30 even if shorter track (uses full)
-                      const canUse = sec <= playableDur + 0.5 || (sec === 30 && playableDur > 0);
-                      return (
-                        <button
-                          key={sec}
-                          type="button"
-                          disabled={!canUse}
-                          onClick={() => setClipLength(Math.min(sec, playableDur))}
-                          className={clsx(
-                            "min-w-[3.25rem] h-10 px-3 rounded-full text-sm font-semibold transition",
-                            clipLen === Math.min(sec, playableDur) ||
-                              (Math.min(sec, playableDur) === clipLen)
-                              ? "bg-neutral-200 text-neutral-900 ring-2 ring-neutral-400"
-                              : "bg-neutral-100 text-neutral-600",
-                            !canUse && "opacity-30 cursor-not-allowed",
-                          )}
-                        >
-                          {sec}
-                        </button>
-                      );
-                    })}
+                <div className="w-full max-w-md flex flex-col gap-5">
+                  {/* Play + 1 progress bar for the clip only */}
+                  <div className="flex items-center gap-3 w-full">
                     <button
                       type="button"
                       onClick={toggleClipPreview}
-                      className="w-10 h-10 rounded-lg bg-neutral-900 text-white flex items-center justify-center shrink-0"
-                      aria-label={clipPlaying ? "Dừng" : "Phát"}
+                      className="w-12 h-12 rounded-full bg-neutral-900 text-white flex items-center justify-center shrink-0 active:scale-95 transition"
+                      aria-label={clipPlaying ? "Tạm dừng" : "Phát"}
                     >
                       {clipPlaying ? (
-                        <Square className="w-4 h-4 fill-current" />
+                        <Pause className="w-5 h-5 fill-current" />
                       ) : (
-                        <Play className="w-4 h-4 fill-current ml-0.5" />
+                        <Play className="w-5 h-5 fill-current ml-0.5" />
                       )}
                     </button>
-                  </div>
 
-                  {/* Waveform + selection window */}
-                  <div
-                    ref={waveRef}
-                    className="relative w-full max-w-md h-16 select-none touch-none cursor-grab active:cursor-grabbing"
-                    onPointerDown={onWavePointerDown}
-                    onPointerMove={onWavePointerMove}
-                    onPointerUp={onWavePointerUp}
-                    onPointerCancel={onWavePointerUp}
-                    role="slider"
-                    aria-valuemin={0}
-                    aria-valuemax={Math.max(0, playableDur - clipLen)}
-                    aria-valuenow={startTime}
-                    aria-label="Vùng cắt nhạc"
-                  >
-                    {/* Full waveform */}
-                    <div className="absolute inset-0 flex items-center gap-[2px] px-0.5 opacity-40">
-                      {waveBars.map((h, i) => (
-                        <div
-                          key={i}
-                          className="flex-1 rounded-sm bg-neutral-400"
-                          style={{ height: `${h * 100}%` }}
-                        />
-                      ))}
-                    </div>
-
-                    {/* Selection highlight */}
-                    <div
-                      className="absolute top-0 bottom-0 rounded-lg border-2 border-sky-500 bg-sky-500/25 overflow-hidden pointer-events-none"
-                      style={{
-                        left: `${selLeft}%`,
-                        width: `${Math.max(selWidth, 4)}%`,
-                      }}
-                    >
-                      <div className="absolute inset-0 flex items-center gap-[2px] px-0.5">
-                        {waveBars.map((h, i) => (
-                          <div
-                            key={i}
-                            className="flex-1 rounded-sm bg-sky-600/80"
-                            style={{ height: `${h * 100}%` }}
-                          />
-                        ))}
-                      </div>
-                      {/* handles */}
-                      <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 bg-sky-500 rounded-full" />
-                      <div className="absolute right-0 top-1/2 -translate-y-1/2 w-1 h-8 bg-sky-500 rounded-full" />
-                    </div>
-
-                    {/* Playhead */}
-                    {clipPlaying && (
-                      <div
-                        className="absolute top-0 bottom-0 w-0.5 bg-sky-600 pointer-events-none z-10"
-                        style={{ left: `${playHead}%` }}
+                    <div className="flex-1 min-w-0">
+                      <input
+                        type="range"
+                        min={0}
+                        max={Math.max(0.1, actualClipLen)}
+                        step={0.05}
+                        value={Math.min(clipProgress, actualClipLen)}
+                        onChange={onProgressChange}
+                        className="w-full h-2 accent-sky-500 cursor-pointer"
+                        aria-label="Tiến độ khúc nhạc"
                       />
-                    )}
+                      <div className="flex justify-between mt-1.5 text-xs text-neutral-500 tabular-nums">
+                        <span>{formatSec(startTime + clipProgress)}</span>
+                        <span>
+                          {playableDur <= 35
+                            ? `preview ~${formatSec(actualClipLen)}`
+                            : formatSec(actualClipLen)}
+                        </span>
+                        <span>{formatSec(endTime)}</span>
+                      </div>
+                    </div>
                   </div>
 
-                  <p className="text-xs text-neutral-500 mt-3 tabular-nums">
-                    {formatSec(startTime)} – {formatSec(endTime)} ·{" "}
-                    {formatSec(endTime - startTime)}
-                    {playableDur < 35
-                      ? " (preview Spotify ~30s)"
-                      : ` / ${formatSec(playableDur)}`}
+                  <p className="text-center text-xs text-neutral-400">
+                    Nhấn Play để nghe khúc này · Xong để gắn caption
                   </p>
-
-                  {/* Fine scrub start position */}
-                  <input
-                    type="range"
-                    min={0}
-                    max={Math.max(0.01, playableDur - clipLen)}
-                    step={0.05}
-                    value={Math.min(startTime, Math.max(0, playableDur - clipLen))}
-                    onChange={(e) => setWindowStart(e.target.value)}
-                    className="w-full max-w-md mt-4 accent-sky-500"
-                    aria-label="Vị trí đoạn cắt"
-                  />
-                </>
+                </div>
               )}
             </div>
           </div>
@@ -668,7 +626,7 @@ export default function FormSpotifyPicker({
               <div className="flex-1 min-w-0">
                 <h3 className="text-lg font-bold leading-tight">Tìm nhạc</h3>
                 <p className="text-xs text-base-content/60 truncate">
-                  Chọn bài → cắt đoạn 30/45/60s → gắn caption
+                  Chọn bài → nghe thử → Xong để gắn caption
                 </p>
               </div>
             </div>
@@ -794,7 +752,7 @@ export default function FormSpotifyPicker({
                           : ""}
                       </div>
                     </div>
-                    {track.preview_url ? (
+                    {trackSrc(track) ? (
                       <span
                         role="button"
                         tabIndex={0}

@@ -17,18 +17,22 @@ const CameraToggleAndroid = () => {
     setActiveZoomMode,
   } = camera;
 
-  /** Flip front/back — always land on main rear @ 1x (never tele). */
+  /**
+   * Flip front/back.
+   * Front (user): reset to 1x, no 0.5x, lens=front — MediaPreview uses startFrontCamera.
+   * Rear (environment): land on main @ 1x (never tele).
+   */
   const handleRotateCamera = async () => {
     setRotation((prev) => prev - 180);
     const newMode = cameraMode === "user" ? "environment" : "user";
     setIsSwitchingCamera?.(true);
-    setCameraMode(newMode);
-    // Reset zoom to 1x; MediaPreview opens main wide via deviceId prefer
+    setCameraMode(newMode); // currentFacingMode
+    // Always reset zoom/pinch state on flip
     setZoomLevel("1x");
     setActiveZoomMode?.("1x");
     setCurrentZoom?.(1);
     setDeviceId(null);
-    setCurrentLensType?.(newMode === "environment" ? "main" : "unknown");
+    setCurrentLensType?.(newMode === "environment" ? "main" : "front");
   };
 
   return (

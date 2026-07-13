@@ -977,3 +977,115 @@ export async function switchToZoomMode(mode, ctx = {}) {
     ),
   };
 }
+
+// ─── Front / selfie camera (facingMode: "user") ─────────────────
+// Front has NO 0.5x ultra. Default 1x only. Zoom only if track supports it.
+
+/**
+ * Zoom bounds for front camera only — never inherit rear ultra min 0.5.
+ */
+export function refreshFrontCameraZoomCapabilities(stream) {
+  const range = readZoomRange(stream);
+  let minZoom = range.supported ? range.minZoom : 1;
+  let maxZoom = range.supported ? range.maxZoom : 1;
+  // Front camera: floor at 1x (no ultra-wide 0.5)
+  if (minZoom < 1) minZoom = 1;
+  if (maxZoom < minZoom) maxZoom = minZoom;
+  return {
+    minZoom,
+    maxZoom,
+    zoomStep: range.zoomStep || 0.1,
+    supported: range.supported && maxZoom > minZoom + 0.01,
+    trackMin: range.minZoom,
+    trackMax: range.maxZoom,
+  };
+}
+
+/** Reset front zoom to 1x (or track min if min > 1). */
+export async function resetFrontCameraZoom(stream) {
+  const caps = refreshFrontCameraZoomCapabilities(stream);
+  const one =
+    caps.minZoom <= 1 && caps.maxZoom >= 1 ? 1 : caps.minZoom;
+  if (caps.supported || supportsHardwareZoom(stream)) {
+    const applied = await applyCameraZoom(stream, one);
+    return applied === false ? one : applied;
+  }
+  return 1;
+}
+
+/** Apply zoom on front track only — clamped to front capabilities. */
+export async function applyFrontCameraZoom(stream, zoomValue) {
+  const caps = refreshFrontCameraZoomCapabilities(stream);
+  if (!supportsHardwareZoom(stream)) return false;
+  const clamped = clampZoom(zoomValue, caps.minZoom, caps.maxZoom);
+  return applyCameraZoom(stream, clamped);
+}
+
+export function handleFrontCameraPinchStart(touches, currentZoom) {
+  // Never start below 1x for front
+  const z = Math.max(1, Number(currentZoom) || 1);
+  return handlePinchZoomStart(touches, z);
+}
+
+export function handleFrontCameraPinchMove(
+  touches,
+  pinchState,
+  minZoom,
+  maxZoom,
+) {
+  // Enforce front floor ≥ 1
+  const min = Math.max(1, minZoom ?? 1);
+  const max = Math.max(min, maxZoom ?? 1);
+  return handlePinchZoomMove(touches, pinchState, min, max);
+}
+
+export function handleFrontCameraPinchEnd() {
+  return handlePinchZoomEnd();
+}
+
+/**
+ * Open front camera (facingMode user). Stops oldStream first.
+ * Always starts at 1x. Does not use rear lens selection.
+ */
+export async function startFrontCamera(options = {}) {
+  const { oldStream = null, videoEl = null, deviceId = null } = options;
+  if (oldStream) stopCurrentCamera(oldStream, videoEl);
+
+  let frontId = deviceId;
+  if (!frontId) {
+    try {
+      const detected = await detectCameraDevices();
+      frontId = detected.front?.[0]?.deviceId || null;
+    } catch {
+      frontId = null;
+    }
+  }
+
+  const stream = await startCameraByDeviceId(frontId, {
+    facingMode: "user",
+    highRes: true,
+    preferDeviceId: Boolean(frontId),
+  });
+
+  const zoom = await resetFrontCameraZoom(stream);
+  const caps = refreshFrontCameraZoomCapabilities(stream);
+  const settings = getCurrentTrackSettings(stream);
+
+  return {
+    stream,
+    deviceId: settings.deviceId || frontId,
+    facingMode: "user",
+    lensType: "front",
+    zoomMode: "1x",
+    currentZoom: zoom,
+    minZoom: caps.minZoom,
+    maxZoom: caps.maxZoom,
+    zoomStep: caps.zoomStep,
+    zoomSupported: caps.supported,
+  };
+}
+
+/** Switch to front: stop old, open user-facing @ 1x. */
+export async function switchToFrontCamera(options = {}) {
+  return startFrontCamera(options);
+}
