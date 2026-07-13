@@ -6,8 +6,7 @@ import {
 } from "./updateWatcher";
 
 /**
- * PWA register — user-prompted update via toast (updateWatcher).
- * No auto-reload. No spam (SW waiting toast once per session).
+ * PWA register — silent. AppUpdateButton appears when update is ready.
  */
 export function initPWA() {
   let registration = null;
@@ -22,7 +21,7 @@ export function initPWA() {
   const updateSW = registerSW({
     immediate: false,
     onNeedRefresh() {
-      console.log("[PWA] waiting SW — show update toast once");
+      console.log("[PWA] waiting SW — show update button");
       notifySwOnce(updateSW);
     },
     onOfflineReady() {
@@ -48,7 +47,6 @@ export function initPWA() {
         notifySwOnce(updateSW);
       }
 
-      // SW update probe every 10 min (version.json poll is separate)
       setInterval(() => {
         if (document.hidden || !registration) return;
         try {
@@ -60,7 +58,6 @@ export function initPWA() {
     },
   });
 
-  // visibility: quiet version check only (cooldown inside updateWatcher)
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState !== "visible" || !registration) return;
     try {
@@ -68,7 +65,7 @@ export function initPWA() {
     } catch {
       /* ignore */
     }
-    checkForAppUpdate({ forceToast: true });
+    checkForAppUpdate();
   });
 
   return updateSW;

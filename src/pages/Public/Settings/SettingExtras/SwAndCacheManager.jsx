@@ -1,11 +1,21 @@
 import { CONFIG } from "@/config";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import {
+  applyWebsiteUpdate,
+  checkForAppUpdate,
+  getCurrentBuildMeta,
+  subscribeAppUpdate,
+} from "@/utils/pwaUtils/updateWatcher";
+import { SonnerInfo, SonnerSuccess } from "@/components/ui/SonnerToast";
 
 export default function SwManager() {
   const [usage, setUsage] = useState(0);
   const [quota, setQuota] = useState(0);
+  const [updateAvailable, setUpdateAvailable] = useState(false);
+  const [updating, setUpdating] = useState(false);
   const { t } = useTranslation("auth");
+  const build = getCurrentBuildMeta();
 
   const formatSize = (bytes) => {
     if (!bytes) return "0 KB";
@@ -27,32 +37,29 @@ export default function SwManager() {
 
   useEffect(() => {
     getStorageInfo();
+    checkForAppUpdate();
+    return subscribeAppUpdate((s) => setUpdateAvailable(Boolean(s?.available)));
   }, []);
 
-  const handleUpdate = () => {
-    if (!("serviceWorker" in navigator)) {
-      alert(t("settings.sw_manager.alert_no_sw"));
-      return;
-    }
-
-    navigator.serviceWorker.getRegistration().then((registration) => {
-      if (!registration) {
-        alert(t("settings.sw_manager.alert_no_registration"));
+  const handleUpdate = async () => {
+    setUpdating(true);
+    try {
+      const has = await checkForAppUpdate();
+      if (!has && !updateAvailable) {
+        SonnerInfo(
+          t("settings.sw_manager.alert_latest", {
+            defaultValue: "Bạn đang dùng bản mới nhất",
+          }),
+        );
+        setUpdating(false);
         return;
       }
-
-      registration.update().then(() => {
-        if (registration.waiting) {
-          registration.waiting.postMessage({ type: "SKIP_WAITING" });
-
-          navigator.serviceWorker.addEventListener("controllerchange", () => {
-            window.location.reload();
-          });
-        } else {
-          alert(t("settings.sw_manager.alert_latest"));
-        }
-      });
-    });
+      SonnerSuccess("Đang cập nhật…");
+      await applyWebsiteUpdate();
+    } catch {
+      setUpdating(false);
+      SonnerInfo("Cập nhật lỗi — thử lại");
+    }
   };
 
   const handleUnregisterSW = () => {
@@ -116,20 +123,36 @@ export default function SwManager() {
           </span>
         </p>
         <p>
+          Build{" "}
+          <span className="font-mono underline font-semibold">
+            {build.buildId || "—"}
+          </span>
+        </p>
+        <p>
           {t("settings.sw_manager.api_version")}{" "}
           <span className="font-mono underline font-semibold">
             {CONFIG.app.apiVersion}
           </span>
         </p>
+        {updateAvailable ? (
+          <p className="text-primary font-medium text-xs pt-1">
+            Có bản mới — bấm nút bên dưới để cập nhật
+          </p>
+        ) : null}
       </div>
 
-      {/* UPDATE */}
+      {/* UPDATE — user taps only */}
       <button
         onClick={handleUpdate}
-        className="btn btn-primary w-full"
+        className={`btn w-full ${updateAvailable ? "btn-primary" : "btn-outline"}`}
         type="button"
+        disabled={updating}
       >
-        {t("settings.sw_manager.update_btn")}
+        {updating
+          ? "Đang cập nhật…"
+          : updateAvailable
+            ? "Cập nhật ngay"
+            : t("settings.sw_manager.update_btn")}
       </button>
 
       {/* STORAGE */}

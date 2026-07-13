@@ -28,6 +28,7 @@ import LoadingPageMain from "./components/pages/LoadPageMain";
 import LayoutWithSidebar from "./layouts/baseLayout";
 import { useOverlayDataStore } from "./stores/OverlayStores";
 import GlobalThemeEffects from "./components/Effects/GlobalThemeEffects";
+import AppUpdateButton from "./components/AppUpdateButton";
 
 function App() {
   return (
@@ -37,6 +38,8 @@ function App() {
           <Router>
             <GlobalThemeEffects />
             <AppContent />
+            {/* User taps to update — no auto toast spam */}
+            <AppUpdateButton />
           </Router>
           <Toaster />
         </AppProvider>
