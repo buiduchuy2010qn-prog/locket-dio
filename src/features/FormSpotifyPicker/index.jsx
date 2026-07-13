@@ -337,18 +337,35 @@ export default function FormSpotifyPicker({
 
       setPlayableDur(dur);
 
-      // Default: longest chip that fits (30 / 45 / 60)
-      let best = CLIP_OPTIONS[0];
+      // Web: Spotify/Deezer preview ~30s → default 30. Upload dài → longest chip that fits.
+      let best = 30;
       for (const n of CLIP_OPTIONS) {
         if (n <= dur + 0.35) best = n;
       }
-      // If file shorter than 30, use full file
-      if (dur < 30) best = Math.floor(dur) || dur;
-
-      setClipLen(best >= 30 ? best : 30);
+      if (dur < 30) best = 30; // still store as 30; effective clamped by playableDur
+      setClipLen(best);
       setStartTime(0);
       setPlayhead(0);
       ensureAudio(src);
+
+      // Auto-preview once (gesture already from tap on track → usually allowed)
+      try {
+        const a = ensureAudio(src);
+        if (a) {
+          a.currentTime = 0;
+          const p = a.play();
+          if (p && typeof p.then === "function") {
+            p.then(() => {
+              playingRef.current = true;
+              setClipPlaying(true);
+            }).catch(() => {
+              /* autoplay blocked — user taps Play */
+            });
+          }
+        }
+      } catch {
+        /* ignore */
+      }
     } catch (err) {
       console.warn("[openClipEditor]", err);
       SonnerError("Không mở được bài này", err?.message || "Thử lại");
@@ -358,35 +375,29 @@ export default function FormSpotifyPicker({
     }
   };
 
-  /** Change clip length 30/45/60 — keep start in range */
+  /** Change clip length 30/45/60 — only if file is long enough */
   const chooseClipLen = (sec) => {
-    const len = Math.min(sec, playableDur);
-    if (len < 1) return;
-    // If file too short for this chip, still allow but clamp length
-    if (sec > playableDur + 0.4 && playableDur < sec) {
+    if (sec > playableDur + 0.4) {
       SonnerInfo(
         playableDur < 35
-          ? `Preview chỉ ~${Math.round(playableDur)}s — tải file dài hơn để cắt ${sec}s`
-          : `File chỉ dài ${formatSec(playableDur)} — dùng tối đa ${formatSec(playableDur)}`,
+          ? `Web chỉ có preview ~${Math.round(playableDur)}s. Muốn ${sec}s: bấm Tải lên MP3.`
+          : `File chỉ ${formatSec(playableDur)} — chọn ${CLIP_OPTIONS.filter((n) => n <= playableDur).join("/")}s`,
       );
+      return; // do not highlight invalid chip
     }
     const nextLen = Math.min(sec, playableDur);
-    setClipLen(sec); // keep desired chip selected for UI
-    setStartTime((s) => {
-      const maxS = Math.max(0, playableDur - nextLen);
-      return Math.min(s, maxS);
-    });
+    if (nextLen < 1) return;
+    setClipLen(sec);
+    setStartTime((s) => Math.min(s, Math.max(0, playableDur - nextLen)));
     setPlayhead((p) => {
       const maxS = Math.max(0, playableDur - nextLen);
       const st = Math.min(startTime, maxS);
       if (p < st || p > st + nextLen) return st;
       return p;
     });
-    // Seek if playing
     const a = audioRef.current;
     if (a && playingRef.current) {
-      const maxS = Math.max(0, playableDur - nextLen);
-      const st = Math.min(startTime, maxS);
+      const st = Math.min(startTime, Math.max(0, playableDur - nextLen));
       try {
         a.currentTime = st;
       } catch {
@@ -702,28 +713,38 @@ export default function FormSpotifyPicker({
                 <Loader2 className="w-6 h-6 animate-spin text-neutral-400 my-10" />
               ) : (
                 <div className="w-full max-w-md flex flex-col gap-5">
-                  {/* 30 / 45 / 60 + Play */}
+                  {/* Length chips — only highlight options that actually fit */}
                   <div className="flex items-center justify-center gap-3 flex-wrap">
                     {CLIP_OPTIONS.map((sec) => {
                       const fits = playableDur + 0.4 >= sec;
-                      const chipOn = clipLen === sec;
+                      const fitted = CLIP_OPTIONS.filter(
+                        (n) => n <= playableDur + 0.4,
+                      );
+                      const bestFit = fitted.length
+                        ? fitted[fitted.length - 1]
+                        : 30;
+                      const selected =
+                        fits &&
+                        (clipLen === sec ||
+                          (clipLen > playableDur && sec === bestFit));
                       return (
                         <button
                           key={sec}
                           type="button"
                           onClick={() => chooseClipLen(sec)}
+                          disabled={!fits}
                           className={clsx(
                             "min-w-[3.25rem] h-10 px-3 rounded-full text-sm font-semibold transition",
-                            chipOn
+                            selected
                               ? "bg-neutral-800 text-white"
                               : fits
                                 ? "bg-neutral-100 text-neutral-700 hover:bg-neutral-200"
-                                : "bg-neutral-50 text-neutral-400",
+                                : "bg-neutral-50 text-neutral-300 cursor-not-allowed",
                           )}
                           title={
                             fits
                               ? `Cắt ${sec}s`
-                              : `File chỉ ~${Math.round(playableDur)}s — cần tải MP3 dài hơn`
+                              : `Cần file ≥${sec}s (Tải lên MP3)`
                           }
                         >
                           {sec}
@@ -744,22 +765,34 @@ export default function FormSpotifyPicker({
                     </button>
                   </div>
 
-                  {/* Timeline: drag to move clip window */}
+                  {/* Timeline */}
                   <div className="w-full">
                     <div
                       ref={timelineRef}
-                      className="relative w-full h-[4.5rem] select-none touch-none cursor-grab active:cursor-grabbing rounded-xl bg-neutral-100 overflow-hidden"
-                      onPointerDown={onTimelinePointerDown}
-                      onPointerMove={onTimelinePointerMove}
-                      onPointerUp={onTimelinePointerUp}
-                      onPointerCancel={onTimelinePointerUp}
+                      className={clsx(
+                        "relative w-full h-[4.5rem] select-none touch-none rounded-xl bg-neutral-100 overflow-hidden",
+                        maxStart >= 0.05
+                          ? "cursor-grab active:cursor-grabbing"
+                          : "cursor-default",
+                      )}
+                      onPointerDown={
+                        maxStart >= 0.05 ? onTimelinePointerDown : undefined
+                      }
+                      onPointerMove={
+                        maxStart >= 0.05 ? onTimelinePointerMove : undefined
+                      }
+                      onPointerUp={
+                        maxStart >= 0.05 ? onTimelinePointerUp : undefined
+                      }
+                      onPointerCancel={
+                        maxStart >= 0.05 ? onTimelinePointerUp : undefined
+                      }
                       role="slider"
                       aria-valuemin={0}
                       aria-valuemax={maxStart}
                       aria-valuenow={startTime}
                       aria-label="Kéo để chọn đoạn nghe"
                     >
-                      {/* Waveform background */}
                       <div className="absolute inset-0 flex items-center gap-[2px] px-1 opacity-35 pointer-events-none">
                         {waveBars.map((h, i) => (
                           <div
@@ -770,7 +803,6 @@ export default function FormSpotifyPicker({
                         ))}
                       </div>
 
-                      {/* Selected window */}
                       <div
                         className="absolute top-1 bottom-1 rounded-lg border-2 border-sky-500 bg-sky-400/30 overflow-hidden pointer-events-none"
                         style={{
@@ -787,11 +819,14 @@ export default function FormSpotifyPicker({
                             />
                           ))}
                         </div>
-                        <div className="absolute left-0.5 top-1/2 -translate-y-1/2 w-1 h-9 bg-sky-500 rounded-full" />
-                        <div className="absolute right-0.5 top-1/2 -translate-y-1/2 w-1 h-9 bg-sky-500 rounded-full" />
+                        {maxStart >= 0.05 ? (
+                          <>
+                            <div className="absolute left-0.5 top-1/2 -translate-y-1/2 w-1 h-9 bg-sky-500 rounded-full" />
+                            <div className="absolute right-0.5 top-1/2 -translate-y-1/2 w-1 h-9 bg-sky-500 rounded-full" />
+                          </>
+                        ) : null}
                       </div>
 
-                      {/* Playhead */}
                       {clipPlaying || playhead > startTime + 0.05 ? (
                         <div
                           className="absolute top-0 bottom-0 w-0.5 bg-sky-700 pointer-events-none z-10"
@@ -801,47 +836,76 @@ export default function FormSpotifyPicker({
                     </div>
 
                     <p className="text-center text-xs text-neutral-500 mt-2 tabular-nums">
-                      {formatSec(startTime)} – {formatSec(endTime)} · đoạn{" "}
+                      {formatSec(startTime)} – {formatSec(endTime)} ·{" "}
                       {formatSec(endTime - startTime)}
                       {isShortPreview
-                        ? ` · preview ~${Math.round(playableDur)}s`
+                        ? " · preview web"
                         : ` / ${formatSec(playableDur)}`}
                     </p>
                   </div>
 
-                  {/* Fine scrub: move start of window */}
-                  <div className="w-full">
-                    <label className="text-xs text-neutral-500 mb-1.5 block">
-                      Di chuyển đoạn cần nghe
-                    </label>
-                    <input
-                      type="range"
-                      min={0}
-                      max={Math.max(0.01, maxStart)}
-                      step={0.05}
-                      value={Math.min(startTime, maxStart)}
-                      onChange={(e) => moveStart(e.target.value)}
-                      disabled={maxStart < 0.05}
-                      className="w-full h-2 accent-sky-500 cursor-pointer disabled:opacity-40"
-                      aria-label="Vị trí đoạn cắt"
-                    />
-                    {maxStart < 0.05 ? (
-                      <p className="text-[11px] text-neutral-400 mt-1">
-                        File ngắn — dùng hết ~{formatSec(playableDur)} (không kéo thêm được)
-                      </p>
-                    ) : null}
-                  </div>
-
+                  {/* Scrub progress within clip OR move window if long file */}
                   {isShortPreview ? (
-                    <p className="text-[11px] text-amber-700/90 text-center bg-amber-50 rounded-xl px-3 py-2">
-                      Spotify/Deezer chỉ cho nghe thử ~30s → không cắt được 45s/60s.
-                      Muốn 45–60s: bấm <b>Tải lên</b> file MP3 dài hơn.
-                    </p>
-                  ) : null}
-
-                  <p className="text-center text-xs text-neutral-400">
-                    Kéo waveform / thanh dưới để chọn đoạn · Play để nghe · Xong để gắn
-                  </p>
+                    <div className="w-full">
+                      <label className="text-xs text-neutral-500 mb-1.5 block">
+                        Tua trong preview (~{Math.round(playableDur)}s)
+                      </label>
+                      <input
+                        type="range"
+                        min={0}
+                        max={Math.max(0.1, playableDur)}
+                        step={0.05}
+                        value={Math.min(
+                          Math.max(0, playhead),
+                          playableDur,
+                        )}
+                        onChange={(e) => {
+                          const t = Number(e.target.value) || 0;
+                          setPlayhead(t);
+                          const a = audioRef.current;
+                          if (a) {
+                            try {
+                              a.currentTime = t;
+                            } catch {
+                              /* ignore */
+                            }
+                          }
+                        }}
+                        className="w-full h-2 accent-sky-500 cursor-pointer"
+                        aria-label="Tua preview"
+                      />
+                      <p className="text-[11px] text-neutral-400 mt-2 text-center leading-relaxed">
+                        Trên web, Spotify/Deezer chỉ cho ~30s nghe thử — gắn caption vẫn
+                        mượt. Cắt 45–60s:{" "}
+                        <button
+                          type="button"
+                          className="text-sky-600 font-semibold underline underline-offset-2"
+                          onClick={() => fileRef.current?.click()}
+                        >
+                          Tải lên MP3
+                        </button>
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="w-full">
+                      <label className="text-xs text-neutral-500 mb-1.5 block">
+                        Di chuyển đoạn cần nghe
+                      </label>
+                      <input
+                        type="range"
+                        min={0}
+                        max={Math.max(0.01, maxStart)}
+                        step={0.05}
+                        value={Math.min(startTime, maxStart)}
+                        onChange={(e) => moveStart(e.target.value)}
+                        className="w-full h-2 accent-sky-500 cursor-pointer"
+                        aria-label="Vị trí đoạn cắt"
+                      />
+                      <p className="text-center text-xs text-neutral-400 mt-2">
+                        Kéo waveform / thanh để chọn đoạn · Play nghe · Xong gắn caption
+                      </p>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
