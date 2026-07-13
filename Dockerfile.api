@@ -1,0 +1,20 @@
+# Huy Locket API — build từ root repo (Railway Root Directory = .)
+# Settings service huy-locket-api:
+#   Root Directory: .   (hoặc để trống)
+#   Dockerfile path: Dockerfile.api
+FROM node:20-alpine
+
+WORKDIR /usr/src/app
+
+RUN apk add --no-cache ffmpeg python3 make g++ wget
+
+COPY api/package.json api/package-lock.json ./
+ENV NODE_ENV=production
+RUN npm ci --omit=dev || npm install --omit=dev
+
+COPY api/ .
+
+ENV PORT=10000
+EXPOSE 10000
+
+CMD ["node", "app.js"]
