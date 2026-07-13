@@ -38,6 +38,7 @@ import {
   handleFrontCameraPinchMove,
   handleFrontCameraPinchEnd,
   clearTrackZoomCache,
+  captureVideoFreezeFrame,
 } from "@/utils";
 const EditorCaption = lazy(() => import("@/features/EditorCaption"));
 import { useApp } from "@/context/AppContext";
@@ -109,6 +110,7 @@ const MediaPreviewIOS = () => {
   const [previewMirror, setPreviewMirror] = useState(
     () => cameraMode === "user",
   );
+  const [freezeFrame, setFreezeFrame] = useState(null);
   const [videoEpoch, setVideoEpoch] = useState(0);
   const [pageVisible, setPageVisible] = useState(
     () =>
@@ -608,16 +610,35 @@ const MediaPreviewIOS = () => {
     setActiveZoomMode("1x");
   };
 
+  const attachStreamToVideo = (stream, mirror) => {
+    const v = videoRef.current;
+    if (!v || !stream) return;
+    v.srcObject = stream;
+    v.muted = true;
+    v.playsInline = true;
+    v.setAttribute("playsinline", "true");
+    v.setAttribute("webkit-playsinline", "true");
+    v.style.transform = mirror
+      ? "translateZ(0) scaleX(-1)"
+      : "translateZ(0)";
+    const clearFreeze = () => setFreezeFrame(null);
+    v.addEventListener("playing", clearFreeze, { once: true });
+    v.addEventListener("loadeddata", clearFreeze, { once: true });
+    setTimeout(clearFreeze, 600);
+    v.play().catch(() => {});
+  };
+
   const startCamera = async () => {
     const requestId = startRequestId.current + 1;
     startRequestId.current = requestId;
-    if (switchSpinnerTimer.current) clearTimeout(switchSpinnerTimer.current);
-    switchSpinnerTimer.current = setTimeout(() => {
-      setIsSwitchingCamera(true);
-    }, 180);
+    if (switchSpinnerTimer.current) {
+      clearTimeout(switchSpinnerTimer.current);
+      switchSpinnerTimer.current = null;
+    }
 
     try {
-      const mode = cameraMode || "user";
+      // Mặc định cam sau
+      const mode = cameraMode || "environment";
       const facingChanged = lastCameraMode.current !== mode;
       const trackLive =
         streamRef.current?.getVideoTracks?.()?.[0]?.readyState === "live";
@@ -632,11 +653,7 @@ const MediaPreviewIOS = () => {
       ) {
         if (videoRef.current && !videoRef.current.srcObject) {
           videoRef.current.srcObject = streamRef.current;
-          try {
-            await videoRef.current.play();
-          } catch {
-            /* ignore */
-          }
+          videoRef.current.play().catch(() => {});
         }
         return;
       }
@@ -650,7 +667,6 @@ const MediaPreviewIOS = () => {
         setDetectedCameras(cameras);
       }
 
-      // Flip: chỉ cache — không await getMainBackCameraId
       const mainId =
         cameras?.backNormalCamera?.deviceId ||
         cameras?.backCameras?.find(
@@ -667,7 +683,12 @@ const MediaPreviewIOS = () => {
       let digitalZoomTarget = 1;
       let displayZoom = 1;
 
-      // ── FRONT CAMERA PATH (isolated from rear lens/zoom) ──
+      if (facingChanged && videoRef.current) {
+        const freeze = captureVideoFreezeFrame(videoRef.current);
+        if (freeze) setFreezeFrame(freeze);
+      }
+
+      // ── FRONT ──
       if (!isBack) {
         pinchState.current = handleFrontCameraPinchEnd();
         setIsPinching(false);
@@ -678,9 +699,7 @@ const MediaPreviewIOS = () => {
         lastZoomLevel.current = "1x";
 
         const oldStream = streamRef.current;
-        if (facingChanged) {
-          setPreviewMirror(true);
-        }
+        setPreviewMirror(true);
 
         let stream;
         try {
@@ -688,7 +707,8 @@ const MediaPreviewIOS = () => {
             oldStream,
             videoEl: videoRef.current,
             deviceId: frontId || null,
-            fast: facingChanged,
+            fast: true,
+            stopFirst: true,
           });
           stream = front.stream;
           resolvedDeviceId = front.deviceId;
@@ -700,6 +720,7 @@ const MediaPreviewIOS = () => {
         } catch (e) {
           console.error("startFrontCamera iOS:", e);
           cameraInitialized.current = false;
+          setFreezeFrame(null);
           return;
         }
 
@@ -713,18 +734,7 @@ const MediaPreviewIOS = () => {
         lastCameraMode.current = "user";
         if (resolvedDeviceId) lastDeviceId.current = resolvedDeviceId;
 
-        if (videoRef.current) {
-          const v = videoRef.current;
-          v.srcObject = stream;
-          v.muted = true;
-          v.playsInline = true;
-          v.setAttribute("playsinline", "true");
-          v.setAttribute("webkit-playsinline", "true");
-          v.style.transform = "translateZ(0) scaleX(-1)";
-          v.play().catch(() => {});
-        }
-
-        // Không await zoom — preview hiện ngay
+        attachStreamToVideo(stream, true);
         resetFrontCameraZoom(stream).catch(() => {});
         const caps = refreshFrontCameraZoomCapabilities(stream);
         boundsRef.current = {
@@ -734,12 +744,11 @@ const MediaPreviewIOS = () => {
         currentZoomValue.current = 1;
         setCurrentZoom(1);
         setActiveZoomMode("1x");
-        setPreviewMirror(true);
         syncZoomStateFromStream(stream, cameras, "user");
         return;
       }
 
-      // ── REAR CAMERA PATH (unchanged ultra/main/tele logic) ──
+      // ── REAR ──
       {
         const target = resolveZoomModeTarget(z, {
           detected: shape,
@@ -772,18 +781,20 @@ const MediaPreviewIOS = () => {
         }
       }
 
-      // Giữ old stream đến khi new ready — flip không màn đen
       const oldStream = streamRef.current;
+      setPreviewMirror(false);
 
-      if (facingChanged) {
-        setPreviewMirror(false);
+      if (facingChanged && oldStream) {
+        clearTrackZoomCache(oldStream);
+        stopCurrentCamera(oldStream, null);
+        streamRef.current = null;
       }
 
       let stream = await startCameraByDeviceId(resolvedDeviceId, {
-        facingMode: mode,
+        facingMode: "environment",
         highRes: false,
         preferDeviceId: Boolean(resolvedDeviceId),
-        fast: facingChanged,
+        fast: facingChanged || !cameraInitialized.current,
       });
 
       if (requestId !== startRequestId.current) {
@@ -791,7 +802,6 @@ const MediaPreviewIOS = () => {
         return;
       }
 
-      // ensureMain chỉ khi chưa có deviceId (tránh double open = lag)
       if (isBack && (z === "1x" || !z) && mainId && !resolvedDeviceId) {
         stream = await ensureMainCameraStream(stream, mainId, {
           ...shape,
@@ -800,6 +810,7 @@ const MediaPreviewIOS = () => {
         });
         if (!stream) {
           cameraInitialized.current = false;
+          setFreezeFrame(null);
           return;
         }
         resolvedDeviceId = mainId;
@@ -810,9 +821,14 @@ const MediaPreviewIOS = () => {
         return;
       }
 
+      if (!facingChanged && oldStream && oldStream !== stream) {
+        clearTrackZoomCache(oldStream);
+        stopCurrentCamera(oldStream, null);
+      }
+
       streamRef.current = stream;
       cameraInitialized.current = true;
-      lastCameraMode.current = mode;
+      lastCameraMode.current = "environment";
       lastZoomLevel.current = zoomLevel || "1x";
 
       const track = getActiveVideoTrack(stream);
@@ -821,25 +837,8 @@ const MediaPreviewIOS = () => {
       if (actualId) lastDeviceId.current = actualId;
       else if (resolvedDeviceId) lastDeviceId.current = resolvedDeviceId;
 
-      setPreviewMirror(false);
+      attachStreamToVideo(stream, false);
 
-      if (videoRef.current) {
-        const v = videoRef.current;
-        v.srcObject = stream;
-        v.muted = true;
-        v.playsInline = true;
-        v.setAttribute("playsinline", "true");
-        v.setAttribute("webkit-playsinline", "true");
-        v.style.transform = "translateZ(0)";
-        v.play().catch(() => {});
-      }
-
-      if (oldStream && oldStream !== stream) {
-        clearTrackZoomCache(oldStream);
-        stopCurrentCamera(oldStream, null);
-      }
-
-      // Zoom nền — không await
       if (supportsHardwareZoom(stream)) {
         if (z === "1x" || !z) {
           const range = readZoomRange(stream);
@@ -859,11 +858,8 @@ const MediaPreviewIOS = () => {
     } catch (err) {
       console.error("startCamera iOS:", err);
       cameraInitialized.current = false;
+      setFreezeFrame(null);
     } finally {
-      if (switchSpinnerTimer.current) {
-        clearTimeout(switchSpinnerTimer.current);
-        switchSpinnerTimer.current = null;
-      }
       setIsSwitchingCamera(false);
     }
   };
@@ -931,7 +927,7 @@ const MediaPreviewIOS = () => {
       >
         {!preview && !selectedFile && cameraActive && (
           <video
-            key={`ios-cam-${cameraMode}-${videoEpoch}`}
+            key={`ios-cam-${videoEpoch}`}
             ref={videoRef}
             autoPlay
             playsInline
@@ -950,10 +946,19 @@ const MediaPreviewIOS = () => {
           />
         )}
 
-        {isSwitchingCamera && showCameraUi && (
-          <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/30 pointer-events-none">
-            <div className="w-8 h-8 rounded-full border-2 border-white/80 border-t-transparent animate-spin" />
-          </div>
+        {/* Freeze frame khi flip — không màn đen / spinner */}
+        {freezeFrame && showCameraUi && !preview && !selectedFile && (
+          <img
+            src={freezeFrame}
+            alt=""
+            className="absolute inset-0 z-30 w-full h-full object-cover pointer-events-none"
+            style={{
+              transform: previewMirror
+                ? "translateZ(0) scaleX(-1)"
+                : "translateZ(0)",
+            }}
+            draggable={false}
+          />
         )}
 
         {showCameraUi && (

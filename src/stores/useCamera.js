@@ -14,14 +14,14 @@ export const useCamera = () => {
   const [holdTime, setHoldTime] = useState(0);
   const [loading, setLoading] = useState(false);
   const [countdown, setCountdown] = useState(null);
-  /** "user" | "environment" */
-  const [cameraMode, setCameraMode] = useState("user");
+  /** "user" | "environment" — mặc định luôn cam sau */
+  const [cameraMode, setCameraMode] = useState("environment");
   /** "0.5x" | "1x" | "2x" — default main x1 */
   const [zoomLevel, setZoomLevel] = useState("1x");
   const [deviceId, setDeviceId] = useState(null);
 
-  // Lens / zoom system state
-  const [currentLensType, setCurrentLensType] = useState("unknown");
+  // Lens / zoom system state — main rear mặc định
+  const [currentLensType, setCurrentLensType] = useState("main");
   const [currentZoom, setCurrentZoom] = useState(1);
   const [minZoom, setMinZoom] = useState(1);
   const [maxZoom, setMaxZoom] = useState(1);

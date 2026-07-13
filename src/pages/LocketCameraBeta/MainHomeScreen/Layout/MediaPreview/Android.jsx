@@ -38,6 +38,7 @@ import {
   handleFrontCameraPinchMove,
   handleFrontCameraPinchEnd,
   clearTrackZoomCache,
+  captureVideoFreezeFrame,
 } from "@/utils";
 const EditorCaption = lazy(() => import("@/features/EditorCaption"));
 import { useApp } from "@/context/AppContext";
@@ -122,6 +123,8 @@ const MediaPreviewAndroid = () => {
   const [previewMirror, setPreviewMirror] = useState(
     () => cameraMode === "user",
   );
+  /** Freeze frame khi flip — tránh màn đen */
+  const [freezeFrame, setFreezeFrame] = useState(null);
   const [videoEpoch, setVideoEpoch] = useState(0);
 
   const toDetectedShape = (cameras) => ({
@@ -642,18 +645,42 @@ const MediaPreviewAndroid = () => {
     setActiveZoomMode("1x");
   };
 
+  const attachStreamToVideo = (stream, mirror) => {
+    const v = videoRef.current;
+    if (!v || !stream) return;
+    v.srcObject = stream;
+    v.muted = true;
+    v.playsInline = true;
+    v.setAttribute("playsinline", "true");
+    v.setAttribute("webkit-playsinline", "true");
+    v.style.transform = mirror
+      ? "translate3d(0,0,0) scaleX(-1)"
+      : "translate3d(0,0,0)";
+    try {
+      v.disablePictureInPicture = true;
+    } catch {
+      /* ignore */
+    }
+    const clearFreeze = () => setFreezeFrame(null);
+    v.addEventListener("playing", clearFreeze, { once: true });
+    v.addEventListener("loadeddata", clearFreeze, { once: true });
+    setTimeout(clearFreeze, 600);
+    v.play().catch(() => {});
+  };
+
   const startCamera = async () => {
     const requestId = startRequestId.current + 1;
     startRequestId.current = requestId;
     startingRef.current = true;
-    // Spinner chỉ hiện nếu flip > 180ms — giữ preview cam cũ, không nháy
-    if (switchSpinnerTimer.current) clearTimeout(switchSpinnerTimer.current);
-    switchSpinnerTimer.current = setTimeout(() => {
-      if (startingRef.current) setIsSwitchingCamera(true);
-    }, 180);
+    // Không spinner đen — dùng freeze frame khi flip
+    if (switchSpinnerTimer.current) {
+      clearTimeout(switchSpinnerTimer.current);
+      switchSpinnerTimer.current = null;
+    }
 
     try {
-      const mode = cameraMode || "user";
+      // Mặc định cam sau
+      const mode = cameraMode || "environment";
       const facingChanged = lastCameraMode.current !== mode;
       const trackLive =
         streamRef.current?.getVideoTracks?.()?.[0]?.readyState === "live";
@@ -676,16 +703,13 @@ const MediaPreviewAndroid = () => {
       const isBack = mode === "environment";
       const z = zoomLevel || "1x";
 
-      // Cache enumerate — flip không force re-enumerate
       let cameras = detectedRef.current;
       if (!cameras) {
-        // Non-blocking: dùng warm cache nếu có
         cameras = await getAvailableCameras({ force: false });
         detectedRef.current = cameras;
         setDetectedCameras(cameras);
       }
 
-      // Không await getMainBackCameraId khi flip — chỉ dùng cache
       const mainId =
         cameras?.backNormalCamera?.deviceId ||
         cameras?.backCameras?.find(
@@ -702,7 +726,13 @@ const MediaPreviewAndroid = () => {
       let digitalZoomTarget = 1;
       let displayZoom = 1;
 
-      // ── FRONT CAMERA PATH (isolated from rear lens/zoom) ──
+      // Flip: freeze frame ngay → stop cam cũ → mở cam mới (không màn đen)
+      if (facingChanged && videoRef.current) {
+        const freeze = captureVideoFreezeFrame(videoRef.current);
+        if (freeze) setFreezeFrame(freeze);
+      }
+
+      // ── FRONT CAMERA PATH ──
       if (!isBack) {
         pinchState.current = handleFrontCameraPinchEnd();
         setIsPinching(false);
@@ -713,9 +743,7 @@ const MediaPreviewAndroid = () => {
         lastZoomLevel.current = "1x";
 
         const oldStream = streamRef.current;
-        if (facingChanged) {
-          setPreviewMirror(true);
-        }
+        setPreviewMirror(true);
 
         let stream;
         try {
@@ -723,7 +751,8 @@ const MediaPreviewAndroid = () => {
             oldStream,
             videoEl: videoRef.current,
             deviceId: frontId || null,
-            fast: facingChanged,
+            fast: true,
+            stopFirst: true, // hardware single cam — stop rồi mở ngay
           });
           stream = front.stream;
           resolvedDeviceId = front.deviceId;
@@ -735,6 +764,7 @@ const MediaPreviewAndroid = () => {
         } catch (e) {
           console.error("startFrontCamera:", e);
           cameraInitialized.current = false;
+          setFreezeFrame(null);
           return;
         }
 
@@ -748,21 +778,7 @@ const MediaPreviewAndroid = () => {
         lastCameraMode.current = "user";
         if (resolvedDeviceId) lastDeviceId.current = resolvedDeviceId;
 
-        if (videoRef.current) {
-          const v = videoRef.current;
-          v.srcObject = stream;
-          v.muted = true;
-          v.playsInline = true;
-          v.setAttribute("playsinline", "true");
-          v.setAttribute("webkit-playsinline", "true");
-          v.style.transform = "translate3d(0,0,0) scaleX(-1)";
-          try {
-            v.disablePictureInPicture = true;
-          } catch {
-            /* ignore */
-          }
-          v.play().catch(() => {});
-        }
+        attachStreamToVideo(stream, true);
 
         resetFrontCameraZoom(stream).catch(() => {});
         const caps = refreshFrontCameraZoomCapabilities(stream);
@@ -774,10 +790,6 @@ const MediaPreviewAndroid = () => {
         setCurrentZoom(1);
         setActiveZoomMode("1x");
         syncZoomStateFromStream(stream, cameras, "user");
-
-        if (torchEnabled) {
-          applyTorchState(true, stream).catch(() => setTorchEnabled(false));
-        }
         return;
       }
 
@@ -814,18 +826,21 @@ const MediaPreviewAndroid = () => {
         }
       }
 
-      // Giữ old stream đến khi new ready — flip không màn đen
       const oldStream = streamRef.current;
+      setPreviewMirror(false);
 
-      if (facingChanged) {
-        setPreviewMirror(false);
+      // Flip: stop trước để mở rear ngay (không chờ dual stream)
+      if (facingChanged && oldStream) {
+        clearTrackZoomCache(oldStream);
+        stopCurrentCamera(oldStream, null);
+        streamRef.current = null;
       }
 
       let stream = await startCameraByDeviceId(resolvedDeviceId, {
-        facingMode: mode,
+        facingMode: "environment",
         highRes: false,
         preferDeviceId: Boolean(resolvedDeviceId),
-        fast: facingChanged,
+        fast: facingChanged || !cameraInitialized.current,
       });
 
       if (requestId !== startRequestId.current) {
@@ -833,7 +848,6 @@ const MediaPreviewAndroid = () => {
         return;
       }
 
-      // ensureMain chỉ khi chưa có deviceId (tránh double open)
       if (isBack && (z === "1x" || !z) && mainId && !resolvedDeviceId) {
         stream = await ensureMainCameraStream(stream, mainId, {
           ...shape,
@@ -842,6 +856,7 @@ const MediaPreviewAndroid = () => {
         });
         if (!stream) {
           cameraInitialized.current = false;
+          setFreezeFrame(null);
           return;
         }
         resolvedDeviceId = mainId;
@@ -852,9 +867,15 @@ const MediaPreviewAndroid = () => {
         return;
       }
 
+      // Lens switch (0.5/1/2) không flip: stop old sau khi new ready
+      if (!facingChanged && oldStream && oldStream !== stream) {
+        clearTrackZoomCache(oldStream);
+        stopCurrentCamera(oldStream, null);
+      }
+
       streamRef.current = stream;
       cameraInitialized.current = true;
-      lastCameraMode.current = mode;
+      lastCameraMode.current = "environment";
       lastZoomLevel.current = zoomLevel || "1x";
 
       const track = getActiveVideoTrack(stream);
@@ -863,31 +884,8 @@ const MediaPreviewAndroid = () => {
       if (actualId) lastDeviceId.current = actualId;
       else if (resolvedDeviceId) lastDeviceId.current = resolvedDeviceId;
 
-      setPreviewMirror(false);
+      attachStreamToVideo(stream, false);
 
-      if (videoRef.current) {
-        const v = videoRef.current;
-        v.srcObject = stream;
-        v.muted = true;
-        v.playsInline = true;
-        v.setAttribute("playsinline", "true");
-        v.setAttribute("webkit-playsinline", "true");
-        v.style.transform = "translate3d(0,0,0)";
-        try {
-          v.disablePictureInPicture = true;
-        } catch {
-          /* ignore */
-        }
-        v.play().catch(() => {});
-      }
-
-      // Stop old SAU khi đã gắn preview mới
-      if (oldStream && oldStream !== stream) {
-        clearTrackZoomCache(oldStream);
-        stopCurrentCamera(oldStream, null);
-      }
-
-      // Zoom apply nền — không chặn preview
       if (supportsHardwareZoom(stream)) {
         const zoomTarget =
           z === "1x" || !z
@@ -915,12 +913,9 @@ const MediaPreviewAndroid = () => {
     } catch (err) {
       console.error("startCamera:", err);
       cameraInitialized.current = false;
+      setFreezeFrame(null);
     } finally {
       startingRef.current = false;
-      if (switchSpinnerTimer.current) {
-        clearTimeout(switchSpinnerTimer.current);
-        switchSpinnerTimer.current = null;
-      }
       setIsSwitchingCamera(false);
     }
   };
@@ -1007,7 +1002,8 @@ const MediaPreviewAndroid = () => {
       >
         {!preview && !selectedFile && cameraActive && (
           <video
-            key={`android-cam-${cameraMode}-${videoEpoch}`}
+            // Key ổn định — KHÔNG remount khi flip (tránh màn đen)
+            key={`android-cam-${videoEpoch}`}
             ref={videoRef}
             autoPlay
             playsInline
@@ -1027,10 +1023,19 @@ const MediaPreviewAndroid = () => {
           />
         )}
 
-        {isSwitchingCamera && showCameraUi && (
-          <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/30 pointer-events-none">
-            <div className="w-8 h-8 rounded-full border-2 border-white/80 border-t-transparent animate-spin" />
-          </div>
+        {/* Freeze frame khi flip — che khoảng stop→open, không đen */}
+        {freezeFrame && showCameraUi && !preview && !selectedFile && (
+          <img
+            src={freezeFrame}
+            alt=""
+            className="absolute inset-0 z-30 w-full h-full object-cover pointer-events-none"
+            style={{
+              transform: previewMirror
+                ? "translate3d(0,0,0) scaleX(-1)"
+                : "translate3d(0,0,0)",
+            }}
+            draggable={false}
+          />
         )}
 
         {showCameraUi && (
@@ -1061,7 +1066,7 @@ const MediaPreviewAndroid = () => {
                     if (Math.abs(n - 1) < 0.05) return "1x";
                     // Front never shows 0.5x
                     if (
-                      (cameraMode || "user") === "user" &&
+                      (cameraMode || "environment") === "user" &&
                       n < 1
                     )
                       return "1x";

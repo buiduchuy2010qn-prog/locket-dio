@@ -1110,9 +1110,30 @@ export function handleFrontCameraPinchEnd() {
 }
 
 /**
+ * Chụp frame cuối của video → dataURL (freeze khi flip, tránh màn đen).
+ */
+export function captureVideoFreezeFrame(videoEl) {
+  if (!videoEl || videoEl.readyState < 2) return null;
+  const w = videoEl.videoWidth || 0;
+  const h = videoEl.videoHeight || 0;
+  if (w < 2 || h < 2) return null;
+  try {
+    const c = document.createElement("canvas");
+    c.width = w;
+    c.height = h;
+    const ctx = c.getContext("2d");
+    if (!ctx) return null;
+    ctx.drawImage(videoEl, 0, 0, w, h);
+    return c.toDataURL("image/jpeg", 0.82);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Open front camera (facingMode user).
- * Giữ oldStream đến khi cam mới sẵn sàng → flip không màn đen / không chờ stop.
- * Always starts at 1x. Does not use rear lens selection.
+ * stopFirst=true (mặc định khi flip): stop cam cũ rồi mở mới — bắt buộc trên
+ * nhiều Android (chỉ 1 cam hardware). Caller nên freeze frame trước.
  */
 export async function startFrontCamera(options = {}) {
   const {
@@ -1120,9 +1141,15 @@ export async function startFrontCamera(options = {}) {
     videoEl = null,
     deviceId = null,
     fast = true,
+    // Flip: stop trước để mở cam kia ngay (hardware single-lens)
+    stopFirst = true,
   } = options;
 
-  // Mở cam mới TRƯỚC — không stop old (tránh black + double latency)
+  if (stopFirst && oldStream) {
+    clearTrackZoomCache(oldStream);
+    stopCurrentCamera(oldStream, null);
+  }
+
   const stream = await startCameraByDeviceId(deviceId || null, {
     facingMode: "user",
     highRes: false,
@@ -1130,13 +1157,12 @@ export async function startFrontCamera(options = {}) {
     fast,
   });
 
-  // Stop old sau khi new ready — không clear videoEl (caller gán srcObject)
-  if (oldStream && oldStream !== stream) {
+  if (!stopFirst && oldStream && oldStream !== stream) {
     clearTrackZoomCache(oldStream);
     stopCurrentCamera(oldStream, null);
   }
 
-  // Zoom 1x nền — không await (mở preview ngay)
+  // Zoom 1x nền — không await
   resetFrontCameraZoom(stream).catch(() => {});
   const caps = refreshFrontCameraZoomCapabilities(stream);
   const settings = getCurrentTrackSettings(stream);
