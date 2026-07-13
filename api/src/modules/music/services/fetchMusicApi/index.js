@@ -582,10 +582,148 @@ const fetchMusicApi = async (url, platform = "spotify") => {
   throw err;
 };
 
+/** Chuẩn hóa tiếng Việt để so khớp (bỏ dấu, đ→d, lowercase) */
+function normalizeSearchText(s) {
+  return String(s || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Điểm liên quan query ↔ bài hát.
+ * Ưu tiên: khớp đúng tựa > chứa đầu > chứa đủ cụm > đủ token trong title.
+ * Phạt nặng khi chỉ dính 1 từ chung (vd "không" trong "không muốn…").
+ */
+function scoreTrackMatch(query, track) {
+  const q = normalizeSearchText(query);
+  const title = normalizeSearchText(
+    track.song_title || track.song_name || track.name || track.title || "",
+  );
+  const artist = normalizeSearchText(track.artist || "");
+  const full = `${title} ${artist}`.trim();
+  if (!q || !title) return 0;
+
+  let score = 0;
+  if (title === q) score += 2000;
+  else if (title.startsWith(q + " ") || title.startsWith(q)) score += 900;
+  if (title.includes(q)) score += 500;
+  if (full.includes(q)) score += 120;
+
+  const tokens = q.split(" ").filter((t) => t.length > 0);
+  if (!tokens.length) return score;
+
+  const inTitle = tokens.filter((t) => title.includes(t));
+  const inFull = tokens.filter((t) => full.includes(t));
+  const ratioTitle = inTitle.length / tokens.length;
+  const ratioFull = inFull.length / tokens.length;
+
+  score += ratioTitle * 400;
+  score += ratioFull * 80;
+
+  // Cụm token liền nhau trong title
+  if (tokens.length > 1 && title.includes(tokens.join(" "))) score += 600;
+
+  // Thứ tự token trong title
+  let orderOk = true;
+  let pos = 0;
+  for (const t of tokens) {
+    const i = title.indexOf(t, pos);
+    if (i < 0) {
+      orderOk = false;
+      break;
+    }
+    pos = i + t.length;
+  }
+  if (orderOk && inTitle.length === tokens.length) score += 200;
+
+  // Phạt: multi-word query mà title chỉ khớp 1 token (nhiễu "không …")
+  if (tokens.length >= 2 && inTitle.length === 1) {
+    score *= 0.08;
+  } else if (tokens.length >= 2 && inTitle.length < tokens.length) {
+    score *= 0.35 + 0.2 * ratioTitle;
+  }
+
+  // Bỏ hẳn nếu không token nào trong title/artist
+  if (inFull.length === 0) return 0;
+
+  // Popularity Spotify (0–100)
+  if (typeof track.popularity === "number") {
+    score += track.popularity * 0.35;
+  }
+
+  return score;
+}
+
+function rankAndFilterTracks(query, tracks, limit) {
+  const scored = (tracks || [])
+    .map((t) => ({ t, s: scoreTrackMatch(query, t) }))
+    .filter((x) => x.s > 0)
+    .sort((a, b) => b.s - a.s);
+
+  if (!scored.length) return (tracks || []).slice(0, limit);
+
+  // Ngưỡng: giữ bài liên quan; nếu top rất cao thì lọc nhiễu
+  const top = scored[0].s;
+  const minKeep = top >= 400 ? Math.max(40, top * 0.12) : 8;
+  const filtered = scored.filter((x) => x.s >= minKeep).map((x) => x.t);
+  return (filtered.length ? filtered : scored.map((x) => x.t)).slice(0, limit);
+}
+
+function mapSpotifyTrack(t) {
+  return {
+    id: t.id,
+    song_name: t.name || "",
+    song_title: t.name || "",
+    name: t.name || "",
+    artist: (t.artists || []).map((a) => a.name).join(", "),
+    album: t.album?.name || "",
+    image_url:
+      t.album?.images?.[0]?.url || t.album?.images?.[1]?.url || "",
+    preview_url: t.preview_url || null,
+    isrc: t.external_ids?.isrc || null,
+    spotify_url:
+      t.external_urls?.spotify || `https://open.spotify.com/track/${t.id}`,
+    duration_ms: t.duration_ms || 0,
+    popularity: t.popularity || 0,
+    platform: "spotify",
+    source: "spotify-search",
+    title: [t.name, (t.artists || []).map((a) => a.name).join(", ")]
+      .filter(Boolean)
+      .join(" - "),
+  };
+}
+
+function mapDeezerTrack(t) {
+  return {
+    id: String(t.id),
+    song_name: t.title || "",
+    song_title: t.title || "",
+    name: t.title || "",
+    artist: t.artist?.name || "",
+    album: t.album?.title || "",
+    image_url:
+      t.album?.cover_xl || t.album?.cover_big || t.album?.cover_medium || "",
+    preview_url: t.preview || null,
+    isrc: t.isrc || null,
+    spotify_url: null,
+    deezer_url: t.link || null,
+    duration_ms: (t.duration || 0) * 1000,
+    popularity: t.rank ? Math.min(100, Math.round(Number(t.rank) / 10000)) : 0,
+    platform: "spotify",
+    source: "deezer-search",
+    title: [t.title, t.artist?.name].filter(Boolean).join(" - "),
+  };
+}
+
 /**
  * Tìm nhạc theo tên — KHÔNG cần user OAuth.
- * 1) Spotify Web API search (client credentials)
- * 2) Fallback Deezer search
+ * 1) Spotify Web API (market VN + quote phrase + rank)
+ * 2) Fallback Deezer + rank
  */
 async function searchMusicByQuery(query, limit = 15) {
   const q = String(query || "").trim();
@@ -595,42 +733,59 @@ async function searchMusicByQuery(query, limit = 15) {
     throw err;
   }
   const lim = Math.min(Math.max(Number(limit) || 15, 1), 25);
+  // Lấy nhiều hơn rồi rank — tránh lệch do API trả bài "không …" nhiễu
+  const fetchLim = Math.min(40, Math.max(lim * 2, 20));
 
   // 1) Spotify official search
   try {
     const token = await getSpotifyAppToken();
     if (token) {
-      const r = await axios.get("https://api.spotify.com/v1/search", {
-        params: { q, type: "track", limit: lim, market: "US" },
-        headers: { Authorization: `Bearer ${token}` },
-        timeout: 12000,
-      });
-      const items = r.data?.tracks?.items || [];
-      if (items.length) {
-        return items.map((t) => ({
-          id: t.id,
-          song_name: t.name || "",
-          song_title: t.name || "",
-          name: t.name || "",
-          artist: (t.artists || []).map((a) => a.name).join(", "),
-          album: t.album?.name || "",
-          image_url:
-            t.album?.images?.[0]?.url ||
-            t.album?.images?.[1]?.url ||
-            "",
-          preview_url: t.preview_url || null,
-          isrc: t.external_ids?.isrc || null,
-          spotify_url:
-            t.external_urls?.spotify ||
-            `https://open.spotify.com/track/${t.id}`,
-          duration_ms: t.duration_ms || 0,
-          platform: "spotify",
-          source: "spotify-search",
-          title: [t.name, (t.artists || []).map((a) => a.name).join(", ")]
-            .filter(Boolean)
-            .join(" - "),
-        }));
+      const headers = { Authorization: `Bearer ${token}` };
+      const tryQueries = [];
+      // Cụm exact trước (đa từ)
+      if (q.includes(" ") || q.length >= 4) {
+        tryQueries.push(`track:"${q.replace(/"/g, "")}"`);
+        tryQueries.push(`"${q.replace(/"/g, "")}"`);
       }
+      tryQueries.push(q);
+
+      const seen = new Map();
+      for (const sq of tryQueries) {
+        try {
+          const r = await axios.get("https://api.spotify.com/v1/search", {
+            params: {
+              q: sq,
+              type: "track",
+              limit: fetchLim,
+              market: "VN",
+            },
+            headers,
+            timeout: 12000,
+          });
+          for (const t of r.data?.tracks?.items || []) {
+            if (t?.id && !seen.has(t.id)) seen.set(t.id, mapSpotifyTrack(t));
+          }
+        } catch {
+          /* thử query kế */
+        }
+        // Đủ bài khớp tốt thì thôi
+        if (seen.size >= fetchLim) break;
+      }
+
+      // Fallback market US nếu VN trống
+      if (!seen.size) {
+        const r = await axios.get("https://api.spotify.com/v1/search", {
+          params: { q, type: "track", limit: fetchLim, market: "US" },
+          headers,
+          timeout: 12000,
+        });
+        for (const t of r.data?.tracks?.items || []) {
+          if (t?.id && !seen.has(t.id)) seen.set(t.id, mapSpotifyTrack(t));
+        }
+      }
+
+      const ranked = rankAndFilterTracks(q, [...seen.values()], lim);
+      if (ranked.length) return ranked;
     }
   } catch (e) {
     console.warn("searchMusicByQuery spotify:", e.message);
@@ -639,28 +794,11 @@ async function searchMusicByQuery(query, limit = 15) {
   // 2) Deezer fallback (không cần key)
   try {
     const s = await http.get("https://api.deezer.com/search", {
-      params: { q, limit: lim },
+      params: { q, limit: fetchLim },
       timeout: 12000,
     });
-    const hits = s.data?.data || [];
-    return hits.map((t) => ({
-      id: String(t.id),
-      song_name: t.title || "",
-      song_title: t.title || "",
-      name: t.title || "",
-      artist: t.artist?.name || "",
-      album: t.album?.title || "",
-      image_url:
-        t.album?.cover_xl || t.album?.cover_big || t.album?.cover_medium || "",
-      preview_url: t.preview || null,
-      isrc: t.isrc || null,
-      spotify_url: null,
-      deezer_url: t.link || null,
-      duration_ms: (t.duration || 0) * 1000,
-      platform: "spotify",
-      source: "deezer-search",
-      title: [t.title, t.artist?.name].filter(Boolean).join(" - "),
-    }));
+    const hits = (s.data?.data || []).map(mapDeezerTrack);
+    return rankAndFilterTracks(q, hits, lim);
   } catch (e) {
     console.warn("searchMusicByQuery deezer:", e.message);
   }
