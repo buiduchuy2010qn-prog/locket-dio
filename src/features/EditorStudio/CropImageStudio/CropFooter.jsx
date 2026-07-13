@@ -1,4 +1,4 @@
-import { Repeat2, Scissors, X, ImageOff } from "lucide-react";
+import { Repeat2, Scissors, X, ImageOff, Loader2 } from "lucide-react";
 import ImageMetadata from "./ImageMetadata";
 import { useTranslation } from "react-i18next";
 
@@ -7,6 +7,7 @@ const CropFooter = ({
   needConvert,
   converting,
   cropDisabled,
+  cropping,
   cropError,
   fileName,
   fileType,
@@ -21,17 +22,20 @@ const CropFooter = ({
   const { t } = useTranslation("features");
 
   return (
-    <div className="w-full border-t border-base-300 bg-base-200 -mt-6 p-4 shadow-lg z-10 relative rounded-t-3xl">
+    <div className="w-full border-t border-base-300 bg-base-200 shrink-0 p-4 shadow-lg z-10 relative rounded-t-3xl safe-pb">
       <h1 className="text-xl font-lovehouse text-left text-base-content">
         {t("crop_image.title")}
       </h1>
 
       <div className="my-1 space-y-1 text-xs text-base-content/80">
         <p>{t("crop_image.instruction_zoom")}</p>
-        <p>{t("crop_image.instruction_convert")}</p>
+        {needConvert ? (
+          <p className="text-warning">{t("crop_image.instruction_convert")}</p>
+        ) : (
+          <p className="text-success/80">Kéo / phóng to để chọn khung vuông 1:1</p>
+        )}
       </div>
 
-      {/* 📌 Metadata */}
       {imageToCrop && (
         <ImageMetadata
           fileName={fileName}
@@ -42,49 +46,64 @@ const CropFooter = ({
       )}
 
       {cropError && (
-        <p className="text-sm text-left text-red-500 font-medium mt-2 break-words">
+        <p className="text-sm text-left text-error font-medium mt-2 break-words">
           {cropError}
         </p>
       )}
 
-      <div className="flex justify-center gap-2 pt-2">
+      <div className="flex flex-wrap justify-center gap-2 pt-3">
         <button
+          type="button"
           onClick={onCancel}
+          disabled={converting || cropping}
           className="btn btn-outline btn-error rounded-3xl"
         >
-          <X />
+          <X className="w-4 h-4" />
           {t("crop_image.cancel")}
         </button>
 
-        {needConvert && (
-          <button
-            onClick={onConvert}
-            className="btn btn-secondary rounded-3xl"
-            disabled={converting}
-          >
-            <Repeat2 />
-            {t("crop_image.convert")}
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={onConvert}
+          className="btn btn-secondary rounded-3xl"
+          disabled={converting || cropping}
+        >
+          {converting ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            <Repeat2 className="w-4 h-4" />
+          )}
+          {t("crop_image.convert")}
+        </button>
 
         {canSkipCrop && (
-          <button onClick={onSkip} className="btn btn-outline rounded-3xl">
-            <ImageOff />
+          <button
+            type="button"
+            onClick={onSkip}
+            disabled={converting || cropping}
+            className="btn btn-outline rounded-3xl"
+          >
+            <ImageOff className="w-4 h-4" />
             {t("crop_image.skip")}
           </button>
         )}
 
         <button
+          type="button"
           onClick={onCrop}
           disabled={cropDisabled}
-          className="btn btn-primary rounded-3xl"
+          className="btn btn-primary rounded-3xl min-w-[7.5rem]"
         >
-          <Scissors />
-          {t("crop_image.crop")}
+          {cropping || converting ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            <Scissors className="w-4 h-4" />
+          )}
+          {cropping ? "Đang cắt…" : t("crop_image.crop")}
         </button>
       </div>
 
-      <p className="text-xs italic text-center text-base-content/40 mt-1">
+      <p className="text-xs italic text-center text-base-content/40 mt-2">
         {t("crop_image.error_report")}
       </p>
     </div>

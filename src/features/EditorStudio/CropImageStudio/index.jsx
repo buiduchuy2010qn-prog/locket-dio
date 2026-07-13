@@ -1,12 +1,21 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { getCroppedImg, getFileSizeMB } from "@/utils";
+import {
+  prepareImageForCrop,
+  canBrowserRenderImage,
+} from "@/utils/process/PrsImage/prepareImageForCrop";
 import clsx from "clsx";
 import { usePostStore } from "@/stores";
 import { convertImageToBlob } from "@/services";
 import CropCanvas from "./CropCanvas";
 import CropFooter from "./CropFooter";
+import { SonnerError, SonnerInfo } from "@/components/ui/SonnerToast";
 
+/**
+ * Crop Image Studio — luôn chuẩn hóa ảnh client-side trước khi crop
+ * để tránh màn xám / nút Cắt bị khóa trên mobile.
+ */
 const CropImageStudio = () => {
   const { t } = useTranslation("features");
   const setMediaFromFile = usePostStore((s) => s.setMediaFromFile);
@@ -15,161 +24,258 @@ const CropImageStudio = () => {
 
   const [crop, setCrop] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
+  const [minZoom, setMinZoom] = useState(1);
   const [croppedAreaPixels, setCroppedAreaPixels] = useState(null);
   const [cropError, setCropError] = useState("");
-
   const [imageUrl, setImageUrl] = useState(null);
+  /** File JPEG đã chuẩn hóa (hiển thị + crop) */
+  const [workFile, setWorkFile] = useState(null);
+  const [preparing, setPreparing] = useState(false);
   const [converting, setConverting] = useState(false);
-  const [canRenderImage, setCanRenderImage] = useState(null);
+  const [mediaReady, setMediaReady] = useState(false);
+  const [showCropper, setShowCropper] = useState(false);
+  const [cropping, setCropping] = useState(false);
 
-  const canBrowserRenderImage = useCallback((file) => {
-    return new Promise((resolve) => {
-      const url = URL.createObjectURL(file);
-      const img = new Image();
+  const prepareGen = useRef(0);
+  const urlRef = useRef(null);
 
-      img.onload = () => {
-        URL.revokeObjectURL(url);
-        resolve(true);
-      };
-
-      img.onerror = () => {
-        URL.revokeObjectURL(url);
-        resolve(false);
-      };
-
-      img.src = url;
-    });
-  }, []);
-  useEffect(() => {
-    let ignore = false;
-
-    setCanRenderImage(false);
-
-    const check = async () => {
-      if (!imageToCrop) return;
-
-      const ok = await canBrowserRenderImage(imageToCrop);
-
-      if (!ignore) {
-        setCanRenderImage(ok);
+  const revokeUrl = useCallback(() => {
+    if (urlRef.current) {
+      try {
+        URL.revokeObjectURL(urlRef.current);
+      } catch {
+        /* ignore */
       }
-    };
+      urlRef.current = null;
+    }
+  }, []);
 
-    check();
-
-    return () => {
-      ignore = true;
-    };
-  }, [imageToCrop]);
-
-  useEffect(() => {
-    let url;
-
-    if (imageToCrop) {
-      url = URL.createObjectURL(imageToCrop);
+  const applyWorkFile = useCallback(
+    (file) => {
+      revokeUrl();
+      const url = URL.createObjectURL(file);
+      urlRef.current = url;
+      setWorkFile(file);
       setImageUrl(url);
+      setCrop({ x: 0, y: 0 });
+      setZoom(1);
+      setMinZoom(1);
+      setCroppedAreaPixels(null);
+      setMediaReady(false);
+      setCropError("");
+    },
+    [revokeUrl],
+  );
+
+  // Chuẩn hóa ảnh khi mở studio
+  useEffect(() => {
+    if (!imageToCrop) {
+      prepareGen.current += 1;
+      revokeUrl();
+      setWorkFile(null);
+      setImageUrl(null);
+      setPreparing(false);
+      setMediaReady(false);
+      setCropError("");
+      return;
     }
 
+    const gen = ++prepareGen.current;
+    let cancelled = false;
+
+    (async () => {
+      setPreparing(true);
+      setCropError("");
+      setMediaReady(false);
+
+      try {
+        // 1) Thử chuẩn hóa local (canvas) — mượt, không phụ thuộc server
+        const prepared = await prepareImageForCrop(imageToCrop, {
+          maxEdge: 2048,
+        });
+        if (cancelled || gen !== prepareGen.current) return;
+        applyWorkFile(prepared);
+      } catch (localErr) {
+        console.warn("[crop] local prepare failed:", localErr);
+
+        // 2) Nếu browser vẫn đọc được raw → dùng raw
+        try {
+          const ok = await canBrowserRenderImage(imageToCrop);
+          if (cancelled || gen !== prepareGen.current) return;
+          if (ok) {
+            applyWorkFile(imageToCrop);
+            return;
+          }
+        } catch {
+          /* continue */
+        }
+
+        // 3) Remote convert (fallback)
+        try {
+          const blob = await convertImageToBlob(imageToCrop);
+          if (cancelled || gen !== prepareGen.current) return;
+          const file = new File(
+            [blob],
+            (imageToCrop.name || "image").replace(/\.[^.]+$/, ".jpg"),
+            { type: blob.type || "image/jpeg", lastModified: Date.now() },
+          );
+          file.__converted = true;
+          file.__prepared = true;
+          // Re-prepare local after remote
+          try {
+            const again = await prepareImageForCrop(file);
+            if (cancelled || gen !== prepareGen.current) return;
+            applyWorkFile(again);
+          } catch {
+            if (cancelled || gen !== prepareGen.current) return;
+            applyWorkFile(file);
+          }
+        } catch (remoteErr) {
+          console.error("[crop] remote convert failed:", remoteErr);
+          if (cancelled || gen !== prepareGen.current) return;
+          setCropError(
+            t("crop_image.crop_failed_detail", {
+              error:
+                "Không đọc được ảnh. Thử ảnh JPG/PNG khác hoặc nút Chuyển đổi.",
+            }),
+          );
+          // Vẫn gắn raw để user thử convert tay
+          applyWorkFile(imageToCrop);
+        }
+      } finally {
+        if (!cancelled && gen === prepareGen.current) {
+          setPreparing(false);
+        }
+      }
+    })();
+
     return () => {
-      if (url) URL.revokeObjectURL(url);
+      cancelled = true;
     };
-  }, [imageToCrop]);
+  }, [imageToCrop, applyWorkFile, revokeUrl, t]);
+
+  // Cleanup URL on unmount
+  useEffect(() => () => revokeUrl(), [revokeUrl]);
+
+  // Timeout nếu cropper không fire onMediaLoaded
+  useEffect(() => {
+    if (!imageUrl || preparing || mediaReady) return;
+    const t = setTimeout(() => {
+      if (!mediaReady) {
+        // Vẫn cho phép crop nếu có pixels sau
+        setMediaReady(true);
+      }
+    }, 2500);
+    return () => clearTimeout(t);
+  }, [imageUrl, preparing, mediaReady]);
 
   const handleConvertImage = async () => {
-    if (!imageToCrop) return;
-
+    const src = workFile || imageToCrop;
+    if (!src) return;
     try {
       setConverting(true);
-
-      const blob = await convertImageToBlob(imageToCrop);
-
-      const ext = blob.type === "image/webp" ? "webp" : "jpg";
-
+      setCropError("");
+      // Local re-encode trước
+      try {
+        const prepared = await prepareImageForCrop(src, { maxEdge: 1920 });
+        applyWorkFile(prepared);
+        SonnerInfo("Đã chuyển sang JPEG");
+        return;
+      } catch {
+        /* remote */
+      }
+      const blob = await convertImageToBlob(src);
       const file = new File(
         [blob],
-        imageToCrop.name.replace(/\.[^.]+$/, `.${ext}`),
-        {
-          type: blob.type,
-          lastModified: Date.now(),
-        },
+        (src.name || "image").replace(/\.[^.]+$/, ".jpg"),
+        { type: blob.type || "image/jpeg", lastModified: Date.now() },
       );
-
       file.__converted = true;
-
-      setImageToCrop(file);
+      try {
+        applyWorkFile(await prepareImageForCrop(file));
+      } catch {
+        applyWorkFile(file);
+      }
+      SonnerInfo("Đã chuyển đổi ảnh");
     } catch (err) {
       console.error(err);
+      SonnerError("Chuyển đổi thất bại", err?.message || "");
+      setCropError(t("crop_image.crop_failed_default"));
     } finally {
       setConverting(false);
     }
   };
 
   const handleCropConfirm = useCallback(async () => {
-    if (!croppedAreaPixels || !imageToCrop) return;
+    const file = workFile || imageToCrop;
+    if (!file) return;
+
+    // Nếu chưa có vùng crop — dùng full ảnh (square center sau)
+    let area = croppedAreaPixels;
+    if (!area) {
+      SonnerInfo("Đang chuẩn bị vùng cắt…");
+      return;
+    }
 
     try {
-      const croppedFile = await getCroppedImg(imageToCrop, croppedAreaPixels);
+      setCropping(true);
+      setCropError("");
+      const croppedFile = await getCroppedImg(file, area);
+      if (!croppedFile) throw new Error("Crop empty");
       setMediaFromFile(croppedFile);
-      setImageToCrop(null); // ✅ Ẩn cropper sau khi cắt
+      setImageToCrop(null);
     } catch (e) {
       console.error("Crop failed", e);
-
-      let msg = t("crop_image.crop_failed_default");
-
-      if (e instanceof Error) {
-        msg = e.message;
-      } else if (typeof e === "object") {
-        msg = JSON.stringify(e);
-      } else {
-        msg = String(e);
-      }
-
+      const msg =
+        e instanceof Error
+          ? e.message
+          : typeof e === "object"
+            ? JSON.stringify(e)
+            : String(e);
       setCropError(t("crop_image.crop_failed_detail", { error: msg }));
+      SonnerError("Cắt ảnh thất bại", msg);
+    } finally {
+      setCropping(false);
     }
-  }, [croppedAreaPixels, imageToCrop]);
+  }, [
+    croppedAreaPixels,
+    workFile,
+    imageToCrop,
+    setMediaFromFile,
+    setImageToCrop,
+    t,
+  ]);
 
-  // Effect để reset crop và zoom khi có ảnh mới
   useEffect(() => {
     if (imageToCrop) {
-      setCrop({ x: 0, y: 0 });
-      setZoom(1); // Reset zoom về 1 để ảnh lấp đầy khung
-    }
-  }, [imageToCrop]);
-
-  const [showCropper, setShowCropper] = useState(false);
-
-  // Mỗi khi imageToCrop thay đổi, xử lý hiệu ứng mở/đóng
-  useEffect(() => {
-    if (imageToCrop) {
-      setShowCropper(true); // Mở cropper
+      setShowCropper(true);
     } else {
-      // Đóng cropper sau hiệu ứng (300ms)
-      const timer = setTimeout(() => setShowCropper(false), 300);
+      const timer = setTimeout(() => setShowCropper(false), 280);
       return () => clearTimeout(timer);
     }
   }, [imageToCrop]);
 
-  //Khoá cuộn màn hình cho thẻ body
   useEffect(() => {
     document.body.style.overflow = imageToCrop ? "hidden" : "";
-    return () => (document.body.style.overflow = "");
+    return () => {
+      document.body.style.overflow = "";
+    };
   }, [imageToCrop]);
 
-  const fileName = imageToCrop?.name;
-  const fileType = imageToCrop?.type;
-  const fileSizeMB = getFileSizeMB(imageToCrop);
-  const fileExt = imageToCrop?.name?.split(".").pop()?.toLowerCase();
+  const displayFile = workFile || imageToCrop;
+  const fileName = displayFile?.name;
+  const fileType = displayFile?.type;
+  const fileSizeMB = getFileSizeMB(displayFile);
+  const fileExt = displayFile?.name?.split(".").pop()?.toLowerCase();
 
-  const needConvert = imageToCrop && canRenderImage === false;
-
-  const canSkipCrop = imageToCrop && canRenderImage === true;
-
-  const shouldDisableCrop = needConvert && !imageToCrop?.__converted;
+  const busy = preparing || converting || cropping;
+  const cropDisabled =
+    busy || !imageUrl || !mediaReady || !croppedAreaPixels;
 
   const handleSkipCrop = () => {
-    if (!imageToCrop) return;
-
-    setMediaFromFile(imageToCrop);
+    const file = workFile || imageToCrop;
+    if (!file) return;
+    setMediaFromFile(file);
     setImageToCrop(null);
   };
 
@@ -178,30 +284,38 @@ const CropImageStudio = () => {
   return (
     <div
       className={clsx(
-        "fixed flex flex-col inset-0 z-50 bg-base-100/30 backdrop-blur-xl transition-all duration-500 ease-in-out overflow-hidden",
+        "fixed flex flex-col inset-0 z-50 bg-base-100/40 backdrop-blur-xl transition-all duration-300 ease-out overflow-hidden",
         {
           "opacity-100": imageToCrop,
           "opacity-0 pointer-events-none": !imageToCrop,
         },
       )}
     >
-      {/* Cropper Area */}
       <CropCanvas
-        converting={converting}
+        converting={preparing || converting}
         imageUrl={imageUrl}
         crop={crop}
         zoom={zoom}
+        minZoom={minZoom}
         setCrop={setCrop}
         setZoom={setZoom}
+        setMinZoom={setMinZoom}
         setCroppedAreaPixels={setCroppedAreaPixels}
+        onMediaReady={() => setMediaReady(true)}
+        onMediaError={() => {
+          setMediaReady(false);
+          setCropError(
+            "Ảnh không hiển thị. Bấm Chuyển đổi hoặc chọn ảnh JPG/PNG khác.",
+          );
+        }}
       />
 
-      {/* Footer Buttons */}
       <CropFooter
-        imageToCrop={imageToCrop}
-        needConvert={needConvert}
-        converting={converting}
-        cropDisabled={shouldDisableCrop}
+        imageToCrop={displayFile}
+        needConvert={!mediaReady || Boolean(cropError)}
+        converting={preparing || converting}
+        cropDisabled={cropDisabled}
+        cropping={cropping}
         cropError={cropError}
         fileName={fileName}
         fileType={fileType}
@@ -210,7 +324,7 @@ const CropImageStudio = () => {
         onCancel={() => setImageToCrop(null)}
         onConvert={handleConvertImage}
         onCrop={handleCropConfirm}
-        canSkipCrop={canSkipCrop}
+        canSkipCrop={Boolean(displayFile) && !preparing}
         onSkip={handleSkipCrop}
       />
     </div>
