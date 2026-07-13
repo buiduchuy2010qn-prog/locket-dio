@@ -30,7 +30,6 @@ import {
   isUltraLabel,
   isTeleLabel,
 } from "@/utils";
-import ZoomPresets from "./ZoomPresets";
 const EditorCaption = lazy(() => import("@/features/EditorCaption"));
 import { useApp } from "@/context/AppContext";
 import BorderProgress from "../../Widgets/SquareProgress";
@@ -726,15 +725,6 @@ const MediaPreviewIOS = () => {
                 </div>
               </div>
             )}
-
-            <ZoomPresets
-              visible={showZoomUi}
-              activeMode={activeZoomMode || zoomLevel || "1x"}
-              currentZoom={currentZoom}
-              available={availableZoomModes}
-              disabled={isSwitchingCamera}
-              onSelect={handleSelectZoomMode}
-            />
 
             {cameraFrame?.imageSrc && (
               <div className="absolute inset-0 z-20 pointer-events-none">
