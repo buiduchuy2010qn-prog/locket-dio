@@ -8,9 +8,9 @@ import { RefreshCw } from "lucide-react";
 
 /**
  * Nút tròn cập nhật — luôn hiện cạnh avatar hồ sơ.
- * - Bấm: xóa cache + tải bản mới nhất
- * - Chấm hồng: có bản mới hơn trên server
- * (Tự cập nhật khi thoát/vào lại web — xem updateWatcher.autoUpdateIfAvailable)
+ * - Bấm: cập nhật ngay
+ * - Chấm hồng: server có bản mới
+ * - Tự cập nhật chỉ khi không vào web ≥ 30 phút rồi quay lại
  */
 export default function AppUpdateButton({ className = "" }) {
   const [hasUpdate, setHasUpdate] = useState(false);

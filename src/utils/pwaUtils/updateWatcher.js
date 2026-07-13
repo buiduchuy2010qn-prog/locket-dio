@@ -1,22 +1,28 @@
 /**
- * App update — nút tròn luôn có (Header) + tự cập nhật khi vào lại web.
- * Không toast spam.
+ * App update:
+ * - Nút tròn luôn có → user bấm = cập nhật ngay
+ * - Tự cập nhật CHỈ khi user không vào web ≥ 30 phút rồi mới quay lại
+ * - Không toast, không auto khi đang xài app
  */
 
 import currentBuild from "@/config/buildMeta.json";
 
 const STORAGE_BUILD = "app_known_build_id";
 const STORAGE_RELOAD_GUARD = "app_update_reload_guard";
+/** Lần cuối user rời / ẩn tab web (ms epoch) */
+const STORAGE_LAST_AWAY = "app_last_away_at";
+/** Lần cuối user đang active trên web */
+const STORAGE_LAST_ACTIVE = "app_last_active_at";
 
 const POLL_MS = 5 * 60 * 1000;
-const FOCUS_COOLDOWN_MS = 90 * 1000;
+/** Chỉ auto-update nếu đã vắng ≥ 30 phút */
+const AWAY_AUTO_UPDATE_MS = 30 * 60 * 1000;
 const RELOAD_GUARD_MS = 20 * 1000;
 const EVENT_NAME = "app:update_state";
 
 let pollTimer = null;
 let started = false;
 let checking = false;
-let lastFocusCheck = 0;
 let autoUpdating = false;
 /** @type {null | (() => void | Promise<void>)} */
 let pendingSwApply = null;
@@ -49,6 +55,47 @@ function safeRemove(key) {
   } catch {
     /* ignore */
   }
+}
+
+function markActive() {
+  safeSet(STORAGE_LAST_ACTIVE, String(now()));
+}
+
+function markAway() {
+  safeSet(STORAGE_LAST_AWAY, String(now()));
+}
+
+/**
+ * Đã vắng web đủ lâu chưa (≥ 30 phút).
+ * Dùng last_away; fallback last_active nếu không có mốc rời.
+ */
+function hasBeenAwayLongEnough() {
+  const awayRaw = safeGet(STORAGE_LAST_AWAY);
+  const activeRaw = safeGet(STORAGE_LAST_ACTIVE);
+  const t = now();
+
+  if (awayRaw) {
+    const awayAt = Number(awayRaw);
+    if (Number.isFinite(awayAt) && t - awayAt >= AWAY_AUTO_UPDATE_MS) {
+      return true;
+    }
+    // Rời tab gần đây (< 30p) → không auto
+    if (Number.isFinite(awayAt) && t - awayAt < AWAY_AUTO_UPDATE_MS) {
+      return false;
+    }
+  }
+
+  // Lần đầu / không có mốc away: chỉ auto nếu last active cũng đã cũ ≥ 30p
+  // (đóng browser lâu rồi mở lại)
+  if (activeRaw) {
+    const activeAt = Number(activeRaw);
+    if (Number.isFinite(activeAt) && t - activeAt >= AWAY_AUTO_UPDATE_MS) {
+      return true;
+    }
+  }
+
+  // Chưa từng có mốc → coi là session mới, không ép auto (user bấm nút)
+  return false;
 }
 
 export function getCurrentBuildMeta() {
@@ -121,9 +168,8 @@ export async function clearOldAppCache() {
 }
 
 /**
- * Apply update: clear cache + SW skipWaiting or hard reload.
  * @param {string} [targetBuildId]
- * @param {{ force?: boolean }} [opts] force=true always reloads even if already latest
+ * @param {{ force?: boolean }} [opts]
  */
 export async function applyWebsiteUpdate(targetBuildId, opts = {}) {
   const force = Boolean(opts.force);
@@ -165,10 +211,7 @@ export async function applyWebsiteUpdate(targetBuildId, opts = {}) {
   return true;
 }
 
-/**
- * Silent check — sets available for pink badge on button.
- * @returns {Promise<boolean>} true if remote build differs
- */
+/** Silent check — chấm hồng trên nút. Không auto reload. */
 export async function checkForAppUpdate() {
   if (checking) return updateState.available;
   if (typeof document !== "undefined" && document.hidden) {
@@ -205,11 +248,17 @@ export async function checkForAppUpdate() {
 }
 
 /**
- * If remote is newer → auto apply (dùng khi mở lại tab / vào web).
+ * Tự cập nhật CHỈ khi đã vắng web ≥ 30 phút.
  */
 export async function autoUpdateIfAvailable() {
   if (autoUpdating) return false;
   if (typeof document !== "undefined" && document.hidden) return false;
+
+  if (!hasBeenAwayLongEnough()) {
+    // Vẫn check để hiện chấm hồng, không reload
+    await checkForAppUpdate();
+    return false;
+  }
 
   const guard = safeGet(STORAGE_RELOAD_GUARD);
   if (guard) {
@@ -226,7 +275,10 @@ export async function autoUpdateIfAvailable() {
     const has = await checkForAppUpdate();
     if (!has) return false;
     const buildId = updateState.latest?.buildId;
-    console.log("[update] auto-apply newer build", buildId);
+    console.log(
+      "[update] auto-apply after ≥30m away, build=",
+      buildId,
+    );
     await applyWebsiteUpdate(buildId);
     return true;
   } catch (e) {
@@ -237,9 +289,7 @@ export async function autoUpdateIfAvailable() {
   }
 }
 
-/**
- * User bấm nút — luôn xóa cache + tải lại bản mới nhất.
- */
+/** User bấm nút — cập nhật ngay, không cần chờ 30p */
 export async function userForceUpdate() {
   try {
     await checkForAppUpdate();
@@ -252,24 +302,23 @@ export async function userForceUpdate() {
 
 export function handleVisibilityUpdateCheck() {
   if (document.visibilityState !== "visible") {
+    // Rời tab / ẩn app → ghi mốc away
+    markAway();
     stopUpdateWatcher({ keepListeners: true });
     return;
   }
-  // Vào lại tab/app → tự cập nhật nếu có bản mới
-  if (now() - lastFocusCheck < FOCUS_COOLDOWN_MS) {
-    // vẫn resume poll
-    if (started) ensurePoll();
-    return;
-  }
-  lastFocusCheck = now();
+
+  // Quay lại tab
+  markActive();
   if (started) ensurePoll();
+
+  // Chỉ auto nếu đã vắng ≥ 30 phút
   autoUpdateIfAvailable();
 }
 
 export function handleOnlineUpdateCheck() {
   if (typeof navigator !== "undefined" && navigator.onLine === false) return;
-  if (now() - lastFocusCheck < FOCUS_COOLDOWN_MS) return;
-  lastFocusCheck = now();
+  // Online lại: chỉ auto nếu đã vắng đủ lâu
   autoUpdateIfAvailable();
 }
 
@@ -304,6 +353,7 @@ export function handleServiceWorkerUpdate(updateSW) {
     };
   }
 
+  // SW waiting → chỉ badge, không auto (trừ khi đã vắng ≥ 30p)
   publishState({
     available: true,
     swWaiting: true,
@@ -312,13 +362,7 @@ export function handleServiceWorkerUpdate(updateSW) {
       version: getCurrentBuildMeta().version,
     },
   });
-
-  // Có SW waiting → áp dụng khi user quay lại / ngay nếu tab đang mở
-  if (typeof document !== "undefined" && !document.hidden) {
-    autoUpdateIfAvailable();
-  } else {
-    checkForAppUpdate();
-  }
+  checkForAppUpdate();
 }
 
 function ensurePoll() {
@@ -326,6 +370,8 @@ function ensurePoll() {
   if (typeof document !== "undefined" && document.hidden) return;
   pollTimer = setInterval(() => {
     if (document.hidden) return;
+    markActive();
+    // Poll chỉ cập nhật badge, không auto reload
     checkForAppUpdate();
   }, POLL_MS);
 }
@@ -338,17 +384,29 @@ export function startUpdateWatcher() {
     setTimeout(() => safeRemove(STORAGE_RELOAD_GUARD), 2500);
   });
 
-  // Lần mở web: kiểm tra + tự cập nhật nếu server mới hơn
-  autoUpdateIfAvailable();
+  // Session mở: thử auto chỉ nếu đã vắng ≥ 30p từ lần trước
+  autoUpdateIfAvailable().finally(() => {
+    markActive();
+  });
   ensurePoll();
 
   document.addEventListener("visibilitychange", handleVisibilityUpdateCheck);
-  window.addEventListener("focus", handleVisibilityUpdateCheck);
+  // focus: không auto mỗi lần focus — chỉ mark active + check badge
+  window.addEventListener("focus", () => {
+    if (document.visibilityState === "visible") {
+      markActive();
+      checkForAppUpdate();
+    }
+  });
   window.addEventListener("online", handleOnlineUpdateCheck);
 
-  // Quay lại từ bfcache
+  window.addEventListener("pagehide", () => {
+    markAway();
+  });
   window.addEventListener("pageshow", (e) => {
-    if (e.persisted) autoUpdateIfAvailable();
+    if (e.persisted) {
+      autoUpdateIfAvailable().finally(() => markActive());
+    }
   });
 }
 
@@ -363,7 +421,6 @@ export function stopUpdateWatcher({ keepListeners = false } = {}) {
       "visibilitychange",
       handleVisibilityUpdateCheck,
     );
-    window.removeEventListener("focus", handleVisibilityUpdateCheck);
     window.removeEventListener("online", handleOnlineUpdateCheck);
   }
 }
