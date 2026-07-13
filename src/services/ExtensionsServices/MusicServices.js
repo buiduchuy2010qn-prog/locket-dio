@@ -203,36 +203,25 @@ function rankTracksByQuery(query, tracks, limit = 40) {
     const title = normalizeSearchText(
       track.song_title || track.song_name || track.name || track.title || "",
     );
-    const artist = normalizeSearchText(track.artist || "");
-    const full = `${title} ${artist}`;
-    if (!title) return { track, s: 1 };
+    const artistN = normalizeSearchText(track.artist || "");
+    const full = `${title} ${artistN}`.trim();
 
     const inTitle = tokens.filter((t) => tokenAsWord(t, title));
-    const inFull = tokens.filter((t) => tokenAsWord(t, full));
-    const phrase = title.includes(q) || title === q;
-
-    const artistN = normalizeSearchText(track.artist || "");
     const inArtist = tokens.filter((t) => tokenAsWord(t, artistN));
+    const inFull = tokens.filter((t) => tokenAsWord(t, full));
     const joined = tokens.join(" ");
+    const phrase = title.includes(q) || title === q;
     const phraseArtist =
       artistN &&
       (artistN === q || artistN.includes(q) || artistN.startsWith(q));
     const allInArtist =
       artistN &&
-      tokens.every((tok) => tokenAsWord(tok, artistN) || artistN.includes(joined));
+      tokens.every(
+        (tok) => tokenAsWord(tok, artistN) || artistN.includes(joined),
+      );
 
-    // Khớp title HOẶC artist (tìm theo ca sĩ)
-    const titleOk =
-      phrase ||
-      inTitle.length > 0 ||
-      (tokens.length >= 1 && title.includes(joined));
-    const artistOk = phraseArtist || allInArtist;
-
-    if (!titleOk && !artistOk) {
-      return { track, s: 0 };
-    }
-
-    let s = 10;
+    // Soft score — server đã lọc; không loại 0 hẳn (giữ artist hits)
+    let s = 5;
     if (title === q) s += 5000;
     else if (title.startsWith(q)) s += 2500;
     if (phrase) s += 1500;
@@ -240,31 +229,23 @@ function rankTracksByQuery(query, tracks, limit = 40) {
     s += (inTitle.length / Math.max(1, tokens.length)) * 800;
     s += (inFull.length / Math.max(1, tokens.length)) * 100;
 
-    if (artistN === q) s += 5500;
-    else if (phraseArtist) s += 4200;
-    else if (allInArtist) s += 3200;
-    s += (inArtist.length / Math.max(1, tokens.length)) * 500;
+    if (artistN === q) s += 7000;
+    else if (phraseArtist) s += 5500;
+    else if (allInArtist) s += 4500;
+    s += (inArtist.length / Math.max(1, tokens.length)) * 900;
 
-    if (track.isrc && s > 10) s += 200;
-    if (
-      (track.spotify_url || track.source === "spotify-search") &&
-      s > 10
-    ) {
-      s += 100;
-    }
-    if (typeof track.popularity === "number" && s > 50) {
-      s += Math.min(50, track.popularity * 0.3);
+    if (track.isrc) s += 80;
+    if (track.spotify_url || track.source === "spotify-search") s += 40;
+    if (typeof track.popularity === "number") {
+      s += Math.min(40, track.popularity * 0.25);
     }
     return { track, s };
   });
 
-  const kept = scored
-    .filter((x) => x.s > 0)
+  return scored
     .sort((a, b) => b.s - a.s)
-    .map((x) => x.track);
-
-  if (!kept.length) return tracks.slice(0, limit);
-  return kept.slice(0, limit);
+    .map((x) => x.track)
+    .slice(0, limit);
 }
 
 /** Tìm nhạc theo tên — full catalog qua API server (Deezer ISRC + iTunes + Spotify) */
@@ -280,19 +261,26 @@ export const searchMusicByQuery = async (query, limit = 30) => {
     );
     if (res?.data?.status === "success" && Array.isArray(res.data.data)) {
       const list = res.data.data;
+      // Soft re-rank — giữ list server nếu filter rỗng (tìm artist)
       const ranked = rankTracksByQuery(q, list, fetchLimit);
       const out = ranked.length ? ranked : list;
-      // ISRC trước, rồi spotify_url
+      // Tie-break: isrc / spotify — không phá thứ tự khớp
       out.sort((a, b) => {
-        const ai = a.isrc ? 1 : 0;
-        const bi = b.isrc ? 1 : 0;
-        if (bi !== ai) return bi - ai;
-        const as = a.spotify_url || a.source === "spotify-search" ? 1 : 0;
-        const bs = b.spotify_url || b.source === "spotify-search" ? 1 : 0;
-        return bs - as;
+        const sa =
+          (a.isrc ? 2 : 0) +
+          (a.spotify_url || a.source === "spotify-search" ? 1 : 0);
+        const sb =
+          (b.isrc ? 2 : 0) +
+          (b.spotify_url || b.source === "spotify-search" ? 1 : 0);
+        // Chỉ swap khi điểm phụ chênh và cùng “nhóm” gần nhau
+        if (sa !== sb) return sb - sa;
+        return 0;
       });
       return out.slice(0, fetchLimit);
     }
+    // Một số proxy trả data thuần array
+    if (Array.isArray(res?.data)) return res.data.slice(0, fetchLimit);
+    if (Array.isArray(res?.data?.data)) return res.data.data.slice(0, fetchLimit);
     return [];
   } catch (error) {
     console.error("🚨 searchMusicByQuery:", error.message);

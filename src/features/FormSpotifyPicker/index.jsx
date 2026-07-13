@@ -41,6 +41,7 @@ function trackSrc(track) {
   );
 }
 
+/** Chuẩn hóa VN: bỏ dấu, đ→d, ơ/ư đã NFD */
 function normalizeQ(s) {
   return String(s || "")
     .toLowerCase()
@@ -52,17 +53,21 @@ function normalizeQ(s) {
     .trim();
 }
 
-/** Điểm khớp tên bài HOẶC ca sĩ — 0 = ẩn rác (tim em ≠ Basket Case) */
+/**
+ * Soft score — tên bài HOẶC ca sĩ.
+ * Server đã lọc; client chỉ sắp xếp, không xóa hết khi tìm theo artist.
+ */
 function scoreTitleMatch(query, track) {
   const qn = normalizeQ(query);
   const title = normalizeQ(
     track?.song_title || track?.song_name || track?.name || track?.title || "",
   );
   const artist = normalizeQ(track?.artist || "");
-  if (!qn || (!title && !artist)) return 0;
+  if (!qn) return 0;
   const tokens = qn.split(" ").filter((t) => t.length >= 2);
-  if (!tokens.length) return 0;
+  if (!tokens.length) return 1;
   const joined = tokens.join(" ");
+  const full = `${title} ${artist}`.trim();
 
   const wordIn = (tok, text) => {
     if (!tok || !text) return false;
@@ -78,21 +83,14 @@ function scoreTitleMatch(query, track) {
     artist &&
     (artist === qn || artist.includes(qn) || artist.startsWith(qn));
   const allInArtist =
-    artist && tokens.every((t) => wordIn(t, artist) || artist.includes(joined));
+    artist &&
+    tokens.every((t) => wordIn(t, artist) || artist.includes(joined));
   const allInTitle =
     title && tokens.every((t) => wordIn(t, title) || title.includes(joined));
-
-  // Phải khớp title hoặc artist (tìm theo ca sĩ được)
-  if (!phraseTitle && !phraseArtist && !allInArtist && !allInTitle) return 0;
-
-  // Token ngắn trong title-only path: chặn substring time/remember
-  if (!phraseArtist && !allInArtist && phraseTitle === false && allInTitle) {
-    for (const tok of tokens.filter((t) => t.length <= 3)) {
-      if (!wordIn(tok, title) && !title.includes(joined)) return 0;
-    }
-  }
+  const anyInFull = tokens.some((t) => wordIn(t, full) || full.includes(t));
 
   let s = 0;
+  // Title
   if (title === qn) s += 8000;
   else if (title.startsWith(qn)) s += 4000;
   else if (title.includes(qn)) s += 2500;
@@ -100,18 +98,21 @@ function scoreTitleMatch(query, track) {
   for (const tok of tokens) {
     if (wordIn(tok, title)) s += 800;
   }
-
-  // Tìm theo tên ca sĩ
-  if (artist === qn) s += 5500;
-  else if (artist.includes(qn) || artist.startsWith(qn)) s += 4200;
-  else if (allInArtist) s += 3200;
+  // Artist (tìm "sơn tùng", "ed sheeran"…)
+  if (artist === qn) s += 7000;
+  else if (phraseArtist) s += 5500;
+  else if (allInArtist) s += 4500;
   for (const tok of tokens) {
-    if (wordIn(tok, artist)) s += 500;
+    if (wordIn(tok, artist)) s += 900;
   }
 
-  if (s <= 0) return 0;
-  if (track?.isrc) s += 100;
-  if (track?.spotify_url) s += 40;
+  // Khớp một phần full string
+  if (s === 0 && anyInFull) s = 50;
+  // Server đã trả về → giữ tối thiểu (không filter trắng)
+  if (s === 0 && (title || artist)) s = 10;
+
+  if (track?.isrc) s += 80;
+  if (track?.spotify_url) s += 30;
   return s;
 }
 
@@ -236,8 +237,16 @@ export default function FormSpotifyPicker({
     setSearching(true);
     searchTimer.current = setTimeout(async () => {
       try {
-        // Ưu tiên searchMusic trực tiếp (rank Spotify-like), không library merge rác
-        const list = await searchMusicByQuery(q, 40);
+        // Server đã rank theo title + artist — tin API
+        let list = await searchMusicByQuery(q, 40);
+        // Fallback không dấu nếu rỗng
+        if (!list?.length) {
+          const bare = normalizeQ(q);
+          if (bare && bare !== q.toLowerCase()) {
+            list = await searchMusicByQuery(bare, 40);
+          }
+        }
+
         const normalized = (Array.isArray(list) ? list : []).map((t) => {
           if (t._raw) {
             return {
@@ -267,26 +276,27 @@ export default function FormSpotifyPicker({
             ...t,
             song_title: t.song_title || t.song_name || t.title || t.name,
             song_name: t.song_name || t.song_title || t.title || t.name,
+            artist: t.artist || "",
             image_url: t.image_url || t.coverUrl || "",
             preview_url: t.preview_url || t.audioUrl || "",
           };
         });
 
+        // Soft re-rank: ưu tiên khớp title/artist — KHÔNG xóa list server
         const scored = normalized
           .map((t) => ({ t, s: scoreTitleMatch(q, t) }))
-          .filter((x) => x.s > 0)
           .sort((a, b) => b.s - a.s)
           .map((x) => x.t);
 
-        // KHÔNG fallback list rác — rỗng thì "Không thấy"
         setResults(scored);
       } catch (e) {
+        console.error("[search music]", e);
         SonnerError("Tìm nhạc lỗi", e?.message || "Thử lại sau");
         setResults([]);
       } finally {
         setSearching(false);
       }
-    }, 320);
+    }, 280);
     return () => {
       if (searchTimer.current) clearTimeout(searchTimer.current);
     };
@@ -725,7 +735,7 @@ export default function FormSpotifyPicker({
               <div className="flex-1 min-w-0">
                 <h3 className="text-lg font-bold leading-tight">Tìm nhạc</h3>
                 <p className="text-xs text-base-content/60 truncate">
-                  Tên bài hoặc ca sĩ · chạm → cắt đoạn → gắn
+                  Tìm theo tên bài hoặc tên ca sĩ · chạm → cắt → gắn
                 </p>
               </div>
               <button
