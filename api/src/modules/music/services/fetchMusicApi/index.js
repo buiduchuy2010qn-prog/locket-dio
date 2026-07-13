@@ -749,120 +749,197 @@ function mapITunesTrack(t) {
 }
 
 /**
- * Tìm nhạc — nhanh, nhiều nguồn song song.
- * Deezer + iTunes (VN) chính; Spotify phụ (1 query, timeout ngắn).
+ * Spotify Web API search — full catalog (primary).
+ * Up to 50 tracks / market; merge VN + US for broader hits.
  */
-async function searchMusicByQuery(query, limit = 15) {
+async function fetchSpotifySearchFull(q, limit = 50) {
+  try {
+    const token = await Promise.race([
+      getSpotifyAppToken(),
+      new Promise((r) => setTimeout(() => r(null), 8000)),
+    ]);
+    if (!token) {
+      console.warn("searchMusic spotify: no app token");
+      return [];
+    }
+
+    const lim = Math.min(50, Math.max(Number(limit) || 50, 20));
+    const headers = { Authorization: `Bearer ${token}` };
+
+    // Parallel markets — VN (local) + US (global catalog)
+    const markets = ["VN", "US"];
+    const results = await Promise.all(
+      markets.map(async (market) => {
+        try {
+          const r = await axios.get("https://api.spotify.com/v1/search", {
+            params: {
+              q,
+              type: "track",
+              limit: lim,
+              market,
+              include_external: "audio",
+            },
+            headers,
+            timeout: 10000,
+          });
+          return (r.data?.tracks?.items || []).filter(Boolean);
+        } catch (e) {
+          console.warn(`searchMusic spotify market=${market}:`, e.message);
+          return [];
+        }
+      }),
+    );
+
+    // Dedupe by track id, keep highest popularity
+    const byId = new Map();
+    for (const items of results) {
+      for (const t of items) {
+        if (!t?.id) continue;
+        const prev = byId.get(t.id);
+        if (!prev || (t.popularity || 0) > (prev.popularity || 0)) {
+          byId.set(t.id, t);
+        }
+      }
+    }
+
+    // Sort by popularity (Spotify relevance already applied per market)
+    return [...byId.values()]
+      .sort((a, b) => (b.popularity || 0) - (a.popularity || 0))
+      .map(mapSpotifyTrack);
+  } catch (e) {
+    console.warn("searchMusic spotify full:", e.message);
+    return [];
+  }
+}
+
+/**
+ * Tìm nhạc — ƯU TIÊN Spotify full catalog.
+ * Deezer + iTunes chỉ bổ sung preview/ISRC khi Spotify thiếu.
+ */
+async function searchMusicByQuery(query, limit = 30) {
   const q = String(query || "").trim();
   if (!q || q.length < 1) {
     const err = new Error("Nhập tên bài hát để tìm");
     err.status = 400;
     throw err;
   }
-  const lim = Math.min(Math.max(Number(limit) || 15, 1), 20);
-  const fetchLim = Math.min(25, Math.max(lim * 2, 15));
+  // Cho phép trả nhiều kết quả Spotify (tối đa 50)
+  const lim = Math.min(Math.max(Number(limit) || 30, 1), 50);
+  const fetchLim = Math.min(50, Math.max(lim, 30));
   const merged = new Map();
 
-  const addTrack = (t) => {
+  const addTrack = (t, prefer = false) => {
     if (!t) return;
     const key =
-      t.isrc ||
+      t.id ||
       t.spotify_url ||
+      t.isrc ||
       t.deezer_url ||
       t.apple_music_url ||
       `${normalizeSearchText(t.song_title || t.name)}|${normalizeSearchText(t.artist)}`;
     if (!key || key === "|") return;
     const prev = merged.get(key);
-    if (!prev) merged.set(key, t);
-  };
-
-  const fetchDeezer = async () => {
-    try {
-      const s = await http.get("https://api.deezer.com/search", {
-        params: { q, limit: fetchLim },
-        timeout: 6000,
-      });
-      return (s.data?.data || []).map(mapDeezerTrack);
-    } catch (e) {
-      console.warn("searchMusic deezer:", e.message);
-      return [];
+    if (!prev) {
+      merged.set(key, t);
+      return;
+    }
+    // Prefer Spotify-sourced track over Deezer/iTunes clones
+    const prevSp = prev.source === "spotify-search" || prev.spotify_url;
+    const nextSp = t.source === "spotify-search" || t.spotify_url;
+    if (prefer || (nextSp && !prevSp)) {
+      merged.set(key, { ...prev, ...t, spotify_url: t.spotify_url || prev.spotify_url });
+    } else if (!prev.preview_url && t.preview_url) {
+      merged.set(key, { ...prev, preview_url: t.preview_url, isrc: prev.isrc || t.isrc });
     }
   };
 
-  const fetchITunes = async () => {
-    try {
-      const s = await axios.get("https://itunes.apple.com/search", {
-        params: {
-          term: q,
-          media: "music",
-          entity: "song",
-          limit: fetchLim,
-          country: "vn",
-        },
-        timeout: 6000,
-        headers: { "User-Agent": UA },
-        validateStatus: (st) => st >= 200 && st < 500,
-      });
-      return (s.data?.results || []).map(mapITunesTrack);
-    } catch (e) {
-      console.warn("searchMusic itunes:", e.message);
-      return [];
-    }
-  };
+  // 1) Spotify FULL — primary
+  const spotifyTracks = await fetchSpotifySearchFull(q, fetchLim);
+  for (const t of spotifyTracks) addTrack(t, true);
 
-  const fetchSpotifyOnce = async () => {
-    try {
-      const token = await Promise.race([
-        getSpotifyAppToken(),
-        new Promise((r) => setTimeout(() => r(null), 4000)),
-      ]);
-      if (!token) return [];
-      const r = await axios.get("https://api.spotify.com/v1/search", {
-        params: { q, type: "track", limit: fetchLim, market: "VN" },
-        headers: { Authorization: `Bearer ${token}` },
-        timeout: 5000,
-      });
-      return (r.data?.tracks?.items || []).map(mapSpotifyTrack);
-    } catch (e) {
-      console.warn("searchMusic spotify:", e.message);
-      return [];
-    }
-  };
-
-  // Song song — không chờ Spotify chết timeout tuần tự
-  const batches = await Promise.all([
-    fetchDeezer(),
-    fetchITunes(),
-    fetchSpotifyOnce(),
+  // 2) Deezer + iTunes song song — fill preview / fallback nếu Spotify trống
+  const needFallback = spotifyTracks.length < Math.min(10, lim);
+  const [deezerTracks, itunesTracks] = await Promise.all([
+    (async () => {
+      try {
+        const s = await http.get("https://api.deezer.com/search", {
+          params: { q, limit: needFallback ? fetchLim : 10 },
+          timeout: 7000,
+        });
+        return (s.data?.data || []).map(mapDeezerTrack);
+      } catch (e) {
+        console.warn("searchMusic deezer:", e.message);
+        return [];
+      }
+    })(),
+    (async () => {
+      try {
+        const s = await axios.get("https://itunes.apple.com/search", {
+          params: {
+            term: q,
+            media: "music",
+            entity: "song",
+            limit: needFallback ? fetchLim : 10,
+            country: "vn",
+          },
+          timeout: 7000,
+          headers: { "User-Agent": UA },
+          validateStatus: (st) => st >= 200 && st < 500,
+        });
+        return (s.data?.results || []).map(mapITunesTrack);
+      } catch (e) {
+        console.warn("searchMusic itunes:", e.message);
+        return [];
+      }
+    })(),
   ]);
-  for (const batch of batches) {
-    for (const t of batch) addTrack(t);
+
+  for (const t of deezerTracks) addTrack(t, false);
+  for (const t of itunesTracks) addTrack(t, false);
+
+  const all = [...merged.values()];
+
+  // Spotify-first soft rank: boost spotify-search + popularity
+  const scored = all
+    .map((t) => {
+      let s = scoreTrackMatch(q, t);
+      if (t.source === "spotify-search" || t.spotify_url) {
+        s = s > 0 ? s + 200 : 50 + (t.popularity || 0);
+        s += Math.min(80, (t.popularity || 0) * 0.6);
+      }
+      return { t, s };
+    })
+    .filter((x) => x.s > 0)
+    .sort((a, b) => {
+      // Spotify first among similar scores
+      const aSp = a.t.source === "spotify-search" ? 1 : 0;
+      const bSp = b.t.source === "spotify-search" ? 1 : 0;
+      if (bSp !== aSp && Math.abs(b.s - a.s) < 300) return bSp - aSp;
+      return b.s - a.s;
+    });
+
+  let ranked = scored.map((x) => x.t);
+
+  // If score filter emptied list but Spotify returned raw hits — return raw Spotify
+  if (!ranked.length && spotifyTracks.length) {
+    ranked = spotifyTracks;
+  } else if (!ranked.length && all.length) {
+    ranked = all;
   }
 
-  let ranked = rankAndFilterTracks(q, [...merged.values()], lim);
-
-  // Nếu rank lọc hết nhưng có kết quả thô: trả top theo phrase lỏng
-  if (!ranked.length && merged.size) {
-    const qn = normalizeSearchText(q);
-    ranked = [...merged.values()]
-      .map((t) => {
-        const title = normalizeSearchText(
-          t.song_title || t.song_name || t.name || "",
-        );
-        let s = 0;
-        if (title === qn) s = 100;
-        else if (title.startsWith(qn)) s = 80;
-        else if (title.includes(qn)) s = 60;
-        else if (qn.split(" ").every((w) => tokenAsWord(w, title))) s = 40;
-        return { t, s };
-      })
-      .filter((x) => x.s > 0)
-      .sort((a, b) => b.s - a.s)
-      .slice(0, lim)
-      .map((x) => x.t);
+  // Prefer list that has many Spotify tracks when available
+  const spotifyOnly = ranked.filter(
+    (t) => t.source === "spotify-search" || t.spotify_url,
+  );
+  if (spotifyOnly.length >= Math.min(8, lim)) {
+    // Interleave: keep Spotify order (popularity) first, then others
+    const others = ranked.filter(
+      (t) => !(t.source === "spotify-search" || t.spotify_url),
+    );
+    ranked = [...spotifyOnly, ...others];
   }
 
-  return ranked;
+  return ranked.slice(0, lim);
 }
 
 module.exports = {

@@ -177,7 +177,7 @@ const getInfoMusicControllerV3 = async (req, res, next) => {
 const searchMusicController = async (req, res, next) => {
   try {
     const query = req.body?.query || req.body?.q || req.query?.q;
-    const limit = req.body?.limit || req.query?.limit || 15;
+    const limit = req.body?.limit || req.query?.limit || 40;
     if (!query || !String(query).trim()) {
       return res.status(400).json({
         status: "error",

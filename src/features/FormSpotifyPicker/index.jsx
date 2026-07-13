@@ -13,8 +13,8 @@ function formatMs(ms = 0) {
 }
 
 /**
- * Tìm nhạc & gắn caption — KHÔNG liên kết tài khoản Spotify.
- * Search qua API server (Spotify credentials / Deezer).
+ * Tìm nhạc & gắn caption — full Spotify catalog (không cần liên kết account).
+ * Search qua API server (Spotify Web API + fallback Deezer/iTunes).
  */
 export default function FormSpotifyPicker({
   open,
@@ -68,7 +68,7 @@ export default function FormSpotifyPicker({
     setSearching(true);
     searchTimer.current = setTimeout(async () => {
       try {
-        const list = await searchMusicByQuery(q, 12);
+        const list = await searchMusicByQuery(q, 40);
         setResults(Array.isArray(list) ? list : []);
       } catch (e) {
         SonnerError(
@@ -148,7 +148,7 @@ export default function FormSpotifyPicker({
           <div className="flex-1 min-w-0">
             <h3 className="text-lg font-bold leading-tight">Tìm nhạc</h3>
             <p className="text-xs text-base-content/60 truncate">
-              Gõ tên bài / nghệ sĩ — chọn xong gắn caption (không cần liên kết)
+              Tìm full trên Spotify — gõ tên bài / nghệ sĩ, chọn xong gắn caption
             </p>
           </div>
         </div>
