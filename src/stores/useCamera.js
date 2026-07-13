@@ -27,9 +27,10 @@ export const useCamera = () => {
   const [maxZoom, setMaxZoom] = useState(1);
   const [zoomStep, setZoomStep] = useState(0.1);
   const [availableZoomModes, setAvailableZoomModes] = useState({
-    "0.5x": true,
+    "0.5x": false, // chỉ bật khi detect được ultra / minZoom < 1
     "1x": true,
     "2x": false,
+    ultraFactor: null,
   });
   const [isSwitchingCamera, setIsSwitchingCamera] = useState(false);
   const [isPinching, setIsPinching] = useState(false);

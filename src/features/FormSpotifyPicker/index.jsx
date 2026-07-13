@@ -838,7 +838,7 @@ export default function FormSpotifyPicker({
                 </div>
               ) : !results.length ? (
                 <p className="text-center text-sm text-base-content/50 py-12 px-4">
-                  Không thấy bài khớp — thử đúng tên bài hơn
+                  Không thấy — thử tên bài (Tìm Em) hoặc ca sĩ (Sơn Tùng)
                 </p>
               ) : (
                 results.map((track) => {

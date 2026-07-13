@@ -41,6 +41,8 @@ import {
   captureVideoFreezeFrame,
   openCameraByFacing,
   switchToUltraWide05,
+  updateZoomBadge,
+  getUltraWideFactor,
 } from "@/utils";
 const EditorCaption = lazy(() => import("@/features/EditorCaption"));
 import { useApp } from "@/context/AppContext";
@@ -48,6 +50,7 @@ import BorderProgress from "../../Widgets/SquareProgress";
 import { SonnerInfo } from "@/components/ui/SonnerToast";
 import { usePostStore, useUIStore } from "@/stores";
 import { useTranslation } from "react-i18next";
+import ZoomPresets from "./ZoomPresets";
 
 /** Pinch: ~30fps UI, zoom HW coalesce — mượt không await block */
 const PINCH_THROTTLE_MS = 33;
@@ -174,10 +177,8 @@ const MediaPreviewAndroid = () => {
       }
 
       const bounds = getEffectiveZoomBounds(shape, stream);
-      const minZ =
-        shape.ultrawide?.deviceId || (cameras?.backCameras?.length || 0) >= 2
-          ? Math.min(bounds.minZoom, 0.5)
-          : bounds.minZoom;
+      // min = factor thật (0.5/0.6/0.7) — không ép 0.5
+      const minZ = bounds.minZoom;
       boundsRef.current = {
         minZoom: minZ,
         maxZoom: bounds.maxZoom,
@@ -188,8 +189,7 @@ const MediaPreviewAndroid = () => {
 
       const modes = computeAvailableZoomModes(shape, stream);
       modes["1x"] = true;
-      // Cam sau: luôn bật 0.5x (mọi máy — ultra / digital / thử lens)
-      modes["0.5x"] = true;
+      // Chỉ bật ultra khi máy hỗ trợ (không force true)
       setAvailableZoomModes(modes);
 
       const settings = getCurrentTrackSettings(stream);
@@ -200,12 +200,14 @@ const MediaPreviewAndroid = () => {
 
       const z = settings.zoom ?? currentZoomValue.current ?? 1;
       let display = z;
+      const uf =
+        modes.ultraFactor || getUltraWideFactor(stream, shape) || 0.5;
       if (
         shape.ultrawide?.deviceId &&
         actualId === shape.ultrawide.deviceId &&
         z <= 1.1
       ) {
-        display = 0.5;
+        display = uf;
       }
       currentZoomValue.current = display;
       setCurrentZoom(display);
@@ -324,11 +326,16 @@ const MediaPreviewAndroid = () => {
           actualId !== ultraId &&
           mapped.lensType === "ultrawide"
         ) {
+          const factor =
+            mapped.displayZoom ??
+            availableZoomModes?.ultraFactor ??
+            getUltraWideFactor(stream, shape) ??
+            0.5;
           setZoomLevel("0.5x");
           lastZoomLevel.current = "0.5x";
           setActiveZoomMode("0.5x");
-          currentZoomValue.current = 0.5;
-          setCurrentZoom(0.5);
+          currentZoomValue.current = factor;
+          setCurrentZoom(factor);
           setIsSwitchingCamera(true);
           setDeviceId(ultraId);
           return true;
@@ -429,8 +436,19 @@ const MediaPreviewAndroid = () => {
     setDetectedCameras(cameras);
     const shape = toDetectedShape(cameras);
 
-    // ── 0.5x góc siêu rộng: luôn thử (mọi máy) ──
+    // ── Góc siêu rộng: chỉ khi máy hỗ trợ, factor 0.5/0.6/0.7 ──
     if (mode === "0.5x") {
+      const preModes =
+        availableZoomModes ||
+        computeAvailableZoomModes(shape, streamRef.current);
+      if (preModes["0.5x"] === false) {
+        SonnerInfo(
+          t("home.zoom_05_unsupported", {
+            defaultValue: "Thiết bị này không có góc siêu rộng",
+          }),
+        );
+        return;
+      }
       setIsSwitchingCamera(true);
       try {
         const result = await switchToUltraWide05({
@@ -451,11 +469,16 @@ const MediaPreviewAndroid = () => {
           lastDeviceId.current = result.deviceId;
           setDeviceId(result.deviceId);
         }
+        const factor =
+          result.currentZoom ??
+          result.ultraFactor ??
+          getUltraWideFactor(result.stream, shape) ??
+          0.5;
         setZoomLevel("0.5x");
         lastZoomLevel.current = "0.5x";
         setActiveZoomMode("0.5x");
-        currentZoomValue.current = 0.5;
-        setCurrentZoom(0.5);
+        currentZoomValue.current = factor;
+        setCurrentZoom(factor);
         setCurrentLensType(result.lensType || "ultrawide");
         attachStreamToVideo(result.stream, "environment");
         syncZoomStateFromStream(result.stream, cameras, "environment");
@@ -510,7 +533,13 @@ const MediaPreviewAndroid = () => {
 
     const display =
       target.displayZoom ??
-      (mode === "0.5x" ? 0.5 : mode === "2x" ? 2 : 1);
+      (mode === "0.5x"
+        ? availableZoomModes?.ultraFactor ||
+          getUltraWideFactor(streamRef.current, shape) ||
+          0.5
+        : mode === "2x"
+          ? 2
+          : 1);
     currentZoomValue.current = display;
     setCurrentZoom(display);
 
@@ -592,18 +621,23 @@ const MediaPreviewAndroid = () => {
 
     let nextZoom = startZoom * totalScale;
     nextZoom = Math.max(mn, Math.min(nextZoom, mx));
-    if (!isFront && nextZoom < 0.7 && mn <= 0.5) nextZoom = 0.5;
+    // Snap về ultra factor thật (0.5/0.6/0.7), không ép 0.5
+    const uf =
+      availableZoomModes?.ultraFactor ??
+      (mn < 0.95 ? Math.round(mn * 10) / 10 : null);
+    if (!isFront && uf && nextZoom < 0.7 && mn <= uf + 0.05) nextZoom = uf;
     if (isFront && nextZoom < 1) nextZoom = 1;
 
     currentZoomValue.current = nextZoom;
     // Badge throttle — không setState mỗi frame
+    const wideSnap = uf ? (uf + 1) / 2 : 0.75;
     scheduleBadge(
       nextZoom,
       isFront
         ? Math.abs(nextZoom - 1) < 0.12
           ? "1x"
           : "custom"
-        : nextZoom < 0.75
+        : nextZoom < wideSnap
           ? "0.5x"
           : "custom",
     );
@@ -637,7 +671,10 @@ const MediaPreviewAndroid = () => {
       }
       return;
     }
-    if (Math.abs(z - 0.5) < 0.12) {
+    const uf =
+      availableZoomModes?.ultraFactor ??
+      (Number.isFinite(z) && z < 0.95 ? Math.round(z * 10) / 10 : null);
+    if (uf && Math.abs(z - uf) < 0.12) {
       setActiveZoomMode("0.5x");
       setZoomLevel("0.5x");
     } else if (Math.abs(z - 1) < 0.15) {
@@ -841,7 +878,11 @@ const MediaPreviewAndroid = () => {
 
         if (deviceId && z === "0.5x" && ultraId && deviceId === ultraId) {
           resolvedDeviceId = ultraId;
-          displayZoom = 0.5;
+          displayZoom =
+            target.displayZoom ??
+            availableZoomModes?.ultraFactor ??
+            getUltraWideFactor(streamRef.current, shape) ??
+            0.5;
         } else if (deviceId && z === "2x" && teleId && deviceId === teleId) {
           resolvedDeviceId = teleId;
           displayZoom = 2;
@@ -1107,18 +1148,13 @@ const MediaPreviewAndroid = () => {
                 >
                   {(() => {
                     const n = Number(currentZoom);
-                    if (!Number.isFinite(n)) return "1x";
-                    if (Math.abs(n - 1) < 0.05) return "1x";
-                    // Front never shows 0.5x
+                    // Front never shows ultra
                     if (
                       (cameraMode || "environment") === "user" &&
                       n < 1
                     )
                       return "1x";
-                    if (Math.abs(n - 0.5) < 0.05) return "0.5x";
-                    if (Number.isInteger(n) || Math.abs(n - Math.round(n)) < 0.05)
-                      return `${Math.round(n)}x`;
-                    return `${Number(n.toFixed(1))}x`;
+                    return updateZoomBadge(n);
                   })()}
                 </div>
               </div>
@@ -1133,6 +1169,18 @@ const MediaPreviewAndroid = () => {
                   className="w-full h-full object-cover"
                 />
               </div>
+            )}
+
+            {/* Zoom pills: ultra chỉ hiện khi máy hỗ trợ (0.5/0.6/0.7) */}
+            {showZoomUi && (cameraMode || "environment") === "environment" && (
+              <ZoomPresets
+                activeMode={activeZoomMode}
+                currentZoom={currentZoom}
+                available={availableZoomModes}
+                disabled={isSwitchingCamera || isPinching}
+                onSelect={handleSelectZoomMode}
+                visible
+              />
             )}
           </>
         )}

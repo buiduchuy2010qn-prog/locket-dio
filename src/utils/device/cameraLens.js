@@ -631,20 +631,54 @@ export function clearTrackZoomCache(stream) {
   if (track) trackZoomCache.delete(track);
 }
 
-/** Format badge text: 0.5x, 1x, 1.4x, 2x, 5x */
+/** Format badge text: 0.5x, 0.6x, 1x, 1.4x, 2x… */
 export function updateZoomBadge(value) {
   const n = Number(value);
   if (!Number.isFinite(n)) return "1x";
   if (Math.abs(n - 1) < 0.05) return "1x";
-  if (Math.abs(n - 0.5) < 0.05) return "0.5x";
+  // góc rộng: hiện 1 chữ số thập phân (0.5 / 0.6 / 0.7)
+  if (n > 0.2 && n < 0.95) {
+    return `${Number(n.toFixed(1))}x`;
+  }
   if (Number.isInteger(n) || Math.abs(n - Math.round(n)) < 0.05) {
     return `${Math.round(n)}x`;
   }
   return `${Number(n.toFixed(1))}x`;
 }
 
-export function formatZoomModeLabel(mode) {
-  if (mode === "0.5x") return "0.5";
+/**
+ * Hệ số góc siêu rộng thực tế của máy: 0.5 / 0.6 / 0.7…
+ * null = máy không hỗ trợ (không bật nút).
+ */
+export function getUltraWideFactor(stream, detected = null) {
+  const range = readZoomRange(stream);
+  const hasPhysical =
+    Boolean(detected?.ultrawide?.deviceId) ||
+    listUltraWideCandidates(
+      detected?.rear || [],
+      detected?.main || null,
+      detected?.telephoto || null,
+    ).length > 0;
+
+  // Digital zoom min (iOS / logical multi-cam) — tin capabilities
+  if (range.supported && range.minZoom > 0.15 && range.minZoom < 0.95) {
+    return Math.round(range.minZoom * 10) / 10; // 0.5, 0.6, 0.7…
+  }
+
+  // Có lens ultra vật lý nhưng track hiện tại min=1 → vẫn coi là ~0.5
+  if (hasPhysical) return 0.5;
+
+  return null;
+}
+
+export function formatZoomModeLabel(mode, ultraFactor = null) {
+  if (mode === "0.5x" || mode === "wide") {
+    const f = Number(ultraFactor);
+    if (Number.isFinite(f) && f > 0.2 && f < 0.95) {
+      return String(Number(f.toFixed(1)));
+    }
+    return "0.5";
+  }
   if (mode === "1x") return "1x";
   if (mode === "2x") return "2x";
   if (mode === "max") return "Max";
@@ -736,20 +770,33 @@ export function removeCaptionZoomControls(root = document) {
 export function computeAvailableZoomModes(detected, stream) {
   const range = readZoomRange(stream);
   const multiRear = (detected?.rear?.length || 0) >= 2;
+  const ultraFactor = getUltraWideFactor(stream, detected);
+  const hasUltraLens =
+    Boolean(detected?.ultrawide?.deviceId) ||
+    listUltraWideCandidates(
+      detected?.rear || [],
+      detected?.main || null,
+      detected?.telephoto || null,
+    ).length > 0;
+
+  // Chỉ bật góc rộng khi máy THẬT SỰ có (lens ultra hoặc zoom min < 1)
+  // Không bật mù 0.5 trên máy single-lens min=1
+  const canWide =
+    hasUltraLens ||
+    (range.supported && range.minZoom > 0.15 && range.minZoom < 0.95);
+
   const modes = {
-    // Cam sau: luôn bật 0.5x (ultra vật lý / digital min / thử lens khác)
-    "0.5x": true,
+    "0.5x": canWide,
     "1x": true,
     "2x": false,
+    // factor hiển thị: 0.5 / 0.6 / 0.7 theo máy
+    ultraFactor: canWide ? ultraFactor || 0.5 : null,
   };
 
-  // Front path caller sẽ override 0.5x = false
   if (detected?.telephoto?.deviceId) modes["2x"] = true;
   else if (range.supported && range.maxZoom >= 1.8) modes["2x"] = true;
   else if (range.supported && range.maxZoom > range.minZoom + 0.2) {
     modes["2x"] = true;
-  } else if (multiRear) {
-    modes["2x"] = true; // soft — thử digital
   }
 
   return modes;
@@ -777,18 +824,25 @@ export function resolveZoomModeTarget(mode, ctx = {}) {
 
   const m = String(mode || "1x").toLowerCase();
 
-  if (m === "0.5x" || m === "0.5") {
+  if (m === "0.5x" || m === "0.5" || m === "wide") {
+    const factor =
+      getUltraWideFactor(stream, detected) ||
+      (range.supported && range.minZoom < 0.95
+        ? Math.round(range.minZoom * 10) / 10
+        : 0.5);
+
     // 1) Ultra vật lý
     if (ultraId) {
       return {
         deviceId: ultraId,
         digitalZoom: 1,
-        displayZoom: 0.5,
+        displayZoom: factor,
         lensType: "ultrawide",
         mode: "0.5x",
+        ultraFactor: factor,
       };
     }
-    // 2) Ứng viên ultra từ multi-rear (không label)
+    // 2) Ứng viên multi-rear
     const candidates = listUltraWideCandidates(
       detected?.rear || [],
       detected?.main || null,
@@ -799,30 +853,32 @@ export function resolveZoomModeTarget(mode, ctx = {}) {
         deviceId: candidates[0],
         candidateDeviceIds: candidates,
         digitalZoom: 1,
-        displayZoom: 0.5,
+        displayZoom: factor,
         lensType: "ultrawide",
         mode: "0.5x",
+        ultraFactor: factor,
       };
     }
-    // 3) Digital zoom min trên main (iOS logical cam thường min=0.5)
-    if (range.supported && range.minZoom < 0.99) {
-      const z = Math.min(range.minZoom, 0.5);
+    // 3) Digital: DÙNG minZoom THẬT (0.5 / 0.6 / 0.7) — không ép 0.5
+    if (range.supported && range.minZoom > 0.15 && range.minZoom < 0.99) {
+      const z = range.minZoom;
       return {
         deviceId: mainId,
-        digitalZoom: Math.max(range.minZoom, z),
-        displayZoom: 0.5,
+        digitalZoom: z,
+        displayZoom: Math.round(z * 10) / 10,
         lensType: "main",
         mode: "0.5x",
+        ultraFactor: Math.round(z * 10) / 10,
       };
     }
-    // 4) Vẫn cho thử main + zoom 0.5 (một số máy capabilities sai)
+    // Không hỗ trợ
     return {
-      deviceId: mainId,
-      digitalZoom: 0.5,
-      displayZoom: 0.5,
-      lensType: "main",
+      deviceId: null,
+      digitalZoom: null,
+      displayZoom: null,
+      lensType: null,
       mode: "0.5x",
-      forceDigital05: true,
+      unavailable: true,
     };
   }
 
@@ -868,7 +924,7 @@ export function resolveZoomModeTarget(mode, ctx = {}) {
 
 /**
  * Global pinch range across lenses.
- * min: 0.5 if ultra OR track min < 1 OR multi-rear heuristic
+ * min: ultra factor thật (0.5/0.6/0.7) khi máy hỗ trợ — không ép 0.5 mù
  * max: track max (or higher if tele)
  */
 export function getEffectiveZoomBounds(detected, stream) {
@@ -877,10 +933,18 @@ export function getEffectiveZoomBounds(detected, stream) {
   let max = range.supported ? range.maxZoom : 1;
 
   const hasUltra = Boolean(detected?.ultrawide?.deviceId);
-  const multiRear = (detected?.rear?.length || 0) >= 2;
+  const ultraFactor = getUltraWideFactor(stream, detected);
+  const canWide =
+    Boolean(ultraFactor) ||
+    hasUltra ||
+    (range.supported && range.minZoom > 0.15 && range.minZoom < 0.95);
 
-  // Cam sau: luôn cho pinch về 0.5 (ultra vật lý / digital / multi-lens)
-  min = Math.min(min, 0.5);
+  // Pinch min = factor thật; không hạ xuống 0.5 nếu máy không có ultra
+  if (canWide && ultraFactor && ultraFactor < 0.95) {
+    min = Math.min(min, ultraFactor);
+  } else if (hasUltra) {
+    min = Math.min(min, 0.5);
+  }
   if (range.supported && range.minZoom < 0.95) {
     min = Math.min(min, range.minZoom);
   }
@@ -905,7 +969,8 @@ export function getEffectiveZoomBounds(detected, stream) {
     trackMax: range.maxZoom,
     step: range.zoomStep,
     hasUltra,
-    canGo05: min < 0.9 || hasUltra || multiRear,
+    ultraFactor: canWide ? ultraFactor || 0.5 : null,
+    canGo05: canWide,
   };
 }
 
@@ -920,13 +985,19 @@ export function mapDisplayZoomToLens(displayZoom, detected, stream) {
   const teleId = detected?.telephoto?.deviceId || null;
   const range = readZoomRange(stream);
 
-  // ── 0.5 band: ultra lens first, then digital min ──
+  // ── wide band: ultra lens first, then digital min (0.5 / 0.6 / 0.7) ──
   if (z < 0.92) {
+    const factor =
+      getUltraWideFactor(stream, detected) ||
+      (range.supported && range.minZoom < 0.95
+        ? Math.round(range.minZoom * 10) / 10
+        : null);
+
     if (ultraId) {
       return {
         deviceId: ultraId,
         digitalZoom: 1,
-        displayZoom: Math.min(z, 0.5) < 0.6 ? 0.5 : z,
+        displayZoom: factor || z,
         lensType: "ultrawide",
         mode: "0.5x",
         switchDevice: true,
@@ -1072,8 +1143,8 @@ export async function resetToMainCameraX1(options = {}) {
 }
 
 /**
- * Switch to ultra-wide 0.5x — thử mọi cách trên mọi máy:
- * physical ultra → multi-rear candidates → digital min → force zoom 0.5
+ * Switch góc siêu rộng — dùng factor thật của máy (0.5 / 0.6 / 0.7).
+ * physical ultra → multi-rear → digital minZoom (không ép 0.5).
  */
 export async function switchToUltraWide05(options = {}) {
   const { oldStream = null, videoEl = null, detected: detIn = null } = options;
@@ -1089,7 +1160,7 @@ export async function switchToUltraWide05(options = {}) {
     ),
   ].filter((id, i, arr) => id && arr.indexOf(id) === i && id !== mainId);
 
-  // 1) Thử từng lens ultra / multi-rear
+  // 1) Thử lens ultra / multi-rear
   for (const id of candidates) {
     try {
       if (oldStream) stopCurrentCamera(oldStream, videoEl);
@@ -1099,25 +1170,32 @@ export async function switchToUltraWide05(options = {}) {
         preferDeviceId: true,
         facingOnly: false,
       });
-      // Reset zoom track về 1 trên ultra (FOV đã rộng)
       if (supportsHardwareZoom(stream)) {
         try {
           const range = readZoomRange(stream);
-          const one =
-            range.minZoom <= 1 && range.maxZoom >= 1 ? 1 : range.minZoom;
-          await applyCameraZoom(stream, one);
+          // Trên ultra vật lý: zoom = min (thường 1, FOV đã rộng)
+          // Nếu min < 1 (0.6…): dùng min
+          const z =
+            range.minZoom > 0.15 && range.minZoom < 0.95
+              ? range.minZoom
+              : range.minZoom <= 1 && range.maxZoom >= 1
+                ? 1
+                : range.minZoom;
+          await applyCameraZoom(stream, z);
         } catch {
           /* ignore */
         }
       }
+      const factor = getUltraWideFactor(stream, detected) || 0.5;
       return {
         stream,
         detected,
         deviceId: id,
         lensType: "ultrawide",
         zoomMode: "0.5x",
-        currentZoom: 0.5,
+        currentZoom: factor,
         digitalZoom: 1,
+        ultraFactor: factor,
         switchedDevice: true,
       };
     } catch (e) {
@@ -1125,11 +1203,10 @@ export async function switchToUltraWide05(options = {}) {
     }
   }
 
-  // 2) Digital min trên stream hiện tại / main
+  // 2) Digital: dùng minZoom THẬT (0.6 máy Samsung, 0.5 iOS…)
   let stream = oldStream;
-  if (!stream || !supportsHardwareZoom(stream)) {
+  if (!stream) {
     try {
-      if (oldStream && oldStream !== stream) stopCurrentCamera(oldStream, videoEl);
       stream = await startCameraByDeviceId(mainId, {
         facingMode: "environment",
         highRes: false,
@@ -1143,46 +1220,33 @@ export async function switchToUltraWide05(options = {}) {
 
   if (supportsHardwareZoom(stream)) {
     const range = readZoomRange(stream);
-    const targetZ = Math.min(
-      range.minZoom < 0.99 ? range.minZoom : 0.5,
-      0.5,
-    );
-    // Thử min, rồi 0.5 (một số máy min=1 nhưng vẫn nhận 0.5)
-    for (const z of [targetZ, 0.5, range.minZoom].filter(
-      (v, i, a) => Number.isFinite(v) && a.indexOf(v) === i,
-    )) {
+    // Chỉ khi min < 1 — không force 0.5 khi min=1
+    if (range.minZoom > 0.15 && range.minZoom < 0.99) {
+      const z = range.minZoom;
       try {
         const applied = await applyCameraZoom(stream, z);
         if (applied !== false) {
+          const factor = Math.round(z * 10) / 10;
           return {
             stream,
             detected,
             deviceId: getCurrentTrackSettings(stream).deviceId || mainId,
             lensType: "main",
             zoomMode: "0.5x",
-            currentZoom: 0.5,
+            currentZoom: factor,
             digitalZoom: applied || z,
+            ultraFactor: factor,
             switchedDevice: false,
           };
         }
       } catch {
-        /* try next */
+        /* fall through */
       }
     }
   }
 
-  // 3) Vẫn trả stream main — UI hiện 0.5, user có preview (tốt nhất có thể)
-  return {
-    stream,
-    detected,
-    deviceId: getCurrentTrackSettings(stream)?.deviceId || mainId,
-    lensType: "main",
-    zoomMode: "0.5x",
-    currentZoom: 0.5,
-    digitalZoom: 1,
-    switchedDevice: false,
-    soft: true,
-  };
+  // Không có ultra / digital min → unavailable (không fake 0.5)
+  return { unavailable: true, detected };
 }
 
 /** Switch back to main 1x */
