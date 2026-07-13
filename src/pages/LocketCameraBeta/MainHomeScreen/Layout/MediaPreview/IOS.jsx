@@ -121,17 +121,21 @@ const MediaPreviewIOS = () => {
     (stream, cameras) => {
       const shape = toDetectedShape(cameras);
       const bounds = getEffectiveZoomBounds(shape, stream);
+      const minZ =
+        shape.ultrawide?.deviceId || (cameras?.backCameras?.length || 0) >= 2
+          ? Math.min(bounds.minZoom, 0.5)
+          : bounds.minZoom;
       boundsRef.current = {
-        minZoom: bounds.minZoom,
+        minZoom: minZ,
         maxZoom: bounds.maxZoom,
       };
-      setMinZoom(bounds.minZoom);
+      setMinZoom(minZ);
       setMaxZoom(bounds.maxZoom);
       setZoomStep(bounds.step || 0.1);
 
       const modes = computeAvailableZoomModes(shape, stream);
       modes["1x"] = true;
-      if (!modes["0.5x"] && bounds.minZoom < 0.95) modes["0.5x"] = true;
+      if (!modes["0.5x"] && minZ < 0.95) modes["0.5x"] = true;
       if (!modes["0.5x"] && shape.ultrawide) modes["0.5x"] = true;
       setAvailableZoomModes(modes);
 
@@ -172,47 +176,74 @@ const MediaPreviewIOS = () => {
       const cameras = detectedRef.current;
       const shape = toDetectedShape(cameras);
       const bounds = boundsRef.current;
-      const clamped = Math.max(
-        bounds.minZoom ?? 0.5,
-        Math.min(displayZoom, bounds.maxZoom ?? 1),
-      );
+      const minZ = bounds.minZoom ?? 1;
+      const maxZ = bounds.maxZoom ?? 1;
+      const clamped = Math.max(minZ, Math.min(displayZoom, maxZ));
 
       currentZoomValue.current = clamped;
       setCurrentZoom(clamped);
 
       let mode = "custom";
-      if (Math.abs(clamped - 0.5) < 0.12) mode = "0.5x";
+      if (clamped < 0.75) mode = "0.5x";
       else if (Math.abs(clamped - 1) < 0.15) mode = "1x";
-      else if (Math.abs(clamped - 2) < 0.25) mode = "2x";
+      else if (clamped >= 1.7) mode = "2x";
       setActiveZoomMode(mode);
-      if (mode !== "custom") {
-        setZoomLevel(mode);
+      if (mode === "0.5x" || mode === "1x") {
         lastZoomLevel.current = mode;
       }
 
       const mapped = mapDisplayZoomToLens(clamped, shape, stream);
-      const curId = lastDeviceId.current || deviceId;
+      const settings = getCurrentTrackSettings(stream);
+      const actualId =
+        settings.deviceId || lastDeviceId.current || deviceId || null;
+      const ultraId = shape.ultrawide?.deviceId || null;
+      const mainId = shape.main?.deviceId || null;
 
       if (
-        mapped.deviceId &&
-        curId &&
-        mapped.deviceId !== curId
+        clamped < 0.92 &&
+        ultraId &&
+        actualId !== ultraId &&
+        mapped.lensType === "ultrawide"
       ) {
-        const crossingUltra =
-          mapped.lensType === "ultrawide" && clamped < 0.85;
-        const leavingUltra =
-          mapped.lensType === "main" &&
-          shape.ultrawide?.deviceId === curId &&
-          clamped >= 0.85;
-        const needTele =
-          mapped.lensType === "telephoto" && clamped >= 1.9;
+        if (isSwitchingCamera) return false;
+        setZoomLevel("0.5x");
+        lastZoomLevel.current = "0.5x";
+        setActiveZoomMode("0.5x");
+        currentZoomValue.current = 0.5;
+        setCurrentZoom(0.5);
+        setIsSwitchingCamera(true);
+        setDeviceId(ultraId);
+        return true;
+      }
 
-        if (crossingUltra || leavingUltra || needTele) {
-          if (isSwitchingCamera) return false;
-          setDeviceId(mapped.deviceId);
-          setZoomLevel(mapped.mode);
-          return true;
-        }
+      if (
+        clamped >= 0.92 &&
+        ultraId &&
+        actualId === ultraId &&
+        mainId &&
+        mainId !== ultraId
+      ) {
+        if (isSwitchingCamera) return false;
+        setZoomLevel("1x");
+        lastZoomLevel.current = "1x";
+        setActiveZoomMode("1x");
+        currentZoomValue.current = Math.max(1, clamped);
+        setCurrentZoom(Math.max(1, clamped));
+        setIsSwitchingCamera(true);
+        setDeviceId(mainId);
+        return true;
+      }
+
+      if (
+        mapped.lensType === "telephoto" &&
+        mapped.deviceId &&
+        actualId !== mapped.deviceId &&
+        clamped >= 1.9
+      ) {
+        if (isSwitchingCamera) return false;
+        setZoomLevel("2x");
+        setDeviceId(mapped.deviceId);
+        return true;
       }
 
       if (supportsHardwareZoom(stream) && mapped.digitalZoom != null) {
@@ -232,6 +263,19 @@ const MediaPreviewIOS = () => {
           }
         }
       }
+
+      if (clamped < 0.9 && mapped.unavailable05 && !window.__zoom05Toast) {
+        window.__zoom05Toast = true;
+        SonnerInfo(
+          t("home.zoom_05_unsupported", {
+            defaultValue: "0.5x is not supported on this device",
+          }),
+        );
+        setTimeout(() => {
+          window.__zoom05Toast = false;
+        }, 4000);
+      }
+
       return false;
     },
     [
@@ -240,7 +284,9 @@ const MediaPreviewIOS = () => {
       setActiveZoomMode,
       setCurrentZoom,
       setDeviceId,
+      setIsSwitchingCamera,
       setZoomLevel,
+      t,
     ],
   );
 
@@ -345,6 +391,7 @@ const MediaPreviewIOS = () => {
   const onTouchMove = async (event) => {
     if (!pinchState.current.active || event.touches.length !== 2) return;
     if (cameraMode !== "environment") return;
+    if (isSwitchingCamera) return;
     event.preventDefault();
 
     const now = Date.now();
@@ -358,14 +405,20 @@ const MediaPreviewIOS = () => {
       mn,
       mx,
     );
-    const startZoom = pinchState.current.zoom;
+    const startZoom = pinchState.current.zoom || 1;
     const startDist = pinchState.current.distance || moved.distance;
-    const totalScale = startDist ? moved.distance / startDist : 1;
-    const nextZoom = Math.max(mn, Math.min(startZoom * totalScale, mx));
+    if (!startDist || !moved.distance) return;
+
+    let totalScale = moved.distance / startDist;
+    if (totalScale < 1) totalScale = Math.pow(totalScale, 1.35);
+    else if (totalScale > 1) totalScale = Math.pow(totalScale, 1.15);
+
+    let nextZoom = Math.max(mn, Math.min(startZoom * totalScale, mx));
+    if (nextZoom < 0.7 && mn <= 0.5) nextZoom = 0.5;
 
     currentZoomValue.current = nextZoom;
     setCurrentZoom(nextZoom);
-    setActiveZoomMode("custom");
+    setActiveZoomMode(nextZoom < 0.75 ? "0.5x" : "custom");
     await applyDisplayZoom(nextZoom);
   };
 
@@ -436,7 +489,9 @@ const MediaPreviewIOS = () => {
 
       const isBack = mode === "environment";
       const z = zoomLevel || "1x";
-      const cameras = await getAvailableCameras();
+      const cameras = await getAvailableCameras({
+        force: mode === "environment",
+      });
       detectedRef.current = cameras;
       setDetectedCameras(cameras);
 

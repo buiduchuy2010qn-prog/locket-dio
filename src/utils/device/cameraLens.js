@@ -172,9 +172,9 @@ export function detectRearCameras(videoDevices = []) {
     if (fb) front.push(fb);
   }
 
-  const ultrawide = pickUltraWideCamera(rear);
-  const telephoto = pickTeleCamera(rear);
   const main = pickMainRearCamera(rear);
+  const telephoto = pickTeleCamera(rear, main);
+  const ultrawide = pickUltraWideCamera(rear, main, telephoto);
 
   return {
     all: videoDevices,
@@ -204,14 +204,78 @@ export function pickMainRearCamera(rearCameras = []) {
   return pool[0]?.device || rearCameras[0] || null;
 }
 
-export function pickUltraWideCamera(rearCameras = []) {
+/**
+ * Ultra-wide picker.
+ * 1) Explicit label (ultra wide / 0.5 / camera2 2 …)
+ * 2) Heuristic: multi rear — non-main, non-tele, prefer lower index
+ *    (Android often lists ultra before main).
+ */
+export function pickUltraWideCamera(
+  rearCameras = [],
+  mainCamera = null,
+  teleCamera = null,
+) {
   if (!rearCameras.length) return null;
-  return rearCameras.find((d) => isUltraLabel(d.label || "")) || null;
+
+  const byLabel = rearCameras.find((d) => isUltraLabel(d.label || ""));
+  if (byLabel) return byLabel;
+
+  const mainId = mainCamera?.deviceId || pickMainRearCamera(rearCameras)?.deviceId;
+  const teleId =
+    teleCamera?.deviceId ||
+    rearCameras.find((d) => isTeleLabel(d.label || ""))?.deviceId ||
+    null;
+
+  // Need at least one other rear lens that isn't main/tele
+  const others = rearCameras.filter(
+    (d) =>
+      d.deviceId !== mainId &&
+      d.deviceId !== teleId &&
+      !isTeleLabel(d.label || "") &&
+      !AVOID_RE.test((d.label || "").toLowerCase()),
+  );
+
+  if (!others.length) {
+    // 2 rear only, no labels: treat the non-main as ultra candidate
+    // (common dual: ultra + main). Skip if the other looks like tele.
+    if (rearCameras.length >= 2 && mainId) {
+      const other = rearCameras.find(
+        (d) => d.deviceId !== mainId && !isTeleLabel(d.label || ""),
+      );
+      // Only trust heuristic when we have 2+ rear and other isn't clearly tele
+      if (other && rearCameras.length >= 2) {
+        // Prefer other if it appears earlier in list (index 0 = ultra pattern)
+        const mainIdx = rearCameras.findIndex((d) => d.deviceId === mainId);
+        const otherIdx = rearCameras.findIndex((d) => d.deviceId === other.deviceId);
+        if (otherIdx >= 0 && (otherIdx < mainIdx || rearCameras.length === 2)) {
+          return other;
+        }
+      }
+    }
+    return null;
+  }
+
+  // Prefer earliest index among candidates (Android ultra often first back cam)
+  others.sort((a, b) => {
+    const ia = rearCameras.findIndex((d) => d.deviceId === a.deviceId);
+    const ib = rearCameras.findIndex((d) => d.deviceId === b.deviceId);
+    return ia - ib;
+  });
+  return others[0];
 }
 
-export function pickTeleCamera(rearCameras = []) {
+export function pickTeleCamera(rearCameras = [], mainCamera = null) {
   if (!rearCameras.length) return null;
-  return rearCameras.find((d) => isTeleLabel(d.label || "")) || null;
+  const byLabel = rearCameras.find((d) => isTeleLabel(d.label || ""));
+  if (byLabel) return byLabel;
+
+  // 3+ rear, no labels: last non-main often tele
+  if (rearCameras.length >= 3) {
+    const mainId = mainCamera?.deviceId || pickMainRearCamera(rearCameras)?.deviceId;
+    const last = [...rearCameras].reverse().find((d) => d.deviceId !== mainId);
+    return last || null;
+  }
+  return null;
 }
 
 export function classifyLensType(device, detected) {
@@ -610,7 +674,7 @@ export function resolveZoomModeTarget(mode, ctx = {}) {
 
 /**
  * Global pinch range across lenses.
- * min: 0.5 if ultra else track min
+ * min: 0.5 if ultra OR track min < 1 OR multi-rear heuristic
  * max: track max (or higher if tele)
  */
 export function getEffectiveZoomBounds(detected, stream) {
@@ -618,15 +682,28 @@ export function getEffectiveZoomBounds(detected, stream) {
   let min = range.supported ? range.minZoom : 1;
   let max = range.supported ? range.maxZoom : 1;
 
-  if (detected?.ultrawide?.deviceId) {
+  const hasUltra = Boolean(detected?.ultrawide?.deviceId);
+  const multiRear = (detected?.rear?.length || 0) >= 2;
+
+  // Physical ultra or multi-lens → allow pinch down to 0.5
+  if (hasUltra || multiRear) {
     min = Math.min(min, 0.5);
+  }
+  if (range.supported && range.minZoom < 0.95) {
+    min = Math.min(min, range.minZoom);
   }
   if (detected?.telephoto?.deviceId && max < 2) {
     max = Math.max(max, 2);
   }
-  // Always allow at least 1x display
+  if (range.supported && range.maxZoom > max) {
+    max = range.maxZoom;
+  }
+
+  // Always allow at least 1x on the range
   if (min > 1) min = 1;
   if (max < 1) max = 1;
+  // Ensure room to pinch out from 1x when hardware zoom exists
+  if (range.supported && max < range.maxZoom) max = range.maxZoom;
 
   return {
     minZoom: min,
@@ -635,6 +712,8 @@ export function getEffectiveZoomBounds(detected, stream) {
     trackMin: range.minZoom,
     trackMax: range.maxZoom,
     step: range.zoomStep,
+    hasUltra,
+    canGo05: min < 0.9 || hasUltra || multiRear,
   };
 }
 
@@ -649,25 +728,41 @@ export function mapDisplayZoomToLens(displayZoom, detected, stream) {
   const teleId = detected?.telephoto?.deviceId || null;
   const range = readZoomRange(stream);
 
-  // Ultra band
-  if (z < 0.85 && ultraId) {
-    return {
-      deviceId: ultraId,
-      digitalZoom: 1,
-      displayZoom: z,
-      lensType: "ultrawide",
-      mode: "0.5x",
-    };
-  }
-
-  // Ultra fallback via digital min on main
-  if (z < 0.85 && range.supported && range.minZoom < 0.95) {
+  // ── 0.5 band: ultra lens first, then digital min ──
+  if (z < 0.92) {
+    if (ultraId) {
+      return {
+        deviceId: ultraId,
+        digitalZoom: 1,
+        displayZoom: Math.min(z, 0.5) < 0.6 ? 0.5 : z,
+        lensType: "ultrawide",
+        mode: "0.5x",
+        switchDevice: true,
+      };
+    }
+    if (range.supported && range.minZoom < 0.95) {
+      return {
+        deviceId: mainId,
+        digitalZoom: clampZoom(
+          Math.max(z, range.minZoom),
+          range.minZoom,
+          range.maxZoom,
+        ),
+        displayZoom: z,
+        lensType: "main",
+        mode: "0.5x",
+        switchDevice: false,
+      };
+    }
+    // No ultra & no digital-out → stay main at min (cannot go wider)
     return {
       deviceId: mainId,
-      digitalZoom: clampZoom(z, range.minZoom, range.maxZoom),
-      displayZoom: z,
+      digitalZoom: range.supported ? range.minZoom : 1,
+      displayZoom: range.supported && range.minZoom < 1 ? range.minZoom : 1,
       lensType: "main",
-      mode: "0.5x",
+      mode: range.supported && range.minZoom < 0.95 ? "0.5x" : "1x",
+      switchDevice: false,
+      unavailable05: !range.supported || range.minZoom >= 0.95,
     };
   }
 
@@ -679,18 +774,18 @@ export function mapDisplayZoomToLens(displayZoom, detected, stream) {
       displayZoom: z,
       lensType: "telephoto",
       mode: "2x",
+      switchDevice: true,
     };
   }
 
-  // Main band with digital zoom
+  // Main band with digital zoom — leave ultra when zooming back up
   let digital = 1;
   if (range.supported) {
     digital = clampZoom(Math.max(z, range.minZoom), range.minZoom, range.maxZoom);
   }
 
   let mode = "1x";
-  if (z < 0.9) mode = "0.5x";
-  else if (z >= 1.7) mode = "2x";
+  if (z >= 1.7) mode = "2x";
 
   return {
     deviceId: mainId,
@@ -698,6 +793,7 @@ export function mapDisplayZoomToLens(displayZoom, detected, stream) {
     displayZoom: z,
     lensType: "main",
     mode,
+    switchDevice: Boolean(ultraId), // may need to leave ultra
   };
 }
 
