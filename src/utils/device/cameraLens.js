@@ -370,7 +370,8 @@ function highResQuality(base = {}) {
 export async function startCameraByDeviceId(deviceId, options = {}) {
   const {
     facingMode = "environment",
-    highRes = true,
+    // Default false: preview mượt; chụp/quay vẫn lấy frame từ track
+    highRes = false,
     preferDeviceId = true,
   } = options;
 
@@ -823,14 +824,14 @@ export async function ensureMainCameraStream(stream, mainDeviceId, detected) {
   try {
     return await startCameraByDeviceId(mainDeviceId, {
       facingMode: "environment",
-      highRes: true,
+      highRes: false,
       preferDeviceId: true,
     });
   } catch {
     try {
       return await startCameraByDeviceId(null, {
         facingMode: "environment",
-        highRes: true,
+        highRes: false,
         preferDeviceId: false,
       });
     } catch {
@@ -850,7 +851,7 @@ export async function startMainCameraX1(options = {}) {
 
   let stream = await startCameraByDeviceId(mainId, {
     facingMode: "environment",
-    highRes: true,
+    highRes: false,
     preferDeviceId: Boolean(mainId),
   });
 
@@ -889,7 +890,7 @@ export async function switchToUltraWide05(options = {}) {
     if (oldStream) stopCurrentCamera(oldStream, videoEl);
     const stream = await startCameraByDeviceId(ultraId, {
       facingMode: "environment",
-      highRes: true,
+      highRes: false,
       preferDeviceId: true,
     });
     return {
@@ -1063,7 +1064,7 @@ export async function startFrontCamera(options = {}) {
 
   const stream = await startCameraByDeviceId(frontId, {
     facingMode: "user",
-    highRes: true,
+    highRes: false,
     preferDeviceId: Boolean(frontId),
   });
 

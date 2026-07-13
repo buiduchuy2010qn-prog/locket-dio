@@ -660,11 +660,15 @@ const MediaPreviewAndroid = () => {
       const isBack = mode === "environment";
       const z = zoomLevel || "1x";
 
-      const cameras = await getAvailableCameras({
-        force: mode === "environment",
-      });
-      detectedRef.current = cameras;
-      setDetectedCameras(cameras);
+      // Cache enumerate — tránh delay mỗi lần flip cam
+      let cameras = detectedRef.current;
+      if (!cameras || (mode === "environment" && !cameras.backNormalCamera)) {
+        cameras = await getAvailableCameras({
+          force: mode === "environment" && !detectedRef.current,
+        });
+        detectedRef.current = cameras;
+        setDetectedCameras(cameras);
+      }
 
       const mainId =
         cameras?.backNormalCamera?.deviceId ||
@@ -696,7 +700,7 @@ const MediaPreviewAndroid = () => {
         const oldStream = streamRef.current;
         if (facingChanged) {
           setPreviewMirror(true);
-          setVideoEpoch((n) => n + 1);
+          // Không remount <video> — flip mượt hơn
         }
 
         let stream;
@@ -729,12 +733,6 @@ const MediaPreviewAndroid = () => {
         lastCameraMode.current = "user";
         if (resolvedDeviceId) lastDeviceId.current = resolvedDeviceId;
 
-        if (facingChanged) {
-          await new Promise((r) =>
-            requestAnimationFrame(() => requestAnimationFrame(r)),
-          );
-        }
-
         if (videoRef.current) {
           const v = videoRef.current;
           v.srcObject = stream;
@@ -748,15 +746,12 @@ const MediaPreviewAndroid = () => {
           } catch {
             /* ignore */
           }
-          try {
-            await v.play();
-          } catch {
-            /* ignore */
-          }
+          // play không await — mượt hơn khi flip
+          v.play().catch(() => {});
         }
 
-        // Re-read front capabilities after open
-        await resetFrontCameraZoom(stream);
+        // Re-read front capabilities (không block preview)
+        resetFrontCameraZoom(stream).catch(() => {});
         const caps = refreshFrontCameraZoomCapabilities(stream);
         boundsRef.current = {
           minZoom: caps.minZoom,
@@ -824,12 +819,11 @@ const MediaPreviewAndroid = () => {
 
       if (facingChanged) {
         setPreviewMirror(false);
-        setVideoEpoch((n) => n + 1);
       }
 
       let stream = await startCameraByDeviceId(resolvedDeviceId, {
         facingMode: mode,
-        highRes: true,
+        highRes: false,
         preferDeviceId: Boolean(resolvedDeviceId),
       });
 
@@ -869,12 +863,6 @@ const MediaPreviewAndroid = () => {
 
       setPreviewMirror(false);
 
-      if (facingChanged) {
-        await new Promise((r) =>
-          requestAnimationFrame(() => requestAnimationFrame(r)),
-        );
-      }
-
       if (videoRef.current) {
         const v = videoRef.current;
         v.srcObject = stream;
@@ -888,11 +876,7 @@ const MediaPreviewAndroid = () => {
         } catch {
           /* ignore */
         }
-        try {
-          await v.play();
-        } catch {
-          /* ignore */
-        }
+        v.play().catch(() => {});
       }
 
       if (supportsHardwareZoom(stream)) {

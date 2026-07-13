@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useRef } from "react";
 import { useApp } from "@/context/AppContext";
 import { RefreshCcw } from "lucide-react";
 
@@ -22,12 +22,20 @@ const CameraToggleAndroid = () => {
    * Front (user): reset to 1x, no 0.5x, lens=front — MediaPreview uses startFrontCamera.
    * Rear (environment): land on main @ 1x (never tele).
    */
-  const handleRotateCamera = async () => {
+  const flippingRef = useRef(false);
+
+  const handleRotateCamera = () => {
+    // Debounce flip — tránh double-tap lag
+    if (flippingRef.current) return;
+    flippingRef.current = true;
+    setTimeout(() => {
+      flippingRef.current = false;
+    }, 450);
+
     setRotation((prev) => prev - 180);
     const newMode = cameraMode === "user" ? "environment" : "user";
     setIsSwitchingCamera?.(true);
-    setCameraMode(newMode); // currentFacingMode
-    // Always reset zoom/pinch state on flip
+    setCameraMode(newMode);
     setZoomLevel("1x");
     setActiveZoomMode?.("1x");
     setCurrentZoom?.(1);
@@ -36,15 +44,18 @@ const CameraToggleAndroid = () => {
   };
 
   return (
-    <>
-      <button className="cursor-pointer" onClick={handleRotateCamera}>
-        <RefreshCcw
-          size={35}
-          className="transition-transform duration-500 active:scale-95"
-          style={{ transform: `rotate(${rotation}deg)` }}
-        />
-      </button>
-    </>
+    <button
+      type="button"
+      className="cursor-pointer touch-manipulation"
+      onClick={handleRotateCamera}
+      aria-label="Đổi camera"
+    >
+      <RefreshCcw
+        size={35}
+        className="transition-transform duration-300 active:scale-95"
+        style={{ transform: `rotate(${rotation}deg)` }}
+      />
+    </button>
   );
 };
 
