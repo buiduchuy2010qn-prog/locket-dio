@@ -727,9 +727,30 @@ function mapDeezerTrack(t) {
   };
 }
 
+function mapITunesTrack(t) {
+  return {
+    id: String(t.trackId || t.collectionId || ""),
+    song_name: t.trackName || "",
+    song_title: t.trackName || "",
+    name: t.trackName || "",
+    artist: t.artistName || "",
+    album: t.collectionName || "",
+    image_url: (t.artworkUrl100 || "").replace("100x100", "600x600") || "",
+    preview_url: t.previewUrl || null,
+    isrc: null,
+    spotify_url: null,
+    apple_music_url: t.trackViewUrl || null,
+    duration_ms: t.trackTimeMillis || 0,
+    popularity: 50,
+    platform: "spotify",
+    source: "itunes-search",
+    title: [t.trackName, t.artistName].filter(Boolean).join(" - "),
+  };
+}
+
 /**
- * Tìm nhạc theo tên — KHÔNG cần user OAuth.
- * Gộp Spotify + Deezer rồi rank theo tựa (word-boundary, market VN).
+ * Tìm nhạc — nhanh, nhiều nguồn song song.
+ * Deezer + iTunes (VN) chính; Spotify phụ (1 query, timeout ngắn).
  */
 async function searchMusicByQuery(query, limit = 15) {
   const q = String(query || "").trim();
@@ -738,9 +759,9 @@ async function searchMusicByQuery(query, limit = 15) {
     err.status = 400;
     throw err;
   }
-  const lim = Math.min(Math.max(Number(limit) || 15, 1), 25);
-  const fetchLim = Math.min(40, Math.max(lim * 2, 24));
-  const merged = new Map(); // key → track
+  const lim = Math.min(Math.max(Number(limit) || 15, 1), 20);
+  const fetchLim = Math.min(25, Math.max(lim * 2, 15));
+  const merged = new Map();
 
   const addTrack = (t) => {
     if (!t) return;
@@ -748,68 +769,100 @@ async function searchMusicByQuery(query, limit = 15) {
       t.isrc ||
       t.spotify_url ||
       t.deezer_url ||
+      t.apple_music_url ||
       `${normalizeSearchText(t.song_title || t.name)}|${normalizeSearchText(t.artist)}`;
-    if (!merged.has(key)) merged.set(key, t);
+    if (!key || key === "|") return;
+    const prev = merged.get(key);
+    if (!prev) merged.set(key, t);
   };
 
-  // 1) Spotify (market VN)
-  try {
-    const token = await getSpotifyAppToken();
-    if (token) {
-      const headers = { Authorization: `Bearer ${token}` };
-      const tryQueries = [q];
-      if (q.includes(" ")) {
-        tryQueries.unshift(`track:${q.replace(/"/g, "")}`);
-        tryQueries.unshift(`"${q.replace(/"/g, "")}"`);
-      }
-      for (const sq of tryQueries) {
-        try {
-          const r = await axios.get("https://api.spotify.com/v1/search", {
-            params: {
-              q: sq,
-              type: "track",
-              limit: fetchLim,
-              market: "VN",
-            },
-            headers,
-            timeout: 12000,
-          });
-          for (const t of r.data?.tracks?.items || []) {
-            addTrack(mapSpotifyTrack(t));
-          }
-        } catch {
-          /* next */
-        }
-      }
-    }
-  } catch (e) {
-    console.warn("searchMusicByQuery spotify:", e.message);
-  }
-
-  // 2) Deezer (luôn gộp — VN hay ra đúng hơn Spotify free tier)
-  try {
-    const s = await http.get("https://api.deezer.com/search", {
-      params: { q, limit: fetchLim, order: "RANKING" },
-      timeout: 12000,
-    });
-    for (const t of s.data?.data || []) {
-      addTrack(mapDeezerTrack(t));
-    }
-    // Thử thêm search/track nếu query ngắn
-    if (merged.size < 5) {
-      const s2 = await http.get("https://api.deezer.com/search/track", {
+  const fetchDeezer = async () => {
+    try {
+      const s = await http.get("https://api.deezer.com/search", {
         params: { q, limit: fetchLim },
-        timeout: 12000,
+        timeout: 6000,
       });
-      for (const t of s2.data?.data || []) {
-        addTrack(mapDeezerTrack(t));
-      }
+      return (s.data?.data || []).map(mapDeezerTrack);
+    } catch (e) {
+      console.warn("searchMusic deezer:", e.message);
+      return [];
     }
-  } catch (e) {
-    console.warn("searchMusicByQuery deezer:", e.message);
+  };
+
+  const fetchITunes = async () => {
+    try {
+      const s = await axios.get("https://itunes.apple.com/search", {
+        params: {
+          term: q,
+          media: "music",
+          entity: "song",
+          limit: fetchLim,
+          country: "vn",
+        },
+        timeout: 6000,
+        headers: { "User-Agent": UA },
+        validateStatus: (st) => st >= 200 && st < 500,
+      });
+      return (s.data?.results || []).map(mapITunesTrack);
+    } catch (e) {
+      console.warn("searchMusic itunes:", e.message);
+      return [];
+    }
+  };
+
+  const fetchSpotifyOnce = async () => {
+    try {
+      const token = await Promise.race([
+        getSpotifyAppToken(),
+        new Promise((r) => setTimeout(() => r(null), 4000)),
+      ]);
+      if (!token) return [];
+      const r = await axios.get("https://api.spotify.com/v1/search", {
+        params: { q, type: "track", limit: fetchLim, market: "VN" },
+        headers: { Authorization: `Bearer ${token}` },
+        timeout: 5000,
+      });
+      return (r.data?.tracks?.items || []).map(mapSpotifyTrack);
+    } catch (e) {
+      console.warn("searchMusic spotify:", e.message);
+      return [];
+    }
+  };
+
+  // Song song — không chờ Spotify chết timeout tuần tự
+  const batches = await Promise.all([
+    fetchDeezer(),
+    fetchITunes(),
+    fetchSpotifyOnce(),
+  ]);
+  for (const batch of batches) {
+    for (const t of batch) addTrack(t);
   }
 
-  return rankAndFilterTracks(q, [...merged.values()], lim);
+  let ranked = rankAndFilterTracks(q, [...merged.values()], lim);
+
+  // Nếu rank lọc hết nhưng có kết quả thô: trả top theo phrase lỏng
+  if (!ranked.length && merged.size) {
+    const qn = normalizeSearchText(q);
+    ranked = [...merged.values()]
+      .map((t) => {
+        const title = normalizeSearchText(
+          t.song_title || t.song_name || t.name || "",
+        );
+        let s = 0;
+        if (title === qn) s = 100;
+        else if (title.startsWith(qn)) s = 80;
+        else if (title.includes(qn)) s = 60;
+        else if (qn.split(" ").every((w) => tokenAsWord(w, title))) s = 40;
+        return { t, s };
+      })
+      .filter((x) => x.s > 0)
+      .sort((a, b) => b.s - a.s)
+      .slice(0, lim)
+      .map((x) => x.t);
+  }
+
+  return ranked;
 }
 
 module.exports = {

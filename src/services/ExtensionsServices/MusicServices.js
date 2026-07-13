@@ -104,18 +104,20 @@ export const searchMusicByQuery = async (query, limit = 15) => {
   const q = String(query || "").trim();
   if (!q) return [];
   try {
-    // Xin nhiều hơn → rank client lọc bài sát tựa
-    const fetchLimit = Math.min(40, Math.max(Number(limit) || 15, 18));
-    const res = await api.post("/api/searchMusic", {
-      query: q,
-      limit: fetchLimit,
-    });
+    const fetchLimit = Math.min(20, Math.max(Number(limit) || 12, 12));
+    const res = await api.post(
+      "/api/searchMusic",
+      { query: q, limit: fetchLimit },
+      { timeout: 15000 },
+    );
     if (res?.data?.status === "success" && Array.isArray(res.data.data)) {
-      return rankTracksByQuery(q, res.data.data, limit);
+      const ranked = rankTracksByQuery(q, res.data.data, limit);
+      // Server đã rank; client rank rỗng thì vẫn hiện list server
+      return ranked.length ? ranked : res.data.data.slice(0, limit);
     }
     return [];
   } catch (error) {
     console.error("🚨 searchMusicByQuery:", error.message);
-    return [];
+    throw error;
   }
 };

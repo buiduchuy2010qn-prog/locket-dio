@@ -68,18 +68,18 @@ export default function FormSpotifyPicker({
     setSearching(true);
     searchTimer.current = setTimeout(async () => {
       try {
-        const list = await searchMusicByQuery(q, 18);
-        setResults(list || []);
-        if (!list?.length) {
-          /* empty ok */
-        }
+        const list = await searchMusicByQuery(q, 12);
+        setResults(Array.isArray(list) ? list : []);
       } catch (e) {
-        SonnerError("Tìm nhạc lỗi", e?.message || "Thử lại");
+        SonnerError(
+          "Tìm nhạc lỗi",
+          e?.message || "API chậm / lỗi — thử lại sau",
+        );
         setResults([]);
       } finally {
         setSearching(false);
       }
-    }, 400);
+    }, 350);
     return () => {
       if (searchTimer.current) clearTimeout(searchTimer.current);
     };
