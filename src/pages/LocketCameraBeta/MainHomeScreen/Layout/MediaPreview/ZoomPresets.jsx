@@ -34,7 +34,9 @@ const ZoomPresets = ({
       <div className="pointer-events-auto flex items-center gap-1.5 px-2 py-1 rounded-full bg-black/40 backdrop-blur-md border border-white/10">
         {ZOOM_PRESETS.map((mode) => {
           const active = isActive(mode);
-          const enabled = mode === "1x" || Boolean(available?.[mode]);
+          // 0.5x luôn bật trên cam sau (available mặc định true)
+          const enabled =
+            mode === "1x" || mode === "0.5x" || Boolean(available?.[mode]);
           return (
             <button
               key={mode}

@@ -40,6 +40,7 @@ import {
   clearTrackZoomCache,
   captureVideoFreezeFrame,
   openCameraByFacing,
+  switchToUltraWide05,
 } from "@/utils";
 const EditorCaption = lazy(() => import("@/features/EditorCaption"));
 import { useApp } from "@/context/AppContext";
@@ -187,8 +188,8 @@ const MediaPreviewAndroid = () => {
 
       const modes = computeAvailableZoomModes(shape, stream);
       modes["1x"] = true;
-      if (!modes["0.5x"] && minZ < 0.95) modes["0.5x"] = true;
-      if (!modes["0.5x"] && shape.ultrawide) modes["0.5x"] = true;
+      // Cam sau: luôn bật 0.5x (mọi máy — ultra / digital / thử lens)
+      modes["0.5x"] = true;
       setAvailableZoomModes(modes);
 
       const settings = getCurrentTrackSettings(stream);
@@ -405,7 +406,7 @@ const MediaPreviewAndroid = () => {
     if (isSwitchingCamera || isPinching) return;
 
     // Front camera: no 0.5x / lens presets — only 1x + optional digital zoom
-    if ((cameraMode || "user") === "user") {
+    if ((cameraMode || "environment") === "user") {
       if (mode === "0.5x") return;
       if (mode === "1x") {
         setActiveZoomMode("1x");
@@ -428,30 +429,60 @@ const MediaPreviewAndroid = () => {
     setDetectedCameras(cameras);
     const shape = toDetectedShape(cameras);
 
+    // ── 0.5x góc siêu rộng: luôn thử (mọi máy) ──
+    if (mode === "0.5x") {
+      setIsSwitchingCamera(true);
+      try {
+        const result = await switchToUltraWide05({
+          oldStream: streamRef.current,
+          videoEl: videoRef.current,
+          detected: shape,
+        });
+        if (result?.unavailable || !result?.stream) {
+          SonnerInfo(
+            t("home.zoom_05_unsupported", {
+              defaultValue: "Thiết bị này không có góc siêu rộng",
+            }),
+          );
+          return;
+        }
+        streamRef.current = result.stream;
+        if (result.deviceId) {
+          lastDeviceId.current = result.deviceId;
+          setDeviceId(result.deviceId);
+        }
+        setZoomLevel("0.5x");
+        lastZoomLevel.current = "0.5x";
+        setActiveZoomMode("0.5x");
+        currentZoomValue.current = 0.5;
+        setCurrentZoom(0.5);
+        setCurrentLensType(result.lensType || "ultrawide");
+        attachStreamToVideo(result.stream, "environment");
+        syncZoomStateFromStream(result.stream, cameras, "environment");
+      } catch (e) {
+        console.error("[0.5x]", e);
+        SonnerInfo(
+          t("home.zoom_05_unsupported", {
+            defaultValue: "Không mở được góc siêu rộng",
+          }),
+        );
+      } finally {
+        setIsSwitchingCamera(false);
+      }
+      return;
+    }
+
     const modes =
       availableZoomModes ||
       computeAvailableZoomModes(shape, streamRef.current);
 
     if (mode !== "1x" && modes[mode] === false) {
-      // Try anyway for 0.5 via min zoom
-      if (mode === "0.5x") {
-        const range = readZoomRange(streamRef.current);
-        if (!(range.supported && range.minZoom < 0.95) && !shape.ultrawide) {
-          SonnerInfo(
-            t("home.zoom_05_unsupported", {
-              defaultValue: "0.5x is not supported on this device",
-            }),
-          );
-          return;
-        }
-      } else {
-        SonnerInfo(
-          t("home.zoom_2x_unsupported", {
-            defaultValue: t("home.camera_no_zoom"),
-          }),
-        );
-        return;
-      }
+      SonnerInfo(
+        t("home.zoom_2x_unsupported", {
+          defaultValue: t("home.camera_no_zoom"),
+        }),
+      );
+      return;
     }
 
     const target = resolveZoomModeTarget(mode, {
@@ -463,12 +494,7 @@ const MediaPreviewAndroid = () => {
 
     if (target.unavailable) {
       SonnerInfo(
-        t(
-          mode === "0.5x"
-            ? "home.zoom_05_unsupported"
-            : "home.camera_no_zoom",
-          { defaultValue: t("home.camera_no_zoom") },
-        ),
+        t("home.camera_no_zoom", { defaultValue: t("home.camera_no_zoom") }),
       );
       return;
     }
