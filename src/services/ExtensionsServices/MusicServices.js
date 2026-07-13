@@ -33,7 +33,20 @@ function normalizeSearchText(s) {
     .trim();
 }
 
-/** Xếp lại client: đúng tựa / gần tựa lên đầu, lọc nhiễu */
+function escapeRegExp(s) {
+  return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Word boundary — tránh "tim"∈"time", "em"∈"remember" */
+function tokenAsWord(token, text) {
+  if (!token || !text) return false;
+  const t = escapeRegExp(token);
+  if (new RegExp(`(?:^|\\s)${t}(?:\\s|$)`).test(text)) return true;
+  if (token.length >= 5 && new RegExp(`(?:^|\\s)${t}`).test(text)) return true;
+  return false;
+}
+
+/** Xếp lại client: đúng tựa / gần tựa; lọc false-positive substring */
 function rankTracksByQuery(query, tracks, limit = 15) {
   const q = normalizeSearchText(query);
   if (!q || !Array.isArray(tracks) || !tracks.length) return tracks || [];
@@ -49,36 +62,41 @@ function rankTracksByQuery(query, tracks, limit = 15) {
       const full = `${title} ${artist}`;
       if (!title) return { track, s: 0 };
 
-      let s = 0;
-      if (title === q) s += 2000;
-      else if (title.startsWith(q)) s += 900;
-      if (title.includes(q)) s += 500;
-      if (full.includes(q)) s += 100;
+      const inTitle = tokens.filter((t) => tokenAsWord(t, title));
+      const inFull = tokens.filter((t) => tokenAsWord(t, full));
+      const phrase = title.includes(q) || title === q;
 
-      const inTitle = tokens.filter((t) => title.includes(t));
-      const inFull = tokens.filter((t) => full.includes(t));
-      if (tokens.length) {
-        s += (inTitle.length / tokens.length) * 400;
-        s += (inFull.length / tokens.length) * 60;
+      if (tokens.length >= 2) {
+        if (!phrase && inTitle.length < tokens.length && inFull.length < tokens.length) {
+          return { track, s: 0 };
+        }
+      } else if (!tokenAsWord(tokens[0], full) && !phrase) {
+        return { track, s: 0 };
       }
-      if (tokens.length > 1 && title.includes(tokens.join(" "))) s += 600;
 
-      // "không buông" vs "không muốn…" — chỉ 1 token → hạ mạnh
-      if (tokens.length >= 2 && inTitle.length === 1) s *= 0.08;
-      else if (tokens.length >= 2 && inTitle.length < tokens.length) s *= 0.4;
-
-      if (inFull.length === 0) s = 0;
+      let s = 0;
+      if (title === q) s += 5000;
+      else if (title.startsWith(q)) s += 2500;
+      if (phrase) s += 1500;
+      if (tokens.length > 1 && title.includes(tokens.join(" "))) s += 1200;
+      s += (inTitle.length / tokens.length) * 800;
+      if (tokens.length >= 2 && inTitle.length === 1) s *= 0.05;
+      if (s < 200 && !phrase) s = 0;
       return { track, s };
     })
     .filter((x) => x.s > 0)
     .sort((a, b) => b.s - a.s);
 
-  if (!scored.length) return tracks.slice(0, limit);
+  if (!scored.length) return [];
 
   const top = scored[0].s;
-  const minKeep = top >= 400 ? Math.max(40, top * 0.12) : 8;
+  const minKeep =
+    top >= 1500 ? Math.max(400, top * 0.2) : top >= 500 ? 200 : top * 0.85;
   const kept = scored.filter((x) => x.s >= minKeep).map((x) => x.track);
-  return (kept.length ? kept : scored.map((x) => x.track)).slice(0, limit);
+  return (kept.length ? kept : scored.slice(0, 3).map((x) => x.track)).slice(
+    0,
+    limit,
+  );
 }
 
 /** Tìm nhạc theo tên — không cần liên kết Spotify */
