@@ -193,7 +193,7 @@ export default function GeneralThemes({ title }) {
     }
   };
 
-  /** Chọn bài từ tìm kiếm / upload / thư viện */
+  /** Chọn bài — gắn caption ngay (không chờ clip / ISRC API chậm) */
   const handleSpotifyLivePick = async (track) => {
     if (
       !track?.spotify_url &&
@@ -201,7 +201,8 @@ export default function GeneralThemes({ title }) {
       !track?.song_name &&
       !track?.song_title &&
       !track?.preview_url &&
-      !track?.musicTrackId
+      !track?.musicTrackId &&
+      !track?.audioUrl
     ) {
       SonnerError(t("custom_studio.music_failed"));
       return;
@@ -214,118 +215,110 @@ export default function GeneralThemes({ title }) {
         track.platform === "upload" ||
         Boolean(track.musicTrackId && !track.spotify_url);
 
-      const url =
-        track.spotify_url ||
-        (!isLocalUpload &&
-        track.id &&
-        String(track.source || "").includes("spotify")
-          ? `https://open.spotify.com/track/${track.id}`
-          : !isLocalUpload &&
-              track.id &&
-              track.source !== "deezer-search"
-            ? `https://open.spotify.com/track/${track.id}`
-            : null);
-
-      let musicData = null;
-      if (url && !isLocalUpload) {
-        try {
-          musicData = await getInfoMusicByUrl(url, "spotify");
-        } catch {
-          musicData = null;
-        }
+      const song_title =
+        track.song_title ||
+        track.song_name ||
+        track.title ||
+        track.name ||
+        "";
+      const artist = track.artist || "";
+      const preview =
+        track.preview_url || track.audioUrl || track.audio || null;
+      const image_url =
+        track.image_url || track.coverUrl || track.image || "";
+      const startTime = Number(track.startTime) || 0;
+      let endTime = Number(track.endTime) || 0;
+      if (!endTime) {
+        if (track.duration_ms > 0) endTime = track.duration_ms / 1000;
+        else if (track.duration > 0) endTime = Number(track.duration);
+        else endTime = 30;
       }
+      // Web preview ~30s
+      if (!isLocalUpload && endTime > 35) endTime = 30;
 
-      const merged = {
-        ...(track || {}),
-        ...(musicData || {}),
-        song_title:
-          musicData?.song_title ||
-          musicData?.song_name ||
-          track.song_title ||
-          track.song_name ||
-          track.title ||
-          track.name,
-        song_name:
-          musicData?.song_name ||
-          track.song_name ||
-          track.song_title ||
-          track.title ||
-          track.name,
-        artist: musicData?.artist || track.artist || "",
-        isrc: musicData?.isrc || track.isrc || null,
-        preview_url:
-          musicData?.preview_url ||
-          track.preview_url ||
-          track.audioUrl ||
-          null,
-        image_url:
-          musicData?.image_url || track.image_url || track.coverUrl || "",
-        spotify_url: url || musicData?.spotify_url || null,
-        platform: isLocalUpload ? "upload" : "spotify",
-        musicTrackId: track.musicTrackId || (isLocalUpload ? track.id : null),
-        startTime: track.startTime ?? 0,
-        endTime:
-          track.endTime ??
-          (track.duration_ms ? track.duration_ms / 1000 : track.duration) ??
-          0,
-        volume: track.volume ?? 1,
-        originalVideoVolume: track.originalVideoVolume ?? 1,
-        title:
-          musicData?.title ||
-          track.title ||
-          [track.song_title || track.song_name || track.title, track.artist]
-            .filter(Boolean)
-            .join(" - "),
-      };
+      const spotify_url =
+        track.spotify_url ||
+        (!isLocalUpload && track.id
+          ? `https://open.spotify.com/track/${track.id}`
+          : null);
 
       const caption =
-        merged.title ||
-        [merged.song_title || merged.song_name, merged.artist]
-          .filter(Boolean)
-          .join(" - ");
+        track.title ||
+        [song_title, artist].filter(Boolean).join(" - ") ||
+        song_title;
 
       if (!caption) {
         SonnerError(t("custom_studio.music_failed"));
         return;
       }
 
-      // Gắn luôn — server ensureMusic bổ sung ISRC khi đăng nếu thiếu
+      // Gắn ngay — ISRC bổ sung nền nếu thiếu (không chặn UI)
       applyOverlay({
         overlay_id: "caption:music",
         caption,
         text: caption,
         icon: {
-          data: merged.image_url,
+          data: image_url,
           type: "image",
           source: "url",
         },
         type: "music",
         payload: {
-          ...merged,
-          song_title: merged.song_title || merged.song_name || "",
-          song_name: merged.song_name || merged.song_title || "",
-          artist: merged.artist || "",
-          isrc: merged.isrc || null,
-          preview_url: merged.preview_url || null,
-          image_url: merged.image_url || "",
-          spotify_url: merged.spotify_url || null,
-          platform: merged.platform || "spotify",
-          musicTrackId: merged.musicTrackId || null,
-          startTime: merged.startTime ?? 0,
-          endTime: merged.endTime ?? 0,
-          volume: merged.volume ?? 1,
-          originalVideoVolume: merged.originalVideoVolume ?? 1,
+          song_title,
+          song_name: song_title,
+          name: song_title,
+          artist,
+          isrc: track.isrc || null,
+          preview_url: preview,
+          audio: preview,
+          image_url,
+          image: image_url,
+          spotify_url,
+          platform: isLocalUpload ? "upload" : "spotify",
+          musicTrackId:
+            track.musicTrackId || (isLocalUpload ? track.id : null),
+          startTime,
+          endTime: Math.max(startTime + 0.5, endTime),
+          volume: 1,
+          originalVideoVolume: 1,
+          duration: endTime,
+          duration_ms: track.duration_ms || endTime * 1000,
         },
-        platform: merged.platform || "spotify",
+        platform: isLocalUpload ? "upload" : "spotify",
       });
 
-      SonnerSuccess(
-        "Tìm nhạc",
-        merged.isrc
-          ? t("custom_studio.music_success")
-          : "Đã gắn nhạc — server sẽ bổ sung ISRC khi đăng nếu cần.",
-      );
       setSpotifyPickerOpen(false);
+      SonnerSuccess("Đã gắn nhạc", song_title);
+
+      // Enrich ISRC nền (server vẫn ensure khi đăng) — không chặn UI
+      if (!track.isrc && spotify_url && !isLocalUpload) {
+        getInfoMusicByUrl(spotify_url, "spotify")
+          .then((musicData) => {
+            if (!musicData?.isrc) return;
+            updateOverlayEditor({
+              payload: {
+                song_title,
+                song_name: song_title,
+                name: song_title,
+                artist,
+                isrc: musicData.isrc,
+                preview_url: preview || musicData.preview_url,
+                audio: preview || musicData.preview_url,
+                image_url: image_url || musicData.image_url,
+                image: image_url || musicData.image_url,
+                spotify_url,
+                platform: "spotify",
+                musicTrackId: track.musicTrackId || null,
+                startTime,
+                endTime: Math.max(startTime + 0.5, endTime),
+                volume: 1,
+                originalVideoVolume: 1,
+                duration: endTime,
+              },
+            });
+          })
+          .catch(() => {});
+      }
     } catch {
       SonnerError(t("custom_studio.music_failed"));
     } finally {
