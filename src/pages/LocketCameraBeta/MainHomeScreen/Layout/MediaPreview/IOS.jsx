@@ -414,8 +414,8 @@ const MediaPreviewIOS = () => {
               </button>
             </div>
 
-            {/* Pills zoom: 0.5 · 1 · 2 · 3 theo máy */}
-            {!preview && !selectedFile && cameraActive && lensPills.length > 0 && (
+            {/* Pills zoom: chỉ hiện khi máy có ≥2 mức (ẩn badge "1" đơn lẻ) */}
+            {!preview && !selectedFile && cameraActive && lensPills.length > 1 && (
               <div className="absolute bottom-5 left-1/2 -translate-x-1/2 z-30 flex items-center gap-1.5 pointer-events-auto px-2 py-1 rounded-full bg-black/35 backdrop-blur-md">
                 {lensPills.map((label) => {
                   const active = zoomLevel === label;
