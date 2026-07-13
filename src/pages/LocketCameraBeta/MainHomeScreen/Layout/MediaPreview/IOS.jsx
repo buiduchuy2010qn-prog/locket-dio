@@ -124,11 +124,16 @@ const MediaPreviewIOS = () => {
     startRequestId.current = requestId;
 
     try {
+      const mode = cameraMode || "user";
+      const facingChanged = lastCameraMode.current !== mode;
+      const trackLive =
+        streamRef.current?.getVideoTracks?.()?.[0]?.readyState === "live";
+
       if (
+        !facingChanged &&
         cameraInitialized.current &&
         streamRef.current &&
-        lastCameraMode.current === cameraMode &&
-        lastDeviceId.current === deviceId &&
+        trackLive &&
         lastZoomLevel.current === zoomLevel
       ) {
         if (videoRef.current && !videoRef.current.srcObject) {
@@ -142,7 +147,6 @@ const MediaPreviewIOS = () => {
         return;
       }
 
-      const mode = cameraMode || "user";
       const isBack = mode === "environment";
       const z = zoomLevel || "1x";
       const cameras = await getAvailableCameras();
@@ -154,37 +158,68 @@ const MediaPreviewIOS = () => {
       const teleId = cameras?.backZoomCamera?.deviceId || null;
       const frontId = cameras?.frontCameras?.[0]?.deviceId || null;
 
-      let resolvedDeviceId = deviceId;
-      if (isBack && z === "1x") {
+      let resolvedDeviceId = null;
+      if (isBack && (z === "1x" || !z)) {
         resolvedDeviceId = mainId;
       } else if (isBack && z === "0.5x") {
         resolvedDeviceId = ultraId || mainId;
-      } else if (isBack && (z === "2x" || z === "3x")) {
+      } else if (isBack && (z === "2x" || z === "3x" || z === "5x")) {
         resolvedDeviceId = teleId || mainId;
       } else if (!isBack) {
         resolvedDeviceId = frontId || deviceId;
-      } else if (!resolvedDeviceId) {
-        resolvedDeviceId = await pickCameraDeviceId(mode, z);
+      } else {
+        resolvedDeviceId = mainId || (await pickCameraDeviceId(mode, z));
       }
 
-      // Không setDeviceId trong start — tránh useEffect restart (lag)
       const quality = getCameraPreviewConstraints(
         CONFIG.app.camera.constraints.default,
       );
       const oldStream = streamRef.current;
-      let stream = null;
 
-      if (resolvedDeviceId) {
+      // iOS: nhả cam cũ trước khi lật
+      if (facingChanged && oldStream) {
         try {
-          stream = await navigator.mediaDevices.getUserMedia({
-            video: { deviceId: { ideal: resolvedDeviceId }, ...quality },
-            audio: false,
+          oldStream.getTracks().forEach((t) => t.stop());
+        } catch {
+          /* ignore */
+        }
+        streamRef.current = null;
+        if (videoRef.current) videoRef.current.srcObject = null;
+        cameraInitialized.current = false;
+      }
+
+      let stream = null;
+      const tryGum = async (video) =>
+        navigator.mediaDevices.getUserMedia({ video, audio: false });
+
+      // facingMode trước — lật cam sau ổn định
+      try {
+        stream = await tryGum({
+          facingMode: { exact: mode },
+          ...quality,
+        });
+      } catch {
+        try {
+          stream = await tryGum({
+            facingMode: { ideal: mode },
+            ...quality,
+          });
+        } catch {
+          stream = null;
+        }
+      }
+
+      if (!stream && resolvedDeviceId) {
+        try {
+          stream = await tryGum({
+            deviceId: { ideal: resolvedDeviceId },
+            ...quality,
           });
         } catch {
           try {
-            stream = await navigator.mediaDevices.getUserMedia({
-              video: { deviceId: { exact: resolvedDeviceId }, ...quality },
-              audio: false,
+            stream = await tryGum({
+              deviceId: { exact: resolvedDeviceId },
+              ...quality,
             });
           } catch {
             stream = null;
@@ -193,9 +228,9 @@ const MediaPreviewIOS = () => {
       }
 
       if (!stream) {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: mode }, ...quality },
-          audio: false,
+        stream = await tryGum({
+          facingMode: { ideal: mode },
+          ...quality,
         });
       }
 
@@ -204,19 +239,19 @@ const MediaPreviewIOS = () => {
         return;
       }
 
-      // iOS: 1x dính ultra → mở lại main (1 lần)
-      if (isBack && z === "1x" && mainId) {
-        const actualId = stream.getVideoTracks?.()?.[0]?.getSettings?.()?.deviceId;
+      if (isBack && (z === "1x" || !z) && mainId) {
+        const actualId =
+          stream.getVideoTracks?.()?.[0]?.getSettings?.()?.deviceId;
         if (actualId && ultraId && actualId === ultraId) {
           stream.getTracks().forEach((t) => t.stop());
           try {
-            stream = await navigator.mediaDevices.getUserMedia({
-              video: { deviceId: { ideal: mainId }, ...quality },
-              audio: false,
+            stream = await tryGum({
+              deviceId: { ideal: mainId },
+              ...quality,
             });
             resolvedDeviceId = mainId;
           } catch {
-            /* keep previous */
+            /* keep */
           }
         }
       }
@@ -228,9 +263,11 @@ const MediaPreviewIOS = () => {
 
       streamRef.current = stream;
       cameraInitialized.current = true;
-      lastCameraMode.current = cameraMode;
-      lastDeviceId.current = resolvedDeviceId || deviceId;
-      lastZoomLevel.current = zoomLevel;
+      lastCameraMode.current = mode;
+      lastZoomLevel.current = zoomLevel || "1x";
+      const actualId =
+        stream.getVideoTracks?.()?.[0]?.getSettings?.()?.deviceId;
+      lastDeviceId.current = actualId || resolvedDeviceId || deviceId;
       setTimeout(() => {
         refreshLensPills().catch(() => {});
       }, 0);
@@ -249,7 +286,7 @@ const MediaPreviewIOS = () => {
         }
       }
 
-      if (oldStream && oldStream !== stream) {
+      if (!facingChanged && oldStream && oldStream !== stream) {
         try {
           oldStream.getTracks().forEach((t) => t.stop());
         } catch {

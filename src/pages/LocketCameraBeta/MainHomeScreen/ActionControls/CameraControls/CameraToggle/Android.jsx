@@ -1,6 +1,5 @@
 import React from "react";
 import { useApp } from "@/context/AppContext";
-import { pickCameraDeviceId } from "@/utils";
 import { RefreshCcw } from "lucide-react";
 
 const CameraToggleAndroid = () => {
@@ -30,19 +29,10 @@ const CameraToggleAndroid = () => {
   const handleRotateCamera = async () => {
     setRotation((prev) => prev - 180);
     const newMode = cameraMode === "user" ? "environment" : "user";
-    let nextDeviceId = null;
-
-    try {
-      // Lật cam → luôn 1x + camera chính (mọi máy)
-      nextDeviceId = await pickCameraDeviceId(newMode, "1x");
-    } catch (error) {
-      console.error("Lỗi khi lấy danh sách camera:", error);
-    }
-
-    // Chỉ đổi state — MediaPreview mở stream mới rồi mới tắt stream cũ (mượt, không đen màn)
+    // deviceId=null → MediaPreview dùng facingMode (mở cam sau ổn định trên Android)
     setCameraMode(newMode);
     setZoomLevel("1x");
-    setDeviceId(nextDeviceId);
+    setDeviceId(null);
   };
 
   return (
