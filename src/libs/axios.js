@@ -128,23 +128,8 @@ api.interceptors.request.use(async (config) => {
   return config;
 });
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-// Render free: API sleep → 502; retry 1–2 lần sau khi wake
-async function retryOnGatewayError(client, error) {
-  const status = error.response?.status || error.status;
-  const originalRequest = error.config;
-  if (!originalRequest) return null;
-  if (status !== 502 && status !== 503 && status !== 504) return null;
-
-  const attempt = originalRequest._gatewayRetry || 0;
-  if (attempt >= 2) return null;
-
-  originalRequest._gatewayRetry = attempt + 1;
-  // Lần 1: 2.5s, lần 2: 5s — đủ thời gian cold start Render
-  await sleep(attempt === 0 ? 2500 : 5000);
-  return client(originalRequest);
-}
+// Cold-start retry đã nằm trong createBase.attachGatewayRetry (6 lần, ~40s).
+// Interceptor này chỉ toast / auth — không double-retry.
 
 // ==== Response Interceptor ====
 api.interceptors.response.use(
@@ -158,10 +143,6 @@ api.interceptors.response.use(
       "Có lỗi xảy ra";
 
     const originalRequest = error.config;
-
-    // Cold start / Bad Gateway — tự thử lại trước khi báo lỗi
-    const retried = await retryOnGatewayError(api, error);
-    if (retried) return retried;
 
     if (!originalRequest || originalRequest._retry) {
       return Promise.reject(error);
@@ -225,15 +206,23 @@ api.interceptors.response.use(
       SonnerInfo(message || "Lỗi máy chủ. Vui lòng thử lại sau.");
     }
 
+    // Chỉ báo sau khi createBase đã retry hết (cold start ~30–60s)
     if (status === 502 || status === 503) {
       SonnerInfo(
-        "API đang khởi động (Render free). Đợi 10–20 giây rồi thử lại.",
+        "API đang khởi động (Render free). Đang thử lại — chờ thêm 20–40 giây.",
       );
     }
 
     if (status === 504) {
       SonnerInfo(
         message || "Hết thời gian phản hồi từ máy chủ. Vui lòng thử lại sau.",
+      );
+    }
+
+    // Lỗi mạng không status — cold start / proxy abort
+    if (!error.response && originalRequest?._gatewayRetry >= 6) {
+      SonnerInfo(
+        "Không kết nối được API (có thể đang khởi động). Thử lại sau 20 giây.",
       );
     }
 

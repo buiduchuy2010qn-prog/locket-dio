@@ -66,15 +66,42 @@ function AppContent() {
   }
   useEffect(() => {
     import("./styles/animation.css");
-    // Đánh thức API Render free (tránh 502 lần đầu)
-    fetch("/dio-api/health", { method: "GET", credentials: "include" }).catch(
-      () => {},
-    );
+    // Đánh thức API Render free: poll đến khi healthy (cold start 20–60s)
+    let cancelled = false;
+    const wakeApi = async () => {
+      const delays = [0, 2000, 4000, 6000, 8000, 10000, 12000, 15000];
+      for (let i = 0; i < delays.length && !cancelled; i++) {
+        if (delays[i]) await new Promise((r) => setTimeout(r, delays[i]));
+        try {
+          const r = await fetch("/dio-api/health", {
+            method: "GET",
+            credentials: "include",
+            cache: "no-store",
+          });
+          if (r.ok) return;
+        } catch {
+          /* cold start — thử tiếp */
+        }
+      }
+    };
+    wakeApi();
+    // Giữ API ấm khi tab còn mở (free sleep ~15 phút)
+    const keepAlive = setInterval(() => {
+      fetch("/dio-api/health", {
+        method: "GET",
+        credentials: "include",
+        cache: "no-store",
+      }).catch(() => {});
+    }, 10 * 60 * 1000);
     // Token local → coi như đã login ngay (không chờ API)
     hydrateAuth();
     initAuth();
     showDevWarning();
     fetchCaptionOverlays();
+    return () => {
+      cancelled = true;
+      clearInterval(keepAlive);
+    };
   }, []);
 
   // Đã đăng nhập → luôn vào camera (không kẹt trang chủ / login)

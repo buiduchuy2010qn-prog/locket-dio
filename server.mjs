@@ -1604,6 +1604,91 @@ async function proxyR2Put(req, res) {
   up.end();
 }
 
+const sleepMs = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** Render free cold-start: upstream có thể reset socket 0.3–2s trong lúc spin-up (thường 20–60s). */
+const PROXY_COLD_START_RETRIES = 8;
+const PROXY_COLD_START_DELAYS_MS = [1500, 2500, 3500, 5000, 7000, 9000, 12000, 15000];
+
+function isRetryableProxyError(err) {
+  if (!err) return false;
+  const code = err.code || "";
+  const msg = String(err.message || "").toLowerCase();
+  return (
+    code === "ECONNRESET" ||
+    code === "ECONNREFUSED" ||
+    code === "ETIMEDOUT" ||
+    code === "EPIPE" ||
+    code === "ENOTFOUND" ||
+    code === "EAI_AGAIN" ||
+    code === "ECONNABORTED" ||
+    code === "UND_ERR_SOCKET" ||
+    msg.includes("socket hang up") ||
+    msg.includes("connection was closed") ||
+    msg.includes("aborted") ||
+    msg.includes("network")
+  );
+}
+
+function isRetryableGatewayStatus(status) {
+  return status === 502 || status === 503 || status === 504;
+}
+
+/**
+ * One upstream attempt. Resolves with { kind:'response', upRes } or rejects with Error.
+ * Does NOT write to client res — caller decides whether to pipe or retry.
+ */
+function onceUpstream(lib, opts, body) {
+  return new Promise((resolve, reject) => {
+    const up = lib.request(opts, (upRes) => {
+      resolve({ kind: "response", upRes, up });
+    });
+    up.on("timeout", () => {
+      up.destroy();
+      const err = new Error("Upstream timeout");
+      err.code = "ETIMEDOUT";
+      reject(err);
+    });
+    up.on("error", reject);
+    if (body.length) up.write(body);
+    up.end();
+  });
+}
+
+function pipeUpstreamToClient(upRes, res) {
+  const outHeaders = { ...upRes.headers };
+  delete outHeaders["access-control-allow-origin"];
+  delete outHeaders["access-control-allow-credentials"];
+  delete outHeaders["access-control-allow-headers"];
+  delete outHeaders["access-control-allow-methods"];
+  delete outHeaders["content-encoding"]; // we asked identity
+
+  if (outHeaders["set-cookie"]) {
+    const cookies = Array.isArray(outHeaders["set-cookie"])
+      ? outHeaders["set-cookie"]
+      : [outHeaders["set-cookie"]];
+    outHeaders["set-cookie"] = cookies.map((c) =>
+      c
+        .replace(/;\s*Domain=[^;]*/gi, "")
+        .replace(/;\s*Secure/gi, "")
+        .replace(/;\s*SameSite=[^;]*/gi, "; SameSite=Lax")
+    );
+  }
+
+  res.writeHead(upRes.statusCode || 502, outHeaders);
+  upRes.pipe(res);
+}
+
+/** Drain response body without piping (used when we will retry gateway status). */
+function drainResponse(upRes) {
+  return new Promise((resolve) => {
+    upRes.on("data", () => {});
+    upRes.on("end", resolve);
+    upRes.on("error", resolve);
+    upRes.resume();
+  });
+}
+
 async function proxyRequest(req, res, proxy) {
   const search = req.url.includes("?") ? "?" + req.url.split("?").slice(1).join("?") : "";
   const targetUrl = new URL(proxy.rest + search, proxy.target);
@@ -1667,45 +1752,101 @@ async function proxyRequest(req, res, proxy) {
     path: targetUrl.pathname + targetUrl.search,
     method: req.method,
     headers,
-    timeout: 90000,
+    // Render free cold start có thể > 50s; timeout từng attempt ngắn hơn, retry bù
+    timeout: 45000,
   };
 
-  const up = lib.request(opts, (upRes) => {
-    const outHeaders = { ...upRes.headers };
-    delete outHeaders["access-control-allow-origin"];
-    delete outHeaders["access-control-allow-credentials"];
-    delete outHeaders["access-control-allow-headers"];
-    delete outHeaders["access-control-allow-methods"];
-    delete outHeaders["content-encoding"]; // we asked identity
+  let lastErr = null;
+  for (let attempt = 0; attempt <= PROXY_COLD_START_RETRIES; attempt++) {
+    if (res.headersSent) return;
+    try {
+      const { upRes } = await onceUpstream(lib, opts, body);
+      const status = upRes.statusCode || 0;
 
-    if (outHeaders["set-cookie"]) {
-      const cookies = Array.isArray(outHeaders["set-cookie"])
-        ? outHeaders["set-cookie"]
-        : [outHeaders["set-cookie"]];
-      outHeaders["set-cookie"] = cookies.map((c) =>
-        c
-          .replace(/;\s*Domain=[^;]*/gi, "")
-          .replace(/;\s*Secure/gi, "")
-          .replace(/;\s*SameSite=[^;]*/gi, "; SameSite=Lax")
+      // Gateway status khi API còn ngủ — drain + retry (chỉ GET/HEAD hoặc body đã buffer)
+      if (
+        isRetryableGatewayStatus(status) &&
+        attempt < PROXY_COLD_START_RETRIES
+      ) {
+        await drainResponse(upRes);
+        const delay =
+          PROXY_COLD_START_DELAYS_MS[
+            Math.min(attempt, PROXY_COLD_START_DELAYS_MS.length - 1)
+          ];
+        console.warn(
+          `[proxy] cold-start ${status} attempt ${attempt + 1}/${PROXY_COLD_START_RETRIES + 1} → wait ${delay}ms`,
+          proxy.prefix,
+          req.method,
+          targetUrl.pathname,
+        );
+        await sleepMs(delay);
+        continue;
+      }
+
+      return pipeUpstreamToClient(upRes, res);
+    } catch (err) {
+      lastErr = err;
+      if (!isRetryableProxyError(err) || attempt >= PROXY_COLD_START_RETRIES) {
+        break;
+      }
+      const delay =
+        PROXY_COLD_START_DELAYS_MS[
+          Math.min(attempt, PROXY_COLD_START_DELAYS_MS.length - 1)
+        ];
+      console.warn(
+        `[proxy] ${err.code || err.message} attempt ${attempt + 1}/${PROXY_COLD_START_RETRIES + 1} → wait ${delay}ms`,
+        proxy.prefix,
+        req.method,
+        targetUrl.pathname,
       );
+      await sleepMs(delay);
     }
+  }
 
-    res.writeHead(upRes.statusCode || 502, outHeaders);
-    upRes.pipe(res);
-  });
+  console.error(
+    "[proxy]",
+    proxy.prefix,
+    req.method,
+    targetUrl.pathname,
+    lastErr?.message || "upstream failed after retries",
+  );
+  if (!res.headersSent) {
+    send(
+      res,
+      lastErr?.code === "ETIMEDOUT" ? 504 : 502,
+      "Bad gateway: " + (lastErr?.message || "upstream unavailable (Render cold start)"),
+    );
+  }
+}
 
-  up.on("timeout", () => {
-    up.destroy();
-    if (!res.headersSent) send(res, 504, "Upstream timeout");
-  });
-
-  up.on("error", (err) => {
-    console.error("[proxy]", proxy.prefix, req.method, targetUrl.pathname, err.message);
-    if (!res.headersSent) send(res, 502, "Bad gateway: " + err.message);
-  });
-
-  if (body.length) up.write(body);
-  up.end();
+/** Đánh thức API upstream khi web vừa boot (giảm 502 lần đầu sau deploy). */
+function wakeApiUpstream() {
+  try {
+    const u = new URL("/health", API_UPSTREAM);
+    const lib = u.protocol === "https:" ? https : http;
+    const req = lib.request(
+      {
+        protocol: u.protocol,
+        hostname: u.hostname,
+        port: u.port || (u.protocol === "https:" ? 443 : 80),
+        path: u.pathname,
+        method: "GET",
+        timeout: 60000,
+        headers: { accept: "application/json", "user-agent": "huy-locket-wake/1" },
+      },
+      (r) => {
+        r.resume();
+        console.log(`[huy-locket] wake API ${API_UPSTREAM} → ${r.statusCode}`);
+      },
+    );
+    req.on("error", (e) =>
+      console.warn("[huy-locket] wake API:", e.message),
+    );
+    req.on("timeout", () => req.destroy());
+    req.end();
+  } catch (e) {
+    console.warn("[huy-locket] wake API setup:", e.message);
+  }
 }
 
 const server = http.createServer((req, res) => {
@@ -1750,6 +1891,10 @@ server.listen(PORT, "0.0.0.0", async () => {
   console.log(`[huy-locket] static: ${PUBLIC_DIR}`);
   console.log(`[huy-locket] API upstream: ${API_UPSTREAM}`);
   console.log(`[huy-locket] proxies: ${PROXIES.map((p) => p.prefix).join(", ")}, /dio-r2-put`);
+  // Render free: API sleep độc lập với web — wake ngay khi web boot
+  wakeApiUpstream();
+  // Ping nhẹ mỗi 12 phút khi web còn sống (free sleep ~15 phút)
+  setInterval(wakeApiUpstream, 12 * 60 * 1000).unref?.();
   await warmDriveConfig();
   const folder = getDriveFolderId();
   const mode = driveAuthMode();
