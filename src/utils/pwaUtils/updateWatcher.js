@@ -1,7 +1,7 @@
 /**
- * Ultra-sensitive website update detector.
- * Polls /version.json (no-store), SW waiting, focus/online/visibility.
- * Toast is fixed top/bottom — never near caption / camera controls.
+ * Website update detector — calm, no toast spam.
+ * Polls /version.json occasionally; SW waiting uses a stable key.
+ * Toast once per buildId until user updates or dismisses (24h).
  */
 
 import currentBuild from "@/config/buildMeta.json";
@@ -11,15 +11,27 @@ const STYLE_ID = "app-update-toast-style";
 const STORAGE_BUILD = "app_known_build_id";
 const STORAGE_DISMISS = "app_update_dismissed_build";
 const STORAGE_RELOAD_GUARD = "app_update_reload_guard";
-const POLL_MS = 20 * 1000; // 20s while active
-const DISMISS_MS = 6 * 60 * 60 * 1000; // 6h "Để sau" per buildId
+/** Poll only every 5 minutes while tab visible */
+const POLL_MS = 5 * 60 * 1000;
+/** "Để sau" hides this build for 24h */
+const DISMISS_MS = 24 * 60 * 60 * 1000;
+/** Don't re-check on focus more than once per 2 min */
+const FOCUS_COOLDOWN_MS = 2 * 60 * 1000;
+/** Block reload loops */
+const RELOAD_GUARD_MS = 15 * 1000;
+
+const SW_WAITING_KEY = "sw-waiting";
 
 let pollTimer = null;
 let started = false;
 let checking = false;
-let lastToastBuildId = null;
+let lastFocusCheck = 0;
+/** buildIds already toasted this page session */
+const offeredThisSession = new Set();
 /** @type {null | (() => void | Promise<void>)} */
 let pendingSwApply = null;
+/** Remote buildId we last detected as newer */
+let pendingRemoteBuildId = null;
 
 function now() {
   return Date.now();
@@ -59,7 +71,7 @@ export function getCurrentBuildMeta() {
 }
 
 /**
- * Fetch /version.json with cache bust (required API).
+ * Fetch /version.json with cache bust.
  */
 export async function fetchLatestVersion() {
   const url = `/version.json?t=${Date.now()}`;
@@ -100,7 +112,16 @@ function markDismissed(buildId) {
     STORAGE_DISMISS,
     JSON.stringify({ buildId, at: now() }),
   );
-  lastToastBuildId = buildId;
+  offeredThisSession.add(buildId);
+}
+
+/** Session only — one toast per buildId until tab fully reloads */
+function wasOffered(buildId) {
+  return offeredThisSession.has(buildId);
+}
+
+function markOffered(buildId) {
+  offeredThisSession.add(buildId);
 }
 
 function removeUpdateToast() {
@@ -108,8 +129,7 @@ function removeUpdateToast() {
 }
 
 /**
- * Glassmorphism update toast (required API).
- * PC: top-right · Mobile: bottom-safe — never near caption.
+ * Glassmorphism update toast — once per buildId.
  */
 export function showUpdateAvailableToast({
   latest,
@@ -117,11 +137,16 @@ export function showUpdateAvailableToast({
   onLater,
 } = {}) {
   const buildId = latest?.buildId || "unknown";
-  if (document.getElementById(TOAST_ID)) return;
-  if (isDismissedForBuild(buildId)) return;
-  if (lastToastBuildId === buildId && document.getElementById(TOAST_ID)) return;
 
-  lastToastBuildId = buildId;
+  if (!buildId || buildId === "unknown") return;
+  if (isDismissedForBuild(buildId)) return;
+  if (wasOffered(buildId) && document.getElementById(TOAST_ID)) return;
+  // Already offered this session (user closed without "Để sau" or still open)
+  if (wasOffered(buildId)) return;
+  if (document.getElementById(TOAST_ID)) return;
+
+  markOffered(buildId);
+  pendingRemoteBuildId = buildId;
 
   if (!document.getElementById(STYLE_ID)) {
     const style = document.createElement("style");
@@ -208,6 +233,7 @@ export function showUpdateAvailableToast({
   aside.setAttribute("aria-live", "polite");
   aside.setAttribute("aria-label", "Có bản cập nhật mới");
   aside.setAttribute("data-update-toast", "true");
+  aside.dataset.buildId = buildId;
 
   const msg = document.createElement("p");
   msg.className = "app-update-msg";
@@ -237,7 +263,7 @@ export function showUpdateAvailableToast({
     btnLater.disabled = true;
     btnNow.textContent = "Đang cập nhật…";
     try {
-      await (onUpdate?.() ?? applyWebsiteUpdate());
+      await (onUpdate?.() ?? applyWebsiteUpdate(buildId));
     } catch (e) {
       console.error("[update] apply failed", e);
       btnNow.disabled = false;
@@ -253,9 +279,6 @@ export function showUpdateAvailableToast({
   document.body.appendChild(aside);
 }
 
-/**
- * Clear Cache API + optional SW unregister (required API).
- */
 export async function clearOldAppCache() {
   try {
     if ("caches" in window) {
@@ -268,15 +291,15 @@ export async function clearOldAppCache() {
 }
 
 /**
- * Apply update safely — no infinite reload loop (required API).
+ * Apply update safely — no infinite reload loop.
+ * @param {string} [targetBuildId] remote buildId we're updating to
  */
-export async function applyWebsiteUpdate() {
+export async function applyWebsiteUpdate(targetBuildId) {
   const guard = safeGet(STORAGE_RELOAD_GUARD);
   if (guard) {
     try {
       const { at } = JSON.parse(guard);
-      // Block rapid reloads within 8s
-      if (now() - Number(at || 0) < 8000) {
+      if (now() - Number(at || 0) < RELOAD_GUARD_MS) {
         console.warn("[update] reload guard active — skip");
         return;
       }
@@ -290,13 +313,18 @@ export async function applyWebsiteUpdate() {
     JSON.stringify({ at: now() }),
   );
 
-  // Remember we are applying so next load won't re-spam same cycle
-  const current = getCurrentBuildMeta();
-  safeSet(STORAGE_BUILD, current.buildId);
+  // Mark target (remote) as known so next load doesn't re-prompt immediately
+  const target =
+    targetBuildId ||
+    pendingRemoteBuildId ||
+    getCurrentBuildMeta().buildId;
+  safeSet(STORAGE_BUILD, target);
+  markOffered(target);
+  // Don't keep dismiss forever after update
+  safeRemove(STORAGE_DISMISS);
 
   await clearOldAppCache();
 
-  // Prefer SW skipWaiting path if registered
   if (typeof pendingSwApply === "function") {
     try {
       await pendingSwApply();
@@ -306,19 +334,18 @@ export async function applyWebsiteUpdate() {
     }
   }
 
-  // Hard reload with cache-bypass hint
   const url = new URL(window.location.href);
   url.searchParams.set("_v", String(Date.now()));
-  window.location.replace(url.toString());
+  // Drop old cache-bust params clutter
+  window.location.replace(url.pathname + url.search + url.hash);
 }
 
 /**
- * Compare remote vs local buildId (required API).
+ * Compare remote vs local buildId.
  * @returns {Promise<boolean>} true if update available
  */
-export async function checkForAppUpdate({ forceToast = true } = {}) {
+export async function checkForAppUpdate({ forceToast = false } = {}) {
   if (checking) return false;
-  // Never poll-spam while tab hidden (start/focus may force)
   if (typeof document !== "undefined" && document.hidden) {
     return false;
   }
@@ -327,28 +354,46 @@ export async function checkForAppUpdate({ forceToast = true } = {}) {
   try {
     const latest = await fetchLatestVersion();
     const current = getCurrentBuildMeta();
+    const known = safeGet(STORAGE_BUILD);
 
-    // Already on latest deployed build
+    // Already running the deployed build
     if (latest.buildId === current.buildId) {
       safeSet(STORAGE_BUILD, latest.buildId);
       safeRemove(STORAGE_RELOAD_GUARD);
+      offeredThisSession.delete(latest.buildId);
+      removeUpdateToast();
       return false;
     }
 
-    // Remote buildId differs from embedded → new deploy available
+    // Just reloaded — don't re-prompt for a few seconds (SW lag)
+    const guard = safeGet(STORAGE_RELOAD_GUARD);
+    if (guard) {
+      try {
+        const { at } = JSON.parse(guard);
+        if (now() - Number(at || 0) < RELOAD_GUARD_MS) {
+          return true;
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+
     if (!latest.buildId || isDismissedForBuild(latest.buildId)) {
       return false;
     }
 
-    // Prevent toast spam for same buildId already shown this session
-    if (lastToastBuildId === latest.buildId && document.getElementById(TOAST_ID)) {
+    // User already clicked update toward this build this session
+    if (known === latest.buildId && wasOffered(latest.buildId)) {
       return true;
     }
 
-    if (forceToast !== false) {
+    pendingRemoteBuildId = latest.buildId;
+
+    // Toast at most once per buildId per page session
+    if (forceToast !== false && !wasOffered(latest.buildId)) {
       showUpdateAvailableToast({
         latest,
-        onUpdate: () => applyWebsiteUpdate(),
+        onUpdate: () => applyWebsiteUpdate(latest.buildId),
         onLater: () => markDismissed(latest.buildId),
       });
     }
@@ -368,33 +413,28 @@ export function handleVisibilityUpdateCheck() {
     stopUpdateWatcher({ keepListeners: true });
     return;
   }
-  // Resume poll + immediate check
-  if (started) {
-    ensurePoll();
-  }
+  if (now() - lastFocusCheck < FOCUS_COOLDOWN_MS) return;
+  lastFocusCheck = now();
+
+  if (started) ensurePoll();
+
+  // Quiet check: only toast if never offered this build
   checkForAppUpdate({ forceToast: true });
-  // Also poke SW
-  try {
-    navigator.serviceWorker?.getRegistration?.().then((reg) => {
-      reg?.update?.();
-    });
-  } catch {
-    /* ignore */
-  }
 }
 
 export function handleOnlineUpdateCheck() {
   if (typeof navigator !== "undefined" && navigator.onLine === false) return;
+  if (now() - lastFocusCheck < FOCUS_COOLDOWN_MS) return;
+  lastFocusCheck = now();
   checkForAppUpdate({ forceToast: true });
 }
 
 /**
- * Called from registerSW onNeedRefresh (required API).
+ * Called from registerSW onNeedRefresh — stable key, no Date.now spam.
  */
 export function handleServiceWorkerUpdate(updateSW) {
   if (typeof updateSW === "function") {
     pendingSwApply = async () => {
-      // Listen once for controllerchange then reload
       let reloaded = false;
       const onController = () => {
         if (reloaded) return;
@@ -414,7 +454,6 @@ export function handleServiceWorkerUpdate(updateSW) {
         /* ignore */
       }
       await updateSW(true);
-      // Fallback reload if no controllerchange
       setTimeout(() => {
         if (!reloaded) {
           reloaded = true;
@@ -424,19 +463,22 @@ export function handleServiceWorkerUpdate(updateSW) {
     };
   }
 
-  showUpdateAvailableToast({
-    latest: {
-      buildId: `sw-waiting-${Date.now()}`,
-      version: getCurrentBuildMeta().version,
-    },
-    onUpdate: () => applyWebsiteUpdate(),
-    onLater: () => {
-      markDismissed(`sw-waiting`);
-    },
+  // Prefer real version.json buildId; fall back to stable SW key once
+  checkForAppUpdate({ forceToast: true }).then((hasVersionUpdate) => {
+    if (hasVersionUpdate) return;
+    // SW waiting but version.json already matches (or fetch failed) — one toast
+    if (isDismissedForBuild(SW_WAITING_KEY) || wasOffered(SW_WAITING_KEY)) {
+      return;
+    }
+    showUpdateAvailableToast({
+      latest: {
+        buildId: SW_WAITING_KEY,
+        version: getCurrentBuildMeta().version,
+      },
+      onUpdate: () => applyWebsiteUpdate(SW_WAITING_KEY),
+      onLater: () => markDismissed(SW_WAITING_KEY),
+    });
   });
-
-  // Also verify version.json in parallel
-  checkForAppUpdate({ forceToast: true });
 }
 
 function ensurePoll() {
@@ -448,28 +490,23 @@ function ensurePoll() {
   }, POLL_MS);
 }
 
-/**
- * Start ultra-sensitive watcher (required API).
- */
 export function startUpdateWatcher() {
   if (started || typeof window === "undefined") return;
   started = true;
 
-  // Clear reload guard after successful load
   window.addEventListener("load", () => {
-    setTimeout(() => safeRemove(STORAGE_RELOAD_GUARD), 1500);
+    setTimeout(() => safeRemove(STORAGE_RELOAD_GUARD), 2000);
   });
 
-  // App start
+  // One check on start
   checkForAppUpdate({ forceToast: true });
-
   ensurePoll();
 
   document.addEventListener("visibilitychange", handleVisibilityUpdateCheck);
+  // focus is noisy — use same handler with cooldown
   window.addEventListener("focus", handleVisibilityUpdateCheck);
   window.addEventListener("online", handleOnlineUpdateCheck);
 
-  // Optional: socket event hook
   try {
     window.addEventListener("app:update_available", () => {
       checkForAppUpdate({ forceToast: true });
@@ -479,9 +516,6 @@ export function startUpdateWatcher() {
   }
 }
 
-/**
- * Stop polling (required API). keepListeners for pause-on-hide.
- */
 export function stopUpdateWatcher({ keepListeners = false } = {}) {
   if (pollTimer) {
     clearInterval(pollTimer);
@@ -498,7 +532,6 @@ export function stopUpdateWatcher({ keepListeners = false } = {}) {
   }
 }
 
-/** Wire pending SW apply from registerSW without toast (optional) */
 export function setPendingSwApply(fn) {
   pendingSwApply = typeof fn === "function" ? fn : null;
 }
