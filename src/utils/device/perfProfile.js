@@ -71,18 +71,26 @@ export function applyPerfClasses() {
  */
 export function getCameraPreviewConstraints(base = {}) {
   const p = getPerfProfile();
-  // Android / máy yếu: 720p@24 — giảm jank mạnh
-  if (p.isAndroid || p.isLowEnd) {
+  // Không dùng advanced focusMode — chậm mở cam trên nhiều máy Android
+  // Máy yếu: 640–720 @ 24
+  if (p.isLowEnd) {
+    return {
+      ...base,
+      width: { ideal: 640, max: 720 },
+      height: { ideal: 640, max: 720 },
+      frameRate: { ideal: 24, max: 30 },
+    };
+  }
+  // Android thường: 720 @ 30 — mượt, mở nhanh
+  if (p.isAndroid) {
     return {
       ...base,
       width: { ideal: 720, max: 960 },
       height: { ideal: 720, max: 960 },
-      frameRate: { ideal: 24, max: 24 },
-      // Ưu tiên mượt hơn độ nét
-      advanced: [{ focusMode: "continuous" }],
+      frameRate: { ideal: 30, max: 30 },
     };
   }
-  // iOS / mobile khác: 960 vuông @ 30
+  // iOS / mobile: 960 @ 30
   if (p.isMobile) {
     return {
       ...base,

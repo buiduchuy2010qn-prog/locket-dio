@@ -13,11 +13,25 @@ import {
 /** Cache enumerate — avoid enumerateDevices + permission every lens change */
 let camerasCache = null;
 let camerasCacheAt = 0;
-const CAMERAS_CACHE_MS = 90 * 1000;
+const CAMERAS_CACHE_MS = 5 * 60 * 1000; // 5 phút — flip/zoom mượt
+let warmPromise = null;
 
 export const invalidateCameraCache = () => {
   camerasCache = null;
   camerasCacheAt = 0;
+  warmPromise = null;
+};
+
+/**
+ * Preload list camera nền — gọi sớm khi vào màn camera.
+ */
+export const warmCameraList = () => {
+  if (camerasCache) return Promise.resolve(camerasCache);
+  if (warmPromise) return warmPromise;
+  warmPromise = getAvailableCameras({ force: false }).finally(() => {
+    warmPromise = null;
+  });
+  return warmPromise;
 };
 
 /**

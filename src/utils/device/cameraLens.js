@@ -384,12 +384,18 @@ export async function startCameraByDeviceId(deviceId, options = {}) {
   const tryOpen = async (video) =>
     navigator.mediaDevices.getUserMedia({ video, audio: false });
 
+  // Fast path trước: ideal (ít fail/retry → mở cam nhanh)
+  // exact chỉ khi cần khóa lens (ultra/tele)
   if (preferDeviceId && deviceId) {
     try {
-      return await tryOpen({ deviceId: { exact: deviceId }, ...quality });
+      return await tryOpen({
+        deviceId: { ideal: deviceId },
+        facingMode: { ideal: facingMode },
+        ...quality,
+      });
     } catch {
       try {
-        return await tryOpen({ deviceId: { ideal: deviceId }, ...quality });
+        return await tryOpen({ deviceId: { exact: deviceId }, ...quality });
       } catch {
         /* fall through */
       }
@@ -397,10 +403,10 @@ export async function startCameraByDeviceId(deviceId, options = {}) {
   }
 
   try {
-    return await tryOpen({ facingMode: { exact: facingMode }, ...quality });
+    return await tryOpen({ facingMode: { ideal: facingMode }, ...quality });
   } catch {
     try {
-      return await tryOpen({ facingMode: { ideal: facingMode }, ...quality });
+      return await tryOpen({ facingMode: { exact: facingMode }, ...quality });
     } catch {
       /* fall through */
     }
@@ -410,7 +416,7 @@ export async function startCameraByDeviceId(deviceId, options = {}) {
     try {
       return await tryOpen({ deviceId: { ideal: deviceId }, ...quality });
     } catch {
-      /* fall through */
+      /* ignore */
     }
   }
 
@@ -428,6 +434,9 @@ export function clampZoom(value, minZoom = 1, maxZoom = 1) {
  * Apply digital / hardware zoom (required API).
  * @returns {Promise<number|false>}
  */
+/** Cache min/max/last zoom theo track — tránh getCapabilities mỗi frame pinch */
+const trackZoomCache = new WeakMap();
+
 export async function applyCameraZoom(stream, zoomValue) {
   return setCameraZoom(stream, zoomValue);
 }
@@ -435,24 +444,44 @@ export async function applyCameraZoom(stream, zoomValue) {
 export async function setCameraZoom(stream, value) {
   const track = getActiveVideoTrack(stream);
   if (!track) return false;
-  const caps = getCurrentTrackCapabilities(stream);
-  if (!caps?.zoom) return false;
 
-  const min = caps.zoom.min ?? 1;
-  const max = caps.zoom.max ?? 1;
-  const next = clampZoom(value, min, max);
+  let cached = trackZoomCache.get(track);
+  if (!cached) {
+    const caps = getCurrentTrackCapabilities(stream);
+    if (!caps?.zoom) return false;
+    cached = {
+      min: caps.zoom.min ?? 1,
+      max: caps.zoom.max ?? 1,
+      last: null,
+    };
+    trackZoomCache.set(track, cached);
+  }
+
+  const next = clampZoom(value, cached.min, cached.max);
+  // Bỏ qua apply nếu gần như không đổi — giảm jank
+  if (cached.last != null && Math.abs(cached.last - next) < 0.015) {
+    return cached.last;
+  }
 
   try {
     await track.applyConstraints({ advanced: [{ zoom: next }] });
+    cached.last = next;
     return next;
   } catch {
     try {
       await track.applyConstraints({ zoom: next });
+      cached.last = next;
       return next;
     } catch {
       return false;
     }
   }
+}
+
+/** Clear zoom cache when stream stops (optional) */
+export function clearTrackZoomCache(stream) {
+  const track = getActiveVideoTrack(stream);
+  if (track) trackZoomCache.delete(track);
 }
 
 /** Format badge text: 0.5x, 1x, 1.4x, 2x, 5x */
@@ -1050,31 +1079,32 @@ export function handleFrontCameraPinchEnd() {
  */
 export async function startFrontCamera(options = {}) {
   const { oldStream = null, videoEl = null, deviceId = null } = options;
-  if (oldStream) stopCurrentCamera(oldStream, videoEl);
-
-  let frontId = deviceId;
-  if (!frontId) {
-    try {
-      const detected = await detectCameraDevices();
-      frontId = detected.front?.[0]?.deviceId || null;
-    } catch {
-      frontId = null;
-    }
+  if (oldStream) {
+    clearTrackZoomCache(oldStream);
+    stopCurrentCamera(oldStream, videoEl);
   }
 
-  const stream = await startCameraByDeviceId(frontId, {
+  // Fast path: facingMode user ngay — không enumerateDevices (chậm)
+  // deviceId chỉ dùng nếu caller đã có (cache)
+  const stream = await startCameraByDeviceId(deviceId || null, {
     facingMode: "user",
     highRes: false,
-    preferDeviceId: Boolean(frontId),
+    preferDeviceId: Boolean(deviceId),
   });
 
-  const zoom = await resetFrontCameraZoom(stream);
+  // Reset zoom 1x không chặn return nếu fail
+  let zoom = 1;
+  try {
+    zoom = await resetFrontCameraZoom(stream);
+  } catch {
+    zoom = 1;
+  }
   const caps = refreshFrontCameraZoomCapabilities(stream);
   const settings = getCurrentTrackSettings(stream);
 
   return {
     stream,
-    deviceId: settings.deviceId || frontId,
+    deviceId: settings.deviceId || deviceId,
     facingMode: "user",
     lensType: "front",
     zoomMode: "1x",

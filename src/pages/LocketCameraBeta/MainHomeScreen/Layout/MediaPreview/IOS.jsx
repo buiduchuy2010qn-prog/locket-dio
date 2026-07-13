@@ -8,6 +8,7 @@ import React, {
 } from "react";
 import {
   getAvailableCameras,
+  warmCameraList,
   getMainBackCameraId,
   startCameraByDeviceId,
   stopCurrentCamera,
@@ -37,6 +38,7 @@ import {
   handleFrontCameraPinchStart,
   handleFrontCameraPinchMove,
   handleFrontCameraPinchEnd,
+  clearTrackZoomCache,
 } from "@/utils";
 const EditorCaption = lazy(() => import("@/features/EditorCaption"));
 import { useApp } from "@/context/AppContext";
@@ -45,7 +47,8 @@ import { SonnerInfo } from "@/components/ui/SonnerToast";
 import { usePostStore, useUIStore } from "@/stores";
 import { useTranslation } from "react-i18next";
 
-const PINCH_THROTTLE_MS = 45;
+const PINCH_THROTTLE_MS = 33;
+const BADGE_THROTTLE_MS = 50;
 
 const MediaPreviewIOS = () => {
   const { camera, navigation } = useApp();
@@ -96,10 +99,13 @@ const MediaPreviewIOS = () => {
   });
   const currentZoomValue = useRef(1);
   const lastPinchApply = useRef(0);
+  const lastBadgeUpdate = useRef(0);
   const pendingZoom = useRef(null);
   const applyInFlight = useRef(false);
   const detectedRef = useRef(null);
   const boundsRef = useRef({ minZoom: 1, maxZoom: 1 });
+  const pinchingRef = useRef(false);
+  const switchSpinnerTimer = useRef(null);
 
   const [previewMirror, setPreviewMirror] = useState(
     () => cameraMode === "user",
@@ -480,6 +486,7 @@ const MediaPreviewIOS = () => {
     if (preview || selectedFile) return;
     if (event.touches.length !== 2) return;
     event.preventDefault();
+    pinchingRef.current = true;
     const isFront = (cameraMode || "user") === "user";
     const state = isFront
       ? handleFrontCameraPinchStart(event.touches, currentZoomValue.current)
@@ -488,7 +495,7 @@ const MediaPreviewIOS = () => {
     setIsPinching(true);
   };
 
-  const onTouchMove = async (event) => {
+  const onTouchMove = (event) => {
     if (!pinchState.current.active || event.touches.length !== 2) return;
     if (isSwitchingCamera) return;
     event.preventDefault();
@@ -499,8 +506,6 @@ const MediaPreviewIOS = () => {
 
     const isFront = (cameraMode || "user") === "user";
     let { minZoom: mn, maxZoom: mx } = boundsRef.current;
-
-    // Front: never allow < 1x, never snap to 0.5
     if (isFront) {
       mn = Math.max(1, mn ?? 1);
       mx = Math.max(mn, mx ?? 1);
@@ -525,36 +530,36 @@ const MediaPreviewIOS = () => {
     if (!startDist || !moved.distance) return;
 
     let totalScale = moved.distance / startDist;
-    if (totalScale < 1) {
-      totalScale = Math.pow(totalScale, isFront ? 1.2 : 1.35);
-    } else if (totalScale > 1) {
-      totalScale = Math.pow(totalScale, 1.15);
-    }
+    if (totalScale < 1) totalScale = Math.pow(totalScale, isFront ? 1.15 : 1.25);
+    else if (totalScale > 1) totalScale = Math.pow(totalScale, 1.12);
 
-    let nextZoom = startZoom * totalScale;
-    nextZoom = Math.max(mn, Math.min(nextZoom, mx));
-
-    // Rear only: snap toward 0.5
-    if (!isFront && nextZoom < 0.7 && mn <= 0.5) {
-      nextZoom = 0.5;
-    }
-    // Front: floor at 1
+    let nextZoom = Math.max(mn, Math.min(startZoom * totalScale, mx));
+    if (!isFront && nextZoom < 0.7 && mn <= 0.5) nextZoom = 0.5;
     if (isFront && nextZoom < 1) nextZoom = 1;
 
     currentZoomValue.current = nextZoom;
-    setCurrentZoom(nextZoom);
-    if (isFront) {
-      setActiveZoomMode(Math.abs(nextZoom - 1) < 0.12 ? "1x" : "custom");
-    } else {
-      setActiveZoomMode(nextZoom < 0.75 ? "0.5x" : "custom");
+    const n = Date.now();
+    if (n - lastBadgeUpdate.current >= BADGE_THROTTLE_MS) {
+      lastBadgeUpdate.current = n;
+      setCurrentZoom(nextZoom);
+      setActiveZoomMode(
+        isFront
+          ? Math.abs(nextZoom - 1) < 0.12
+            ? "1x"
+            : "custom"
+          : nextZoom < 0.75
+            ? "0.5x"
+            : "custom",
+      );
     }
-
-    await applyDisplayZoom(nextZoom);
+    // no await — mượt
+    applyDisplayZoom(nextZoom).catch(() => {});
   };
 
   const onTouchEnd = () => {
     if (!pinchState.current.active && !isPinching) return;
     const isFront = (cameraMode || "user") === "user";
+    pinchingRef.current = false;
     pinchState.current = {
       ...(isFront ? handleFrontCameraPinchEnd() : handlePinchZoomEnd()),
       zoom: currentZoomValue.current,
@@ -562,8 +567,8 @@ const MediaPreviewIOS = () => {
     setIsPinching(false);
 
     const z = currentZoomValue.current;
+    applyDisplayZoom(z, { force: true }).catch(() => {});
     if (isFront) {
-      // Front: never 0.5x mode
       if (Math.abs(z - 1) < 0.15) {
         setActiveZoomMode("1x");
         setZoomLevel("1x");
@@ -588,8 +593,14 @@ const MediaPreviewIOS = () => {
 
   const stopCamera = () => {
     startRequestId.current += 1;
+    pinchingRef.current = false;
+    if (switchSpinnerTimer.current) {
+      clearTimeout(switchSpinnerTimer.current);
+      switchSpinnerTimer.current = null;
+    }
     pinchState.current = handlePinchZoomEnd();
     setIsPinching(false);
+    if (streamRef.current) clearTrackZoomCache(streamRef.current);
     stopCurrentCamera(streamRef.current, videoRef.current);
     streamRef.current = null;
     cameraInitialized.current = false;
@@ -601,7 +612,10 @@ const MediaPreviewIOS = () => {
   const startCamera = async () => {
     const requestId = startRequestId.current + 1;
     startRequestId.current = requestId;
-    setIsSwitchingCamera(true);
+    if (switchSpinnerTimer.current) clearTimeout(switchSpinnerTimer.current);
+    switchSpinnerTimer.current = setTimeout(() => {
+      setIsSwitchingCamera(true);
+    }, 120);
 
     try {
       const mode = cameraMode || "user";
@@ -857,12 +871,17 @@ const MediaPreviewIOS = () => {
       console.error("startCamera iOS:", err);
       cameraInitialized.current = false;
     } finally {
+      if (switchSpinnerTimer.current) {
+        clearTimeout(switchSpinnerTimer.current);
+        switchSpinnerTimer.current = null;
+      }
       setIsSwitchingCamera(false);
     }
   };
 
   useEffect(() => {
     removeCaptionZoomControls();
+    warmCameraList().catch(() => {});
   }, []);
 
   useEffect(() => {
