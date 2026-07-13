@@ -43,6 +43,10 @@ const MediaPreviewIOS = () => {
   const lastZoomLevel = useRef(zoomLevel);
   const startRequestId = useRef(0);
   const [lensPills, setLensPills] = useState(["1x"]);
+  const [previewMirror, setPreviewMirror] = useState(
+    () => cameraMode === "user",
+  );
+  const [videoEpoch, setVideoEpoch] = useState(0);
   const [pageVisible, setPageVisible] = useState(
     () =>
       typeof document === "undefined" ||
@@ -186,6 +190,8 @@ const MediaPreviewIOS = () => {
         streamRef.current = null;
         if (videoRef.current) videoRef.current.srcObject = null;
         cameraInitialized.current = false;
+        setPreviewMirror(mode === "user");
+        setVideoEpoch((n) => n + 1);
       }
 
       let stream = null;
@@ -265,12 +271,27 @@ const MediaPreviewIOS = () => {
       cameraInitialized.current = true;
       lastCameraMode.current = mode;
       lastZoomLevel.current = zoomLevel || "1x";
-      const actualId =
-        stream.getVideoTracks?.()?.[0]?.getSettings?.()?.deviceId;
+      const track = stream.getVideoTracks?.()?.[0];
+      const settings = track?.getSettings?.() || {};
+      const actualId = settings.deviceId;
       lastDeviceId.current = actualId || resolvedDeviceId || deviceId;
+
+      const facing = String(settings.facingMode || "").toLowerCase();
+      const isFrontStream =
+        facing === "user" ||
+        facing === "front" ||
+        (!facing && mode === "user");
+      setPreviewMirror(isFrontStream);
+
       setTimeout(() => {
         refreshLensPills().catch(() => {});
       }, 0);
+
+      if (facingChanged) {
+        await new Promise((r) =>
+          requestAnimationFrame(() => requestAnimationFrame(r)),
+        );
+      }
 
       if (videoRef.current) {
         const v = videoRef.current;
@@ -279,6 +300,9 @@ const MediaPreviewIOS = () => {
         v.playsInline = true;
         v.setAttribute("playsinline", "true");
         v.setAttribute("webkit-playsinline", "true");
+        v.style.transform = isFrontStream
+          ? "translateZ(0) scaleX(-1)"
+          : "translateZ(0)";
         try {
           await v.play();
         } catch {
@@ -413,6 +437,7 @@ const MediaPreviewIOS = () => {
       >
         {!preview && !selectedFile && cameraActive && (
           <video
+            key={`ios-cam-${cameraMode}-${videoEpoch}`}
             ref={videoRef}
             autoPlay
             playsInline
@@ -423,11 +448,9 @@ const MediaPreviewIOS = () => {
               cameraActive ? "opacity-100" : "opacity-0 pointer-events-none"
             }`}
             style={{
-              transform:
-                cameraMode === "user"
-                  ? "translateZ(0) scaleX(-1)"
-                  : "translateZ(0)",
-              willChange: "contents",
+              transform: previewMirror
+                ? "translateZ(0) scaleX(-1)"
+                : "translateZ(0)",
               backfaceVisibility: "hidden",
             }}
           />

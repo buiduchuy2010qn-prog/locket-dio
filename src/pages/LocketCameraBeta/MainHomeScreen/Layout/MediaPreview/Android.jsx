@@ -61,6 +61,12 @@ const MediaPreviewAndroid = () => {
   const [zoomDisplay, setZoomDisplay] = useState("1x");
   /** Lens pills: luôn có 0.5 / 1 / 2 khi camera sau (nếu máy hỗ trợ) */
   const [lensPills, setLensPills] = useState(["1x"]);
+  /** Mirror preview: chỉ cam trước (tránh cam sau bị scaleX(-1) / đảo) */
+  const [previewMirror, setPreviewMirror] = useState(
+    () => cameraMode === "user",
+  );
+  /** Tăng khi lật cam → remount <video> sạch transform */
+  const [videoEpoch, setVideoEpoch] = useState(0);
 
   const getActiveTrack = (stream = streamRef.current) =>
     stream?.getVideoTracks?.()?.[0] || null;
@@ -536,6 +542,9 @@ const MediaPreviewAndroid = () => {
         streamRef.current = null;
         if (videoRef.current) videoRef.current.srcObject = null;
         cameraInitialized.current = false;
+        // Cập nhật mirror + remount video theo mode mới (tránh ảnh đảo lộn)
+        setPreviewMirror(mode === "user");
+        setVideoEpoch((n) => n + 1);
       }
 
       let stream = await openStreamWithDevice(resolvedDeviceId, mode);
@@ -578,9 +587,26 @@ const MediaPreviewAndroid = () => {
       lastCameraMode.current = mode;
       lastZoomLevel.current = zoomLevel || "1x";
 
-      const actualId = getActiveTrack(stream)?.getSettings?.()?.deviceId;
+      const track = getActiveTrack(stream);
+      const settings = track?.getSettings?.() || {};
+      const actualId = settings.deviceId;
       if (actualId) lastDeviceId.current = actualId;
       else if (resolvedDeviceId) lastDeviceId.current = resolvedDeviceId;
+
+      // Mirror chỉ khi stream thực sự là cam trước
+      const facing = String(settings.facingMode || "").toLowerCase();
+      const isFrontStream =
+        facing === "user" ||
+        facing === "front" ||
+        (!facing && mode === "user");
+      setPreviewMirror(isFrontStream);
+
+      // Chờ React remount <video key=...> rồi gắn stream
+      if (facingChanged) {
+        await new Promise((r) =>
+          requestAnimationFrame(() => requestAnimationFrame(r)),
+        );
+      }
 
       if (videoRef.current) {
         const v = videoRef.current;
@@ -589,6 +615,10 @@ const MediaPreviewAndroid = () => {
         v.playsInline = true;
         v.setAttribute("playsinline", "true");
         v.setAttribute("webkit-playsinline", "true");
+        // Xóa transform inline cũ nếu browser giữ layer
+        v.style.transform = isFrontStream
+          ? "translate3d(0,0,0) scaleX(-1)"
+          : "translate3d(0,0,0)";
         try {
           v.disablePictureInPicture = true;
         } catch {
@@ -824,6 +854,7 @@ const MediaPreviewAndroid = () => {
       >
         {!preview && !selectedFile && cameraActive && (
           <video
+            key={`android-cam-${cameraMode}-${videoEpoch}`}
             ref={videoRef}
             autoPlay
             playsInline
@@ -834,11 +865,10 @@ const MediaPreviewAndroid = () => {
               cameraActive ? "opacity-100" : "opacity-0 pointer-events-none"
             }`}
             style={{
-              // GPU layer — mirror front; tránh willChange:contents (tốn RAM/lag Android)
-              transform:
-                cameraMode === "user"
-                  ? "translate3d(0,0,0) scaleX(-1)"
-                  : "translate3d(0,0,0)",
+              // Chỉ mirror cam trước; cam sau không scaleX (tránh đảo lộn khi lật)
+              transform: previewMirror
+                ? "translate3d(0,0,0) scaleX(-1)"
+                : "translate3d(0,0,0)",
               backfaceVisibility: "hidden",
               WebkitBackfaceVisibility: "hidden",
             }}
