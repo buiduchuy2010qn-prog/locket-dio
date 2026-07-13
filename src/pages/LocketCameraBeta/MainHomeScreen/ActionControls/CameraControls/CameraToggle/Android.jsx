@@ -39,7 +39,7 @@ const CameraToggleAndroid = () => {
       console.error("Lỗi khi lấy danh sách camera:", error);
     }
 
-    // Chỉ đổi state — MediaPreview mở stream mới rồi mới tắt stream cũ (mượt, không đen màn)
+    // deviceId=null nếu pick fail → MediaPreview dùng facingMode (tránh dính cam cũ)
     setCameraMode(newMode);
     setZoomLevel("1x");
     setDeviceId(nextDeviceId);

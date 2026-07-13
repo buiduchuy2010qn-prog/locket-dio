@@ -124,11 +124,17 @@ const MediaPreviewIOS = () => {
     startRequestId.current = requestId;
 
     try {
+      const mode = cameraMode || "user";
+      const facingChanged = lastCameraMode.current !== mode;
+      const trackLive =
+        streamRef.current?.getVideoTracks?.()?.[0]?.readyState === "live";
+
+      // Skip khi cùng facing + zoom + stream live (tránh loop do deviceId state ≠ actual)
       if (
+        !facingChanged &&
         cameraInitialized.current &&
         streamRef.current &&
-        lastCameraMode.current === cameraMode &&
-        lastDeviceId.current === deviceId &&
+        trackLive &&
         lastZoomLevel.current === zoomLevel
       ) {
         if (videoRef.current && !videoRef.current.srcObject) {
@@ -142,7 +148,6 @@ const MediaPreviewIOS = () => {
         return;
       }
 
-      const mode = cameraMode || "user";
       const isBack = mode === "environment";
       const z = zoomLevel || "1x";
       const cameras = await getAvailableCameras();
@@ -159,7 +164,7 @@ const MediaPreviewIOS = () => {
         resolvedDeviceId = mainId;
       } else if (isBack && z === "0.5x") {
         resolvedDeviceId = ultraId || mainId;
-      } else if (isBack && (z === "2x" || z === "3x")) {
+      } else if (isBack && (z === "2x" || z === "3x" || z === "5x")) {
         resolvedDeviceId = teleId || mainId;
       } else if (!isBack) {
         resolvedDeviceId = frontId || deviceId;
@@ -167,24 +172,59 @@ const MediaPreviewIOS = () => {
         resolvedDeviceId = await pickCameraDeviceId(mode, z);
       }
 
-      // Không setDeviceId trong start — tránh useEffect restart (lag)
       const quality = getCameraPreviewConstraints(
         CONFIG.app.camera.constraints.default,
       );
       const oldStream = streamRef.current;
+
+      // iOS/WebKit: nhả cam cũ trước khi lật trước/sau
+      if (facingChanged && oldStream) {
+        try {
+          oldStream.getTracks().forEach((t) => t.stop());
+        } catch {
+          /* ignore */
+        }
+        streamRef.current = null;
+        if (videoRef.current) videoRef.current.srcObject = null;
+        cameraInitialized.current = false;
+      }
+
       let stream = null;
 
-      if (resolvedDeviceId) {
+      const tryGum = async (video) =>
+        navigator.mediaDevices.getUserMedia({ video, audio: false });
+
+      // Lật cam: facingMode trước
+      if (facingChanged) {
         try {
-          stream = await navigator.mediaDevices.getUserMedia({
-            video: { deviceId: { ideal: resolvedDeviceId }, ...quality },
-            audio: false,
+          stream = await tryGum({
+            facingMode: { exact: mode },
+            ...quality,
           });
         } catch {
           try {
-            stream = await navigator.mediaDevices.getUserMedia({
-              video: { deviceId: { exact: resolvedDeviceId }, ...quality },
-              audio: false,
+            stream = await tryGum({
+              facingMode: { ideal: mode },
+              ...quality,
+            });
+          } catch {
+            stream = null;
+          }
+        }
+      }
+
+      if (!stream && resolvedDeviceId) {
+        try {
+          stream = await tryGum({
+            deviceId: { ideal: resolvedDeviceId },
+            facingMode: { ideal: mode },
+            ...quality,
+          });
+        } catch {
+          try {
+            stream = await tryGum({
+              deviceId: { exact: resolvedDeviceId },
+              ...quality,
             });
           } catch {
             stream = null;
@@ -193,9 +233,9 @@ const MediaPreviewIOS = () => {
       }
 
       if (!stream) {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: mode }, ...quality },
-          audio: false,
+        stream = await tryGum({
+          facingMode: { ideal: mode },
+          ...quality,
         });
       }
 
@@ -210,9 +250,9 @@ const MediaPreviewIOS = () => {
         if (actualId && ultraId && actualId === ultraId) {
           stream.getTracks().forEach((t) => t.stop());
           try {
-            stream = await navigator.mediaDevices.getUserMedia({
-              video: { deviceId: { ideal: mainId }, ...quality },
-              audio: false,
+            stream = await tryGum({
+              deviceId: { ideal: mainId },
+              ...quality,
             });
             resolvedDeviceId = mainId;
           } catch {
@@ -228,7 +268,7 @@ const MediaPreviewIOS = () => {
 
       streamRef.current = stream;
       cameraInitialized.current = true;
-      lastCameraMode.current = cameraMode;
+      lastCameraMode.current = mode;
       lastDeviceId.current = resolvedDeviceId || deviceId;
       lastZoomLevel.current = zoomLevel;
       setTimeout(() => {
@@ -249,7 +289,7 @@ const MediaPreviewIOS = () => {
         }
       }
 
-      if (oldStream && oldStream !== stream) {
+      if (!facingChanged && oldStream && oldStream !== stream) {
         try {
           oldStream.getTracks().forEach((t) => t.stop());
         } catch {
@@ -413,29 +453,6 @@ const MediaPreviewIOS = () => {
                 {zoomLevel}
               </button>
             </div>
-
-            {/* Pills zoom: chỉ hiện khi máy có ≥2 mức (ẩn badge "1" đơn lẻ) */}
-            {!preview && !selectedFile && cameraActive && lensPills.length > 1 && (
-              <div className="absolute bottom-5 left-1/2 -translate-x-1/2 z-30 flex items-center gap-1.5 pointer-events-auto px-2 py-1 rounded-full bg-black/35 backdrop-blur-md">
-                {lensPills.map((label) => {
-                  const active = zoomLevel === label;
-                  return (
-                    <button
-                      key={label}
-                      type="button"
-                      onClick={() => handleSelectLens(label)}
-                      className={`min-w-9 h-9 px-2 rounded-full text-xs font-bold transition-all active:scale-95 ${
-                        active
-                          ? "bg-white text-black shadow"
-                          : "bg-white/15 text-white"
-                      }`}
-                    >
-                      {label.replace("x", "")}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
 
             {cameraFrame?.imageSrc && (
               <div className="absolute inset-0 z-20 pointer-events-none">

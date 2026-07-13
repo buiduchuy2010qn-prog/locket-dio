@@ -410,13 +410,18 @@ const MediaPreviewAndroid = () => {
   };
 
   /**
-   * Mở stream nhanh: ideal deviceId trước (ít fail hơn exact), fallback facingMode.
+   * Mở stream: ưu tiên facingMode khi lật cam (đt Android hay ignore deviceId stale).
    * KHÔNG gọi setDeviceId trong đây — tránh useEffect restart → lag.
    */
-  const openStreamWithDevice = async (targetDeviceId, mode) => {
+  const openStreamWithDevice = async (
+    targetDeviceId,
+    mode,
+    { preferFacing = false } = {},
+  ) => {
     const quality = getCameraPreviewConstraints(
       CONFIG.app.camera.constraints.default,
     );
+    const facing = mode || "user";
 
     const tryOpen = async (video) => {
       return navigator.mediaDevices.getUserMedia({
@@ -425,10 +430,30 @@ const MediaPreviewAndroid = () => {
       });
     };
 
+    // Lật trước/sau: facingMode trước — tránh dính deviceId cam cũ
+    if (preferFacing) {
+      try {
+        return await tryOpen({
+          facingMode: { exact: facing },
+          ...quality,
+        });
+      } catch {
+        try {
+          return await tryOpen({
+            facingMode: { ideal: facing },
+            ...quality,
+          });
+        } catch {
+          /* fall through to deviceId */
+        }
+      }
+    }
+
     if (targetDeviceId) {
       try {
         return await tryOpen({
           deviceId: { ideal: targetDeviceId },
+          facingMode: { ideal: facing },
           ...quality,
         });
       } catch {
@@ -444,13 +469,13 @@ const MediaPreviewAndroid = () => {
     }
 
     return tryOpen({
-      facingMode: { ideal: mode || "user" },
+      facingMode: { ideal: facing },
       ...quality,
     });
   };
 
   /**
-   * Seamless start: mở stream mới → gắn video → tắt stream cũ.
+   * Start camera. Đổi trước/sau: TẮT stream cũ trước (Android thường fail nếu 2 cam cùng lúc).
    * Không setState deviceId giữa chừng (tránh double getUserMedia).
    */
   const startCamera = async () => {
@@ -459,11 +484,18 @@ const MediaPreviewAndroid = () => {
     startingRef.current = true;
 
     try {
+      const mode = cameraMode || "user";
+      const facingChanged = lastCameraMode.current !== mode;
+      const trackLive =
+        streamRef.current?.getVideoTracks?.()?.[0]?.readyState === "live";
+
+      // Skip chỉ khi cùng facing + zoom + stream còn live
+      // (không so deviceId state vs actual — hay lệch sau resolve → restart loop)
       if (
+        !facingChanged &&
         cameraInitialized.current &&
         streamRef.current &&
-        lastCameraMode.current === cameraMode &&
-        lastDeviceId.current === deviceId &&
+        trackLive &&
         lastZoomLevel.current === zoomLevel
       ) {
         if (videoRef.current && !videoRef.current.srcObject) {
@@ -477,12 +509,10 @@ const MediaPreviewAndroid = () => {
         return;
       }
 
-      const mode = cameraMode || "user";
       const isBack = mode === "environment";
       const z = zoomLevel || "1x";
       let resolvedDeviceId = deviceId || null;
 
-      // Cache enumerate — không block nếu đã có deviceId hợp lệ
       const cameras = await getAvailableCameras();
       const mainId =
         cameras?.backNormalCamera?.deviceId ||
@@ -497,7 +527,7 @@ const MediaPreviewAndroid = () => {
         resolvedDeviceId = mainId || deviceId;
       } else if (isBack && z === "0.5x") {
         resolvedDeviceId = ultraId || mainId || deviceId;
-      } else if (isBack && (z === "2x" || z === "3x")) {
+      } else if (isBack && (z === "2x" || z === "3x" || z === "5x")) {
         resolvedDeviceId = teleId || mainId || deviceId;
       } else if (!isBack) {
         resolvedDeviceId = frontId || deviceId;
@@ -505,20 +535,36 @@ const MediaPreviewAndroid = () => {
         resolvedDeviceId = deviceId || mainId;
       }
 
+      // Quan trọng trên mobile: nhả hardware cam cũ trước khi mở cam kia
       const oldStream = streamRef.current;
-      let stream = await openStreamWithDevice(resolvedDeviceId, mode);
+      if (facingChanged && oldStream) {
+        try {
+          oldStream.getTracks().forEach((t) => t.stop());
+        } catch {
+          /* ignore */
+        }
+        streamRef.current = null;
+        if (videoRef.current) videoRef.current.srcObject = null;
+        cameraInitialized.current = false;
+      }
+
+      let stream = await openStreamWithDevice(resolvedDeviceId, mode, {
+        preferFacing: facingChanged,
+      });
 
       if (requestId !== startRequestId.current) {
         stream.getTracks().forEach((track) => track.stop());
         return;
       }
 
-      // Chỉ re-open nếu dính ultra khi cần 1x (1 lần)
+      // 1x dính ultra → mở lại main (1 lần)
       if (isBack && z === "1x" && mainId) {
         const actualId = stream.getVideoTracks?.()?.[0]?.getSettings?.()?.deviceId;
         if (actualId && ultraId && actualId === ultraId && actualId !== mainId) {
           stream.getTracks().forEach((t) => t.stop());
-          stream = await openStreamWithDevice(mainId, mode);
+          stream = await openStreamWithDevice(mainId, mode, {
+            preferFacing: false,
+          });
           resolvedDeviceId = mainId;
         }
       }
@@ -530,14 +576,14 @@ const MediaPreviewAndroid = () => {
 
       streamRef.current = stream;
       cameraInitialized.current = true;
-      lastCameraMode.current = cameraMode;
-      lastDeviceId.current = resolvedDeviceId || deviceId;
+      lastCameraMode.current = mode;
       lastZoomLevel.current = zoomLevel;
 
       const actualId = getActiveTrack(stream)?.getSettings?.()?.deviceId;
       // Chỉ ref — KHÔNG setDeviceId (setState → useEffect restart → lag)
       if (actualId) lastDeviceId.current = actualId;
       else if (resolvedDeviceId) lastDeviceId.current = resolvedDeviceId;
+      else lastDeviceId.current = deviceId;
 
       if (videoRef.current) {
         const v = videoRef.current;
@@ -546,7 +592,6 @@ const MediaPreviewAndroid = () => {
         v.playsInline = true;
         v.setAttribute("playsinline", "true");
         v.setAttribute("webkit-playsinline", "true");
-        // Ưu tiên decode mượt
         try {
           v.disablePictureInPicture = true;
         } catch {
@@ -559,7 +604,8 @@ const MediaPreviewAndroid = () => {
         }
       }
 
-      if (oldStream && oldStream !== stream) {
+      // Zoom lens / deviceId đổi trong cùng facing: tắt stream cũ sau khi gắn mới
+      if (!facingChanged && oldStream && oldStream !== stream) {
         try {
           oldStream.getTracks().forEach((t) => t.stop());
         } catch {
@@ -567,7 +613,6 @@ const MediaPreviewAndroid = () => {
         }
       }
 
-      // Features sau khi frame đã hiện
       try {
         await syncTrackFeatures(stream);
       } catch (error) {
@@ -822,32 +867,6 @@ const MediaPreviewAndroid = () => {
                 {zoomDisplay}
               </button>
             </div>
-
-            {/* Pills zoom: chỉ hiện khi máy có ≥2 mức (ẩn badge "1" đơn lẻ) */}
-            {!preview && !selectedFile && cameraActive && lensPills.length > 1 && (
-              <div className="absolute bottom-5 left-1/2 -translate-x-1/2 z-30 flex items-center gap-1.5 pointer-events-auto px-2 py-1 rounded-full bg-black/35 backdrop-blur-md">
-                {lensPills.map((label) => {
-                  const active =
-                    zoomLevel === label ||
-                    (label === "1x" &&
-                      (zoomLevel === "1x" || zoomDisplay === "1x"));
-                  return (
-                    <button
-                      key={label}
-                      type="button"
-                      onClick={() => handleSelectLens(label)}
-                      className={`min-w-9 h-9 px-2 rounded-full text-xs font-bold transition-all active:scale-95 ${
-                        active
-                          ? "bg-white text-black shadow"
-                          : "bg-white/15 text-white"
-                      }`}
-                    >
-                      {label.replace("x", "")}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
 
             {cameraFrame?.imageSrc && (
               <div className="absolute inset-0 z-20 pointer-events-none">
