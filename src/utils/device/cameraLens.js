@@ -376,6 +376,75 @@ function flipFastQuality() {
   };
 }
 
+function readFacingMode(stream) {
+  try {
+    return stream?.getVideoTracks?.()?.[0]?.getSettings?.()?.facingMode || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Mở cam theo hướng (user | environment) — KHÔNG tin deviceId cache
+ * (tránh đảo cam trước/sau khi classify nhầm label).
+ */
+export async function openCameraByFacing(facingMode, options = {}) {
+  const want = facingMode === "user" ? "user" : "environment";
+  const quality = options.fast
+    ? flipFastQuality()
+    : getCameraPreviewConstraints(
+        CONFIG?.app?.camera?.constraints?.default || {},
+      );
+  const tryOpen = async (video) =>
+    navigator.mediaDevices.getUserMedia({ video, audio: false });
+
+  const attempts = [
+    // exact facing — đúng cam nhất
+    { facingMode: { exact: want }, ...quality },
+    { facingMode: { ideal: want }, ...quality },
+    { facingMode: want, ...quality },
+  ];
+
+  let lastErr = null;
+  for (const video of attempts) {
+    try {
+      const stream = await tryOpen(video);
+      const actual = readFacingMode(stream);
+      // Nếu browser báo facing sai → bỏ stream, thử attempt sau
+      if (actual && actual !== want) {
+        stopCurrentCamera(stream);
+        continue;
+      }
+      return stream;
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+
+  // Fallback deviceId chỉ khi facingMode fail hoàn toàn
+  if (options.deviceId) {
+    try {
+      return await tryOpen({
+        deviceId: { exact: options.deviceId },
+        ...quality,
+      });
+    } catch (e) {
+      lastErr = e;
+    }
+    try {
+      return await tryOpen({
+        deviceId: { ideal: options.deviceId },
+        facingMode: { ideal: want },
+        ...quality,
+      });
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+
+  throw lastErr || new Error(`Không mở được camera ${want}`);
+}
+
 export async function startCameraByDeviceId(deviceId, options = {}) {
   const {
     facingMode = "environment",
@@ -384,6 +453,8 @@ export async function startCameraByDeviceId(deviceId, options = {}) {
     preferDeviceId = true,
     // Flip front↔rear: constraint nhẹ + facingMode-first
     fast = false,
+    // Flip: bỏ deviceId, chỉ facingMode (tránh đảo cam)
+    facingOnly = false,
   } = options;
 
   const quality = highRes
@@ -397,38 +468,30 @@ export async function startCameraByDeviceId(deviceId, options = {}) {
   const tryOpen = async (video) =>
     navigator.mediaDevices.getUserMedia({ video, audio: false });
 
-  // Flip: facingMode ideal trước (nhanh nhất trên mobile), deviceId optional
-  if (fast) {
+  const want = facingMode === "user" ? "user" : "environment";
+
+  // Flip cam: CHỈ facingMode — deviceId enumerate hay gán nhầm front/rear
+  if (fast || facingOnly) {
     try {
-      if (deviceId && preferDeviceId) {
-        return await tryOpen({
-          deviceId: { ideal: deviceId },
-          facingMode: { ideal: facingMode },
-          ...quality,
-        });
-      }
-      return await tryOpen({
-        facingMode: { ideal: facingMode },
-        ...quality,
+      return await openCameraByFacing(want, {
+        fast: true,
+        // không truyền deviceId khi flip
+        deviceId: facingOnly ? null : null,
       });
     } catch {
-      try {
-        return await tryOpen({ facingMode: { ideal: facingMode }, ...quality });
-      } catch {
-        /* fall through to normal path */
-      }
+      /* fall through */
     }
   }
 
-  // Fast path: ideal (ít fail/retry → mở cam nhanh)
-  // exact chỉ khi cần khóa lens (ultra/tele)
+  // Lens cụ thể (0.5x / 2x): deviceId + verify facing nếu có
   if (preferDeviceId && deviceId) {
     try {
-      return await tryOpen({
+      const stream = await tryOpen({
         deviceId: { ideal: deviceId },
-        facingMode: { ideal: facingMode },
+        facingMode: { ideal: want },
         ...quality,
       });
+      return stream;
     } catch {
       try {
         return await tryOpen({ deviceId: { exact: deviceId }, ...quality });
@@ -439,10 +502,16 @@ export async function startCameraByDeviceId(deviceId, options = {}) {
   }
 
   try {
-    return await tryOpen({ facingMode: { ideal: facingMode }, ...quality });
+    return await openCameraByFacing(want, { fast: false, deviceId: null });
+  } catch {
+    /* fall through */
+  }
+
+  try {
+    return await tryOpen({ facingMode: { ideal: want }, ...quality });
   } catch {
     try {
-      return await tryOpen({ facingMode: { exact: facingMode }, ...quality });
+      return await tryOpen({ facingMode: { exact: want }, ...quality });
     } catch {
       /* fall through */
     }
@@ -456,7 +525,7 @@ export async function startCameraByDeviceId(deviceId, options = {}) {
     }
   }
 
-  return tryOpen({ facingMode: { ideal: facingMode }, ...quality });
+  return tryOpen({ facingMode: { ideal: want }, ...quality });
 }
 
 /** Clamp zoom to [min, max] */
@@ -1150,11 +1219,10 @@ export async function startFrontCamera(options = {}) {
     stopCurrentCamera(oldStream, null);
   }
 
-  const stream = await startCameraByDeviceId(deviceId || null, {
-    facingMode: "user",
-    highRes: false,
-    preferDeviceId: Boolean(deviceId),
-    fast,
+  // Luôn facingMode user — KHÔNG dùng deviceId (tránh đảo cam sau/trước)
+  const stream = await openCameraByFacing("user", {
+    fast: true,
+    deviceId: null,
   });
 
   if (!stopFirst && oldStream && oldStream !== stream) {
@@ -1166,11 +1234,12 @@ export async function startFrontCamera(options = {}) {
   resetFrontCameraZoom(stream).catch(() => {});
   const caps = refreshFrontCameraZoomCapabilities(stream);
   const settings = getCurrentTrackSettings(stream);
+  const actualFacing = settings.facingMode || "user";
 
   return {
     stream,
     deviceId: settings.deviceId || deviceId,
-    facingMode: "user",
+    facingMode: actualFacing,
     lensType: "front",
     zoomMode: "1x",
     currentZoom: 1,

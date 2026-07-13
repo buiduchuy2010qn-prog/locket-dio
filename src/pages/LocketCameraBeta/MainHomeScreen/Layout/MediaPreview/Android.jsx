@@ -39,6 +39,7 @@ import {
   handleFrontCameraPinchEnd,
   clearTrackZoomCache,
   captureVideoFreezeFrame,
+  openCameraByFacing,
 } from "@/utils";
 const EditorCaption = lazy(() => import("@/features/EditorCaption"));
 import { useApp } from "@/context/AppContext";
@@ -645,9 +646,20 @@ const MediaPreviewAndroid = () => {
     setActiveZoomMode("1x");
   };
 
-  const attachStreamToVideo = (stream, mirror) => {
+  const attachStreamToVideo = (stream, wantFacing) => {
     const v = videoRef.current;
     if (!v || !stream) return;
+    // Mirror chỉ khi cam trước (selfie) — theo facing thật của track
+    let facing = wantFacing;
+    try {
+      facing =
+        stream.getVideoTracks?.()?.[0]?.getSettings?.()?.facingMode ||
+        wantFacing;
+    } catch {
+      /* keep */
+    }
+    const mirror = facing === "user";
+    setPreviewMirror(mirror);
     v.srcObject = stream;
     v.muted = true;
     v.playsInline = true;
@@ -743,16 +755,16 @@ const MediaPreviewAndroid = () => {
         lastZoomLevel.current = "1x";
 
         const oldStream = streamRef.current;
-        setPreviewMirror(true);
 
         let stream;
         try {
+          // facingMode user only — không deviceId (tránh đảo cam)
           const front = await startFrontCamera({
             oldStream,
             videoEl: videoRef.current,
-            deviceId: frontId || null,
+            deviceId: null,
             fast: true,
-            stopFirst: true, // hardware single cam — stop rồi mở ngay
+            stopFirst: true,
           });
           stream = front.stream;
           resolvedDeviceId = front.deviceId;
@@ -778,7 +790,7 @@ const MediaPreviewAndroid = () => {
         lastCameraMode.current = "user";
         if (resolvedDeviceId) lastDeviceId.current = resolvedDeviceId;
 
-        attachStreamToVideo(stream, true);
+        attachStreamToVideo(stream, "user");
 
         resetFrontCameraZoom(stream).catch(() => {});
         const caps = refreshFrontCameraZoomCapabilities(stream);
@@ -827,7 +839,6 @@ const MediaPreviewAndroid = () => {
       }
 
       const oldStream = streamRef.current;
-      setPreviewMirror(false);
 
       // Flip: stop trước để mở rear ngay (không chờ dual stream)
       if (facingChanged && oldStream) {
@@ -836,12 +847,20 @@ const MediaPreviewAndroid = () => {
         streamRef.current = null;
       }
 
-      let stream = await startCameraByDeviceId(resolvedDeviceId, {
-        facingMode: "environment",
-        highRes: false,
-        preferDeviceId: Boolean(resolvedDeviceId),
-        fast: facingChanged || !cameraInitialized.current,
-      });
+      // Flip / mở cam sau: facingMode environment trước (đúng cam)
+      // deviceId chỉ khi đổi lens 0.5/2x (không flip)
+      let stream;
+      if (facingChanged || !resolvedDeviceId) {
+        stream = await openCameraByFacing("environment", { fast: true });
+      } else {
+        stream = await startCameraByDeviceId(resolvedDeviceId, {
+          facingMode: "environment",
+          highRes: false,
+          preferDeviceId: true,
+          fast: false,
+          facingOnly: false,
+        });
+      }
 
       if (requestId !== startRequestId.current) {
         stopCurrentCamera(stream);
@@ -884,7 +903,7 @@ const MediaPreviewAndroid = () => {
       if (actualId) lastDeviceId.current = actualId;
       else if (resolvedDeviceId) lastDeviceId.current = resolvedDeviceId;
 
-      attachStreamToVideo(stream, false);
+      attachStreamToVideo(stream, "environment");
 
       if (supportsHardwareZoom(stream)) {
         const zoomTarget =

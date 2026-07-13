@@ -39,6 +39,7 @@ import {
   handleFrontCameraPinchEnd,
   clearTrackZoomCache,
   captureVideoFreezeFrame,
+  openCameraByFacing,
 } from "@/utils";
 const EditorCaption = lazy(() => import("@/features/EditorCaption"));
 import { useApp } from "@/context/AppContext";
@@ -610,9 +611,19 @@ const MediaPreviewIOS = () => {
     setActiveZoomMode("1x");
   };
 
-  const attachStreamToVideo = (stream, mirror) => {
+  const attachStreamToVideo = (stream, wantFacing) => {
     const v = videoRef.current;
     if (!v || !stream) return;
+    let facing = wantFacing;
+    try {
+      facing =
+        stream.getVideoTracks?.()?.[0]?.getSettings?.()?.facingMode ||
+        wantFacing;
+    } catch {
+      /* keep */
+    }
+    const mirror = facing === "user";
+    setPreviewMirror(mirror);
     v.srcObject = stream;
     v.muted = true;
     v.playsInline = true;
@@ -699,14 +710,13 @@ const MediaPreviewIOS = () => {
         lastZoomLevel.current = "1x";
 
         const oldStream = streamRef.current;
-        setPreviewMirror(true);
 
         let stream;
         try {
           const front = await startFrontCamera({
             oldStream,
             videoEl: videoRef.current,
-            deviceId: frontId || null,
+            deviceId: null,
             fast: true,
             stopFirst: true,
           });
@@ -734,7 +744,7 @@ const MediaPreviewIOS = () => {
         lastCameraMode.current = "user";
         if (resolvedDeviceId) lastDeviceId.current = resolvedDeviceId;
 
-        attachStreamToVideo(stream, true);
+        attachStreamToVideo(stream, "user");
         resetFrontCameraZoom(stream).catch(() => {});
         const caps = refreshFrontCameraZoomCapabilities(stream);
         boundsRef.current = {
@@ -782,7 +792,6 @@ const MediaPreviewIOS = () => {
       }
 
       const oldStream = streamRef.current;
-      setPreviewMirror(false);
 
       if (facingChanged && oldStream) {
         clearTrackZoomCache(oldStream);
@@ -790,12 +799,18 @@ const MediaPreviewIOS = () => {
         streamRef.current = null;
       }
 
-      let stream = await startCameraByDeviceId(resolvedDeviceId, {
-        facingMode: "environment",
-        highRes: false,
-        preferDeviceId: Boolean(resolvedDeviceId),
-        fast: facingChanged || !cameraInitialized.current,
-      });
+      let stream;
+      if (facingChanged || !resolvedDeviceId) {
+        stream = await openCameraByFacing("environment", { fast: true });
+      } else {
+        stream = await startCameraByDeviceId(resolvedDeviceId, {
+          facingMode: "environment",
+          highRes: false,
+          preferDeviceId: true,
+          fast: false,
+          facingOnly: false,
+        });
+      }
 
       if (requestId !== startRequestId.current) {
         stopCurrentCamera(stream);
@@ -837,7 +852,7 @@ const MediaPreviewIOS = () => {
       if (actualId) lastDeviceId.current = actualId;
       else if (resolvedDeviceId) lastDeviceId.current = resolvedDeviceId;
 
-      attachStreamToVideo(stream, false);
+      attachStreamToVideo(stream, "environment");
 
       if (supportsHardwareZoom(stream)) {
         if (z === "1x" || !z) {
