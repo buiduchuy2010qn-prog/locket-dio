@@ -1,0 +1,43 @@
+# Huy Locket Web — Fly.io (thay Render khi hết pipeline minutes)
+# Docs: https://fly.io/docs/languages-and-frameworks/dockerfile/
+#
+# Lần đầu:
+#   winget install FlyCTL.flyctl
+#   fly auth login
+#   fly apps create huy-locket --org personal
+#   fly secrets set LOCKET_API_UPSTREAM=https://huy-locket-api.onrender.com
+#   fly deploy
+#
+# URL: https://huy-locket.fly.dev  (hoặc custom domain)
+
+app = "huy-locket"
+primary_region = "sin"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  PORT = "10000"
+  # Override bằng: fly secrets set LOCKET_API_UPSTREAM=...
+  LOCKET_API_UPSTREAM = "https://huy-locket-api.onrender.com"
+
+[http_service]
+  internal_port = 10000
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "10s"
+    grace_period = "15s"
+    method = "GET"
+    path = "/"
+
+[[vm]]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1

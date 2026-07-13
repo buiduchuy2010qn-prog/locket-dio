@@ -1,0 +1,22 @@
+# Huy Locket Web — Railway (thay Render)
+# https://railway.app → New Project → Deploy from GitHub → repo locket-dio
+#
+# Settings:
+#   Root Directory: /
+#   Builder: Dockerfile
+#   Start: (Dockerfile CMD)
+#
+# Variables:
+#   LOCKET_API_UPSTREAM=https://huy-locket-api.onrender.com
+#   NODE_ENV=production
+#   PORT= (Railway inject)
+#   DATABASE_URL= (Neon, optional Drive)
+
+[build]
+  builder = "DOCKERFILE"
+  dockerfilePath = "Dockerfile"
+
+[deploy]
+  healthcheckPath = "/"
+  healthcheckTimeout = 30
+  restartPolicyType = "ON_FAILURE"
