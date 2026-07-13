@@ -87,7 +87,7 @@ const HeaderHome = ({
         <div
           className={`fixed top-0 left-0 w-full px-2 pt-1 flex items-center justify-between z-50`}
         >
-          {/* Avatar hồ sơ + nút cập nhật tròn (chỉ hiện khi có bản mới) */}
+          {/* Avatar hồ sơ + nút cập nhật tròn (luôn hiện — bấm hoặc vào lại web tự update) */}
           <div className="flex items-center gap-2">
             <button
               onClick={() => setIsProfileOpen(true)}

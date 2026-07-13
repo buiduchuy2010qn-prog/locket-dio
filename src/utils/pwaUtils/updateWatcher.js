@@ -1,6 +1,6 @@
 /**
- * App update detector — silent poll + user-initiated button.
- * No auto toast spam. UI shows a small "Cập nhật" control when available.
+ * App update — nút tròn luôn có (Header) + tự cập nhật khi vào lại web.
+ * Không toast spam.
  */
 
 import currentBuild from "@/config/buildMeta.json";
@@ -9,14 +9,15 @@ const STORAGE_BUILD = "app_known_build_id";
 const STORAGE_RELOAD_GUARD = "app_update_reload_guard";
 
 const POLL_MS = 5 * 60 * 1000;
-const FOCUS_COOLDOWN_MS = 2 * 60 * 1000;
-const RELOAD_GUARD_MS = 15 * 1000;
+const FOCUS_COOLDOWN_MS = 90 * 1000;
+const RELOAD_GUARD_MS = 20 * 1000;
 const EVENT_NAME = "app:update_state";
 
 let pollTimer = null;
 let started = false;
 let checking = false;
 let lastFocusCheck = 0;
+let autoUpdating = false;
 /** @type {null | (() => void | Promise<void>)} */
 let pendingSwApply = null;
 /** @type {{ available: boolean, latest: object | null, swWaiting: boolean }} */
@@ -96,12 +97,10 @@ export function getAppUpdateState() {
   return { ...updateState };
 }
 
-/** Subscribe to silent update availability (for the Cập nhật button). */
 export function subscribeAppUpdate(listener) {
   if (typeof listener !== "function") return () => {};
   const handler = (e) => listener(e?.detail || getAppUpdateState());
   window.addEventListener(EVENT_NAME, handler);
-  // Emit current immediately
   try {
     listener(getAppUpdateState());
   } catch {
@@ -122,17 +121,19 @@ export async function clearOldAppCache() {
 }
 
 /**
- * User pressed "Cập nhật" — apply SW / hard reload.
+ * Apply update: clear cache + SW skipWaiting or hard reload.
  * @param {string} [targetBuildId]
+ * @param {{ force?: boolean }} [opts] force=true always reloads even if already latest
  */
-export async function applyWebsiteUpdate(targetBuildId) {
+export async function applyWebsiteUpdate(targetBuildId, opts = {}) {
+  const force = Boolean(opts.force);
   const guard = safeGet(STORAGE_RELOAD_GUARD);
-  if (guard) {
+  if (guard && !force) {
     try {
       const { at } = JSON.parse(guard);
       if (now() - Number(at || 0) < RELOAD_GUARD_MS) {
         console.warn("[update] reload guard active — skip");
-        return;
+        return false;
       }
     } catch {
       /* continue */
@@ -152,7 +153,7 @@ export async function applyWebsiteUpdate(targetBuildId) {
   if (typeof pendingSwApply === "function") {
     try {
       await pendingSwApply();
-      return;
+      return true;
     } catch (e) {
       console.warn("[update] SW apply failed, hard reload", e);
     }
@@ -161,11 +162,12 @@ export async function applyWebsiteUpdate(targetBuildId) {
   const url = new URL(window.location.href);
   url.searchParams.set("_v", String(Date.now()));
   window.location.replace(url.pathname + url.search + url.hash);
+  return true;
 }
 
 /**
- * Silent check — no toast. Sets available state for the button.
- * @returns {Promise<boolean>}
+ * Silent check — sets available for pink badge on button.
+ * @returns {Promise<boolean>} true if remote build differs
  */
 export async function checkForAppUpdate() {
   if (checking) return updateState.available;
@@ -178,32 +180,19 @@ export async function checkForAppUpdate() {
     const latest = await fetchLatestVersion();
     const current = getCurrentBuildMeta();
 
-    if (latest.buildId === current.buildId) {
+    if (latest.buildId === current.buildId && !updateState.swWaiting) {
       safeSet(STORAGE_BUILD, latest.buildId);
       safeRemove(STORAGE_RELOAD_GUARD);
-      publishState({
-        available: updateState.swWaiting, // still show if SW waiting
-        latest: updateState.swWaiting ? latest : null,
-      });
-      return updateState.available;
+      publishState({ available: false, latest: null });
+      return false;
     }
 
-    const guard = safeGet(STORAGE_RELOAD_GUARD);
-    if (guard) {
-      try {
-        const { at } = JSON.parse(guard);
-        if (now() - Number(at || 0) < RELOAD_GUARD_MS) {
-          return true;
-        }
-      } catch {
-        /* ignore */
-      }
+    if (latest.buildId === current.buildId && updateState.swWaiting) {
+      publishState({ available: true, latest });
+      return true;
     }
 
-    publishState({
-      available: true,
-      latest,
-    });
+    publishState({ available: true, latest });
     return true;
   } catch (e) {
     if (import.meta.env?.DEV) {
@@ -215,27 +204,75 @@ export async function checkForAppUpdate() {
   }
 }
 
+/**
+ * If remote is newer → auto apply (dùng khi mở lại tab / vào web).
+ */
+export async function autoUpdateIfAvailable() {
+  if (autoUpdating) return false;
+  if (typeof document !== "undefined" && document.hidden) return false;
+
+  const guard = safeGet(STORAGE_RELOAD_GUARD);
+  if (guard) {
+    try {
+      const { at } = JSON.parse(guard);
+      if (now() - Number(at || 0) < RELOAD_GUARD_MS) return false;
+    } catch {
+      /* ignore */
+    }
+  }
+
+  autoUpdating = true;
+  try {
+    const has = await checkForAppUpdate();
+    if (!has) return false;
+    const buildId = updateState.latest?.buildId;
+    console.log("[update] auto-apply newer build", buildId);
+    await applyWebsiteUpdate(buildId);
+    return true;
+  } catch (e) {
+    console.warn("[update] autoUpdate failed", e);
+    return false;
+  } finally {
+    autoUpdating = false;
+  }
+}
+
+/**
+ * User bấm nút — luôn xóa cache + tải lại bản mới nhất.
+ */
+export async function userForceUpdate() {
+  try {
+    await checkForAppUpdate();
+  } catch {
+    /* ignore */
+  }
+  const buildId = updateState.latest?.buildId;
+  return applyWebsiteUpdate(buildId, { force: true });
+}
+
 export function handleVisibilityUpdateCheck() {
   if (document.visibilityState !== "visible") {
     stopUpdateWatcher({ keepListeners: true });
     return;
   }
-  if (now() - lastFocusCheck < FOCUS_COOLDOWN_MS) return;
+  // Vào lại tab/app → tự cập nhật nếu có bản mới
+  if (now() - lastFocusCheck < FOCUS_COOLDOWN_MS) {
+    // vẫn resume poll
+    if (started) ensurePoll();
+    return;
+  }
   lastFocusCheck = now();
   if (started) ensurePoll();
-  checkForAppUpdate();
+  autoUpdateIfAvailable();
 }
 
 export function handleOnlineUpdateCheck() {
   if (typeof navigator !== "undefined" && navigator.onLine === false) return;
   if (now() - lastFocusCheck < FOCUS_COOLDOWN_MS) return;
   lastFocusCheck = now();
-  checkForAppUpdate();
+  autoUpdateIfAvailable();
 }
 
-/**
- * SW has a waiting worker — mark available, no toast.
- */
 export function handleServiceWorkerUpdate(updateSW) {
   if (typeof updateSW === "function") {
     pendingSwApply = async () => {
@@ -276,8 +313,12 @@ export function handleServiceWorkerUpdate(updateSW) {
     },
   });
 
-  // Enrich with version.json if remote is newer
-  checkForAppUpdate();
+  // Có SW waiting → áp dụng khi user quay lại / ngay nếu tab đang mở
+  if (typeof document !== "undefined" && !document.hidden) {
+    autoUpdateIfAvailable();
+  } else {
+    checkForAppUpdate();
+  }
 }
 
 function ensurePoll() {
@@ -294,15 +335,21 @@ export function startUpdateWatcher() {
   started = true;
 
   window.addEventListener("load", () => {
-    setTimeout(() => safeRemove(STORAGE_RELOAD_GUARD), 2000);
+    setTimeout(() => safeRemove(STORAGE_RELOAD_GUARD), 2500);
   });
 
-  checkForAppUpdate();
+  // Lần mở web: kiểm tra + tự cập nhật nếu server mới hơn
+  autoUpdateIfAvailable();
   ensurePoll();
 
   document.addEventListener("visibilitychange", handleVisibilityUpdateCheck);
   window.addEventListener("focus", handleVisibilityUpdateCheck);
   window.addEventListener("online", handleOnlineUpdateCheck);
+
+  // Quay lại từ bfcache
+  window.addEventListener("pageshow", (e) => {
+    if (e.persisted) autoUpdateIfAvailable();
+  });
 }
 
 export function stopUpdateWatcher({ keepListeners = false } = {}) {
@@ -325,7 +372,5 @@ export function setPendingSwApply(fn) {
   pendingSwApply = typeof fn === "function" ? fn : null;
 }
 
-/** @deprecated toast removed — use AppUpdateButton */
-export function showUpdateAvailableToast() {
-  // no-op: keep export so old imports don't crash
-}
+/** @deprecated */
+export function showUpdateAvailableToast() {}

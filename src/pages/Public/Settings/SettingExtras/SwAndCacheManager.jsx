@@ -2,7 +2,7 @@ import { CONFIG } from "@/config";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
-  applyWebsiteUpdate,
+  userForceUpdate,
   checkForAppUpdate,
   getCurrentBuildMeta,
   subscribeAppUpdate,
@@ -44,18 +44,9 @@ export default function SwManager() {
   const handleUpdate = async () => {
     setUpdating(true);
     try {
-      const has = await checkForAppUpdate();
-      if (!has && !updateAvailable) {
-        SonnerInfo(
-          t("settings.sw_manager.alert_latest", {
-            defaultValue: "Bạn đang dùng bản mới nhất",
-          }),
-        );
-        setUpdating(false);
-        return;
-      }
       SonnerSuccess("Đang cập nhật…");
-      await applyWebsiteUpdate();
+      await userForceUpdate();
+      setTimeout(() => setUpdating(false), 4000);
     } catch {
       setUpdating(false);
       SonnerInfo("Cập nhật lỗi — thử lại");
