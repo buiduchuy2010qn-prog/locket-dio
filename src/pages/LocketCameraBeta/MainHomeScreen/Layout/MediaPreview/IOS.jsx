@@ -42,7 +42,18 @@ const MediaPreviewIOS = () => {
   const lastDeviceId = useRef(deviceId);
   const lastZoomLevel = useRef(zoomLevel);
   const startRequestId = useRef(0);
+  const pinchState = useRef({
+    active: false,
+    distance: 0,
+    zoom: 1,
+    ultraId: null,
+    mainId: null,
+    switchedLens: false,
+  });
+  const currentZoomValue = useRef(1);
+  const lastPinchUpdate = useRef(0);
   const [lensPills, setLensPills] = useState(["1x"]);
+  const [zoomDisplay, setZoomDisplay] = useState("1x");
   const [pageVisible, setPageVisible] = useState(
     () =>
       typeof document === "undefined" ||
@@ -129,13 +140,16 @@ const MediaPreviewIOS = () => {
       const trackLive =
         streamRef.current?.getVideoTracks?.()?.[0]?.readyState === "live";
 
-      // Skip khi cùng facing + zoom + stream live (tránh loop do deviceId state ≠ actual)
+      // Skip khi cùng facing + zoom + device + stream live (0.5 ultra đổi deviceId → restart)
+      const deviceMatches = !deviceId || lastDeviceId.current === deviceId;
+
       if (
         !facingChanged &&
         cameraInitialized.current &&
         streamRef.current &&
         trackLive &&
-        lastZoomLevel.current === zoomLevel
+        lastZoomLevel.current === zoomLevel &&
+        deviceMatches
       ) {
         if (videoRef.current && !videoRef.current.srcObject) {
           videoRef.current.srcObject = streamRef.current;
@@ -327,7 +341,7 @@ const MediaPreviewIOS = () => {
     cameraActive,
     cameraMode,
     deviceId,
-    zoomLevel,
+    // zoomLevel: digital/nhãn — restart qua deviceId (0.5 ultra)
     preview,
     selectedFile,
     onCapturePage,
@@ -357,62 +371,136 @@ const MediaPreviewIOS = () => {
     }
   }, [preview, selectedFile, cameraActive, onCapturePage, setCameraActive]);
 
-  const handleCycleZoomCamera = async () => {
-    const cameras = await getAvailableCameras();
-    const isBackCamera = cameraMode === "environment";
-    const isFrontCamera = cameraMode === "user";
+  useEffect(() => {
+    setZoomDisplay(zoomLevel || "1x");
+    if (zoomLevel === "0.5x") currentZoomValue.current = 0.5;
+    else if (zoomLevel === "1x" || !zoomLevel) currentZoomValue.current = 1;
+  }, [zoomLevel]);
 
-    let newZoom = "1x";
-    let newDeviceId = null;
+  const getTouchDistance = (touches) => {
+    if (touches.length < 2) return 0;
+    const [a, b] = touches;
+    return Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY);
+  };
 
-    if (isFrontCamera) {
-      newZoom = zoomLevel === "1x" ? "0.5x" : "1x";
-      newDeviceId = cameras?.frontCameras?.[0]?.deviceId;
-    } else if (isBackCamera) {
-      if (zoomLevel === "1x") {
-        if (cameras?.backUltraWideCamera?.deviceId) {
-          newZoom = "0.5x";
-          newDeviceId = cameras.backUltraWideCamera.deviceId;
-        } else if (cameras?.backZoomCamera?.deviceId) {
-          newZoom = "3x";
-          newDeviceId = cameras.backZoomCamera.deviceId;
-        }
-      } else if (zoomLevel === "0.5x") {
-        if (cameras?.backZoomCamera?.deviceId) {
-          newZoom = "3x";
-          newDeviceId = cameras.backZoomCamera.deviceId;
-        } else {
-          newZoom = "1x";
-          newDeviceId =
-            cameras?.backNormalCamera?.deviceId ||
-            (await getMainBackCameraId());
-        }
-      } else {
-        newZoom = "1x";
-        newDeviceId =
-          cameras?.backNormalCamera?.deviceId || (await getMainBackCameraId());
-      }
+  /** Pinch 2 ngón: 0.5 ultra ↔ 1x main (iOS thường không có track zoom) */
+  const handlePreviewTouchStart = (event) => {
+    if (preview || selectedFile) return;
+    if (event.touches.length !== 2) return;
+    event.preventDefault();
 
-      if (newZoom === "1x") {
-        newDeviceId =
+    getAvailableCameras()
+      .then((cameras) => {
+        if (!pinchState.current.active) return;
+        pinchState.current.ultraId =
+          cameras?.backUltraWideCamera?.deviceId || null;
+        pinchState.current.mainId =
           cameras?.backNormalCamera?.deviceId ||
-          (await getMainBackCameraId()) ||
-          newDeviceId;
-      }
+          cameras?.backCameras?.[0]?.deviceId ||
+          null;
+      })
+      .catch(() => {});
+
+    pinchState.current = {
+      active: true,
+      distance: getTouchDistance(event.touches),
+      zoom: zoomLevel === "0.5x" ? 0.5 : currentZoomValue.current || 1,
+      ultraId: null,
+      mainId: null,
+      switchedLens: false,
+    };
+  };
+
+  const handlePreviewTouchMove = (event) => {
+    if (!pinchState.current.active || event.touches.length !== 2) return;
+    const now = Date.now();
+    if (now - lastPinchUpdate.current < 50) return;
+
+    const nextDistance = getTouchDistance(event.touches);
+    if (!nextDistance || !pinchState.current.distance) return;
+    event.preventDefault();
+    lastPinchUpdate.current = now;
+
+    const scale = nextDistance / pinchState.current.distance;
+    const targetZoom = pinchState.current.zoom * scale;
+    const isBack = cameraMode === "environment";
+    const ultraId = pinchState.current.ultraId;
+    const mainId = pinchState.current.mainId;
+    const onUltra =
+      zoomLevel === "0.5x" ||
+      (ultraId && deviceId && deviceId === ultraId);
+
+    if (
+      isBack &&
+      !pinchState.current.switchedLens &&
+      targetZoom < 0.72 &&
+      ultraId &&
+      !onUltra
+    ) {
+      pinchState.current.switchedLens = true;
+      currentZoomValue.current = 0.5;
+      setZoomDisplay("0.5x");
+      setZoomLevel("0.5x");
+      setDeviceId(ultraId);
+      return;
     }
 
-    if (newDeviceId) {
-      setZoomLevel(newZoom);
-      setDeviceId(newDeviceId);
-    } else {
-      SonnerInfo(t("home.camera_no_zoom"));
+    if (
+      isBack &&
+      !pinchState.current.switchedLens &&
+      targetZoom > 0.92 &&
+      onUltra &&
+      mainId
+    ) {
+      pinchState.current.switchedLens = true;
+      currentZoomValue.current = 1;
+      setZoomDisplay("1x");
+      setZoomLevel("1x");
+      setDeviceId(mainId);
+      return;
     }
+
+    // Preview mức zoom (track zoom iOS hạn chế)
+    const shown = Math.max(0.5, Math.min(targetZoom, 5));
+    currentZoomValue.current = shown;
+    setZoomDisplay(`${Number(shown.toFixed(1))}x`);
+
+    // Thử applyConstraints zoom nếu Safari hỗ trợ
+    try {
+      const track = streamRef.current?.getVideoTracks?.()?.[0];
+      const caps = track?.getCapabilities?.() || {};
+      if (caps.zoom && track) {
+        const z = Math.max(
+          caps.zoom.min,
+          Math.min(shown, caps.zoom.max),
+        );
+        track.applyConstraints({ advanced: [{ zoom: z }] }).catch(() => {});
+      }
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const handlePreviewTouchEnd = () => {
+    pinchState.current = {
+      active: false,
+      distance: 0,
+      zoom: currentZoomValue.current,
+      ultraId: null,
+      mainId: null,
+      switchedLens: false,
+    };
   };
 
   return (
     <>
       <div
+        onTouchStart={handlePreviewTouchStart}
+        onTouchMove={handlePreviewTouchMove}
+        onTouchEnd={handlePreviewTouchEnd}
+        onTouchCancel={handlePreviewTouchEnd}
         className={`relative w-full max-w-md aspect-square bg-gray-800 rounded-[65px] overflow-hidden transition-transform duration-500 `}
+        style={{ touchAction: preview || selectedFile ? "auto" : "none" }}
       >
         {!preview && !selectedFile && cameraActive && (
           <video
@@ -438,6 +526,7 @@ const MediaPreviewIOS = () => {
 
         {!preview && !selectedFile && (
           <>
+            {/* Flash + hiển thị zoom (read-only). Zoom = pinch 2 ngón. */}
             <div className="absolute inset-0 top-7 px-7 z-30 pointer-events-none flex justify-between text-base-content text-xs font-semibold">
               <button
                 onClick={() => SonnerInfo(t("home.feature_coming_soon"))}
@@ -445,13 +534,9 @@ const MediaPreviewIOS = () => {
               >
                 <img src="/icons/bolt.fill.png" alt="Icon sấm sét" />
               </button>
-
-              <button
-                onClick={handleCycleZoomCamera}
-                className="pointer-events-auto min-w-8 h-8 px-2 text-primary-content font-semibold rounded-full bg-white/30 backdrop-blur-md flex items-center justify-center text-xs"
-              >
-                {zoomLevel}
-              </button>
+              <span className="pointer-events-none min-w-8 h-8 px-2 rounded-full bg-black/25 backdrop-blur-md flex items-center justify-center text-xs text-white/90 font-semibold">
+                {zoomDisplay}
+              </span>
             </div>
 
             {cameraFrame?.imageSrc && (
