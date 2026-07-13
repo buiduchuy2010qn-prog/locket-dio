@@ -1,18 +1,30 @@
-import React, { lazy, Suspense, useEffect, useRef, useState } from "react";
+import React, { lazy, Suspense, useEffect, useRef, useState, useCallback } from "react";
 import {
   getAvailableCameras,
-  pickCameraDeviceId,
-  isDeviceUltraWide,
   getMainBackCameraId,
+  startCameraByDeviceId,
+  stopCurrentCamera,
+  getCurrentTrackCapabilities,
+  getCurrentTrackSettings,
+  getActiveVideoTrack,
+  supportsHardwareZoom,
+  setCameraZoom,
+  readZoomRange,
+  computeAvailableZoomModes,
+  ensureMainCameraStream,
+  resolveZoomModeTarget,
+  classifyLensType,
+  formatZoomModeLabel,
+  ZOOM_MODES,
+  isUltraLabel,
+  isTeleLabel,
 } from "@/utils";
 const EditorCaption = lazy(() => import("@/features/EditorCaption"));
 import { useApp } from "@/context/AppContext";
-import { CONFIG } from "@/config";
 import BorderProgress from "../../Widgets/SquareProgress";
 import { SonnerInfo } from "@/components/ui/SonnerToast";
 import { usePostStore, useUIStore } from "@/stores";
 import { useTranslation } from "react-i18next";
-import { getCameraPreviewConstraints } from "@/utils/device/perfProfile";
 
 const MediaPreviewAndroid = () => {
   const { useloading, camera, navigation } = useApp();
@@ -27,6 +39,16 @@ const MediaPreviewAndroid = () => {
     setZoomLevel,
     deviceId,
     setDeviceId,
+    setCurrentLensType,
+    setCurrentZoom,
+    setMinZoom,
+    setMaxZoom,
+    setZoomStep,
+    availableZoomModes,
+    setAvailableZoomModes,
+    isSwitchingCamera,
+    setIsSwitchingCamera,
+    setDetectedCameras,
   } = camera;
   const { setSendLoading } = useloading;
   const { isBottomOpen, isHomeOpen, isProfileOpen } = navigation || {};
@@ -44,313 +66,197 @@ const MediaPreviewAndroid = () => {
   const pinchState = useRef({ active: false, distance: 0, zoom: 1 });
   const currentZoomValue = useRef(1);
   const lastPinchUpdate = useRef(0);
+  const detectedRef = useRef(null);
+
   const [pageVisible, setPageVisible] = useState(
     () =>
       typeof document === "undefined" ||
       document.visibilityState === "visible",
   );
 
-  // Chỉ bật cam khi đang ở trang chụp (không xem bài / chat / profile / tab ẩn)
   const onCapturePage =
     !isBottomOpen && !isHomeOpen && !isProfileOpen && pageVisible;
 
   const cameraFrame = useUIStore((s) => s.cameraFrame);
   const [torchEnabled, setTorchEnabled] = useState(false);
   const [torchSupported, setTorchSupported] = useState(false);
-  const [zoomOptions, setZoomOptions] = useState(["1x"]);
-  const [zoomDisplay, setZoomDisplay] = useState("1x");
-  /** Lens pills: luôn có 0.5 / 1 / 2 khi camera sau (nếu máy hỗ trợ) */
-  const [lensPills, setLensPills] = useState(["1x"]);
-  /** Mirror preview: chỉ cam trước (tránh cam sau bị scaleX(-1) / đảo) */
   const [previewMirror, setPreviewMirror] = useState(
     () => cameraMode === "user",
   );
-  /** Tăng khi lật cam → remount <video> sạch transform */
   const [videoEpoch, setVideoEpoch] = useState(0);
 
-  const getActiveTrack = (stream = streamRef.current) =>
-    stream?.getVideoTracks?.()?.[0] || null;
+  const syncZoomStateFromStream = useCallback(
+    (stream, detected, modeLabel) => {
+      const range = readZoomRange(stream);
+      setMinZoom(range.minZoom);
+      setMaxZoom(range.maxZoom);
+      setZoomStep(range.zoomStep);
+      const modes = computeAvailableZoomModes(detected, stream);
+      // Always keep 1x available
+      modes["1x"] = true;
+      setAvailableZoomModes(modes);
 
-  const getTrackCapabilities = (track) => track?.getCapabilities?.() || {};
+      const settings = getCurrentTrackSettings(stream);
+      const actualId = settings.deviceId || null;
+      const device =
+        detected?.allCameras?.find((d) => d.deviceId === actualId) ||
+        detected?.backCameras?.find((d) => d.deviceId === actualId) ||
+        null;
+      const lens = classifyLensType(device, {
+        main: detected?.backNormalCamera,
+        ultrawide: detected?.backUltraWideCamera,
+        telephoto: detected?.backZoomCamera,
+        all: detected?.allCameras,
+        rear: detected?.backCameras,
+        front: detected?.frontCameras,
+      });
+      setCurrentLensType(lens);
 
-  const formatZoomDisplay = (value) => `${Number(value.toFixed(1))}x`;
+      const z = settings.zoom ?? currentZoomValue.current ?? 1;
+      currentZoomValue.current = z;
+      setCurrentZoom(z);
 
-  /** Mức zoom theo hardware track (min/max) + lens vật lý */
-  const getZoomLabels = (capabilities) => {
-    const minZoom = capabilities?.zoom?.min ?? 1;
-    const maxZoom = capabilities?.zoom?.max ?? 1;
-    const labels = [];
+      if (actualId) {
+        lastDeviceId.current = actualId;
+      }
 
-    if (minZoom < 0.9) labels.push("0.5x");
-    labels.push("1x");
-    if (maxZoom >= 1.8) labels.push("2x");
-    if (maxZoom >= 2.5) labels.push("3x");
-    if (maxZoom >= 4.5) labels.push("5x");
-
-    return [...new Set(labels)];
-  };
-
-  const getZoomValue = (label, capabilities) => {
-    const minZoom = capabilities?.zoom?.min ?? 1;
-    const maxZoom = capabilities?.zoom?.max ?? 1;
-    const map = {
-      "0.5x": 0.5,
-      "1x": 1,
-      "2x": 2,
-      "3x": 3,
-      "5x": 5,
-    };
-    const target = map[label] ?? 1;
-    return Math.max(minZoom, Math.min(target, maxZoom));
-  };
-
-  const getNearestZoomLabel = (value, capabilities) => {
-    const supportedZoomOptions = getZoomLabels(capabilities);
-
-    if (!supportedZoomOptions.length) {
-      return "1x";
-    }
-
-    return supportedZoomOptions.reduce((closest, label) => {
-      const closestDistance = Math.abs(
-        getZoomValue(closest, capabilities) - value
-      );
-      const nextDistance = Math.abs(getZoomValue(label, capabilities) - value);
-
-      return nextDistance < closestDistance ? label : closest;
-    }, supportedZoomOptions[0]);
-  };
-
-  const applyZoomValue = async (value, stream = streamRef.current) => {
-    const track = getActiveTrack(stream);
-    const capabilities = getTrackCapabilities(track);
-
-    if (!track || !capabilities.zoom) {
-      return false;
-    }
-
-    const nextZoomValue = Math.max(
-      capabilities.zoom.min,
-      Math.min(value, capabilities.zoom.max)
-    );
-
-    await track.applyConstraints({
-      advanced: [{ zoom: nextZoomValue }],
-    });
-
-    currentZoomValue.current = nextZoomValue;
-    setZoomDisplay(formatZoomDisplay(nextZoomValue));
-
-    const nextZoomLabel = getNearestZoomLabel(nextZoomValue, capabilities);
-    if (nextZoomLabel !== zoomLevel) {
-      setZoomLevel(nextZoomLabel);
-    }
-
-    return true;
-  };
-
-  const applyZoomLevel = async (label, stream = streamRef.current) => {
-    const track = getActiveTrack(stream);
-    const capabilities = getTrackCapabilities(track);
-
-    if (!track || !capabilities.zoom) {
-      return false;
-    }
-
-    return applyZoomValue(getZoomValue(label, capabilities), stream);
-  };
+      setTorchSupported(Boolean(getCurrentTrackCapabilities(stream)?.torch));
+    },
+    [
+      setAvailableZoomModes,
+      setCurrentLensType,
+      setCurrentZoom,
+      setMaxZoom,
+      setMinZoom,
+      setZoomStep,
+    ],
+  );
 
   const applyTorchState = async (enabled, stream = streamRef.current) => {
-    const track = getActiveTrack(stream);
-    const capabilities = getTrackCapabilities(track);
-
-    if (!track || !capabilities.torch) {
-      return false;
-    }
-
+    const track = getActiveVideoTrack(stream);
+    const capabilities = getCurrentTrackCapabilities(stream);
+    if (!track || !capabilities.torch) return false;
     await track.applyConstraints({ advanced: [{ torch: enabled }] });
     return true;
   };
 
-  /** Full zoom pills: 0.5 / 1 / 2 / 3 / 5 theo lens + digital zoom máy */
-  const refreshLensPills = async (stream) => {
-    const track = getActiveTrack(stream);
-    const capabilities = getTrackCapabilities(track);
-    const fromTrack = getZoomLabels(capabilities);
-    const pills = new Set(fromTrack.length ? fromTrack : ["1x"]);
-
-    // Luôn có 1x; 0.5 nếu ultra-wide vật lý (kể cả khi track min=1)
-    pills.add("1x");
-    try {
-      const cameras = await getAvailableCameras();
-      if (cameras?.backUltraWideCamera) pills.add("0.5x");
-      if (cameras?.backZoomCamera) {
-        pills.add("3x");
-        // tele máy thường ≥3; digital 2x vẫn hữu ích trên main
-        pills.add("2x");
-      }
-      // Camera sau: nếu track hỗ trợ zoom cao
-      if ((capabilities?.zoom?.max ?? 1) >= 1.8) pills.add("2x");
-      if ((capabilities?.zoom?.max ?? 1) >= 2.5) pills.add("3x");
-      if ((capabilities?.zoom?.max ?? 1) >= 4.5) pills.add("5x");
-    } catch {
-      /* optional */
+  const applyDigitalZoom = async (value, stream = streamRef.current) => {
+    const applied = await setCameraZoom(stream, value);
+    if (applied !== false) {
+      currentZoomValue.current = applied;
+      setCurrentZoom(applied);
+      return true;
     }
-
-    const order = ["0.5x", "1x", "2x", "3x", "5x"];
-    const list = order.filter((z) => pills.has(z));
-    // Tối thiểu 0.5 + 1 nếu máy có ultra; không thì 1x
-    setLensPills(list.length ? list : ["1x"]);
-    setZoomOptions(fromTrack.length ? fromTrack : ["1x"]);
+    return false;
   };
 
-  /** Nhẹ — không setState zoom (tránh re-start camera) */
-  const syncTrackFeatures = async (stream) => {
-    const track = getActiveTrack(stream);
-    const capabilities = getTrackCapabilities(track);
-
-    setTorchSupported(Boolean(capabilities.torch));
-    if (!capabilities.torch) setTorchEnabled(false);
-
-    // Lens pills: defer — không chặn frame đầu
-    setTimeout(() => {
-      refreshLensPills(stream).catch(() => {});
-    }, 0);
-
-    if (!capabilities.zoom) {
-      currentZoomValue.current = 1;
-      setZoomDisplay(zoomLevel === "0.5x" ? "0.5x" : "1x");
-      return;
-    }
-
-    const z = zoomLevel || "1x";
-    // Chỉ applyConstraints khi user cần zoom ≠ 1 (mặc định track đã ~1x)
-    if (z === "2x" || z === "3x" || z === "0.5x") {
-      try {
-        await applyZoomLevel(z, stream);
-      } catch {
-        /* ignore */
-      }
-    } else {
-      currentZoomValue.current = 1;
-      setZoomDisplay("1x");
-    }
-  };
-
-  /** Chọn lens/zoom pill — ultra/main/tele + digital zoom */
-  const handleSelectLens = async (label) => {
-    if (label === zoomLevel && label !== "0.5x") {
-      // Bấm lại 0.5 vẫn ok; các mức khác bỏ qua
-      return;
-    }
+  /** Select zoom mode: 0.5x | 1x | 2x | max */
+  const handleSelectZoomMode = async (mode) => {
+    if (isSwitchingCamera) return;
+    if (mode === zoomLevel && mode !== "0.5x") return;
 
     const isBack = cameraMode === "environment";
-    const cameras = await getAvailableCameras();
-    const mainId = isBack
-      ? cameras?.backNormalCamera?.deviceId || (await getMainBackCameraId())
-      : cameras?.frontCameras?.[0]?.deviceId || null;
-    const ultraId = cameras?.backUltraWideCamera?.deviceId || null;
-    const teleId = cameras?.backZoomCamera?.deviceId || null;
-    const capabilities = getTrackCapabilities(getActiveTrack());
-    const hasTrackZoom = Boolean(capabilities?.zoom);
+    const cameras =
+      detectedRef.current || (await getAvailableCameras({ force: false }));
+    detectedRef.current = cameras;
+    setDetectedCameras(cameras);
 
-    // 0.5x → ultra vật lý ưu tiên
-    if (label === "0.5x") {
-      if (isBack && ultraId) {
-        setZoomLevel("0.5x");
-        setZoomDisplay("0.5x");
-        setDeviceId(ultraId);
-        return;
-      }
-      if (hasTrackZoom && (capabilities?.zoom?.min ?? 1) < 1) {
-        setZoomLevel("0.5x");
+    const detectedShape = {
+      main: cameras?.backNormalCamera,
+      ultrawide: cameras?.backUltraWideCamera,
+      telephoto: cameras?.backZoomCamera,
+      rear: cameras?.backCameras || [],
+      front: cameras?.frontCameras || [],
+      all: cameras?.allCameras || [],
+    };
+
+    const modes =
+      availableZoomModes ||
+      computeAvailableZoomModes(detectedShape, streamRef.current);
+
+    if (mode !== "1x" && modes[mode] === false) {
+      const msgKey =
+        mode === "0.5x"
+          ? "home.zoom_05_unsupported"
+          : mode === "2x"
+            ? "home.zoom_2x_unsupported"
+            : mode === "max"
+              ? "home.zoom_max_unsupported"
+              : "home.camera_no_zoom";
+      SonnerInfo(t(msgKey, { defaultValue: t("home.camera_no_zoom") }));
+      return;
+    }
+
+    const target = resolveZoomModeTarget(mode, {
+      detected: detectedShape,
+      stream: streamRef.current,
+      facingMode: isBack ? "environment" : "user",
+    });
+
+    if (target.unavailable) {
+      SonnerInfo(
+        t(
+          mode === "0.5x"
+            ? "home.zoom_05_unsupported"
+            : mode === "max"
+              ? "home.zoom_max_unsupported"
+              : "home.camera_no_zoom",
+          { defaultValue: t("home.camera_no_zoom") },
+        ),
+      );
+      return;
+    }
+
+    const sameDevice =
+      target.deviceId &&
+      (target.deviceId === deviceId ||
+        target.deviceId === lastDeviceId.current);
+
+    // Same device → only digital zoom
+    if (sameDevice || (!target.deviceId && streamRef.current)) {
+      setZoomLevel(target.mode);
+      lastZoomLevel.current = target.mode;
+      if (target.digitalZoom != null && supportsHardwareZoom(streamRef.current)) {
         try {
-          await applyZoomLevel("0.5x");
-          setZoomDisplay("0.5x");
+          await applyDigitalZoom(target.digitalZoom);
         } catch {
-          SonnerInfo(t("home.camera_no_zoom"));
+          /* ignore */
         }
-        return;
-      }
-      SonnerInfo(t("home.camera_no_zoom"));
-      return;
-    }
-
-    // 1x → main
-    if (label === "1x") {
-      if (isBack && mainId && deviceId !== mainId) {
-        setZoomLevel("1x");
-        setZoomDisplay("1x");
-        setDeviceId(mainId);
-        return;
-      }
-      setZoomLevel("1x");
-      try {
-        if (hasTrackZoom) await applyZoomLevel("1x");
-        setZoomDisplay("1x");
-      } catch {
-        /* ignore */
+      } else if (target.mode === "1x" && supportsHardwareZoom(streamRef.current)) {
+        const range = readZoomRange(streamRef.current);
+        const one = range.minZoom <= 1 && range.maxZoom >= 1 ? 1 : range.minZoom;
+        await applyDigitalZoom(one);
       }
       return;
     }
 
-    // 3x / 5x → tele nếu có, không thì main + digital
-    if ((label === "3x" || label === "5x") && isBack && teleId) {
-      setZoomLevel(label);
-      setZoomDisplay(label);
-      setDeviceId(teleId);
-      return;
+    // Device switch
+    setIsSwitchingCamera(true);
+    setZoomLevel(target.mode);
+    if (target.deviceId) {
+      setDeviceId(target.deviceId);
+    } else {
+      setDeviceId(null);
     }
-
-    // Đang ở ultra → chuyển main trước khi digital zoom
-    if (isBack && mainId && ultraId && deviceId === ultraId) {
-      setZoomLevel(label);
-      setZoomDisplay(label);
-      setDeviceId(mainId);
-      // zoom digital apply sau khi stream mới mở (startCamera + sync)
-      return;
-    }
-
-    if (hasTrackZoom) {
-      setZoomLevel(label);
-      try {
-        await applyZoomLevel(label);
-        setZoomDisplay(label);
-      } catch {
-        SonnerInfo(t("home.camera_no_zoom"));
-      }
-      return;
-    }
-
-    SonnerInfo(t("home.camera_no_zoom"));
   };
 
   const getTouchDistance = (touches) => {
-    if (touches.length < 2) {
-      return 0;
-    }
-
-    const [firstTouch, secondTouch] = touches;
-    return Math.hypot(
-      secondTouch.clientX - firstTouch.clientX,
-      secondTouch.clientY - firstTouch.clientY
-    );
+    if (touches.length < 2) return 0;
+    const [a, b] = touches;
+    return Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY);
   };
 
   const resetPinchState = () => {
-    pinchState.current = { active: false, distance: 0, zoom: currentZoomValue.current };
+    pinchState.current = {
+      active: false,
+      distance: 0,
+      zoom: currentZoomValue.current,
+    };
   };
 
   const handlePreviewTouchStart = (event) => {
-    if (event.touches.length !== 2) {
-      return;
-    }
-
-    const capabilities = getTrackCapabilities(getActiveTrack());
-    if (!capabilities.zoom) {
-      return;
-    }
-
+    if (event.touches.length !== 2) return;
+    if (!supportsHardwareZoom(streamRef.current)) return;
     event.preventDefault();
     pinchState.current = {
       active: true,
@@ -360,35 +266,19 @@ const MediaPreviewAndroid = () => {
   };
 
   const handlePreviewTouchMove = async (event) => {
-    if (!pinchState.current.active || event.touches.length !== 2) {
-      return;
-    }
-
-    const capabilities = getTrackCapabilities(getActiveTrack());
-    if (!capabilities.zoom) {
-      return;
-    }
-
+    if (!pinchState.current.active || event.touches.length !== 2) return;
+    if (!supportsHardwareZoom(streamRef.current)) return;
     const now = Date.now();
-    if (now - lastPinchUpdate.current < 40) {
-      return;
-    }
-
+    if (now - lastPinchUpdate.current < 40) return;
     const nextDistance = getTouchDistance(event.touches);
-    if (!nextDistance || !pinchState.current.distance) {
-      return;
-    }
-
+    if (!nextDistance || !pinchState.current.distance) return;
     event.preventDefault();
     lastPinchUpdate.current = now;
-
     const scale = nextDistance / pinchState.current.distance;
-    const targetZoom = pinchState.current.zoom * scale;
-
     try {
-      await applyZoomValue(targetZoom);
-    } catch (error) {
-      console.error("Không thể pinch để zoom:", error);
+      await applyDigitalZoom(pinchState.current.zoom * scale);
+    } catch {
+      /* ignore */
     }
   };
 
@@ -400,86 +290,27 @@ const MediaPreviewAndroid = () => {
     startRequestId.current += 1;
     startingRef.current = false;
     resetPinchState();
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
-      streamRef.current = null;
-    }
-    if (videoRef.current && !keepDisplay) {
-      videoRef.current.srcObject = null;
-    }
+    stopCurrentCamera(
+      streamRef.current,
+      keepDisplay ? null : videoRef.current,
+    );
+    streamRef.current = null;
     cameraInitialized.current = false;
     setTorchSupported(false);
     setTorchEnabled(false);
-    setZoomOptions(["1x"]);
     currentZoomValue.current = 1;
-    setZoomDisplay("1x");
+    setCurrentZoom(1);
   };
 
   /**
-   * Mở cam: facingMode trước (lật trước/sau ổn định trên Android),
-   * rồi deviceId. KHÔNG setDeviceId ở đây.
-   */
-  const openStreamWithDevice = async (targetDeviceId, mode) => {
-    const quality = getCameraPreviewConstraints(
-      CONFIG.app.camera.constraints.default,
-    );
-    const facing = mode || "user";
-
-    const tryOpen = async (video) =>
-      navigator.mediaDevices.getUserMedia({
-        video,
-        audio: false,
-      });
-
-    // 1) facingMode — quan trọng khi lật cam sau
-    try {
-      return await tryOpen({
-        facingMode: { exact: facing },
-        ...quality,
-      });
-    } catch {
-      try {
-        return await tryOpen({
-          facingMode: { ideal: facing },
-          ...quality,
-        });
-      } catch {
-        /* fall through */
-      }
-    }
-
-    // 2) deviceId
-    if (targetDeviceId) {
-      try {
-        return await tryOpen({
-          deviceId: { ideal: targetDeviceId },
-          ...quality,
-        });
-      } catch {
-        try {
-          return await tryOpen({
-            deviceId: { exact: targetDeviceId },
-            ...quality,
-          });
-        } catch {
-          /* fall through */
-        }
-      }
-    }
-
-    return tryOpen({
-      facingMode: { ideal: facing },
-      ...quality,
-    });
-  };
-
-  /**
-   * Start camera. Lật trước/sau: TẮT stream cũ trước (Android hay fail nếu 2 cam cùng lúc).
+   * Start camera.
+   * Default rear: main wide @ 1x via deviceId (never telephoto).
    */
   const startCamera = async () => {
     const requestId = startRequestId.current + 1;
     startRequestId.current = requestId;
     startingRef.current = true;
+    setIsSwitchingCamera(true);
 
     try {
       const mode = cameraMode || "user";
@@ -492,7 +323,8 @@ const MediaPreviewAndroid = () => {
         cameraInitialized.current &&
         streamRef.current &&
         trackLive &&
-        lastZoomLevel.current === zoomLevel
+        lastZoomLevel.current === zoomLevel &&
+        lastDeviceId.current === deviceId
       ) {
         if (videoRef.current && !videoRef.current.srcObject) {
           videoRef.current.srcObject = streamRef.current;
@@ -509,31 +341,71 @@ const MediaPreviewAndroid = () => {
       const z = zoomLevel || "1x";
 
       const cameras = await getAvailableCameras();
+      detectedRef.current = cameras;
+      setDetectedCameras(cameras);
+
       const mainId =
         cameras?.backNormalCamera?.deviceId ||
-        cameras?.backCameras?.find((c) => !isDeviceUltraWideSync(c))?.deviceId ||
+        (await getMainBackCameraId()) ||
+        cameras?.backCameras?.find(
+          (c) => !isUltraLabel(c.label) && !isTeleLabel(c.label),
+        )?.deviceId ||
         cameras?.backCameras?.[0]?.deviceId ||
         null;
       const ultraId = cameras?.backUltraWideCamera?.deviceId || null;
       const teleId = cameras?.backZoomCamera?.deviceId || null;
       const frontId = cameras?.frontCameras?.[0]?.deviceId || null;
 
+      const detectedShape = {
+        main: cameras?.backNormalCamera,
+        ultrawide: cameras?.backUltraWideCamera,
+        telephoto: cameras?.backZoomCamera,
+        rear: cameras?.backCameras || [],
+        front: cameras?.frontCameras || [],
+        all: cameras?.allCameras || [],
+      };
+
+      // Resolve target lens for zoom mode
       let resolvedDeviceId = null;
-      if (isBack && (z === "1x" || !z)) {
-        resolvedDeviceId = mainId;
-      } else if (isBack && z === "0.5x") {
-        resolvedDeviceId = ultraId || mainId;
-      } else if (isBack && (z === "2x" || z === "3x" || z === "5x")) {
-        resolvedDeviceId = teleId || mainId;
-      } else if (!isBack) {
+      let digitalZoomTarget = 1;
+
+      if (!isBack) {
         resolvedDeviceId = frontId || deviceId;
+        digitalZoomTarget = 1;
       } else {
-        resolvedDeviceId = mainId || deviceId;
+        const target = resolveZoomModeTarget(z, {
+          detected: detectedShape,
+          stream: streamRef.current,
+          facingMode: "environment",
+        });
+        // Explicit overrides for device switch from setDeviceId
+        if (deviceId && z === "0.5x" && ultraId && deviceId === ultraId) {
+          resolvedDeviceId = ultraId;
+          digitalZoomTarget = 1;
+        } else if (deviceId && z === "2x" && teleId && deviceId === teleId) {
+          resolvedDeviceId = teleId;
+          digitalZoomTarget = 1;
+        } else if (target.unavailable && z !== "1x") {
+          // Fall back to 1x main
+          resolvedDeviceId = mainId;
+          digitalZoomTarget = 1;
+          setZoomLevel("1x");
+        } else {
+          resolvedDeviceId = target.deviceId || mainId;
+          digitalZoomTarget =
+            target.digitalZoom != null ? target.digitalZoom : 1;
+        }
+
+        // HARD RULE: 1x never tele / ultra
+        if (z === "1x" || !z) {
+          resolvedDeviceId = mainId;
+          digitalZoomTarget = 1;
+        }
       }
 
-      // Quan trọng: nhả cam trước rồi mới mở cam sau
+      // Stop old stream before opening new (especially facing flip)
       const oldStream = streamRef.current;
-      if (facingChanged && oldStream) {
+      if (oldStream) {
         try {
           oldStream.getTracks().forEach((t) => t.stop());
         } catch {
@@ -542,43 +414,41 @@ const MediaPreviewAndroid = () => {
         streamRef.current = null;
         if (videoRef.current) videoRef.current.srcObject = null;
         cameraInitialized.current = false;
-        // Cập nhật mirror + remount video theo mode mới (tránh ảnh đảo lộn)
+      }
+
+      if (facingChanged) {
         setPreviewMirror(mode === "user");
         setVideoEpoch((n) => n + 1);
       }
 
-      let stream = await openStreamWithDevice(resolvedDeviceId, mode);
+      // Prefer main deviceId over facingMode so Android doesn't open tele
+      let stream = await startCameraByDeviceId(resolvedDeviceId, {
+        facingMode: mode,
+        highRes: true,
+        preferDeviceId: Boolean(resolvedDeviceId),
+      });
 
       if (requestId !== startRequestId.current) {
-        stream.getTracks().forEach((track) => track.stop());
+        stopCurrentCamera(stream);
         return;
       }
 
-      // 1x: nếu dính ultra → ép main
+      // 1x: if browser still opened ultra/tele → force main
       if (isBack && (z === "1x" || !z) && mainId) {
-        const actualId =
-          stream.getVideoTracks?.()?.[0]?.getSettings?.()?.deviceId;
-        if (actualId && ultraId && actualId === ultraId && actualId !== mainId) {
-          stream.getTracks().forEach((t) => t.stop());
-          try {
-            stream = await navigator.mediaDevices.getUserMedia({
-              video: {
-                deviceId: { ideal: mainId },
-                ...getCameraPreviewConstraints(
-                  CONFIG.app.camera.constraints.default,
-                ),
-              },
-              audio: false,
-            });
-            resolvedDeviceId = mainId;
-          } catch {
-            /* giữ stream trước */
-          }
+        stream = await ensureMainCameraStream(stream, mainId, {
+          ...detectedShape,
+          all: cameras?.allCameras,
+          rear: cameras?.backCameras,
+        });
+        if (!stream) {
+          cameraInitialized.current = false;
+          return;
         }
+        resolvedDeviceId = mainId;
       }
 
       if (requestId !== startRequestId.current) {
-        stream.getTracks().forEach((track) => track.stop());
+        stopCurrentCamera(stream);
         return;
       }
 
@@ -587,13 +457,13 @@ const MediaPreviewAndroid = () => {
       lastCameraMode.current = mode;
       lastZoomLevel.current = zoomLevel || "1x";
 
-      const track = getActiveTrack(stream);
+      const track = getActiveVideoTrack(stream);
       const settings = track?.getSettings?.() || {};
       const actualId = settings.deviceId;
       if (actualId) lastDeviceId.current = actualId;
       else if (resolvedDeviceId) lastDeviceId.current = resolvedDeviceId;
 
-      // Mirror chỉ khi stream thực sự là cam trước
+      // Mirror only real front streams
       const facing = String(settings.facingMode || "").toLowerCase();
       const isFrontStream =
         facing === "user" ||
@@ -601,7 +471,6 @@ const MediaPreviewAndroid = () => {
         (!facing && mode === "user");
       setPreviewMirror(isFrontStream);
 
-      // Chờ React remount <video key=...> rồi gắn stream
       if (facingChanged) {
         await new Promise((r) =>
           requestAnimationFrame(() => requestAnimationFrame(r)),
@@ -615,7 +484,6 @@ const MediaPreviewAndroid = () => {
         v.playsInline = true;
         v.setAttribute("playsinline", "true");
         v.setAttribute("webkit-playsinline", "true");
-        // Xóa transform inline cũ nếu browser giữ layer
         v.style.transform = isFrontStream
           ? "translate3d(0,0,0) scaleX(-1)"
           : "translate3d(0,0,0)";
@@ -631,18 +499,28 @@ const MediaPreviewAndroid = () => {
         }
       }
 
-      if (!facingChanged && oldStream && oldStream !== stream) {
+      // Apply digital zoom for mode (reset 1x to 1)
+      if (supportsHardwareZoom(stream)) {
         try {
-          oldStream.getTracks().forEach((t) => t.stop());
+          if (z === "1x" || !z) {
+            const range = readZoomRange(stream);
+            const one =
+              range.minZoom <= 1 && range.maxZoom >= 1 ? 1 : range.minZoom;
+            await applyDigitalZoom(one, stream);
+          } else if (digitalZoomTarget != null && digitalZoomTarget !== 1) {
+            await applyDigitalZoom(digitalZoomTarget, stream);
+          }
         } catch {
           /* ignore */
         }
       }
 
-      try {
-        await syncTrackFeatures(stream);
-      } catch (error) {
-        console.error("Không thể đồng bộ tính năng camera:", error);
+      syncZoomStateFromStream(stream, cameras, z);
+
+      // Keep store deviceId in sync without re-triggering if same
+      if (actualId && actualId !== deviceId && isBack && (z === "1x" || !z)) {
+        // Don't setState deviceId here — causes restart loops.
+        // lastDeviceId is enough for switch logic.
       }
 
       if (torchEnabled) {
@@ -657,18 +535,10 @@ const MediaPreviewAndroid = () => {
       cameraInitialized.current = false;
     } finally {
       startingRef.current = false;
+      setIsSwitchingCamera(false);
     }
   };
 
-  // helper sync (label only) — tránh async isDeviceUltraWide trong hot path
-  function isDeviceUltraWideSync(device) {
-    if (!device) return false;
-    return /ultra|0\.5|cực\s*rộng|siêu\s*rộng|wide\s*angle/i.test(
-      device.label || "",
-    );
-  }
-
-  // Tab ẩn / hiện
   useEffect(() => {
     const onVis = () => {
       setPageVisible(document.visibilityState === "visible");
@@ -677,15 +547,6 @@ const MediaPreviewAndroid = () => {
     return () => document.removeEventListener("visibilitychange", onVis);
   }, []);
 
-  // Preload pills (0.5x…) theo lens máy ngay khi vào cam sau
-  useEffect(() => {
-    if (!cameraActive || preview || selectedFile) return;
-    refreshLensPills(streamRef.current).catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cameraActive, cameraMode]);
-
-  // Lifecycle: chỉ chạy cam trên trang chụp
-  // Lưu ý: deviceId đổi từ *trong* startCamera không được trigger lại (đã chặn setState)
   useEffect(() => {
     const shouldRun =
       cameraActive && onCapturePage && !preview && !selectedFile;
@@ -706,17 +567,14 @@ const MediaPreviewAndroid = () => {
     onCapturePage,
   ]);
 
-  // Unmount
   useEffect(() => {
     return () => {
       startRequestId.current += 1;
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((t) => t.stop());
-        streamRef.current = null;
-      }
-      if (videoRef.current) videoRef.current.srcObject = null;
+      stopCurrentCamera(streamRef.current, videoRef.current);
+      streamRef.current = null;
       cameraInitialized.current = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleToggleTorch = async () => {
@@ -724,122 +582,26 @@ const MediaPreviewAndroid = () => {
       SonnerInfo(t("home.flash_not_supported"));
       return;
     }
-
-    const nextTorchState = !torchEnabled;
-
+    const next = !torchEnabled;
     try {
-      const applied = await applyTorchState(nextTorchState);
-
+      const applied = await applyTorchState(next);
       if (!applied) {
         SonnerInfo(t("home.flash_enable_failed"));
         return;
       }
-
-      setTorchEnabled(nextTorchState);
-    } catch (error) {
+      setTorchEnabled(next);
+    } catch {
       SonnerInfo(t("home.flash_enable_failed"));
     }
   };
 
-  const handleCycleZoomCamera = async () => {
-    const isBackCamera = cameraMode === "environment";
-    const isFrontCamera = cameraMode === "user";
-    const cameras = await getAvailableCameras();
-    const mainId =
-      cameras?.backNormalCamera?.deviceId || (await getMainBackCameraId());
-    const ultraId = cameras?.backUltraWideCamera?.deviceId;
-    const teleId = cameras?.backZoomCamera?.deviceId;
-    const track = getActiveTrack();
-    const capabilities = getTrackCapabilities(track);
-    const hasTrackZoom = Boolean(capabilities?.zoom);
+  const showZoomUi =
+    cameraMode === "environment" && !preview && !selectedFile && cameraActive;
 
-    // Cycle: 1x (main) → 0.5x (ultra) → 2x/3x (tele/zoom) → 1x
-    let newZoom = "1x";
-    let newDeviceId = null;
-    let useTrackOnly = false;
-
-    if (isFrontCamera) {
-      newZoom = zoomLevel === "1x" ? "0.5x" : "1x";
-      newDeviceId = cameras?.frontCameras?.[0]?.deviceId;
-      if (newZoom === "0.5x" && hasTrackZoom && !ultraId) {
-        useTrackOnly = true;
-      }
-    } else if (isBackCamera) {
-      if (zoomLevel === "1x" || !zoomLevel) {
-        // 1x → 0.5x ưu tiên ultra physical
-        if (ultraId) {
-          newZoom = "0.5x";
-          newDeviceId = ultraId;
-        } else if (hasTrackZoom) {
-          newZoom = "0.5x";
-          newDeviceId = mainId || deviceId;
-          useTrackOnly = true;
-        } else if (teleId) {
-          newZoom = "3x";
-          newDeviceId = teleId;
-        } else {
-          SonnerInfo(t("home.camera_no_zoom"));
-          return;
-        }
-      } else if (zoomLevel === "0.5x") {
-        // 0.5 → tele hoặc 2x track, không thì về 1x
-        if (teleId) {
-          newZoom = "3x";
-          newDeviceId = teleId;
-        } else if (hasTrackZoom && (capabilities?.zoom?.max || 1) >= 2) {
-          newZoom = "2x";
-          newDeviceId = mainId || deviceId;
-          useTrackOnly = true;
-        } else {
-          newZoom = "1x";
-          newDeviceId = mainId;
-        }
-      } else {
-        // 2x/3x → 1x main
-        newZoom = "1x";
-        newDeviceId = mainId;
-      }
-    }
-
-    if (newZoom === "1x" && isBackCamera) {
-      newDeviceId = mainId || newDeviceId;
-    }
-
-    // Cùng device, chỉ đổi track zoom (0.5/2 trên main)
-    if (
-      useTrackOnly ||
-      (newDeviceId &&
-        newDeviceId === deviceId &&
-        hasTrackZoom &&
-        newZoom !== "1x")
-    ) {
-      try {
-        const applied = await applyZoomLevel(newZoom);
-        if (applied) {
-          setZoomLevel(newZoom);
-          setZoomDisplay(newZoom);
-          return;
-        }
-      } catch (e) {
-        console.error("track zoom:", e);
-      }
-    }
-
-    if (newDeviceId) {
-      // Seamless: chỉ đổi state — startCamera mở stream mới rồi tắt cũ
-      setZoomLevel(newZoom);
-      setDeviceId(newDeviceId);
-    } else if (hasTrackZoom) {
-      try {
-        await applyZoomLevel(newZoom);
-        setZoomLevel(newZoom);
-        setZoomDisplay(newZoom);
-      } catch {
-        SonnerInfo(t("home.camera_no_zoom"));
-      }
-    } else {
-      SonnerInfo(t("home.camera_no_zoom"));
-    }
+  const modeEnabled = (mode) => {
+    if (mode === "1x") return true;
+    if (!availableZoomModes) return false;
+    return Boolean(availableZoomModes[mode]);
   };
 
   return (
@@ -865,7 +627,6 @@ const MediaPreviewAndroid = () => {
               cameraActive ? "opacity-100" : "opacity-0 pointer-events-none"
             }`}
             style={{
-              // Chỉ mirror cam trước; cam sau không scaleX (tránh đảo lộn khi lật)
               transform: previewMirror
                 ? "translate3d(0,0,0) scaleX(-1)"
                 : "translate3d(0,0,0)",
@@ -875,9 +636,15 @@ const MediaPreviewAndroid = () => {
           />
         )}
 
+        {/* Switching lens overlay */}
+        {isSwitchingCamera && !preview && !selectedFile && (
+          <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/30 pointer-events-none">
+            <div className="w-8 h-8 rounded-full border-2 border-white/80 border-t-transparent animate-spin" />
+          </div>
+        )}
+
         {!preview && !selectedFile && (
           <>
-            {/* Chỉ flash — KHÔNG pills zoom / nút 1x (bất kỳ trường hợp nào) */}
             <div className="absolute inset-0 top-7 px-7 z-30 pointer-events-none flex justify-start text-base-content text-xs font-semibold">
               <button
                 onClick={handleToggleTorch}
@@ -886,6 +653,37 @@ const MediaPreviewAndroid = () => {
                 <img src="/icons/bolt.fill.png" alt="Icon sấm sét" />
               </button>
             </div>
+
+            {/* Zoom selector: 0.5 / 1x / 2x / Max — lower part of frame */}
+            {showZoomUi && (
+              <div className="absolute inset-x-0 bottom-5 z-30 pointer-events-none flex justify-center">
+                <div className="pointer-events-auto flex items-center gap-1.5 px-2 py-1 rounded-full bg-black/40 backdrop-blur-md">
+                  {ZOOM_MODES.map((mode) => {
+                    const active = (zoomLevel || "1x") === mode;
+                    const enabled = modeEnabled(mode);
+                    return (
+                      <button
+                        key={mode}
+                        type="button"
+                        disabled={!enabled || isSwitchingCamera}
+                        onClick={() => handleSelectZoomMode(mode)}
+                        className={`min-w-[2.25rem] h-8 px-2 rounded-full text-xs font-semibold transition-all
+                          ${
+                            active
+                              ? "bg-white text-black scale-105"
+                              : enabled
+                                ? "bg-white/15 text-white hover:bg-white/25"
+                                : "bg-white/5 text-white/30 cursor-not-allowed"
+                          }`}
+                        aria-label={`Zoom ${formatZoomModeLabel(mode)}`}
+                      >
+                        {formatZoomModeLabel(mode)}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {cameraFrame?.imageSrc && (
               <div className="absolute inset-0 z-20 pointer-events-none">
@@ -907,7 +705,11 @@ const MediaPreviewAndroid = () => {
             loop
             muted
             playsInline
-            className={videoCropData ? "absolute" : `w-full h-full object-cover ${preview ? "opacity-100" : "opacity-0"}`}
+            className={
+              videoCropData
+                ? "absolute"
+                : `w-full h-full object-cover ${preview ? "opacity-100" : "opacity-0"}`
+            }
             style={
               videoCropData
                 ? {

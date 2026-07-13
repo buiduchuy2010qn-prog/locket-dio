@@ -1,28 +1,39 @@
-import React, { lazy, Suspense, useEffect, useRef, useState } from "react";
+import React, { lazy, Suspense, useEffect, useRef, useState, useCallback } from "react";
 import {
   getAvailableCameras,
-  isIOS,
-  pickCameraDeviceId,
   getMainBackCameraId,
-  isDeviceUltraWide,
+  startCameraByDeviceId,
+  stopCurrentCamera,
+  getCurrentTrackCapabilities,
+  getCurrentTrackSettings,
+  getActiveVideoTrack,
+  supportsHardwareZoom,
+  setCameraZoom,
+  readZoomRange,
+  computeAvailableZoomModes,
+  ensureMainCameraStream,
+  resolveZoomModeTarget,
+  classifyLensType,
+  formatZoomModeLabel,
+  ZOOM_MODES,
+  isUltraLabel,
+  isTeleLabel,
 } from "@/utils";
 const EditorCaption = lazy(() => import("@/features/EditorCaption"));
 import { useApp } from "@/context/AppContext";
-import { CONFIG } from "@/config";
 import BorderProgress from "../../Widgets/SquareProgress";
 import { SonnerInfo } from "@/components/ui/SonnerToast";
 import { usePostStore, useUIStore } from "@/stores";
 import { useTranslation } from "react-i18next";
-import { getCameraPreviewConstraints } from "@/utils/device/perfProfile";
 
 const MediaPreviewIOS = () => {
   const { useloading, camera, navigation } = useApp();
   const { t } = useTranslation("main");
-  
+
   const selectedFile = usePostStore((s) => s.selectedFile);
   const preview = usePostStore((s) => s.preview);
   const videoCropData = usePostStore((s) => s.videoCropData);
-  
+
   const {
     streamRef,
     videoRef,
@@ -33,6 +44,16 @@ const MediaPreviewIOS = () => {
     setZoomLevel,
     deviceId,
     setDeviceId,
+    setCurrentLensType,
+    setCurrentZoom,
+    setMinZoom,
+    setMaxZoom,
+    setZoomStep,
+    availableZoomModes,
+    setAvailableZoomModes,
+    isSwitchingCamera,
+    setIsSwitchingCamera,
+    setDetectedCameras,
   } = camera;
   const { setSendLoading } = useloading;
   const { isBottomOpen, isHomeOpen, isProfileOpen } = navigation || {};
@@ -42,7 +63,9 @@ const MediaPreviewIOS = () => {
   const lastDeviceId = useRef(deviceId);
   const lastZoomLevel = useRef(zoomLevel);
   const startRequestId = useRef(0);
-  const [lensPills, setLensPills] = useState(["1x"]);
+  const detectedRef = useRef(null);
+  const currentZoomValue = useRef(1);
+
   const [previewMirror, setPreviewMirror] = useState(
     () => cameraMode === "user",
   );
@@ -58,74 +81,154 @@ const MediaPreviewIOS = () => {
 
   const cameraFrame = useUIStore((s) => s.cameraFrame);
 
-  const refreshLensPills = async () => {
-    const pills = new Set(["1x"]);
-    try {
-      const cameras = await getAvailableCameras();
-      // Full zoom theo lens máy
-      if (cameras?.backUltraWideCamera) pills.add("0.5x");
-      pills.add("1x");
-      if (cameras?.backZoomCamera) {
-        pills.add("2x");
-        pills.add("3x");
-      } else {
-        // Không tele: vẫn cho 2x (main)
-        pills.add("2x");
+  const syncZoomStateFromStream = useCallback(
+    (stream, cameras) => {
+      const range = readZoomRange(stream);
+      setMinZoom(range.minZoom);
+      setMaxZoom(range.maxZoom);
+      setZoomStep(range.zoomStep);
+
+      const detectedShape = {
+        main: cameras?.backNormalCamera,
+        ultrawide: cameras?.backUltraWideCamera,
+        telephoto: cameras?.backZoomCamera,
+        rear: cameras?.backCameras || [],
+        front: cameras?.frontCameras || [],
+        all: cameras?.allCameras || [],
+      };
+      const modes = computeAvailableZoomModes(detectedShape, stream);
+      modes["1x"] = true;
+      setAvailableZoomModes(modes);
+
+      const settings = getCurrentTrackSettings(stream);
+      const actualId = settings.deviceId || null;
+      const device =
+        cameras?.allCameras?.find((d) => d.deviceId === actualId) || null;
+      setCurrentLensType(
+        classifyLensType(device, detectedShape),
+      );
+      const z = settings.zoom ?? currentZoomValue.current ?? 1;
+      currentZoomValue.current = z;
+      setCurrentZoom(z);
+      if (actualId) lastDeviceId.current = actualId;
+    },
+    [
+      setAvailableZoomModes,
+      setCurrentLensType,
+      setCurrentZoom,
+      setMaxZoom,
+      setMinZoom,
+      setZoomStep,
+    ],
+  );
+
+  const applyDigitalZoom = async (value, stream = streamRef.current) => {
+    const applied = await setCameraZoom(stream, value);
+    if (applied !== false) {
+      currentZoomValue.current = applied;
+      setCurrentZoom(applied);
+      return true;
+    }
+    return false;
+  };
+
+  const handleSelectZoomMode = async (mode) => {
+    if (isSwitchingCamera) return;
+    if (mode === zoomLevel && mode !== "0.5x") return;
+
+    const isBack = cameraMode === "environment";
+    const cameras =
+      detectedRef.current || (await getAvailableCameras({ force: false }));
+    detectedRef.current = cameras;
+    setDetectedCameras(cameras);
+
+    const detectedShape = {
+      main: cameras?.backNormalCamera,
+      ultrawide: cameras?.backUltraWideCamera,
+      telephoto: cameras?.backZoomCamera,
+      rear: cameras?.backCameras || [],
+      front: cameras?.frontCameras || [],
+      all: cameras?.allCameras || [],
+    };
+
+    const modes =
+      availableZoomModes ||
+      computeAvailableZoomModes(detectedShape, streamRef.current);
+
+    if (mode !== "1x" && modes[mode] === false) {
+      SonnerInfo(
+        t(
+          mode === "0.5x"
+            ? "home.zoom_05_unsupported"
+            : mode === "2x"
+              ? "home.zoom_2x_unsupported"
+              : mode === "max"
+                ? "home.zoom_max_unsupported"
+                : "home.camera_no_zoom",
+          { defaultValue: t("home.camera_no_zoom") },
+        ),
+      );
+      return;
+    }
+
+    const target = resolveZoomModeTarget(mode, {
+      detected: detectedShape,
+      stream: streamRef.current,
+      facingMode: isBack ? "environment" : "user",
+    });
+
+    if (target.unavailable) {
+      SonnerInfo(
+        t(
+          mode === "0.5x"
+            ? "home.zoom_05_unsupported"
+            : mode === "max"
+              ? "home.zoom_max_unsupported"
+              : "home.camera_no_zoom",
+          { defaultValue: t("home.camera_no_zoom") },
+        ),
+      );
+      return;
+    }
+
+    const sameDevice =
+      target.deviceId &&
+      (target.deviceId === deviceId ||
+        target.deviceId === lastDeviceId.current);
+
+    if (sameDevice || (!target.deviceId && streamRef.current)) {
+      setZoomLevel(target.mode);
+      lastZoomLevel.current = target.mode;
+      if (target.digitalZoom != null && supportsHardwareZoom(streamRef.current)) {
+        try {
+          await applyDigitalZoom(target.digitalZoom);
+        } catch {
+          /* ignore */
+        }
+      } else if (target.mode === "1x" && supportsHardwareZoom(streamRef.current)) {
+        const range = readZoomRange(streamRef.current);
+        const one = range.minZoom <= 1 && range.maxZoom >= 1 ? 1 : range.minZoom;
+        await applyDigitalZoom(one);
       }
-    } catch {
-      /* ignore */
-    }
-    const order = ["0.5x", "1x", "2x", "3x"];
-    setLensPills(order.filter((z) => pills.has(z)));
-  };
-
-  const handleSelectLens = async (label) => {
-    const cameras = await getAvailableCameras();
-    let newDeviceId = null;
-    if (cameraMode === "user") {
-      newDeviceId = cameras?.frontCameras?.[0]?.deviceId;
-      setZoomLevel(label === "0.5x" ? "0.5x" : "1x");
-      if (newDeviceId) setDeviceId(newDeviceId);
       return;
     }
-    if (label === "1x" || label === "2x") {
-      newDeviceId =
-        cameras?.backNormalCamera?.deviceId || (await getMainBackCameraId());
-    } else if (label === "0.5x") {
-      newDeviceId =
-        cameras?.backUltraWideCamera?.deviceId ||
-        cameras?.backNormalCamera?.deviceId;
-    } else {
-      // 3x / tele
-      newDeviceId =
-        cameras?.backZoomCamera?.deviceId ||
-        cameras?.backNormalCamera?.deviceId ||
-        (await getMainBackCameraId());
-    }
-    if (!newDeviceId) {
-      SonnerInfo(t("home.camera_no_zoom"));
-      return;
-    }
-    setZoomLevel(label);
-    setDeviceId(newDeviceId);
+
+    setIsSwitchingCamera(true);
+    setZoomLevel(target.mode);
+    setDeviceId(target.deviceId || null);
   };
 
-  const iosDevice = isIOS();
   const stopCamera = () => {
     startRequestId.current += 1;
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
-      streamRef.current = null;
-    }
-    if (videoRef.current) {
-      videoRef.current.srcObject = null;
-    }
+    stopCurrentCamera(streamRef.current, videoRef.current);
+    streamRef.current = null;
     cameraInitialized.current = false;
   };
 
   const startCamera = async () => {
     const requestId = startRequestId.current + 1;
     startRequestId.current = requestId;
+    setIsSwitchingCamera(true);
 
     try {
       const mode = cameraMode || "user";
@@ -138,7 +241,8 @@ const MediaPreviewIOS = () => {
         cameraInitialized.current &&
         streamRef.current &&
         trackLive &&
-        lastZoomLevel.current === zoomLevel
+        lastZoomLevel.current === zoomLevel &&
+        lastDeviceId.current === deviceId
       ) {
         if (videoRef.current && !videoRef.current.srcObject) {
           videoRef.current.srcObject = streamRef.current;
@@ -154,34 +258,61 @@ const MediaPreviewIOS = () => {
       const isBack = mode === "environment";
       const z = zoomLevel || "1x";
       const cameras = await getAvailableCameras();
+      detectedRef.current = cameras;
+      setDetectedCameras(cameras);
+
       const mainId =
         cameras?.backNormalCamera?.deviceId ||
+        (await getMainBackCameraId()) ||
+        cameras?.backCameras?.find(
+          (c) => !isUltraLabel(c.label) && !isTeleLabel(c.label),
+        )?.deviceId ||
         cameras?.backCameras?.[0]?.deviceId ||
         null;
       const ultraId = cameras?.backUltraWideCamera?.deviceId || null;
       const teleId = cameras?.backZoomCamera?.deviceId || null;
       const frontId = cameras?.frontCameras?.[0]?.deviceId || null;
 
+      const detectedShape = {
+        main: cameras?.backNormalCamera,
+        ultrawide: cameras?.backUltraWideCamera,
+        telephoto: cameras?.backZoomCamera,
+        rear: cameras?.backCameras || [],
+        front: cameras?.frontCameras || [],
+        all: cameras?.allCameras || [],
+      };
+
       let resolvedDeviceId = null;
-      if (isBack && (z === "1x" || !z)) {
-        resolvedDeviceId = mainId;
-      } else if (isBack && z === "0.5x") {
-        resolvedDeviceId = ultraId || mainId;
-      } else if (isBack && (z === "2x" || z === "3x" || z === "5x")) {
-        resolvedDeviceId = teleId || mainId;
-      } else if (!isBack) {
+      let digitalZoomTarget = 1;
+
+      if (!isBack) {
         resolvedDeviceId = frontId || deviceId;
       } else {
-        resolvedDeviceId = mainId || (await pickCameraDeviceId(mode, z));
+        const target = resolveZoomModeTarget(z, {
+          detected: detectedShape,
+          stream: streamRef.current,
+          facingMode: "environment",
+        });
+        if (deviceId && z === "0.5x" && ultraId && deviceId === ultraId) {
+          resolvedDeviceId = ultraId;
+        } else if (deviceId && z === "2x" && teleId && deviceId === teleId) {
+          resolvedDeviceId = teleId;
+        } else if (target.unavailable && z !== "1x") {
+          resolvedDeviceId = mainId;
+          setZoomLevel("1x");
+        } else {
+          resolvedDeviceId = target.deviceId || mainId;
+          digitalZoomTarget =
+            target.digitalZoom != null ? target.digitalZoom : 1;
+        }
+        if (z === "1x" || !z) {
+          resolvedDeviceId = mainId;
+          digitalZoomTarget = 1;
+        }
       }
 
-      const quality = getCameraPreviewConstraints(
-        CONFIG.app.camera.constraints.default,
-      );
       const oldStream = streamRef.current;
-
-      // iOS: nhả cam cũ trước khi lật
-      if (facingChanged && oldStream) {
+      if (oldStream) {
         try {
           oldStream.getTracks().forEach((t) => t.stop());
         } catch {
@@ -190,80 +321,39 @@ const MediaPreviewIOS = () => {
         streamRef.current = null;
         if (videoRef.current) videoRef.current.srcObject = null;
         cameraInitialized.current = false;
+      }
+
+      if (facingChanged) {
         setPreviewMirror(mode === "user");
         setVideoEpoch((n) => n + 1);
       }
 
-      let stream = null;
-      const tryGum = async (video) =>
-        navigator.mediaDevices.getUserMedia({ video, audio: false });
-
-      // facingMode trước — lật cam sau ổn định
-      try {
-        stream = await tryGum({
-          facingMode: { exact: mode },
-          ...quality,
-        });
-      } catch {
-        try {
-          stream = await tryGum({
-            facingMode: { ideal: mode },
-            ...quality,
-          });
-        } catch {
-          stream = null;
-        }
-      }
-
-      if (!stream && resolvedDeviceId) {
-        try {
-          stream = await tryGum({
-            deviceId: { ideal: resolvedDeviceId },
-            ...quality,
-          });
-        } catch {
-          try {
-            stream = await tryGum({
-              deviceId: { exact: resolvedDeviceId },
-              ...quality,
-            });
-          } catch {
-            stream = null;
-          }
-        }
-      }
-
-      if (!stream) {
-        stream = await tryGum({
-          facingMode: { ideal: mode },
-          ...quality,
-        });
-      }
+      let stream = await startCameraByDeviceId(resolvedDeviceId, {
+        facingMode: mode,
+        highRes: true,
+        preferDeviceId: Boolean(resolvedDeviceId),
+      });
 
       if (requestId !== startRequestId.current) {
-        stream.getTracks().forEach((t) => t.stop());
+        stopCurrentCamera(stream);
         return;
       }
 
       if (isBack && (z === "1x" || !z) && mainId) {
-        const actualId =
-          stream.getVideoTracks?.()?.[0]?.getSettings?.()?.deviceId;
-        if (actualId && ultraId && actualId === ultraId) {
-          stream.getTracks().forEach((t) => t.stop());
-          try {
-            stream = await tryGum({
-              deviceId: { ideal: mainId },
-              ...quality,
-            });
-            resolvedDeviceId = mainId;
-          } catch {
-            /* keep */
-          }
+        stream = await ensureMainCameraStream(stream, mainId, {
+          ...detectedShape,
+          all: cameras?.allCameras,
+          rear: cameras?.backCameras,
+        });
+        if (!stream) {
+          cameraInitialized.current = false;
+          return;
         }
+        resolvedDeviceId = mainId;
       }
 
       if (requestId !== startRequestId.current) {
-        stream.getTracks().forEach((t) => t.stop());
+        stopCurrentCamera(stream);
         return;
       }
 
@@ -271,7 +361,8 @@ const MediaPreviewIOS = () => {
       cameraInitialized.current = true;
       lastCameraMode.current = mode;
       lastZoomLevel.current = zoomLevel || "1x";
-      const track = stream.getVideoTracks?.()?.[0];
+
+      const track = getActiveVideoTrack(stream);
       const settings = track?.getSettings?.() || {};
       const actualId = settings.deviceId;
       lastDeviceId.current = actualId || resolvedDeviceId || deviceId;
@@ -282,10 +373,6 @@ const MediaPreviewIOS = () => {
         facing === "front" ||
         (!facing && mode === "user");
       setPreviewMirror(isFrontStream);
-
-      setTimeout(() => {
-        refreshLensPills().catch(() => {});
-      }, 0);
 
       if (facingChanged) {
         await new Promise((r) =>
@@ -310,15 +397,27 @@ const MediaPreviewIOS = () => {
         }
       }
 
-      if (!facingChanged && oldStream && oldStream !== stream) {
+      if (supportsHardwareZoom(stream)) {
         try {
-          oldStream.getTracks().forEach((t) => t.stop());
+          if (z === "1x" || !z) {
+            const range = readZoomRange(stream);
+            const one =
+              range.minZoom <= 1 && range.maxZoom >= 1 ? 1 : range.minZoom;
+            await applyDigitalZoom(one, stream);
+          } else if (digitalZoomTarget != null && digitalZoomTarget !== 1) {
+            await applyDigitalZoom(digitalZoomTarget, stream);
+          }
         } catch {
           /* ignore */
         }
       }
+
+      syncZoomStateFromStream(stream, cameras);
     } catch (err) {
+      console.error("startCamera iOS:", err);
       cameraInitialized.current = false;
+    } finally {
+      setIsSwitchingCamera(false);
     }
   };
 
@@ -327,13 +426,6 @@ const MediaPreviewIOS = () => {
     document.addEventListener("visibilitychange", onVis);
     return () => document.removeEventListener("visibilitychange", onVis);
   }, []);
-
-  // Preload zoom pills (0.5 / 1 / 2 / 3)
-  useEffect(() => {
-    if (!cameraActive || preview || selectedFile) return;
-    refreshLensPills().catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cameraActive, cameraMode]);
 
   useEffect(() => {
     const shouldRun =
@@ -357,77 +449,26 @@ const MediaPreviewIOS = () => {
   useEffect(() => {
     return () => {
       startRequestId.current += 1;
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((t) => t.stop());
-        streamRef.current = null;
-      }
-      if (videoRef.current) videoRef.current.srcObject = null;
+      stopCurrentCamera(streamRef.current, videoRef.current);
+      streamRef.current = null;
       cameraInitialized.current = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Sau chụp xong (xóa preview) → bật lại cam nếu đang ở trang chụp
   useEffect(() => {
-    if (
-      !preview &&
-      !selectedFile &&
-      !cameraActive &&
-      onCapturePage
-    ) {
+    if (!preview && !selectedFile && !cameraActive && onCapturePage) {
       setCameraActive(true);
     }
   }, [preview, selectedFile, cameraActive, onCapturePage, setCameraActive]);
 
-  const handleCycleZoomCamera = async () => {
-    const cameras = await getAvailableCameras();
-    const isBackCamera = cameraMode === "environment";
-    const isFrontCamera = cameraMode === "user";
+  const showZoomUi =
+    cameraMode === "environment" && !preview && !selectedFile && cameraActive;
 
-    let newZoom = "1x";
-    let newDeviceId = null;
-
-    if (isFrontCamera) {
-      newZoom = zoomLevel === "1x" ? "0.5x" : "1x";
-      newDeviceId = cameras?.frontCameras?.[0]?.deviceId;
-    } else if (isBackCamera) {
-      if (zoomLevel === "1x") {
-        if (cameras?.backUltraWideCamera?.deviceId) {
-          newZoom = "0.5x";
-          newDeviceId = cameras.backUltraWideCamera.deviceId;
-        } else if (cameras?.backZoomCamera?.deviceId) {
-          newZoom = "3x";
-          newDeviceId = cameras.backZoomCamera.deviceId;
-        }
-      } else if (zoomLevel === "0.5x") {
-        if (cameras?.backZoomCamera?.deviceId) {
-          newZoom = "3x";
-          newDeviceId = cameras.backZoomCamera.deviceId;
-        } else {
-          newZoom = "1x";
-          newDeviceId =
-            cameras?.backNormalCamera?.deviceId ||
-            (await getMainBackCameraId());
-        }
-      } else {
-        newZoom = "1x";
-        newDeviceId =
-          cameras?.backNormalCamera?.deviceId || (await getMainBackCameraId());
-      }
-
-      if (newZoom === "1x") {
-        newDeviceId =
-          cameras?.backNormalCamera?.deviceId ||
-          (await getMainBackCameraId()) ||
-          newDeviceId;
-      }
-    }
-
-    if (newDeviceId) {
-      setZoomLevel(newZoom);
-      setDeviceId(newDeviceId);
-    } else {
-      SonnerInfo(t("home.camera_no_zoom"));
-    }
+  const modeEnabled = (mode) => {
+    if (mode === "1x") return true;
+    if (!availableZoomModes) return false;
+    return Boolean(availableZoomModes[mode]);
   };
 
   return (
@@ -456,9 +497,14 @@ const MediaPreviewIOS = () => {
           />
         )}
 
+        {isSwitchingCamera && !preview && !selectedFile && (
+          <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/30 pointer-events-none">
+            <div className="w-8 h-8 rounded-full border-2 border-white/80 border-t-transparent animate-spin" />
+          </div>
+        )}
+
         {!preview && !selectedFile && (
           <>
-            {/* Chỉ flash — KHÔNG pills zoom / nút 1x (bất kỳ trường hợp nào) */}
             <div className="absolute inset-0 top-7 px-7 z-30 pointer-events-none flex justify-start text-base-content text-xs font-semibold">
               <button
                 onClick={() => SonnerInfo(t("home.feature_coming_soon"))}
@@ -467,6 +513,36 @@ const MediaPreviewIOS = () => {
                 <img src="/icons/bolt.fill.png" alt="Icon sấm sét" />
               </button>
             </div>
+
+            {showZoomUi && (
+              <div className="absolute inset-x-0 bottom-5 z-30 pointer-events-none flex justify-center">
+                <div className="pointer-events-auto flex items-center gap-1.5 px-2 py-1 rounded-full bg-black/40 backdrop-blur-md">
+                  {ZOOM_MODES.map((mode) => {
+                    const active = (zoomLevel || "1x") === mode;
+                    const enabled = modeEnabled(mode);
+                    return (
+                      <button
+                        key={mode}
+                        type="button"
+                        disabled={!enabled || isSwitchingCamera}
+                        onClick={() => handleSelectZoomMode(mode)}
+                        className={`min-w-[2.25rem] h-8 px-2 rounded-full text-xs font-semibold transition-all
+                          ${
+                            active
+                              ? "bg-white text-black scale-105"
+                              : enabled
+                                ? "bg-white/15 text-white hover:bg-white/25"
+                                : "bg-white/5 text-white/30 cursor-not-allowed"
+                          }`}
+                        aria-label={`Zoom ${formatZoomModeLabel(mode)}`}
+                      >
+                        {formatZoomModeLabel(mode)}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {cameraFrame?.imageSrc && (
               <div className="absolute inset-0 z-20 pointer-events-none">
@@ -488,7 +564,11 @@ const MediaPreviewIOS = () => {
             loop
             muted
             playsInline
-            className={videoCropData ? "absolute" : `w-full h-full object-cover ${preview ? "opacity-100" : "opacity-0"}`}
+            className={
+              videoCropData
+                ? "absolute"
+                : `w-full h-full object-cover ${preview ? "opacity-100" : "opacity-0"}`
+            }
             style={
               videoCropData
                 ? {

@@ -1,5 +1,5 @@
 // src/hooks/useCamera.js
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef } from "react";
 
 export const useCamera = () => {
   const videoRef = useRef(null);
@@ -14,9 +14,27 @@ export const useCamera = () => {
   const [holdTime, setHoldTime] = useState(0);
   const [loading, setLoading] = useState(false);
   const [countdown, setCountdown] = useState(null);
+  /** "user" | "environment" */
   const [cameraMode, setCameraMode] = useState("user");
-  const [zoomLevel, setZoomLevel] = useState("1x"); // "0.5x" | "1x" | "3x"
-  const [deviceId, setDeviceId] = useState(null); // deviceId của camera hiện tại
+  /** "0.5x" | "1x" | "2x" | "max" — default main x1 */
+  const [zoomLevel, setZoomLevel] = useState("1x");
+  const [deviceId, setDeviceId] = useState(null);
+
+  // Lens / zoom system state
+  const [currentLensType, setCurrentLensType] = useState("unknown");
+  const [currentZoom, setCurrentZoom] = useState(1);
+  const [minZoom, setMinZoom] = useState(1);
+  const [maxZoom, setMaxZoom] = useState(1);
+  const [zoomStep, setZoomStep] = useState(0.1);
+  const [availableZoomModes, setAvailableZoomModes] = useState({
+    "0.5x": false,
+    "1x": true,
+    "2x": false,
+    max: false,
+  });
+  const [isSwitchingCamera, setIsSwitchingCamera] = useState(false);
+  /** Detected devices snapshot for UI */
+  const [detectedCameras, setDetectedCameras] = useState(null);
 
   return {
     videoRef,
@@ -43,5 +61,22 @@ export const useCamera = () => {
     setDeviceId,
     zoomLevel,
     setZoomLevel,
+    // lens system
+    currentLensType,
+    setCurrentLensType,
+    currentZoom,
+    setCurrentZoom,
+    minZoom,
+    setMinZoom,
+    maxZoom,
+    setMaxZoom,
+    zoomStep,
+    setZoomStep,
+    availableZoomModes,
+    setAvailableZoomModes,
+    isSwitchingCamera,
+    setIsSwitchingCamera,
+    detectedCameras,
+    setDetectedCameras,
   };
 };

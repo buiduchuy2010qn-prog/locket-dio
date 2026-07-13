@@ -176,6 +176,10 @@
     "unknown_error": "Unknown error",
     "payload_creation_failed": "Failed to create payload!",
     "camera_no_zoom": "No suitable camera found to switch zoom",
+    "zoom_05_unsupported": "0.5x is not supported on this device",
+    "zoom_2x_unsupported": "2x is not supported on this device",
+    "zoom_max_unsupported": "Max zoom is not supported on this device",
+
     "feature_coming_soon": "This feature is coming soon!",
     "only_media_supported_short": "Only photos and videos are supported.",
     "flash_not_supported": "This camera does not support flash",

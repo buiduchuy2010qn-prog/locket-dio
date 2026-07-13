@@ -3,36 +3,28 @@ import { useApp } from "@/context/AppContext";
 import { RefreshCcw } from "lucide-react";
 
 const CameraToggleAndroid = () => {
-  const { camera, useloading } = useApp();
+  const { camera } = useApp();
   const {
-    videoRef,
-    streamRef,
-    canvasRef,
-    cameraRef,
     rotation,
-    isHolding,
-    setIsHolding,
-    permissionChecked,
-    setPermissionChecked,
-    holdTime,
-    setHoldTime,
     setRotation,
     cameraMode,
     setCameraMode,
-    cameraActive,
-    setCameraActive,
-    setLoading,
     setDeviceId,
     setZoomLevel,
+    setCurrentLensType,
+    setIsSwitchingCamera,
   } = camera;
 
+  /** Flip front/back — always land on main rear @ 1x (never tele). */
   const handleRotateCamera = async () => {
     setRotation((prev) => prev - 180);
     const newMode = cameraMode === "user" ? "environment" : "user";
-    // deviceId=null → MediaPreview dùng facingMode (mở cam sau ổn định trên Android)
+    setIsSwitchingCamera?.(true);
     setCameraMode(newMode);
+    // Reset zoom to 1x; MediaPreview opens main wide via deviceId prefer
     setZoomLevel("1x");
     setDeviceId(null);
+    setCurrentLensType?.(newMode === "environment" ? "main" : "unknown");
   };
 
   return (
