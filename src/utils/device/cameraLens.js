@@ -367,24 +367,60 @@ function highResQuality(base = {}) {
   };
 }
 
+/** Constraint siêu nhẹ khi flip cam — mở nhanh, preview đủ dùng */
+function flipFastQuality() {
+  return {
+    width: { ideal: 640, max: 960 },
+    height: { ideal: 640, max: 960 },
+    frameRate: { ideal: 24, max: 30 },
+  };
+}
+
 export async function startCameraByDeviceId(deviceId, options = {}) {
   const {
     facingMode = "environment",
     // Default false: preview mượt; chụp/quay vẫn lấy frame từ track
     highRes = false,
     preferDeviceId = true,
+    // Flip front↔rear: constraint nhẹ + facingMode-first
+    fast = false,
   } = options;
 
   const quality = highRes
     ? highResQuality(CONFIG?.app?.camera?.constraints?.default || {})
-    : getCameraPreviewConstraints(
-        CONFIG?.app?.camera?.constraints?.default || {},
-      );
+    : fast
+      ? flipFastQuality()
+      : getCameraPreviewConstraints(
+          CONFIG?.app?.camera?.constraints?.default || {},
+        );
 
   const tryOpen = async (video) =>
     navigator.mediaDevices.getUserMedia({ video, audio: false });
 
-  // Fast path trước: ideal (ít fail/retry → mở cam nhanh)
+  // Flip: facingMode ideal trước (nhanh nhất trên mobile), deviceId optional
+  if (fast) {
+    try {
+      if (deviceId && preferDeviceId) {
+        return await tryOpen({
+          deviceId: { ideal: deviceId },
+          facingMode: { ideal: facingMode },
+          ...quality,
+        });
+      }
+      return await tryOpen({
+        facingMode: { ideal: facingMode },
+        ...quality,
+      });
+    } catch {
+      try {
+        return await tryOpen({ facingMode: { ideal: facingMode }, ...quality });
+      } catch {
+        /* fall through to normal path */
+      }
+    }
+  }
+
+  // Fast path: ideal (ít fail/retry → mở cam nhanh)
   // exact chỉ khi cần khóa lens (ultra/tele)
   if (preferDeviceId && deviceId) {
     try {
@@ -1074,31 +1110,34 @@ export function handleFrontCameraPinchEnd() {
 }
 
 /**
- * Open front camera (facingMode user). Stops oldStream first.
+ * Open front camera (facingMode user).
+ * Giữ oldStream đến khi cam mới sẵn sàng → flip không màn đen / không chờ stop.
  * Always starts at 1x. Does not use rear lens selection.
  */
 export async function startFrontCamera(options = {}) {
-  const { oldStream = null, videoEl = null, deviceId = null } = options;
-  if (oldStream) {
-    clearTrackZoomCache(oldStream);
-    stopCurrentCamera(oldStream, videoEl);
-  }
+  const {
+    oldStream = null,
+    videoEl = null,
+    deviceId = null,
+    fast = true,
+  } = options;
 
-  // Fast path: facingMode user ngay — không enumerateDevices (chậm)
-  // deviceId chỉ dùng nếu caller đã có (cache)
+  // Mở cam mới TRƯỚC — không stop old (tránh black + double latency)
   const stream = await startCameraByDeviceId(deviceId || null, {
     facingMode: "user",
     highRes: false,
     preferDeviceId: Boolean(deviceId),
+    fast,
   });
 
-  // Reset zoom 1x không chặn return nếu fail
-  let zoom = 1;
-  try {
-    zoom = await resetFrontCameraZoom(stream);
-  } catch {
-    zoom = 1;
+  // Stop old sau khi new ready — không clear videoEl (caller gán srcObject)
+  if (oldStream && oldStream !== stream) {
+    clearTrackZoomCache(oldStream);
+    stopCurrentCamera(oldStream, null);
   }
+
+  // Zoom 1x nền — không await (mở preview ngay)
+  resetFrontCameraZoom(stream).catch(() => {});
   const caps = refreshFrontCameraZoomCapabilities(stream);
   const settings = getCurrentTrackSettings(stream);
 
@@ -1108,7 +1147,7 @@ export async function startFrontCamera(options = {}) {
     facingMode: "user",
     lensType: "front",
     zoomMode: "1x",
-    currentZoom: zoom,
+    currentZoom: 1,
     minZoom: caps.minZoom,
     maxZoom: caps.maxZoom,
     zoomStep: caps.zoomStep,

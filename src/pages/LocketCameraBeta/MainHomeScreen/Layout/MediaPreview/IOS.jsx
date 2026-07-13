@@ -9,7 +9,6 @@ import React, {
 import {
   getAvailableCameras,
   warmCameraList,
-  getMainBackCameraId,
   startCameraByDeviceId,
   stopCurrentCamera,
   getCurrentTrackCapabilities,
@@ -615,7 +614,7 @@ const MediaPreviewIOS = () => {
     if (switchSpinnerTimer.current) clearTimeout(switchSpinnerTimer.current);
     switchSpinnerTimer.current = setTimeout(() => {
       setIsSwitchingCamera(true);
-    }, 120);
+    }, 180);
 
     try {
       const mode = cameraMode || "user";
@@ -645,17 +644,15 @@ const MediaPreviewIOS = () => {
       const isBack = mode === "environment";
       const z = zoomLevel || "1x";
       let cameras = detectedRef.current;
-      if (!cameras || (mode === "environment" && !cameras.backNormalCamera)) {
-        cameras = await getAvailableCameras({
-          force: mode === "environment" && !detectedRef.current,
-        });
+      if (!cameras) {
+        cameras = await getAvailableCameras({ force: false });
         detectedRef.current = cameras;
         setDetectedCameras(cameras);
       }
 
+      // Flip: chỉ cache — không await getMainBackCameraId
       const mainId =
         cameras?.backNormalCamera?.deviceId ||
-        (await getMainBackCameraId()) ||
         cameras?.backCameras?.find(
           (c) => !isUltraLabel(c.label) && !isTeleLabel(c.label),
         )?.deviceId ||
@@ -691,6 +688,7 @@ const MediaPreviewIOS = () => {
             oldStream,
             videoEl: videoRef.current,
             deviceId: frontId || null,
+            fast: facingChanged,
           });
           stream = front.stream;
           resolvedDeviceId = front.deviceId;
@@ -723,15 +721,11 @@ const MediaPreviewIOS = () => {
           v.setAttribute("playsinline", "true");
           v.setAttribute("webkit-playsinline", "true");
           v.style.transform = "translateZ(0) scaleX(-1)";
-          try {
-            v.play().catch(() => {});
-          } catch {
-            /* ignore */
-          }
+          v.play().catch(() => {});
         }
 
-        // Re-read front capabilities after open
-        await resetFrontCameraZoom(stream);
+        // Không await zoom — preview hiện ngay
+        resetFrontCameraZoom(stream).catch(() => {});
         const caps = refreshFrontCameraZoomCapabilities(stream);
         boundsRef.current = {
           minZoom: caps.minZoom,
@@ -778,17 +772,8 @@ const MediaPreviewIOS = () => {
         }
       }
 
+      // Giữ old stream đến khi new ready — flip không màn đen
       const oldStream = streamRef.current;
-      if (oldStream) {
-        try {
-          oldStream.getTracks().forEach((tr) => tr.stop());
-        } catch {
-          /* ignore */
-        }
-        streamRef.current = null;
-        if (videoRef.current) videoRef.current.srcObject = null;
-        cameraInitialized.current = false;
-      }
 
       if (facingChanged) {
         setPreviewMirror(false);
@@ -798,6 +783,7 @@ const MediaPreviewIOS = () => {
         facingMode: mode,
         highRes: false,
         preferDeviceId: Boolean(resolvedDeviceId),
+        fast: facingChanged,
       });
 
       if (requestId !== startRequestId.current) {
@@ -805,7 +791,8 @@ const MediaPreviewIOS = () => {
         return;
       }
 
-      if (isBack && (z === "1x" || !z) && mainId) {
+      // ensureMain chỉ khi chưa có deviceId (tránh double open = lag)
+      if (isBack && (z === "1x" || !z) && mainId && !resolvedDeviceId) {
         stream = await ensureMainCameraStream(stream, mainId, {
           ...shape,
           all: cameras?.allCameras,
@@ -847,19 +834,21 @@ const MediaPreviewIOS = () => {
         v.play().catch(() => {});
       }
 
+      if (oldStream && oldStream !== stream) {
+        clearTrackZoomCache(oldStream);
+        stopCurrentCamera(oldStream, null);
+      }
+
+      // Zoom nền — không await
       if (supportsHardwareZoom(stream)) {
-        try {
-          if (z === "1x" || !z) {
-            const range = readZoomRange(stream);
-            const one =
-              range.minZoom <= 1 && range.maxZoom >= 1 ? 1 : range.minZoom;
-            await applyCameraZoom(stream, one);
-            displayZoom = 1;
-          } else if (digitalZoomTarget != null) {
-            await applyCameraZoom(stream, digitalZoomTarget);
-          }
-        } catch {
-          /* ignore */
+        if (z === "1x" || !z) {
+          const range = readZoomRange(stream);
+          const one =
+            range.minZoom <= 1 && range.maxZoom >= 1 ? 1 : range.minZoom;
+          applyCameraZoom(stream, one).catch(() => {});
+          displayZoom = 1;
+        } else if (digitalZoomTarget != null) {
+          applyCameraZoom(stream, digitalZoomTarget).catch(() => {});
         }
       }
 

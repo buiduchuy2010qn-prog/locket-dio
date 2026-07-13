@@ -153,16 +153,44 @@ export default function FormSpotifyPicker({
             platform: t.platform || t.source || "upload",
           };
         });
-        // Ưu tiên bài có ISRC (Locket app bắt buộc) lên đầu
-        normalized.sort((a, b) => {
-          const ai = a.isrc ? 1 : 0;
-          const bi = b.isrc ? 1 : 0;
-          if (bi !== ai) return bi - ai;
-          const as = a.spotify_url ? 1 : 0;
-          const bs = b.spotify_url ? 1 : 0;
-          return bs - as;
-        });
-        setResults(normalized);
+        // Rank theo khớp tên query trước — KHÔNG đẩy bài ISRC tào lao lên đầu
+        const qn = q
+          .toLowerCase()
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .replace(/đ/g, "d")
+          .replace(/[^a-z0-9\s]/g, " ")
+          .replace(/\s+/g, " ")
+          .trim();
+        const tokens = qn.split(" ").filter((t) => t.length >= 2);
+        const scoreLocal = (t) => {
+          const title = String(t.song_title || t.song_name || t.title || "")
+            .toLowerCase()
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .replace(/đ/g, "d")
+            .replace(/[^a-z0-9\s]/g, " ")
+            .replace(/\s+/g, " ")
+            .trim();
+          if (!title || !qn) return 0;
+          let s = 0;
+          if (title === qn) s += 8000;
+          else if (title.startsWith(qn)) s += 4000;
+          else if (title.includes(qn)) s += 2500;
+          if (tokens.length > 1 && title.includes(tokens.join(" "))) s += 2000;
+          // word match — không substring (tránh tim∈time)
+          for (const tok of tokens) {
+            const re = new RegExp(`(?:^|\\s)${tok.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:\\s|$)`);
+            if (re.test(title)) s += 800;
+          }
+          if (t.isrc && s > 0) s += 100;
+          if (t.spotify_url && s > 0) s += 40;
+          return s;
+        };
+        normalized.sort((a, b) => scoreLocal(b) - scoreLocal(a));
+        // Ẩn bài 0 điểm khớp (rác Deezer)
+        const filtered = normalized.filter((t) => scoreLocal(t) > 0);
+        setResults(filtered.length ? filtered : normalized.slice(0, 5));
       } catch (e) {
         SonnerError("Tìm nhạc lỗi", e?.message || "Thử lại sau");
         setResults([]);

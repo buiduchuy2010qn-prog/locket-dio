@@ -211,6 +211,15 @@ function rankTracksByQuery(query, tracks, limit = 40) {
     const inFull = tokens.filter((t) => tokenAsWord(t, full));
     const phrase = title.includes(q) || title === q;
 
+    // Bắt buộc khớp query — không boost ISRC cho bài rác
+    if (!phrase && inTitle.length === 0 && tokens.length >= 1) {
+      // token ngắn: không cho substring (tim∈time)
+      const allShortInTitle = tokens.every((tok) => tokenAsWord(tok, title));
+      if (!allShortInTitle && !title.includes(tokens.join(" "))) {
+        return { track, s: 0 };
+      }
+    }
+
     let s = 10;
     if (title === q) s += 5000;
     else if (title.startsWith(q)) s += 2500;
@@ -218,16 +227,15 @@ function rankTracksByQuery(query, tracks, limit = 40) {
     if (tokens.length > 1 && title.includes(tokens.join(" "))) s += 1200;
     s += (inTitle.length / Math.max(1, tokens.length)) * 800;
     s += (inFull.length / Math.max(1, tokens.length)) * 100;
-    if (track.isrc) s += 800; // Locket bắt buộc ISRC
-    if (track.spotify_url || track.source === "spotify-search") s += 300;
-    if (typeof track.popularity === "number") s += Math.min(50, track.popularity * 0.3);
+    if (track.isrc && s > 10) s += 200;
     if (
-      !phrase &&
-      inFull.length === 0 &&
-      !(track.spotify_url || track.source === "spotify-search") &&
-      !track.isrc
+      (track.spotify_url || track.source === "spotify-search") &&
+      s > 10
     ) {
-      s = 0;
+      s += 100;
+    }
+    if (typeof track.popularity === "number" && s > 50) {
+      s += Math.min(50, track.popularity * 0.3);
     }
     return { track, s };
   });

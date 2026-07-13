@@ -725,6 +725,10 @@ function tokenAsWord(token, text) {
   return false;
 }
 
+/**
+ * Điểm khớp query — BẮT BUỘC liên quan tên bài.
+ * Token ngắn (em, ti, me) chỉ tính khi là từ riêng / phrase, không dính "time"/"remember".
+ */
 function scoreTrackMatch(query, track) {
   const q = normalizeSearchText(query);
   const title = normalizeSearchText(
@@ -734,47 +738,69 @@ function scoreTrackMatch(query, track) {
   const full = `${title} ${artist}`.trim();
   if (!q || !title) return 0;
 
-  const tokens = q.split(" ").filter((t) => t.length > 0);
+  // Bỏ token 1 ký tự (noise)
+  const tokens = q.split(" ").filter((t) => t.length >= 2);
   if (!tokens.length) return 0;
 
-  const inTitleWords = tokens.filter((t) => tokenAsWord(t, title));
-  const inFullWords = tokens.filter((t) => tokenAsWord(t, full));
   const phraseInTitle = title === q || title.includes(q);
+  const phraseExact = title === q;
+  const phraseStarts = title.startsWith(q) || title.startsWith(`${q} `);
 
-  if (tokens.length >= 2) {
-    if (!phraseInTitle && inTitleWords.length < tokens.length) {
-      if (inFullWords.length < tokens.length) return 0;
+  // Mọi token phải xuất hiện trong title (ưu tiên) hoặc full — token ngắn (≤3) chỉ trong title
+  const shortTokens = tokens.filter((t) => t.length <= 3);
+  const longTokens = tokens.filter((t) => t.length > 3);
+
+  const inTitle = tokens.filter((t) => tokenAsWord(t, title));
+  const inFull = tokens.filter((t) => tokenAsWord(t, full));
+
+  // Phrase đầy đủ trong title → pass
+  if (!phraseInTitle) {
+    const joined = tokens.join(" ");
+    // Cụm liền trong title (sau normalize): "tim em" ∈ "tim em (remix)"
+    const hasJoined = title.includes(joined);
+
+    // Token ngắn (≤3: em, tim) — CHỈ word-boundary, KHÔNG includes substring
+    // (tránh "tim"∈"time", "em"∈"remember")
+    for (const t of shortTokens) {
+      if (!tokenAsWord(t, title) && !hasJoined) return 0;
     }
-  } else if (!tokenAsWord(tokens[0], full) && !phraseInTitle) {
-    return 0;
+    // Token dài: word hoặc prefix title
+    for (const t of longTokens) {
+      if (!tokenAsWord(t, title) && !title.startsWith(t) && !hasJoined) {
+        // cho phép trong full (artist) nếu title đã khớp token khác
+        if (!tokenAsWord(t, full)) return 0;
+      }
+    }
+    // ≥2 token: cần khớp gần hết trong title (hoặc cụm liền)
+    if (tokens.length >= 2 && !hasJoined) {
+      if (inTitle.length < Math.ceil(tokens.length * 0.75)) return 0;
+    } else if (tokens.length === 1) {
+      if (!tokenAsWord(tokens[0], title) && !title.startsWith(tokens[0])) {
+        return 0;
+      }
+    }
   }
 
   let score = 0;
-  if (title === q) score += 5000;
-  else if (title.startsWith(`${q} `) || title.startsWith(q)) score += 2500;
-  if (phraseInTitle) score += 1500;
-  if (tokens.length > 1 && title.includes(tokens.join(" "))) score += 1200;
+  if (phraseExact) score += 8000;
+  else if (phraseStarts) score += 4000;
+  else if (phraseInTitle) score += 2500;
+  if (tokens.length > 1 && title.includes(tokens.join(" "))) score += 2000;
 
-  const ratioTitle = inTitleWords.length / tokens.length;
-  score += ratioTitle * 800;
-  score += (inFullWords.length / tokens.length) * 100;
+  const ratioTitle = inTitle.length / tokens.length;
+  score += ratioTitle * 1000;
+  score += (inFull.length / tokens.length) * 80;
 
-  if (tokens.length >= 2 && inTitleWords.length === 1) score *= 0.05;
-  else if (tokens.length >= 2 && inTitleWords.length < tokens.length) {
-    score *= 0.25 + 0.25 * ratioTitle;
+  // Phạt khớp lỏng (chỉ 1/2 token)
+  if (tokens.length >= 2 && inTitle.length < tokens.length && !phraseInTitle) {
+    score *= 0.15 + 0.35 * ratioTitle;
   }
+
+  // Bài không dính query → 0 (không cứu bằng ISRC)
+  if (score < 50 && !phraseInTitle) return 0;
 
   if (typeof track.popularity === "number" && score >= 200) {
     score += Math.min(40, track.popularity * 0.25);
-  }
-
-  if (
-    tokens.length >= 2 &&
-    !phraseInTitle &&
-    inTitleWords.length < tokens.length &&
-    score < 500
-  ) {
-    return 0;
   }
 
   return score;
@@ -1082,42 +1108,47 @@ async function searchMusicByQuery(query, limit = 30) {
     })(),
   ]);
 
-  // Deezer first (ISRC) → Spotify → iTunes
-  for (const t of deezerTracks) addTrack(t, true);
+  // iTunes VN (khớp tiếng Việt tốt) → Spotify → Deezer (hay nhiễu "tim/time")
+  for (const t of itunesTracks) addTrack(t, true);
   for (const t of spotifyTracks) addTrack(t, true);
-  for (const t of itunesTracks) addTrack(t, false);
+  for (const t of deezerTracks) addTrack(t, false);
 
   let all = [...merged.values()];
 
-  // Soft rank + boost ISRC (Locket) + Spotify
+  /**
+   * Rank: CHỈ giữ bài khớp query. Không boost ISRC cho bài 0 điểm
+   * (tránh Basket Case / Promiscuous khi gõ "tim em").
+   */
   const scored = all
     .map((t) => {
       let s = scoreTrackMatch(q, t);
-      if (t.isrc) s = (s > 0 ? s : 40) + 500;
+      if (s <= 0) return { t, s: 0 };
+      // Boost phụ — chỉ khi đã khớp
+      if (t.isrc) s += 120;
       if (t.source === "spotify-search" || t.spotify_url) {
-        s = s > 0 ? s + 200 : 50 + (t.popularity || 0);
-        s += Math.min(80, (t.popularity || 0) * 0.6);
+        s += 80 + Math.min(40, (t.popularity || 0) * 0.3);
       }
-      if (t.source === "deezer-search" || String(t.source || "").includes("deezer")) {
-        s += 150; // Deezer thường có ISRC sẵn
+      if (t.source === "itunes-search" || String(t.source || "").includes("itunes")) {
+        s += 60; // iTunes VN thường đúng tên bài Việt
       }
-      if (t.preview_url) s += 30;
+      if (t.preview_url) s += 20;
       return { t, s };
     })
     .filter((x) => x.s > 0)
-    .sort((a, b) => {
-      // ISRC trước khi điểm gần nhau
-      const aI = a.t.isrc ? 1 : 0;
-      const bI = b.t.isrc ? 1 : 0;
-      if (bI !== aI && Math.abs(b.s - a.s) < 600) return bI - aI;
-      return b.s - a.s;
-    });
+    .sort((a, b) => b.s - a.s);
 
   let ranked = scored.map((x) => x.t);
-  if (!ranked.length && all.length) ranked = all;
-  if (!ranked.length && deezerTracks.length) ranked = deezerTracks;
-  if (!ranked.length && spotifyTracks.length) ranked = spotifyTracks;
-  if (!ranked.length && itunesTracks.length) ranked = itunesTracks;
+
+  // Không fallback raw Deezer (toàn bài tào lao). Chỉ fallback list đã match.
+  if (!ranked.length) {
+    // Thử nới: lấy top iTunes/Spotify raw rồi filter score > 0 lại
+    const fallbackPool = [...itunesTracks, ...spotifyTracks, ...deezerTracks];
+    ranked = fallbackPool
+      .map((t) => ({ t, s: scoreTrackMatch(q, t) }))
+      .filter((x) => x.s > 0)
+      .sort((a, b) => b.s - a.s)
+      .map((x) => x.t);
+  }
 
   // Hydrate ISRC cho top kết quả thiếu (iTunes) — chấp nhận chậm
   const top = ranked.slice(0, Math.min(lim, 20));

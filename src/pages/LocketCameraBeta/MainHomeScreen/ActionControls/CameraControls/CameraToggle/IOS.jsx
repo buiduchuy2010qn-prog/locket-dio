@@ -12,7 +12,6 @@ const CameraToggleIOS = () => {
     setDeviceId,
     setZoomLevel,
     setCurrentLensType,
-    setIsSwitchingCamera,
     setCurrentZoom,
     setActiveZoomMode,
   } = camera;
@@ -24,11 +23,11 @@ const CameraToggleIOS = () => {
     flippingRef.current = true;
     setTimeout(() => {
       flippingRef.current = false;
-    }, 450);
+    }, 280);
 
     setRotation((prev) => prev - 180);
     const newMode = cameraMode === "user" ? "environment" : "user";
-    setIsSwitchingCamera?.(true);
+    // Không set spinner ngay — MediaPreview chỉ hiện nếu >180ms
     setCameraMode(newMode);
     setZoomLevel("1x");
     setActiveZoomMode?.("1x");

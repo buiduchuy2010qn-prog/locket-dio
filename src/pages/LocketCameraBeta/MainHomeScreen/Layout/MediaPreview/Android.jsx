@@ -9,7 +9,6 @@ import React, {
 import {
   getAvailableCameras,
   warmCameraList,
-  getMainBackCameraId,
   startCameraByDeviceId,
   stopCurrentCamera,
   getCurrentTrackCapabilities,
@@ -647,11 +646,11 @@ const MediaPreviewAndroid = () => {
     const requestId = startRequestId.current + 1;
     startRequestId.current = requestId;
     startingRef.current = true;
-    // Spinner chỉ hiện nếu mở cam > 120ms — tránh nháy khi cache hit
+    // Spinner chỉ hiện nếu flip > 180ms — giữ preview cam cũ, không nháy
     if (switchSpinnerTimer.current) clearTimeout(switchSpinnerTimer.current);
     switchSpinnerTimer.current = setTimeout(() => {
       if (startingRef.current) setIsSwitchingCamera(true);
-    }, 120);
+    }, 180);
 
     try {
       const mode = cameraMode || "user";
@@ -677,19 +676,18 @@ const MediaPreviewAndroid = () => {
       const isBack = mode === "environment";
       const z = zoomLevel || "1x";
 
-      // Cache enumerate — tránh delay mỗi lần flip cam
+      // Cache enumerate — flip không force re-enumerate
       let cameras = detectedRef.current;
-      if (!cameras || (mode === "environment" && !cameras.backNormalCamera)) {
-        cameras = await getAvailableCameras({
-          force: mode === "environment" && !detectedRef.current,
-        });
+      if (!cameras) {
+        // Non-blocking: dùng warm cache nếu có
+        cameras = await getAvailableCameras({ force: false });
         detectedRef.current = cameras;
         setDetectedCameras(cameras);
       }
 
+      // Không await getMainBackCameraId khi flip — chỉ dùng cache
       const mainId =
         cameras?.backNormalCamera?.deviceId ||
-        (await getMainBackCameraId()) ||
         cameras?.backCameras?.find(
           (c) => !isUltraLabel(c.label) && !isTeleLabel(c.label),
         )?.deviceId ||
@@ -717,7 +715,6 @@ const MediaPreviewAndroid = () => {
         const oldStream = streamRef.current;
         if (facingChanged) {
           setPreviewMirror(true);
-          // Không remount <video> — flip mượt hơn
         }
 
         let stream;
@@ -726,6 +723,7 @@ const MediaPreviewAndroid = () => {
             oldStream,
             videoEl: videoRef.current,
             deviceId: frontId || null,
+            fast: facingChanged,
           });
           stream = front.stream;
           resolvedDeviceId = front.deviceId;
@@ -763,11 +761,9 @@ const MediaPreviewAndroid = () => {
           } catch {
             /* ignore */
           }
-          // play không await — mượt hơn khi flip
           v.play().catch(() => {});
         }
 
-        // Re-read front capabilities (không block preview)
         resetFrontCameraZoom(stream).catch(() => {});
         const caps = refreshFrontCameraZoomCapabilities(stream);
         boundsRef.current = {
@@ -780,16 +776,12 @@ const MediaPreviewAndroid = () => {
         syncZoomStateFromStream(stream, cameras, "user");
 
         if (torchEnabled) {
-          try {
-            await applyTorchState(true, stream);
-          } catch {
-            setTorchEnabled(false);
-          }
+          applyTorchState(true, stream).catch(() => setTorchEnabled(false));
         }
         return;
       }
 
-      // ── REAR CAMERA PATH (unchanged ultra/main/tele logic) ──
+      // ── REAR CAMERA PATH ──
       {
         const target = resolveZoomModeTarget(z, {
           detected: shape,
@@ -822,17 +814,8 @@ const MediaPreviewAndroid = () => {
         }
       }
 
+      // Giữ old stream đến khi new ready — flip không màn đen
       const oldStream = streamRef.current;
-      if (oldStream) {
-        try {
-          oldStream.getTracks().forEach((tr) => tr.stop());
-        } catch {
-          /* ignore */
-        }
-        streamRef.current = null;
-        if (videoRef.current) videoRef.current.srcObject = null;
-        cameraInitialized.current = false;
-      }
 
       if (facingChanged) {
         setPreviewMirror(false);
@@ -842,6 +825,7 @@ const MediaPreviewAndroid = () => {
         facingMode: mode,
         highRes: false,
         preferDeviceId: Boolean(resolvedDeviceId),
+        fast: facingChanged,
       });
 
       if (requestId !== startRequestId.current) {
@@ -849,7 +833,7 @@ const MediaPreviewAndroid = () => {
         return;
       }
 
-      // ensureMain chỉ khi chưa có deviceId rõ ràng (tránh double open = lag)
+      // ensureMain chỉ khi chưa có deviceId (tránh double open)
       if (isBack && (z === "1x" || !z) && mainId && !resolvedDeviceId) {
         stream = await ensureMainCameraStream(stream, mainId, {
           ...shape,
@@ -897,7 +881,13 @@ const MediaPreviewAndroid = () => {
         v.play().catch(() => {});
       }
 
-      // Zoom apply nền — không chặn preview hiện
+      // Stop old SAU khi đã gắn preview mới
+      if (oldStream && oldStream !== stream) {
+        clearTrackZoomCache(oldStream);
+        stopCurrentCamera(oldStream, null);
+      }
+
+      // Zoom apply nền — không chặn preview
       if (supportsHardwareZoom(stream)) {
         const zoomTarget =
           z === "1x" || !z
