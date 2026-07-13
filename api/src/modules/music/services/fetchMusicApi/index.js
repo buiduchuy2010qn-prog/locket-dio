@@ -1108,28 +1108,39 @@ async function searchMusicByQuery(query, limit = 30) {
     })(),
   ]);
 
-  // iTunes VN (khớp tiếng Việt tốt) → Spotify → Deezer (hay nhiễu "tim/time")
-  for (const t of itunesTracks) addTrack(t, true);
-  for (const t of spotifyTracks) addTrack(t, true);
-  for (const t of deezerTracks) addTrack(t, false);
+  // Chỉ add bài đã khớp query — Deezer raw hay nhiễu "tim"∈"time"
+  const keepIfMatch = (t, prefer) => {
+    if (!t) return;
+    if (scoreTrackMatch(q, t) <= 0) return;
+    addTrack(t, prefer);
+  };
+  for (const t of itunesTracks) keepIfMatch(t, true);
+  for (const t of spotifyTracks) keepIfMatch(t, true);
+  // Deezer chỉ khi iTunes/Spotify ít kết quả khớp
+  const matchedBeforeDz = merged.size;
+  if (matchedBeforeDz < Math.min(8, lim)) {
+    for (const t of deezerTracks) keepIfMatch(t, false);
+  }
 
   let all = [...merged.values()];
 
   /**
-   * Rank: CHỈ giữ bài khớp query. Không boost ISRC cho bài 0 điểm
-   * (tránh Basket Case / Promiscuous khi gõ "tim em").
+   * Rank Spotify-like: ưu tiên khớp tên chính xác.
+   * KHÔNG bao giờ trả bài 0 điểm (Basket Case khi gõ "tim em").
    */
   const scored = all
     .map((t) => {
       let s = scoreTrackMatch(q, t);
       if (s <= 0) return { t, s: 0 };
-      // Boost phụ — chỉ khi đã khớp
       if (t.isrc) s += 120;
       if (t.source === "spotify-search" || t.spotify_url) {
         s += 80 + Math.min(40, (t.popularity || 0) * 0.3);
       }
-      if (t.source === "itunes-search" || String(t.source || "").includes("itunes")) {
-        s += 60; // iTunes VN thường đúng tên bài Việt
+      if (
+        t.source === "itunes-search" ||
+        String(t.source || "").includes("itunes")
+      ) {
+        s += 60;
       }
       if (t.preview_url) s += 20;
       return { t, s };
@@ -1137,17 +1148,17 @@ async function searchMusicByQuery(query, limit = 30) {
     .filter((x) => x.s > 0)
     .sort((a, b) => b.s - a.s);
 
+  // Cắt theo top score — bỏ outlier lệch quá xa
   let ranked = scored.map((x) => x.t);
+  if (scored.length) {
+    const topS = scored[0].s;
+    const minKeep = Math.max(80, topS * 0.12);
+    ranked = scored.filter((x) => x.s >= minKeep).map((x) => x.t);
+  }
 
-  // Không fallback raw Deezer (toàn bài tào lao). Chỉ fallback list đã match.
+  // Không fallback raw list — rỗng thì rỗng (UI hiện "Không thấy")
   if (!ranked.length) {
-    // Thử nới: lấy top iTunes/Spotify raw rồi filter score > 0 lại
-    const fallbackPool = [...itunesTracks, ...spotifyTracks, ...deezerTracks];
-    ranked = fallbackPool
-      .map((t) => ({ t, s: scoreTrackMatch(q, t) }))
-      .filter((x) => x.s > 0)
-      .sort((a, b) => b.s - a.s)
-      .map((x) => x.t);
+    ranked = [];
   }
 
   // Hydrate ISRC cho top kết quả thiếu (iTunes) — chấp nhận chậm

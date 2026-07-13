@@ -315,6 +315,15 @@ export default function GeneralThemes({ title }) {
       const caption =
         [song_title, artist].filter(Boolean).join(" - ") || song_title;
 
+      // Clip từ picker (start/end) — preview web ~30s
+      const clipStart = Math.max(0, Number(raw.startTime) || 0);
+      let clipEnd = Number(raw.endTime);
+      if (!Number.isFinite(clipEnd) || clipEnd <= clipStart) {
+        clipEnd = clipStart + 30;
+      }
+      clipEnd = Math.min(Math.max(clipEnd, clipStart + 1), clipStart + 60);
+      const clipDur = clipEnd - clipStart;
+
       applyOverlay({
         overlay_id: "caption:music",
         caption,
@@ -334,17 +343,20 @@ export default function GeneralThemes({ title }) {
           spotify_url: finalSpotify,
           apple_music_url,
           platform: apple_music_url && !finalSpotify ? "apple" : "spotify",
-          startTime: 0,
-          endTime: 30,
-          volume: 1,
-          originalVideoVolume: 1,
-          duration: 30,
+          startTime: clipStart,
+          endTime: clipEnd,
+          volume: Number(raw.volume) || 1,
+          originalVideoVolume: Number(raw.originalVideoVolume) || 1,
+          duration: clipDur,
         },
         platform: apple_music_url && !finalSpotify ? "apple" : "spotify",
       });
 
       setSpotifyPickerOpen(false);
-      SonnerSuccess("Đã gắn nhạc · ISRC OK", song_title);
+      SonnerSuccess(
+        "Đã gắn nhạc · ISRC OK",
+        `${song_title} · ${clipStart.toFixed(0)}–${clipEnd.toFixed(0)}s`,
+      );
     } catch (e) {
       console.error("[handleSpotifyLivePick]", e);
       SonnerError(
