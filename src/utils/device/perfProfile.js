@@ -53,6 +53,16 @@ export function applyPerfClasses() {
   root.classList.toggle("perf-android", p.isAndroid);
   root.classList.toggle("perf-mobile", p.isMobile);
   root.classList.toggle("perf-lite", p.isLowEnd || p.isAndroid);
+
+  // Pause decorative FX when tab hidden
+  if (!root.dataset.tabVisBound) {
+    root.dataset.tabVisBound = "1";
+    const sync = () => {
+      root.classList.toggle("tab-hidden", document.hidden);
+    };
+    document.addEventListener("visibilitychange", sync);
+    sync();
+  }
 }
 
 /**

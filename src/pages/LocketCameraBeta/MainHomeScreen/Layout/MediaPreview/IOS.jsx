@@ -378,7 +378,6 @@ const MediaPreviewIOS = () => {
 
   const onTouchStart = (event) => {
     if (preview || selectedFile) return;
-    if (cameraMode !== "environment") return;
     if (event.touches.length !== 2) return;
     event.preventDefault();
     pinchState.current = handlePinchZoomStart(
@@ -390,7 +389,6 @@ const MediaPreviewIOS = () => {
 
   const onTouchMove = async (event) => {
     if (!pinchState.current.active || event.touches.length !== 2) return;
-    if (cameraMode !== "environment") return;
     if (isSwitchingCamera) return;
     event.preventDefault();
 
@@ -704,7 +702,7 @@ const MediaPreviewIOS = () => {
   }, [preview, selectedFile, cameraActive, onCapturePage, setCameraActive]);
 
   const showCameraUi = !preview && !selectedFile && cameraActive;
-  const showZoomUi = showCameraUi && cameraMode === "environment";
+  const showZoomUi = showCameraUi;
 
   return (
     <>
@@ -757,7 +755,7 @@ const MediaPreviewIOS = () => {
             </div>
 
             {showZoomUi && (
-              <div className="absolute top-7 left-[3.75rem] z-30 pointer-events-none">
+              <div className="absolute top-7 right-7 z-30 pointer-events-none">
                 <div
                   className="min-w-[2.5rem] h-7 px-2.5 rounded-full flex items-center justify-center
                     text-[11px] font-semibold tracking-wide text-white

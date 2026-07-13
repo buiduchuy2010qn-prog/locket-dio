@@ -221,6 +221,25 @@ export const useUploadQueueStore = create((set, get) => ({
       }
       await get().savePostedMoment(item, normalized);
 
+      // Persist MomentMusic metadata when musicTrackId present
+      try {
+        const mp = item?.optionsData?.payload;
+        if (mp?.musicTrackId && normalized?.id) {
+          const { attachMomentMusic } = await import(
+            "@/services/ExtensionsServices/MusicLibraryServices"
+          );
+          await attachMomentMusic(normalized.id, {
+            musicTrackId: mp.musicTrackId,
+            startTime: mp.startTime ?? 0,
+            endTime: mp.endTime ?? mp.duration ?? 0,
+            volume: mp.volume ?? 1,
+            originalVideoVolume: mp.originalVideoVolume ?? 1,
+          });
+        }
+      } catch (e) {
+        console.warn("attachMomentMusic:", e?.message || e);
+      }
+
       // Đẩy bài vừa đăng vào feed lịch sử ngay (không chờ socket / F5)
       try {
         await useMomentsStoreV2.getState().addNewMoment(normalized);

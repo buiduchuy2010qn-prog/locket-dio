@@ -403,7 +403,7 @@ const MediaPreviewAndroid = () => {
 
   const onTouchStart = (event) => {
     if (preview || selectedFile) return;
-    if (cameraMode !== "environment") return;
+    // Pinch zoom for rear + front (if hardware supports)
     if (event.touches.length !== 2) return;
 
     event.preventDefault();
@@ -417,7 +417,6 @@ const MediaPreviewAndroid = () => {
 
   const onTouchMove = async (event) => {
     if (!pinchState.current.active || event.touches.length !== 2) return;
-    if (cameraMode !== "environment") return;
     if (isSwitchingCamera) return;
 
     event.preventDefault();
@@ -795,7 +794,8 @@ const MediaPreviewAndroid = () => {
 
   const showCameraUi =
     !preview && !selectedFile && cameraActive;
-  const showZoomUi = showCameraUi && cameraMode === "environment";
+  // Zoom badge for both front & rear when camera active
+  const showZoomUi = showCameraUi;
 
   return (
     <>
@@ -852,7 +852,7 @@ const MediaPreviewAndroid = () => {
 
             {/* ONLY zoom indicator: top-left badge (offset right of flash) */}
             {showZoomUi && (
-              <div className="absolute top-7 left-[3.75rem] z-30 pointer-events-none">
+              <div className="absolute top-7 right-7 z-30 pointer-events-none">
                 <div
                   className="min-w-[2.5rem] h-7 px-2.5 rounded-full flex items-center justify-center
                     text-[11px] font-semibold tracking-wide text-white

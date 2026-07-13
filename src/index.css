@@ -147,3 +147,19 @@
   animation: angry-shake var(--shake-speed, 0.12s) linear infinite;
   transform-origin: center;
 }
+
+/* prefers-reduced-motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+html.tab-hidden .snow-layer,
+html.tab-hidden .perf-snow,
+html.tab-hidden [data-decorative-fx] {
+  animation-play-state: paused !important;
+  visibility: hidden;
+}

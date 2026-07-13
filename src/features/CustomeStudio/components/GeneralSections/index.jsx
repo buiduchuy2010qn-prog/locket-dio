@@ -193,24 +193,41 @@ export default function GeneralThemes({ title }) {
     }
   };
 
-  /** Chọn bài từ tìm kiếm (không liên kết tài khoản) */
+  /** Chọn bài từ tìm kiếm / upload / thư viện */
   const handleSpotifyLivePick = async (track) => {
-    if (!track?.spotify_url && !track?.id && !track?.song_name) {
+    if (
+      !track?.spotify_url &&
+      !track?.id &&
+      !track?.song_name &&
+      !track?.song_title &&
+      !track?.preview_url &&
+      !track?.musicTrackId
+    ) {
       SonnerError(t("custom_studio.music_failed"));
       return;
     }
     setLoading(true);
     try {
+      const isLocalUpload =
+        track.source === "upload" ||
+        track.source === "library" ||
+        track.platform === "upload" ||
+        Boolean(track.musicTrackId && !track.spotify_url);
+
       const url =
         track.spotify_url ||
-        (track.id && String(track.source || "").includes("spotify")
+        (!isLocalUpload &&
+        track.id &&
+        String(track.source || "").includes("spotify")
           ? `https://open.spotify.com/track/${track.id}`
-          : track.id && track.source !== "deezer-search"
+          : !isLocalUpload &&
+              track.id &&
+              track.source !== "deezer-search"
             ? `https://open.spotify.com/track/${track.id}`
             : null);
 
       let musicData = null;
-      if (url) {
+      if (url && !isLocalUpload) {
         try {
           musicData = await getInfoMusicByUrl(url, "spotify");
         } catch {
@@ -225,19 +242,38 @@ export default function GeneralThemes({ title }) {
           musicData?.song_title ||
           musicData?.song_name ||
           track.song_title ||
-          track.song_name,
+          track.song_name ||
+          track.title ||
+          track.name,
         song_name:
-          musicData?.song_name || track.song_name || track.song_title,
+          musicData?.song_name ||
+          track.song_name ||
+          track.song_title ||
+          track.title ||
+          track.name,
         artist: musicData?.artist || track.artist || "",
         isrc: musicData?.isrc || track.isrc || null,
-        preview_url: musicData?.preview_url || track.preview_url || null,
-        image_url: musicData?.image_url || track.image_url || "",
+        preview_url:
+          musicData?.preview_url ||
+          track.preview_url ||
+          track.audioUrl ||
+          null,
+        image_url:
+          musicData?.image_url || track.image_url || track.coverUrl || "",
         spotify_url: url || musicData?.spotify_url || null,
-        platform: "spotify",
+        platform: isLocalUpload ? "upload" : "spotify",
+        musicTrackId: track.musicTrackId || (isLocalUpload ? track.id : null),
+        startTime: track.startTime ?? 0,
+        endTime:
+          track.endTime ??
+          (track.duration_ms ? track.duration_ms / 1000 : track.duration) ??
+          0,
+        volume: track.volume ?? 1,
+        originalVideoVolume: track.originalVideoVolume ?? 1,
         title:
           musicData?.title ||
           track.title ||
-          [track.song_title || track.song_name, track.artist]
+          [track.song_title || track.song_name || track.title, track.artist]
             .filter(Boolean)
             .join(" - "),
       };
@@ -273,9 +309,14 @@ export default function GeneralThemes({ title }) {
           preview_url: merged.preview_url || null,
           image_url: merged.image_url || "",
           spotify_url: merged.spotify_url || null,
-          platform: "spotify",
+          platform: merged.platform || "spotify",
+          musicTrackId: merged.musicTrackId || null,
+          startTime: merged.startTime ?? 0,
+          endTime: merged.endTime ?? 0,
+          volume: merged.volume ?? 1,
+          originalVideoVolume: merged.originalVideoVolume ?? 1,
         },
-        platform: "spotify",
+        platform: merged.platform || "spotify",
       });
 
       SonnerSuccess(

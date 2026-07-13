@@ -91,8 +91,12 @@ export function MusicPlayer({
       /* ignore */
     }
     audio.preload = "auto";
-    audio.loop = true;
-    audio.volume = 1;
+    // Clip loop within startTime/endTime when set
+    const start = Number(payload?.startTime) || 0;
+    const end = Number(payload?.endTime) || 0;
+    const vol = Number(payload?.volume);
+    audio.loop = !(end > start);
+    audio.volume = Number.isFinite(vol) ? Math.max(0, Math.min(1, vol)) : 1;
     audio.muted = false;
 
     if (audio.src !== src) {
@@ -100,11 +104,35 @@ export function MusicPlayer({
       audio.load();
     }
 
+    const seekStart = () => {
+      try {
+        if (start > 0 && Number.isFinite(audio.currentTime)) {
+          if (audio.currentTime < start || (end > start && audio.currentTime >= end)) {
+            audio.currentTime = start;
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+    };
+
+    const onTimeUpdate = () => {
+      if (end > start && audio.currentTime >= end) {
+        try {
+          audio.currentTime = start;
+          if (!audio.paused) audio.play().catch(() => {});
+        } catch {
+          /* ignore */
+        }
+      }
+    };
+
     const tryPlay = () => {
+      seekStart();
       const p = audio.play();
       if (p && typeof p.then === "function") {
         p.then(() => setBlocked(false)).catch(() => {
-          // Autoplay policy — user tap overlay sẽ play
+          // Autoplay policy — user tap unlocks; never crash
           setBlocked(true);
         });
       }
@@ -118,6 +146,7 @@ export function MusicPlayer({
 
     audio.addEventListener("canplay", onCanPlay);
     audio.addEventListener("error", onError);
+    audio.addEventListener("timeupdate", onTimeUpdate);
     tryPlay();
 
     // Gesture unlock: lần chạm đầu trên document
@@ -135,6 +164,7 @@ export function MusicPlayer({
       audio.pause();
       audio.removeEventListener("canplay", onCanPlay);
       audio.removeEventListener("error", onError);
+      audio.removeEventListener("timeupdate", onTimeUpdate);
       document.removeEventListener("pointerdown", unlock, true);
       document.removeEventListener("touchstart", unlock, true);
       document.removeEventListener("click", unlock, true);
@@ -144,6 +174,9 @@ export function MusicPlayer({
     payload?.previewUrl,
     payload?.audio,
     payload?.preview,
+    payload?.startTime,
+    payload?.endTime,
+    payload?.volume,
     isVisible,
   ]);
 

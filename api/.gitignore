@@ -7,3 +7,5 @@ run.log
 api-out.log
 api-err.log
 .DS_Store
+data/music/audio/
+data/music/*.json

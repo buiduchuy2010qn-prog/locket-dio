@@ -3,7 +3,13 @@ import React, { useEffect, useRef, useState } from "react";
 import ReactDOM from "react-dom";
 import { Loader2, Music2, Search } from "lucide-react";
 import { searchMusicByQuery } from "@/services/ExtensionsServices/MusicServices";
-import { SonnerError, SonnerInfo } from "@/components/ui/SonnerToast";
+import {
+  listMusicTracks,
+  searchMusicLibrary,
+  uploadMusicTrack,
+  toLocketMusicOptions,
+} from "@/services/ExtensionsServices/MusicLibraryServices";
+import { SonnerError, SonnerInfo, SonnerSuccess } from "@/components/ui/SonnerToast";
 
 function formatMs(ms = 0) {
   const s = Math.floor(Number(ms) / 1000);
@@ -27,9 +33,12 @@ export default function FormSpotifyPicker({
   const [query, setQuery] = useState("");
   const [searching, setSearching] = useState(false);
   const [results, setResults] = useState([]);
+  const [uploading, setUploading] = useState(false);
+  const [library, setLibrary] = useState([]);
   const searchTimer = useRef(null);
   const audioRef = useRef(null);
   const inputRef = useRef(null);
+  const fileRef = useRef(null);
 
   useEffect(() => {
     document.body.style.overflow = showModal ? "hidden" : "";
@@ -43,6 +52,9 @@ export default function FormSpotifyPicker({
       setShowModal(true);
       setTimeout(() => setAnimate(true), 10);
       setTimeout(() => inputRef.current?.focus(), 100);
+      listMusicTracks()
+        .then((list) => setLibrary(Array.isArray(list) ? list : []))
+        .catch(() => setLibrary([]));
     } else {
       setAnimate(false);
       setTimeout(() => setShowModal(false), 300);
@@ -68,8 +80,33 @@ export default function FormSpotifyPicker({
     setSearching(true);
     searchTimer.current = setTimeout(async () => {
       try {
-        const list = await searchMusicByQuery(q, 40);
-        setResults(Array.isArray(list) ? list : []);
+        // Prefer unified library search (local + Spotify full)
+        let list = [];
+        try {
+          list = await searchMusicLibrary(q, 40);
+        } catch {
+          list = await searchMusicByQuery(q, 40);
+        }
+        // Normalize library rows to track shape used by onPick
+        const normalized = (Array.isArray(list) ? list : []).map((t) => {
+          if (t._raw) return { ...t._raw, ...t };
+          if (t.song_title || t.song_name) return t;
+          return {
+            id: t.id,
+            song_title: t.title,
+            song_name: t.title,
+            name: t.title,
+            artist: t.artist,
+            image_url: t.coverUrl || t.cover_url || "",
+            preview_url: t.preview_url || t.audioUrl || "",
+            duration_ms: (t.duration || 0) * 1000,
+            spotify_url: t.spotify_url || null,
+            source: t.source || "library",
+            musicTrackId: t.id,
+            platform: t.platform || t.source || "upload",
+          };
+        });
+        setResults(normalized);
       } catch (e) {
         SonnerError(
           "Tìm nhạc lỗi",
@@ -92,7 +129,64 @@ export default function FormSpotifyPicker({
     } catch {
       /* ignore */
     }
+    // Library upload track without spotify — still attach
     onPick?.(track);
+  };
+
+  const handleUploadFile = async (e) => {
+    const file = e.target?.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setUploading(true);
+    try {
+      const duration = await new Promise((resolve) => {
+        try {
+          const a = new Audio();
+          const url = URL.createObjectURL(file);
+          a.preload = "metadata";
+          a.onloadedmetadata = () => {
+            resolve(Number(a.duration) || 0);
+            URL.revokeObjectURL(url);
+          };
+          a.onerror = () => {
+            resolve(0);
+            URL.revokeObjectURL(url);
+          };
+          a.src = url;
+        } catch {
+          resolve(0);
+        }
+      });
+      const track = await uploadMusicTrack(file, {
+        title: file.name.replace(/\.[^.]+$/, ""),
+        duration,
+      });
+      SonnerSuccess("Đã tải nhạc lên thư viện");
+      setLibrary((prev) => [track, ...prev]);
+      // Auto-pick uploaded track for caption
+      const pickable = {
+        id: track.id,
+        song_title: track.title,
+        song_name: track.title,
+        name: track.title,
+        artist: track.artist || "",
+        image_url: track.coverUrl || "",
+        preview_url: track.audioUrl,
+        duration_ms: (track.duration || 0) * 1000,
+        source: "upload",
+        musicTrackId: track.id,
+        platform: "upload",
+        startTime: 0,
+        endTime: track.duration || 0,
+        volume: 1,
+        originalVideoVolume: 1,
+      };
+      onPick?.(pickable);
+    } catch (err) {
+      SonnerError("Upload nhạc thất bại", err?.message || "");
+    } finally {
+      setUploading(false);
+    }
   };
 
   const previewPlay = (track) => {
@@ -153,8 +247,8 @@ export default function FormSpotifyPicker({
           </div>
         </div>
 
-        <div className="px-4 pb-2">
-          <label className="flex items-center gap-2 bg-base-200 rounded-2xl px-3 py-2.5">
+        <div className="px-4 pb-2 flex gap-2">
+          <label className="flex flex-1 items-center gap-2 bg-base-200 rounded-2xl px-3 py-2.5">
             <Search className="w-4 h-4 opacity-50 shrink-0" />
             <input
               ref={inputRef}
@@ -169,12 +263,68 @@ export default function FormSpotifyPicker({
               <Loader2 className="w-4 h-4 animate-spin opacity-60" />
             ) : null}
           </label>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="audio/*,.mp3,.m4a,.aac,.wav,.ogg,.flac"
+            className="hidden"
+            onChange={handleUploadFile}
+          />
+          <button
+            type="button"
+            disabled={uploading || loading}
+            onClick={() => fileRef.current?.click()}
+            className="shrink-0 px-3 py-2.5 rounded-2xl bg-primary/15 text-primary text-xs font-semibold disabled:opacity-50"
+          >
+            {uploading ? "…" : "Tải lên"}
+          </button>
         </div>
 
         <div className="flex-1 overflow-y-auto px-2 pb-3 min-h-[220px] max-h-[50vh]">
-          {query.trim().length < 2 ? (
+          {query.trim().length < 2 && library.length > 0 ? (
+            <>
+              <p className="text-xs text-base-content/50 px-3 py-2">
+                Thư viện của bạn
+              </p>
+              {library.map((track) => (
+                <button
+                  key={track.id}
+                  type="button"
+                  disabled={loading}
+                  onClick={() =>
+                    handlePick({
+                      id: track.id,
+                      song_title: track.title,
+                      song_name: track.title,
+                      name: track.title,
+                      artist: track.artist,
+                      image_url: track.coverUrl,
+                      preview_url: track.audioUrl,
+                      duration_ms: (track.duration || 0) * 1000,
+                      source: track.source || "library",
+                      musicTrackId: track.id,
+                      platform: "upload",
+                    })
+                  }
+                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-2xl hover:bg-base-200 text-left"
+                >
+                  <div className="w-12 h-12 rounded-lg bg-base-300 flex items-center justify-center shrink-0">
+                    <Music2 className="w-5 h-5 opacity-40" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-semibold text-sm truncate">
+                      {track.title}
+                    </div>
+                    <div className="text-xs text-base-content/60 truncate">
+                      {track.artist || "Local"}
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </>
+          ) : query.trim().length < 2 ? (
             <p className="text-center text-sm text-base-content/50 py-10 px-4">
-              Nhập ít nhất 2 ký tự để tìm bài hát
+              Nhập để tìm Spotify / hoặc tải nhạc từ máy
             </p>
           ) : searching && !results.length ? (
             <div className="flex justify-center py-10">
