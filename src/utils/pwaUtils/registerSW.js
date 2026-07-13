@@ -2,36 +2,101 @@ import { registerSW } from "virtual:pwa-register";
 
 const BANNER_ID = "pwa-update-banner";
 const DISMISS_KEY = "pwa_update_dismissed_at";
-/** Không hiện lại banner trong 4h nếu user bấm Hủy */
-const DISMISS_MS = 4 * 60 * 60 * 1000;
+const DISMISS_SCRIPT_KEY = "pwa_update_dismissed_script";
+const LAST_CHECK_KEY = "pwa_update_last_check_at";
+const SHOWN_SCRIPT_KEY = "pwa_update_shown_script";
 
-function isDismissedRecently() {
+/** Không hiện lại banner trong 24h nếu user bấm Hủy (localStorage) */
+const DISMISS_MS = 24 * 60 * 60 * 1000;
+/** Tối thiểu 10 phút giữa các lần registration.update() */
+const CHECK_COOLDOWN_MS = 10 * 60 * 1000;
+/** Debounce onNeedRefresh — tránh spam khi SW báo nhiều lần */
+const NEED_REFRESH_DEBOUNCE_MS = 2500;
+
+function now() {
+  return Date.now();
+}
+
+function safeGet(key, storage = localStorage) {
   try {
-    const t = Number(sessionStorage.getItem(DISMISS_KEY) || 0);
-    return t && Date.now() - t < DISMISS_MS;
+    return storage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function safeSet(key, value, storage = localStorage) {
+  try {
+    storage.setItem(key, value);
+  } catch {
+    /* ignore */
+  }
+}
+
+function isDismissedRecently(scriptUrl = "") {
+  try {
+    const t = Number(safeGet(DISMISS_KEY) || 0);
+    if (!t || now() - t >= DISMISS_MS) return false;
+    // Nếu dismiss cho đúng script waiting này → không hiện lại
+    const dismissedScript = safeGet(DISMISS_SCRIPT_KEY) || "";
+    if (!scriptUrl || !dismissedScript) return true;
+    return dismissedScript === scriptUrl;
   } catch {
     return false;
   }
 }
 
-function markDismissed() {
-  try {
-    sessionStorage.setItem(DISMISS_KEY, String(Date.now()));
-  } catch {
-    /* ignore */
-  }
+function markDismissed(scriptUrl = "") {
+  safeSet(DISMISS_KEY, String(now()));
+  if (scriptUrl) safeSet(DISMISS_SCRIPT_KEY, scriptUrl);
+}
+
+function alreadyShownForScript(scriptUrl) {
+  if (!scriptUrl) return false;
+  return safeGet(SHOWN_SCRIPT_KEY) === scriptUrl;
+}
+
+function markShownForScript(scriptUrl) {
+  if (scriptUrl) safeSet(SHOWN_SCRIPT_KEY, scriptUrl);
+}
+
+function canRunUpdateCheck() {
+  const last = Number(safeGet(LAST_CHECK_KEY) || 0);
+  if (last && now() - last < CHECK_COOLDOWN_MS) return false;
+  safeSet(LAST_CHECK_KEY, String(now()));
+  return true;
 }
 
 function removeBanner() {
   document.getElementById(BANNER_ID)?.remove();
 }
 
+function getWaitingScriptUrl(registration) {
+  try {
+    return (
+      registration?.waiting?.scriptURL ||
+      registration?.installing?.scriptURL ||
+      ""
+    );
+  } catch {
+    return "";
+  }
+}
+
 /**
- * Chip mini: chỉ chữ "Cập nhật" + × — không banner to.
+ * Chip mini: chỉ chữ "Cập nhật" + × — không banner to, không nhảy liên tục.
  */
-function showUpdateBanner(onUpdate, onCancel) {
+function showUpdateBanner(onUpdate, onCancel, scriptUrl = "") {
   if (document.getElementById(BANNER_ID)) return;
-  if (isDismissedRecently()) return;
+  if (isDismissedRecently(scriptUrl)) return;
+  // Cùng bản SW đã hiện rồi trong session → không spam lại
+  if (scriptUrl && alreadyShownForScript(scriptUrl)) {
+    // Vẫn cho hiện lại sau dismiss hết hạn
+    const t = Number(safeGet(DISMISS_KEY) || 0);
+    if (t && now() - t < DISMISS_MS) return;
+  }
+
+  markShownForScript(scriptUrl);
 
   const wrap = document.createElement("div");
   wrap.id = BANNER_ID;
@@ -58,7 +123,22 @@ function showUpdateBanner(onUpdate, onCancel) {
     alignItems: "center",
     gap: "6px",
     maxWidth: "calc(100vw - 24px)",
+    // Vào êm, không “nhảy” đột ngột
+    animation: "pwaUpdateIn 0.28s ease-out",
   });
+
+  // Inject keyframes once
+  if (!document.getElementById("pwa-update-anim-style")) {
+    const style = document.createElement("style");
+    style.id = "pwa-update-anim-style";
+    style.textContent = `
+      @keyframes pwaUpdateIn {
+        from { opacity: 0; transform: translateX(-50%) translateY(8px); }
+        to { opacity: 1; transform: translateX(-50%) translateY(0); }
+      }
+    `;
+    document.head.appendChild(style);
+  }
 
   const btnUpdate = document.createElement("button");
   btnUpdate.type = "button";
@@ -94,7 +174,7 @@ function showUpdateBanner(onUpdate, onCancel) {
   });
 
   btnCancel.onclick = () => {
-    markDismissed();
+    markDismissed(scriptUrl);
     removeBanner();
     onCancel?.();
   };
@@ -103,6 +183,14 @@ function showUpdateBanner(onUpdate, onCancel) {
     btnUpdate.disabled = true;
     btnUpdate.textContent = "…";
     btnCancel.disabled = true;
+    // Clear dismiss so next real update can show
+    try {
+      localStorage.removeItem(DISMISS_KEY);
+      localStorage.removeItem(DISMISS_SCRIPT_KEY);
+      localStorage.removeItem(SHOWN_SCRIPT_KEY);
+    } catch {
+      /* ignore */
+    }
     onUpdate?.();
   };
 
@@ -113,19 +201,26 @@ function showUpdateBanner(onUpdate, onCancel) {
 
 /**
  * PWA register — KHÔNG tự reload.
- * Có bản mới → hiện nút Cập nhật / Hủy.
+ * Có bản mới → hiện nút Cập nhật / Hủy (không spam).
  */
 export function initPWA() {
   let registration = null;
+  let needRefreshTimer = null;
+  let lastNeedRefreshAt = 0;
 
-  const updateSW = registerSW({
-    // prompt mode: không auto skipWaiting / reload
-    immediate: false,
-    onNeedRefresh() {
+  const promptRefresh = (reg) => {
+    const scriptUrl = getWaitingScriptUrl(reg || registration);
+    const t = now();
+    // Debounce: nhiều sự kiện onNeedRefresh liên tiếp → 1 lần hiện
+    if (t - lastNeedRefreshAt < NEED_REFRESH_DEBOUNCE_MS) return;
+    lastNeedRefreshAt = t;
+
+    if (needRefreshTimer) clearTimeout(needRefreshTimer);
+    needRefreshTimer = setTimeout(() => {
+      needRefreshTimer = null;
       console.log("[PWA] Có bản mới — chờ user chọn Cập nhật hoặc Hủy");
       showUpdateBanner(
         () => {
-          // true = skip waiting + reload
           try {
             updateSW?.(true);
           } catch (e) {
@@ -136,7 +231,16 @@ export function initPWA() {
         () => {
           console.log("[PWA] User hủy cập nhật");
         },
+        scriptUrl,
       );
+    }, 400);
+  };
+
+  const updateSW = registerSW({
+    // prompt mode: không auto skipWaiting / reload
+    immediate: false,
+    onNeedRefresh() {
+      promptRefresh(registration);
     },
     onOfflineReady() {
       console.log("[PWA] Sẵn sàng offline");
@@ -145,28 +249,34 @@ export function initPWA() {
       registration = reg || null;
       if (!registration) return;
 
-      // Kiểm tra bản mới định kỳ (không reload)
+      // Nếu đã có SW waiting sẵn (user quay lại sau deploy)
+      if (registration.waiting) {
+        promptRefresh(registration);
+      }
+
+      // Kiểm tra bản mới định kỳ (không reload) — 45 phút
       setInterval(
         () => {
           try {
+            if (!canRunUpdateCheck()) return;
             registration.update();
           } catch {
             /* ignore */
           }
         },
-        30 * 60 * 1000, // 30 phút
+        45 * 60 * 1000,
       );
     },
   });
 
-  // Khi quay lại tab: check update (chỉ hiện banner, không reload)
+  // Khi quay lại tab: check update có cooldown — tránh nhảy banner mỗi lần focus
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible" && registration) {
-      try {
-        registration.update();
-      } catch {
-        /* ignore */
-      }
+    if (document.visibilityState !== "visible" || !registration) return;
+    if (!canRunUpdateCheck()) return;
+    try {
+      registration.update();
+    } catch {
+      /* ignore */
     }
   });
 
