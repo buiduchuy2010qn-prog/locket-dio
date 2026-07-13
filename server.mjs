@@ -116,9 +116,15 @@ function serveStatic(req, res) {
   const ext = path.extname(filePath).toLowerCase();
   const type = MIME[ext] || "application/octet-stream";
   const data = fs.readFileSync(filePath);
+  const base = path.basename(filePath);
   const cache =
-    ext === ".html" || ext === ".webmanifest" || path.basename(filePath) === "sw.js"
-      ? "no-cache"
+    ext === ".html" ||
+    ext === ".webmanifest" ||
+    base === "sw.js" ||
+    base === "version.json"
+      ? base === "version.json"
+        ? "no-store, no-cache, must-revalidate"
+        : "no-cache"
       : "public, max-age=31536000, immutable";
 
   send(res, 200, data, {

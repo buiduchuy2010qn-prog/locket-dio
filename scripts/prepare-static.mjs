@@ -50,6 +50,13 @@ for (const d of STATIC_KEEP) {
 rimraf(backup);
 
 fs.writeFileSync("public/_redirects", "/*    /index.html   200\n");
+
+// Ensure version.json is never swallowed by SPA rewrite on hosts that use _redirects
+// (Netlify: explicit file still wins; keep a copy from dist if present)
+if (fs.existsSync("dist/version.json") && !fs.existsSync("public/version.json")) {
+  fs.copyFileSync("dist/version.json", "public/version.json");
+}
+
 const assetCount = fs.existsSync("public/assets")
   ? fs.readdirSync("public/assets").length
   : 0;
