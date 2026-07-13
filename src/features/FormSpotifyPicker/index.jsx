@@ -107,8 +107,35 @@ export default function FormSpotifyPicker({
           list = await searchMusicByQuery(q, 40);
         }
         const normalized = (Array.isArray(list) ? list : []).map((t) => {
-          if (t._raw) return { ...t._raw, ...t };
-          if (t.song_title || t.song_name || t.preview_url) return t;
+          // Library API wraps Spotify hit in _raw — merge for isrc/spotify_url
+          if (t._raw) {
+            return {
+              ...t._raw,
+              ...t,
+              song_title:
+                t._raw.song_title ||
+                t._raw.song_name ||
+                t.title ||
+                t.song_title,
+              song_name:
+                t._raw.song_name ||
+                t._raw.song_title ||
+                t.title ||
+                t.song_name,
+              artist: t._raw.artist || t.artist || "",
+              preview_url:
+                t._raw.preview_url || t.preview_url || t.audioUrl || "",
+              image_url:
+                t._raw.image_url || t.coverUrl || t.image_url || "",
+              isrc: t._raw.isrc || t.isrc || null,
+              spotify_url: t._raw.spotify_url || t.spotify_url || null,
+              platform: t._raw.platform || t.platform || "spotify",
+              source: t._raw.source || t.source || "spotify",
+            };
+          }
+          if (t.song_title || t.song_name || t.preview_url || t.isrc) {
+            return t;
+          }
           return {
             id: t.id,
             song_title: t.title,

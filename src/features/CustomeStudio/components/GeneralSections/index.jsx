@@ -193,7 +193,10 @@ export default function GeneralThemes({ title }) {
     }
   };
 
-  /** Chọn bài — gắn caption ngay (không chờ clip / ISRC API chậm) */
+  /**
+   * Chọn bài từ search — Locket app CẦN isrc.
+   * Chờ getInfoMusicByUrl (ISRC) rồi gắn; không gắn thiếu isrc.
+   */
   const handleSpotifyLivePick = async (track) => {
     if (
       !track?.spotify_url &&
@@ -202,57 +205,173 @@ export default function GeneralThemes({ title }) {
       !track?.song_title &&
       !track?.preview_url &&
       !track?.musicTrackId &&
-      !track?.audioUrl
+      !track?.audioUrl &&
+      !track?.title
     ) {
       SonnerError(t("custom_studio.music_failed"));
       return;
     }
     setLoading(true);
     try {
+      // Flatten search library shape
+      const raw = track._raw ? { ...track._raw, ...track } : track;
+
       const isLocalUpload =
-        track.source === "upload" ||
-        track.source === "library" ||
-        track.platform === "upload" ||
-        Boolean(track.musicTrackId && !track.spotify_url);
+        raw.source === "upload" ||
+        raw.source === "library" ||
+        raw.platform === "upload" ||
+        Boolean(raw.musicTrackId && !raw.spotify_url && !raw._raw);
 
-      const song_title =
-        track.song_title ||
-        track.song_name ||
-        track.title ||
-        track.name ||
+      const songFromTrack =
+        raw.song_title ||
+        raw.song_name ||
+        raw.title ||
+        raw.name ||
         "";
-      const artist = track.artist || "";
-      const preview =
-        track.preview_url || track.audioUrl || track.audio || null;
-      const image_url =
-        track.image_url || track.coverUrl || track.image || "";
-      const startTime = Number(track.startTime) || 0;
-      let endTime = Number(track.endTime) || 0;
-      if (!endTime) {
-        if (track.duration_ms > 0) endTime = track.duration_ms / 1000;
-        else if (track.duration > 0) endTime = Number(track.duration);
-        else endTime = 30;
-      }
-      // Web preview ~30s
-      if (!isLocalUpload && endTime > 35) endTime = 30;
+      const artistFromTrack = raw.artist || "";
 
-      const spotify_url =
-        track.spotify_url ||
-        (!isLocalUpload && track.id
-          ? `https://open.spotify.com/track/${track.id}`
+      // Spotify track URL (chỉ khi id trông như Spotify id)
+      const spotifyId =
+        raw.spotify_url?.match(/track\/([a-zA-Z0-9]+)/)?.[1] ||
+        (typeof raw.id === "string" &&
+        /^[a-zA-Z0-9]{10,}$/.test(raw.id) &&
+        !String(raw.source || "").includes("deezer")
+          ? raw.id
           : null);
+      const spotify_url =
+        raw.spotify_url ||
+        (spotifyId ? `https://open.spotify.com/track/${spotifyId}` : null);
 
-      const caption =
-        track.title ||
-        [song_title, artist].filter(Boolean).join(" - ") ||
-        song_title;
+      let musicData = null;
 
-      if (!caption) {
-        SonnerError(t("custom_studio.music_failed"));
+      // 1) Ưu tiên resolve full meta + ISRC qua API (bắt buộc cho Locket app)
+      if (!isLocalUpload) {
+        const platform =
+          raw.platform === "apple" || raw.source === "apple"
+            ? "apple"
+            : "spotify";
+        const resolveUrl =
+          spotify_url ||
+          raw.apple_music_url ||
+          (songFromTrack
+            ? null
+            : null);
+
+        if (spotify_url || raw.apple_music_url) {
+          try {
+            musicData = await getInfoMusicByUrl(
+              spotify_url || raw.apple_music_url,
+              platform,
+            );
+          } catch (e) {
+            console.warn("[music pick] getInfoMusicByUrl:", e?.message || e);
+          }
+        }
+
+        // 2) Fallback: nếu track search đã có isrc
+        if (!musicData?.isrc && raw.isrc) {
+          musicData = {
+            song_title: songFromTrack,
+            song_name: songFromTrack,
+            artist: artistFromTrack,
+            isrc: raw.isrc,
+            preview_url: raw.preview_url || raw.audioUrl || null,
+            image_url: raw.image_url || raw.coverUrl || "",
+            spotify_url,
+            platform: "spotify",
+          };
+        }
+      }
+
+      // Local upload — gắn với file, không có isrc Locket
+      if (isLocalUpload) {
+        const preview =
+          raw.preview_url || raw.audioUrl || raw.audio || null;
+        const image_url = raw.image_url || raw.coverUrl || "";
+        const endTime =
+          Number(raw.endTime) ||
+          (raw.duration_ms > 0
+            ? raw.duration_ms / 1000
+            : Number(raw.duration) || 30);
+        const caption =
+          [songFromTrack, artistFromTrack].filter(Boolean).join(" - ") ||
+          songFromTrack ||
+          "Nhạc";
+
+        applyOverlay({
+          overlay_id: "caption:music",
+          caption,
+          text: caption,
+          icon: {
+            data: image_url,
+            type: "image",
+            source: "url",
+          },
+          type: "music",
+          payload: {
+            song_title: songFromTrack,
+            song_name: songFromTrack,
+            name: songFromTrack,
+            artist: artistFromTrack,
+            isrc: raw.isrc || null,
+            preview_url: preview,
+            audio: preview,
+            image_url,
+            image: image_url,
+            spotify_url: null,
+            platform: "upload",
+            musicTrackId: raw.musicTrackId || raw.id || null,
+            startTime: Number(raw.startTime) || 0,
+            endTime: Math.max(1, endTime),
+            volume: 1,
+            originalVideoVolume: 1,
+            duration: endTime,
+          },
+          platform: "upload",
+        });
+        setSpotifyPickerOpen(false);
+        SonnerSuccess(
+          "Đã gắn nhạc (file)",
+          "Web nghe được; app Locket cần bài Spotify có ISRC.",
+        );
         return;
       }
 
-      // Gắn ngay — ISRC bổ sung nền nếu thiếu (không chặn UI)
+      // Spotify / Apple — BẮT BUỘC isrc để hiện trên Locket app
+      const isrc = musicData?.isrc || raw.isrc || null;
+      if (!isrc) {
+        SonnerError(
+          "Không lấy được mã ISRC",
+          "Chọn bài Spotify khác hoặc dán link Spotify đầy đủ.",
+        );
+        return;
+      }
+
+      const song_title =
+        musicData?.song_title ||
+        musicData?.song_name ||
+        musicData?.name ||
+        songFromTrack;
+      const artist = musicData?.artist || artistFromTrack;
+      const preview =
+        musicData?.preview_url ||
+        raw.preview_url ||
+        raw.audioUrl ||
+        null;
+      const image_url =
+        musicData?.image_url ||
+        raw.image_url ||
+        raw.coverUrl ||
+        "";
+      const finalSpotify =
+        musicData?.spotify_url || spotify_url || null;
+      const apple_music_url =
+        musicData?.apple_music_url || raw.apple_music_url || null;
+
+      const caption =
+        [song_title, artist].filter(Boolean).join(" - ") || song_title;
+      const endTime = 30;
+
       applyOverlay({
         overlay_id: "caption:music",
         caption,
@@ -268,58 +387,32 @@ export default function GeneralThemes({ title }) {
           song_name: song_title,
           name: song_title,
           artist,
-          isrc: track.isrc || null,
+          isrc: String(isrc).trim(),
           preview_url: preview,
           audio: preview,
           image_url,
           image: image_url,
-          spotify_url,
-          platform: isLocalUpload ? "upload" : "spotify",
-          musicTrackId:
-            track.musicTrackId || (isLocalUpload ? track.id : null),
-          startTime,
-          endTime: Math.max(startTime + 0.5, endTime),
+          spotify_url: finalSpotify,
+          apple_music_url,
+          platform: apple_music_url && !finalSpotify ? "apple" : "spotify",
+          startTime: 0,
+          endTime,
           volume: 1,
           originalVideoVolume: 1,
           duration: endTime,
-          duration_ms: track.duration_ms || endTime * 1000,
         },
-        platform: isLocalUpload ? "upload" : "spotify",
+        platform: apple_music_url && !finalSpotify ? "apple" : "spotify",
       });
 
       setSpotifyPickerOpen(false);
-      SonnerSuccess("Đã gắn nhạc", song_title);
-
-      // Enrich ISRC nền (server vẫn ensure khi đăng) — không chặn UI
-      if (!track.isrc && spotify_url && !isLocalUpload) {
-        getInfoMusicByUrl(spotify_url, "spotify")
-          .then((musicData) => {
-            if (!musicData?.isrc) return;
-            updateOverlayEditor({
-              payload: {
-                song_title,
-                song_name: song_title,
-                name: song_title,
-                artist,
-                isrc: musicData.isrc,
-                preview_url: preview || musicData.preview_url,
-                audio: preview || musicData.preview_url,
-                image_url: image_url || musicData.image_url,
-                image: image_url || musicData.image_url,
-                spotify_url,
-                platform: "spotify",
-                musicTrackId: track.musicTrackId || null,
-                startTime,
-                endTime: Math.max(startTime + 0.5, endTime),
-                volume: 1,
-                originalVideoVolume: 1,
-                duration: endTime,
-              },
-            });
-          })
-          .catch(() => {});
-      }
-    } catch {
+      SonnerSuccess(
+        "Đã gắn nhạc",
+        preview
+          ? `${song_title} · ISRC OK`
+          : `${song_title} · ISRC OK (web có thể không nghe được preview)`,
+      );
+    } catch (e) {
+      console.error("[handleSpotifyLivePick]", e);
       SonnerError(t("custom_studio.music_failed"));
     } finally {
       setLoading(false);

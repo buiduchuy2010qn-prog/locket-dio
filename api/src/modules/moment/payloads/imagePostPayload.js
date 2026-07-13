@@ -301,11 +301,17 @@ const imagePostPayloadMusic = ({ imageUrl, optionsData }) => {
     musicPayload.preview_url = preview;
   }
 
+  // Link platform — Locket dùng để mở / map track
   if (payload?.spotify_url) {
     musicPayload.spotify_url = payload.spotify_url;
   } else if (payload?.apple_music_url || payload?.appleMusicUrl) {
     musicPayload.apple_music_url =
       payload.apple_music_url || payload.appleMusicUrl;
+  }
+
+  // Một số bản Locket cần thêm song_name trong payload
+  if (songTitle) {
+    musicPayload.song_name = songTitle;
   }
 
   // Icon cover album

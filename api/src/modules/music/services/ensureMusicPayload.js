@@ -48,7 +48,7 @@ async function ensureMusicOptionsData(optionsData = {}) {
   const needStablePreview = !preview || isSignedEphemeralPreview(preview);
 
   if (needIsrc || needStablePreview) {
-    const link =
+    let link =
       spotify_url ||
       apple_music_url ||
       payload.url ||
@@ -58,6 +58,17 @@ async function ensureMusicOptionsData(optionsData = {}) {
       payload.platform ||
       optionsData.platform ||
       (apple_music_url && !spotify_url ? "apple" : "spotify");
+
+    // Fallback: build Spotify URL from track id if present
+    if (
+      !link &&
+      payload.id &&
+      typeof payload.id === "string" &&
+      /^[a-zA-Z0-9]{10,}$/.test(payload.id)
+    ) {
+      link = `https://open.spotify.com/track/${payload.id}`;
+      spotify_url = link;
+    }
 
     if (link) {
       try {
@@ -83,6 +94,49 @@ async function ensureMusicOptionsData(optionsData = {}) {
         }
       } catch (e) {
         console.warn("[ensureMusicOptionsData] re-fetch failed:", e.message);
+      }
+    }
+
+    // Vẫn thiếu ISRC: tìm theo tên + nghệ sĩ (Spotify search / enrich)
+    if (!isrc && song_title) {
+      try {
+        const { searchMusicByQuery } = require("./fetchMusicApi");
+        const hits = await searchMusicByQuery(
+          [song_title, artist].filter(Boolean).join(" "),
+          5,
+        );
+        const hit =
+          (hits || []).find((h) => h.isrc) ||
+          (hits || [])[0] ||
+          null;
+        if (hit) {
+          isrc = isrc || (hit.isrc ? String(hit.isrc).trim() : "");
+          if (!preview && hit.preview_url) preview = hit.preview_url;
+          song_title =
+            song_title ||
+            hit.song_title ||
+            hit.song_name ||
+            hit.name ||
+            "";
+          artist = artist || hit.artist || "";
+          image_url = image_url || hit.image_url || "";
+          spotify_url = spotify_url || hit.spotify_url || null;
+          if (hit.spotify_url && !isrc) {
+            try {
+              const fresh2 = await fetchMusicApi(hit.spotify_url, "spotify");
+              if (fresh2?.isrc) isrc = String(fresh2.isrc).trim();
+              if (fresh2?.preview_url) preview = preview || fresh2.preview_url;
+              if (fresh2?.image_url) image_url = image_url || fresh2.image_url;
+            } catch {
+              /* ignore */
+            }
+          }
+        }
+      } catch (e) {
+        console.warn(
+          "[ensureMusicOptionsData] search fallback failed:",
+          e.message,
+        );
       }
     }
   }
