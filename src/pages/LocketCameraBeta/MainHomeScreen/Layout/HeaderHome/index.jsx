@@ -5,6 +5,7 @@ import { useAuthStore, useFriendList } from "@/stores";
 import { shareBlob } from "@/services";
 import { useTranslation } from "react-i18next";
 import { useAutoDriveBackup } from "@/hooks/useAutoDriveBackup";
+import AppUpdateButton from "@/components/AppUpdateButton";
 
 const HeaderHome = ({
   setIsHomeOpen,
@@ -86,31 +87,32 @@ const HeaderHome = ({
         <div
           className={`fixed top-0 left-0 w-full px-2 pt-1 flex items-center justify-between z-50`}
         >
-          {/* Avatar bên trái */}
-          <button
-            onClick={() => setIsProfileOpen(true)}
-            className="relative flex items-center justify-center w-11 h-11 cursor-pointer active:scale-105"
-          >
-            {/* Nền mờ */}
-            <div className="bg-base-300/70 backdrop-blur-[4px] w-11.5 h-11.5 rounded-full absolute" />
+          {/* Avatar hồ sơ + nút cập nhật tròn (chỉ hiện khi có bản mới) */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setIsProfileOpen(true)}
+              className="relative flex items-center justify-center w-11 h-11 cursor-pointer active:scale-105"
+            >
+              <div className="bg-base-300/70 backdrop-blur-[4px] w-11.5 h-11.5 rounded-full absolute" />
 
-            {/* Hiển thị vòng loading khi ảnh chưa load */}
-            {!isImageLoaded && (
-              <div className="absolute w-5 h-5 border-t-transparent border-white rounded-full animate-spin" />
-            )}
+              {!isImageLoaded && (
+                <div className="absolute w-5 h-5 border-t-transparent border-white rounded-full animate-spin" />
+              )}
 
-            <img
-              src={user?.profilePicture || "/images/default_profile.png"}
-              alt="avatar"
-              onLoad={() => setIsImageLoaded(true)}
-              onError={(e) => {
-                e.currentTarget.src = "/images/default_profile.png";
-              }}
-              className={`rounded-full h-9.5 w-9.5 relative backdrop-blur-3xl transition-opacity duration-300 ${
-                isImageLoaded ? "opacity-100" : "opacity-0 bg-base-300"
-              }`}
-            />
-          </button>
+              <img
+                src={user?.profilePicture || "/images/default_profile.png"}
+                alt="avatar"
+                onLoad={() => setIsImageLoaded(true)}
+                onError={(e) => {
+                  e.currentTarget.src = "/images/default_profile.png";
+                }}
+                className={`rounded-full h-9.5 w-9.5 relative backdrop-blur-3xl transition-opacity duration-300 ${
+                  isImageLoaded ? "opacity-100" : "opacity-0 bg-base-300"
+                }`}
+              />
+            </button>
+            <AppUpdateButton />
+          </div>
 
           <button
             className="absolute flex z-90 transition-all justify-center items-center flex-row gap-1 left-1/2 

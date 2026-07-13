@@ -7,10 +7,10 @@ import {
 import { RefreshCw } from "lucide-react";
 
 /**
- * Small floating "Cập nhật" button — only when a new build / SW is waiting.
- * User taps to update; no auto toast text.
+ * Nút tròn "Cập nhật" — chỉ hiện khi có bản mới.
+ * Đặt cạnh avatar hồ sơ (HeaderHome).
  */
-export default function AppUpdateButton() {
+export default function AppUpdateButton({ className = "" }) {
   const [available, setAvailable] = useState(false);
   const [loading, setLoading] = useState(false);
 
@@ -22,15 +22,15 @@ export default function AppUpdateButton() {
 
   if (!available) return null;
 
-  const onClick = async () => {
+  const onClick = async (e) => {
+    e?.stopPropagation?.();
     if (loading) return;
     setLoading(true);
     try {
-      // Re-check then apply
       await checkForAppUpdate();
       await applyWebsiteUpdate();
-    } catch (e) {
-      console.error("[AppUpdateButton]", e);
+    } catch (err) {
+      console.error("[AppUpdateButton]", err);
       setLoading(false);
     }
   };
@@ -42,20 +42,23 @@ export default function AppUpdateButton() {
       disabled={loading}
       aria-label="Cập nhật ứng dụng"
       title="Có bản mới — bấm để cập nhật"
-      className="fixed z-[999980] flex items-center gap-1.5 rounded-full
-        px-3.5 py-2 text-[13px] font-semibold text-white shadow-lg
-        border border-white/20 backdrop-blur-md
-        bg-neutral-900/90 hover:bg-neutral-800 active:scale-95
-        transition disabled:opacity-70 disabled:cursor-wait
-        bottom-[max(1rem,env(safe-area-inset-bottom))] right-4
-        md:bottom-auto md:top-[max(1rem,env(safe-area-inset-top))]"
       data-update-button="true"
+      className={`relative flex items-center justify-center w-11 h-11
+        rounded-full bg-base-300/70 backdrop-blur-[4px]
+        hover:bg-base-300 active:scale-105 transition
+        disabled:opacity-70 disabled:cursor-wait shrink-0
+        ${className}`}
     >
+      {/* chấm đỏ báo có update */}
+      {!loading && (
+        <span className="absolute top-0.5 right-0.5 w-2.5 h-2.5 rounded-full bg-pink-500 border-2 border-base-100" />
+      )}
       <RefreshCw
-        className={`w-4 h-4 ${loading ? "animate-spin" : ""}`}
+        size={22}
+        strokeWidth={2.2}
+        className={loading ? "animate-spin" : ""}
         aria-hidden
       />
-      {loading ? "Đang cập nhật…" : "Cập nhật"}
     </button>
   );
 }
