@@ -177,16 +177,27 @@ export default function GeneralThemes({ title }) {
 
   const handleMusicSubmit = async (link) => {
     setLoading(true);
+    SonnerInfo("Đang lấy mã nhạc (ISRC)…", "Có thể mất vài giây");
     try {
-      const musicData = await getInfoMusicByUrl(
-        link,
-        formType === "apple" ? "apple" : "spotify",
-      );
-      const ok = applyMusicOverlay(
-        musicData,
-        formType === "apple" ? "apple" : "spotify",
-      );
+      const platform = formType === "apple" ? "apple" : "spotify";
+      // Multi-step resolve (chấp nhận chậm) — không chỉ 1 lần getInfo
+      const musicData =
+        platform === "spotify"
+          ? await resolveMusicForLocket({
+              spotify_url: link,
+              song_title: "",
+              artist: "",
+            })
+          : await getInfoMusicByUrl(link, "apple");
+
+      const ok = applyMusicOverlay(musicData, platform);
       if (ok) closeMusicForm();
+      else if (!musicData?.isrc) {
+        SonnerError(
+          "Không lấy được mã ISRC",
+          "Thử bài khác, dán link track Spotify, hoặc tìm theo tên.",
+        );
+      }
     } catch {
       SonnerError(t("custom_studio.music_failed"));
     } finally {

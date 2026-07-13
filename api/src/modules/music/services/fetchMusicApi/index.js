@@ -15,10 +15,45 @@ const http = axios.create({
 });
 
 function extractSpotifyTrackId(url = "") {
-  const m = String(url).match(
-    /(?:open\.spotify\.com\/(?:intl-[a-z]{2}\/)?track\/|spotify:track:)([a-zA-Z0-9]+)/i,
+  const s = String(url || "").trim();
+  // open.spotify.com(/intl-xx)?/track/ID  |  spotify:track:ID  |  embed/track/ID
+  const m = s.match(
+    /(?:open\.spotify\.com\/(?:intl-[a-z]{2}\/)?(?:embed\/)?track\/|spotify\.com\/track\/|spotify:track:)([a-zA-Z0-9]{10,})/i,
   );
-  return m ? m[1] : null;
+  if (m) return m[1];
+  // bare track id in path tail
+  const m2 = s.match(/\/track\/([a-zA-Z0-9]{10,})/i);
+  return m2 ? m2[1] : null;
+}
+
+/** Follow spotify.link / app link short URLs → open.spotify.com/track/... */
+async function expandSpotifyShortUrl(url = "") {
+  const s = String(url || "").trim();
+  if (!s) return s;
+  if (extractSpotifyTrackId(s)) return s;
+  if (!/spotify\.(link|app\.link)|sptfy\.com/i.test(s)) return s;
+  try {
+    const r = await axios.get(s, {
+      timeout: 12000,
+      maxRedirects: 5,
+      headers: { "User-Agent": UA, Accept: "text/html,*/*" },
+      validateStatus: (st) => st >= 200 && st < 400,
+    });
+    const finalUrl =
+      r.request?.res?.responseUrl ||
+      r.request?.responseURL ||
+      r.headers?.location ||
+      s;
+    if (extractSpotifyTrackId(finalUrl)) return finalUrl;
+    const html = typeof r.data === "string" ? r.data : "";
+    const fromHtml = html.match(
+      /https?:\/\/open\.spotify\.com\/(?:intl-[a-z]{2}\/)?track\/[a-zA-Z0-9]+/i,
+    );
+    if (fromHtml) return fromHtml[0];
+  } catch (e) {
+    console.warn("expandSpotifyShortUrl:", e.message);
+  }
+  return s;
 }
 
 function extractAppleId(url = "") {
@@ -463,16 +498,15 @@ function toClientShape(partial, platform, originalUrl) {
 }
 
 /**
- * Spotify từ link track — pipeline tối ưu:
- * 1) oEmbed (title+cover, nhanh)
- * 2) Spotify Web API official (isrc + meta đầy đủ) nếu có CLIENT_ID/SECRET
- * 3) song.link chỉ khi còn thiếu isrc/preview path (chậm hơn, phụ)
- * 4) Deezer/iTunes enrich preview ổn định
- *
- * Không search theo tên làm bước chính (chậm, dễ gãy).
+ * Spotify từ link track — KHÔNG phụ thuộc Spotify Web API (hay 403 Premium).
+ * 1) Expand short link
+ * 2) Song song: oEmbed + song.link + official (optional)
+ * 3) Deezer/iTunes enrich ISRC + preview (bắt buộc cho Locket)
+ * 4) Search Deezer theo tên nếu vẫn thiếu ISRC
  */
 async function getSpotifyMusicInfo(url) {
-  const trackId = extractSpotifyTrackId(url);
+  const expanded = await expandSpotifyShortUrl(url);
+  const trackId = extractSpotifyTrackId(expanded);
   if (!trackId) {
     const err = new Error(
       "URL Spotify không hợp lệ. Cần link dạng open.spotify.com/track/...",
@@ -481,18 +515,18 @@ async function getSpotifyMusicInfo(url) {
     throw err;
   }
 
-  const cleanUrl = normalizeSpotifyUrl(url, trackId);
+  const cleanUrl = normalizeSpotifyUrl(expanded, trackId);
 
-  // Song song: official (ISRC) + oEmbed + song.link (chậm nhưng tin cậy)
-  const [official, oembed, songlink] = await Promise.all([
-    fetchSpotifyOfficial(trackId),
+  // oEmbed + song.link là đường chính (không cần Premium Spotify app)
+  // Official API optional — nhiều app bị 403 "premium subscription required"
+  const [oembed, songlink, official] = await Promise.all([
     fetchSpotifyOembed(cleanUrl),
     fetchSongLink(cleanUrl).catch(() => null),
+    fetchSpotifyOfficial(trackId).catch(() => null),
   ]);
 
-  // Official API đôi khi fail market — thử thêm market VN/US
   let official2 = null;
-  if (!official?.song_name || !official?.isrc) {
+  if (!official?.isrc && !official?.song_name) {
     official2 = await fetchSpotifyOfficialWithMarket(trackId).catch(() => null);
   }
 
@@ -533,45 +567,47 @@ async function getSpotifyMusicInfo(url) {
       "spotify",
   };
 
-  // Vẫn thiếu tên: enrich từ Deezer/iTunes bằng... chưa có tên → thử Deezer isrc lookup skip
-  // Preview ổn định + ISRC (Deezer/iTunes) — chấp nhận chậm
+  // Preview + ISRC qua Deezer/iTunes — chấp nhận chậm
   if (merged.song_name || merged.deezerId) {
     merged = await enrichMusicMeta(merged);
-  } else {
-    // Thử Deezer/iTunes với id không có tên (chỉ deezerId)
-    if (merged.deezerId) {
-      const dz = await enrichFromDeezer(merged.deezerId, "", "");
+  } else if (merged.deezerId) {
+    const dz = await enrichFromDeezer(merged.deezerId, "", "");
+    if (dz) {
+      merged.song_name = dz.song_name || merged.song_name;
+      merged.artist = dz.artist || merged.artist;
+      merged.isrc = merged.isrc || dz.isrc;
+      merged.preview_url = merged.preview_url || dz.preview_url;
+      merged.image_url = merged.image_url || dz.image_url;
+    }
+  }
+
+  // Vẫn thiếu meta/ISRC: search Deezer theo tên (oEmbed thường đủ tên)
+  if ((!merged.isrc || !merged.song_name) && (merged.song_name || trackId)) {
+    const q = [merged.song_name, merged.artist].filter(Boolean).join(" ");
+    if (q) {
+      const dz = await enrichFromDeezer(null, merged.song_name || q, merged.artist);
       if (dz) {
-        merged.song_name = dz.song_name || merged.song_name;
-        merged.artist = dz.artist || merged.artist;
+        merged.song_name = merged.song_name || dz.song_name || "";
+        merged.artist = merged.artist || dz.artist || "";
         merged.isrc = merged.isrc || dz.isrc;
         merged.preview_url = merged.preview_url || dz.preview_url;
         merged.image_url = merged.image_url || dz.image_url;
+        if (dz.isrc) merged.source = `${merged.source}+deezer-isrc`;
       }
     }
   }
 
-  // Lần cuối: search Spotify theo track id qua API (đã có) — nếu vẫn trống
-  if (!merged.song_name && trackId) {
-    const again = await fetchSpotifyOfficial(trackId);
-    if (again?.song_name) {
-      merged = { ...merged, ...again, spotify_url: cleanUrl };
-      merged = await enrichMusicMeta(merged);
-    }
+  // Lần cuối: enrich lại nếu có tên
+  if (merged.song_name && !merged.isrc) {
+    merged = await enrichMusicMeta(merged);
   }
 
   if (!merged.song_name) {
-    // Không throw cứng — trả minimal để client fallback search theo tên
     const err = new Error(
       "Không tìm thấy bài hát trên Spotify (link có thể đã gỡ hoặc không công khai).",
     );
     err.status = 404;
     throw err;
-  }
-
-  // Bắt buộc cố lấy ISRC (Locket app)
-  if (!merged.isrc) {
-    merged = await enrichMusicMeta(merged);
   }
 
   return toClientShape(merged, "spotify", cleanUrl);
@@ -895,8 +931,44 @@ async function fetchSpotifySearchFull(q, limit = 50) {
 }
 
 /**
- * Tìm nhạc — ƯU TIÊN Spotify full catalog.
- * Deezer + iTunes chỉ bổ sung preview/ISRC khi Spotify thiếu.
+ * Hydrate ISRC cho track thiếu (iTunes/Spotify search thường không có ISRC).
+ * Deezer /track/{id} và search theo tên — nguồn ISRC tin cậy khi Spotify API 403.
+ */
+async function hydrateTrackIsrc(track) {
+  if (!track || track.isrc) return track;
+  const song =
+    track.song_title || track.song_name || track.name || track.title || "";
+  const artist = track.artist || "";
+  if (!song && !track.deezerId && !track.id) return track;
+
+  try {
+    // Deezer id từ source deezer
+    let deezerId =
+      track.deezerId ||
+      (track.source === "deezer-search" && track.id ? String(track.id) : null);
+
+    const dz = await enrichFromDeezer(deezerId, song, artist);
+    if (dz?.isrc) {
+      return {
+        ...track,
+        isrc: dz.isrc,
+        preview_url: track.preview_url || dz.preview_url || null,
+        image_url: track.image_url || dz.image_url || "",
+        song_name: track.song_name || dz.song_name || song,
+        song_title: track.song_title || dz.song_name || song,
+        artist: track.artist || dz.artist || artist,
+        source: `${track.source || "search"}+isrc`,
+      };
+    }
+  } catch (e) {
+    console.warn("hydrateTrackIsrc:", e.message);
+  }
+  return track;
+}
+
+/**
+ * Tìm nhạc — ưu tiên bài CÓ ISRC (Locket app bắt buộc).
+ * Spotify Web API optional (hay 403 Premium) → Deezer (có ISRC) là primary.
  */
 async function searchMusicByQuery(query, limit = 30) {
   const q = String(query || "").trim();
@@ -905,7 +977,6 @@ async function searchMusicByQuery(query, limit = 30) {
     err.status = 400;
     throw err;
   }
-  // Cho phép trả nhiều kết quả Spotify (tối đa 50)
   const lim = Math.min(Math.max(Number(limit) || 30, 1), 50);
   const fetchLim = Math.min(50, Math.max(lim, 30));
   const merged = new Map();
@@ -913,9 +984,9 @@ async function searchMusicByQuery(query, limit = 30) {
   const addTrack = (t, prefer = false) => {
     if (!t) return;
     const key =
-      t.id ||
-      t.spotify_url ||
       t.isrc ||
+      t.spotify_url ||
+      t.id ||
       t.deezer_url ||
       t.apple_music_url ||
       `${normalizeSearchText(t.song_title || t.name)}|${normalizeSearchText(t.artist)}`;
@@ -925,30 +996,65 @@ async function searchMusicByQuery(query, limit = 30) {
       merged.set(key, t);
       return;
     }
-    // Prefer Spotify-sourced track over Deezer/iTunes clones
-    const prevSp = prev.source === "spotify-search" || prev.spotify_url;
-    const nextSp = t.source === "spotify-search" || t.spotify_url;
-    if (prefer || (nextSp && !prevSp)) {
-      merged.set(key, { ...prev, ...t, spotify_url: t.spotify_url || prev.spotify_url });
-    } else if (!prev.preview_url && t.preview_url) {
-      merged.set(key, { ...prev, preview_url: t.preview_url, isrc: prev.isrc || t.isrc });
+    // Ưu tiên track có ISRC + Spotify URL
+    const score = (x) =>
+      (x.isrc ? 4 : 0) +
+      (x.spotify_url || x.source === "spotify-search" ? 2 : 0) +
+      (x.preview_url ? 1 : 0);
+    const next = {
+      ...prev,
+      ...t,
+      isrc: t.isrc || prev.isrc,
+      spotify_url: t.spotify_url || prev.spotify_url,
+      preview_url: t.preview_url || prev.preview_url,
+      apple_music_url: t.apple_music_url || prev.apple_music_url,
+      image_url: t.image_url || prev.image_url,
+    };
+    if (prefer || score(t) >= score(prev)) {
+      merged.set(key, next);
+    } else {
+      merged.set(key, {
+        ...prev,
+        isrc: prev.isrc || t.isrc,
+        preview_url: prev.preview_url || t.preview_url,
+        spotify_url: prev.spotify_url || t.spotify_url,
+      });
     }
   };
 
-  // 1) Spotify FULL — primary
-  const spotifyTracks = await fetchSpotifySearchFull(q, fetchLim);
-  for (const t of spotifyTracks) addTrack(t, true);
-
-  // 2) Deezer + iTunes song song — fill preview / fallback nếu Spotify trống
-  const needFallback = spotifyTracks.length < Math.min(10, lim);
-  const [deezerTracks, itunesTracks] = await Promise.all([
+  // Song song: Spotify (optional) + Deezer (ISRC) + iTunes (preview)
+  const [spotifyTracks, deezerTracks, itunesTracks] = await Promise.all([
+    fetchSpotifySearchFull(q, fetchLim).catch(() => []),
     (async () => {
       try {
         const s = await http.get("https://api.deezer.com/search", {
-          params: { q, limit: needFallback ? fetchLim : 10 },
-          timeout: 7000,
+          params: { q, limit: fetchLim },
+          timeout: 12000,
         });
-        return (s.data?.data || []).map(mapDeezerTrack);
+        // Deezer search thường đã có isrc; hydrate /track song song nếu thiếu
+        const raw = (s.data?.data || []).slice(0, fetchLim);
+        return Promise.all(
+          raw.map(async (row) => {
+            let t = mapDeezerTrack(row);
+            if (t.isrc || !row.id) return t;
+            try {
+              const detail = await http.get(
+                `https://api.deezer.com/track/${row.id}`,
+                { timeout: 8000 },
+              );
+              if (detail.data?.isrc) {
+                t = {
+                  ...t,
+                  isrc: detail.data.isrc,
+                  preview_url: t.preview_url || detail.data.preview || null,
+                };
+              }
+            } catch {
+              /* keep */
+            }
+            return t;
+          }),
+        );
       } catch (e) {
         console.warn("searchMusic deezer:", e.message);
         return [];
@@ -961,10 +1067,10 @@ async function searchMusicByQuery(query, limit = 30) {
             term: q,
             media: "music",
             entity: "song",
-            limit: needFallback ? fetchLim : 10,
+            limit: fetchLim,
             country: "vn",
           },
-          timeout: 7000,
+          timeout: 10000,
           headers: { "User-Agent": UA },
           validateStatus: (st) => st >= 200 && st < 500,
         });
@@ -976,49 +1082,72 @@ async function searchMusicByQuery(query, limit = 30) {
     })(),
   ]);
 
-  for (const t of deezerTracks) addTrack(t, false);
+  // Deezer first (ISRC) → Spotify → iTunes
+  for (const t of deezerTracks) addTrack(t, true);
+  for (const t of spotifyTracks) addTrack(t, true);
   for (const t of itunesTracks) addTrack(t, false);
 
-  const all = [...merged.values()];
+  let all = [...merged.values()];
 
-  // Spotify-first soft rank: boost spotify-search + popularity
+  // Soft rank + boost ISRC (Locket) + Spotify
   const scored = all
     .map((t) => {
       let s = scoreTrackMatch(q, t);
+      if (t.isrc) s = (s > 0 ? s : 40) + 500;
       if (t.source === "spotify-search" || t.spotify_url) {
         s = s > 0 ? s + 200 : 50 + (t.popularity || 0);
         s += Math.min(80, (t.popularity || 0) * 0.6);
       }
+      if (t.source === "deezer-search" || String(t.source || "").includes("deezer")) {
+        s += 150; // Deezer thường có ISRC sẵn
+      }
+      if (t.preview_url) s += 30;
       return { t, s };
     })
     .filter((x) => x.s > 0)
     .sort((a, b) => {
-      // Spotify first among similar scores
-      const aSp = a.t.source === "spotify-search" ? 1 : 0;
-      const bSp = b.t.source === "spotify-search" ? 1 : 0;
-      if (bSp !== aSp && Math.abs(b.s - a.s) < 300) return bSp - aSp;
+      // ISRC trước khi điểm gần nhau
+      const aI = a.t.isrc ? 1 : 0;
+      const bI = b.t.isrc ? 1 : 0;
+      if (bI !== aI && Math.abs(b.s - a.s) < 600) return bI - aI;
       return b.s - a.s;
     });
 
   let ranked = scored.map((x) => x.t);
+  if (!ranked.length && all.length) ranked = all;
+  if (!ranked.length && deezerTracks.length) ranked = deezerTracks;
+  if (!ranked.length && spotifyTracks.length) ranked = spotifyTracks;
+  if (!ranked.length && itunesTracks.length) ranked = itunesTracks;
 
-  // If score filter emptied list but Spotify returned raw hits — return raw Spotify
-  if (!ranked.length && spotifyTracks.length) {
-    ranked = spotifyTracks;
-  } else if (!ranked.length && all.length) {
-    ranked = all;
-  }
-
-  // Prefer list that has many Spotify tracks when available
-  const spotifyOnly = ranked.filter(
-    (t) => t.source === "spotify-search" || t.spotify_url,
-  );
-  if (spotifyOnly.length >= Math.min(8, lim)) {
-    // Interleave: keep Spotify order (popularity) first, then others
-    const others = ranked.filter(
-      (t) => !(t.source === "spotify-search" || t.spotify_url),
+  // Hydrate ISRC cho top kết quả thiếu (iTunes) — chấp nhận chậm
+  const top = ranked.slice(0, Math.min(lim, 20));
+  const needHydrate = top.filter((t) => !t.isrc).slice(0, 8);
+  if (needHydrate.length) {
+    const hydrated = await Promise.all(
+      needHydrate.map((t) => hydrateTrackIsrc(t)),
     );
-    ranked = [...spotifyOnly, ...others];
+    const byKey = new Map(
+      hydrated.map((t) => [
+        t.id ||
+          t.isrc ||
+          `${normalizeSearchText(t.song_title || t.name)}|${normalizeSearchText(t.artist)}`,
+        t,
+      ]),
+    );
+    ranked = ranked.map((t) => {
+      const key =
+        t.id ||
+        t.isrc ||
+        `${normalizeSearchText(t.song_title || t.name)}|${normalizeSearchText(t.artist)}`;
+      return byKey.get(key) || t;
+    });
+    // Re-sort: isrc first
+    ranked.sort((a, b) => {
+      const ai = a.isrc ? 1 : 0;
+      const bi = b.isrc ? 1 : 0;
+      if (bi !== ai) return bi - ai;
+      return 0;
+    });
   }
 
   return ranked.slice(0, lim);
@@ -1029,6 +1158,8 @@ module.exports = {
   getSpotifyMusicInfo,
   getAppleMusicInfoLocal,
   extractSpotifyTrackId,
+  expandSpotifyShortUrl,
   searchMusicByQuery,
   getSpotifyAppToken,
+  hydrateTrackIsrc,
 };

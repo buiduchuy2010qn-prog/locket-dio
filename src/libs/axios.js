@@ -186,7 +186,8 @@ api.interceptors.response.use(
       SonnerInfo(message || "Bạn không có quyền truy cập!");
     }
 
-    if (status === 404) {
+    // skipErrorToast: resolve nhạc multi-step (404 trung gian không spam)
+    if (status === 404 && !originalRequest?.skipErrorToast) {
       SonnerInfo(message || "Không tìm thấy nội dung yêu cầu.");
     }
     if (status === 429) {

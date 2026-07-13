@@ -153,6 +153,15 @@ export default function FormSpotifyPicker({
             platform: t.platform || t.source || "upload",
           };
         });
+        // Ưu tiên bài có ISRC (Locket app bắt buộc) lên đầu
+        normalized.sort((a, b) => {
+          const ai = a.isrc ? 1 : 0;
+          const bi = b.isrc ? 1 : 0;
+          if (bi !== ai) return bi - ai;
+          const as = a.spotify_url ? 1 : 0;
+          const bs = b.spotify_url ? 1 : 0;
+          return bs - as;
+        });
         setResults(normalized);
       } catch (e) {
         SonnerError("Tìm nhạc lỗi", e?.message || "Thử lại sau");
@@ -194,6 +203,8 @@ export default function FormSpotifyPicker({
       });
     } catch (e) {
       SonnerError("Gắn nhạc thất bại", e?.message || "");
+    } finally {
+      // Parent có thể fail soft (thiếu ISRC) — luôn mở lại chọn
       setPickingId(null);
     }
   };
