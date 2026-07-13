@@ -5,6 +5,7 @@ import {
   pickCameraDeviceId,
   getMainBackCameraId,
   isDeviceUltraWide,
+  isUltraLabel,
 } from "@/utils";
 const EditorCaption = lazy(() => import("@/features/EditorCaption"));
 import { useApp } from "@/context/AppContext";
@@ -165,16 +166,22 @@ const MediaPreviewIOS = () => {
       const isBack = mode === "environment";
       const z = zoomLevel || "1x";
       const cameras = await getAvailableCameras();
+      // 1x = cam chính — không lấy backCameras[0] (có thể ultra)
       const mainId =
         cameras?.backNormalCamera?.deviceId ||
-        cameras?.backCameras?.[0]?.deviceId ||
+        cameras?.backCameras?.find(
+          (c) =>
+            !isUltraLabel(c?.label) &&
+            !/tele|chụp\s*xa|periscope/i.test(c?.label || ""),
+        )?.deviceId ||
+        cameras?.backCameras?.find((c) => !isUltraLabel(c?.label))?.deviceId ||
         null;
       const ultraId = cameras?.backUltraWideCamera?.deviceId || null;
       const teleId = cameras?.backZoomCamera?.deviceId || null;
       const frontId = cameras?.frontCameras?.[0]?.deviceId || null;
 
-      let resolvedDeviceId = deviceId;
-      if (isBack && z === "1x") {
+      let resolvedDeviceId = null;
+      if (isBack && (z === "1x" || !z)) {
         resolvedDeviceId = mainId;
       } else if (isBack && z === "0.5x") {
         resolvedDeviceId = ultraId || mainId;
@@ -182,17 +189,21 @@ const MediaPreviewIOS = () => {
         resolvedDeviceId = teleId || mainId;
       } else if (!isBack) {
         resolvedDeviceId = frontId || deviceId;
-      } else if (!resolvedDeviceId) {
-        resolvedDeviceId = await pickCameraDeviceId(mode, z);
+      } else {
+        resolvedDeviceId = mainId || (await pickCameraDeviceId(mode, z));
       }
 
       const quality = getCameraPreviewConstraints(
         CONFIG.app.camera.constraints.default,
       );
       const oldStream = streamRef.current;
+      const switchingLens =
+        Boolean(resolvedDeviceId) &&
+        Boolean(lastDeviceId.current) &&
+        lastDeviceId.current !== resolvedDeviceId;
 
-      // iOS/WebKit: nhả cam cũ trước khi lật trước/sau
-      if (facingChanged && oldStream) {
+      // iOS: nhả cam cũ khi lật facing hoặc đổi lens
+      if ((facingChanged || switchingLens) && oldStream) {
         try {
           oldStream.getTracks().forEach((t) => t.stop());
         } catch {
@@ -208,36 +219,17 @@ const MediaPreviewIOS = () => {
       const tryGum = async (video) =>
         navigator.mediaDevices.getUserMedia({ video, audio: false });
 
-      // Lật cam: facingMode trước
-      if (facingChanged) {
+      // Ưu tiên exact deviceId (main/ultra/tele) — facingMode hay ra cam phụ
+      if (resolvedDeviceId) {
         try {
           stream = await tryGum({
-            facingMode: { exact: mode },
+            deviceId: { exact: resolvedDeviceId },
             ...quality,
           });
         } catch {
           try {
             stream = await tryGum({
-              facingMode: { ideal: mode },
-              ...quality,
-            });
-          } catch {
-            stream = null;
-          }
-        }
-      }
-
-      if (!stream && resolvedDeviceId) {
-        try {
-          stream = await tryGum({
-            deviceId: { ideal: resolvedDeviceId },
-            facingMode: { ideal: mode },
-            ...quality,
-          });
-        } catch {
-          try {
-            stream = await tryGum({
-              deviceId: { exact: resolvedDeviceId },
+              deviceId: { ideal: resolvedDeviceId },
               ...quality,
             });
           } catch {
@@ -258,19 +250,28 @@ const MediaPreviewIOS = () => {
         return;
       }
 
-      // iOS: 1x dính ultra → mở lại main (1 lần)
-      if (isBack && z === "1x" && mainId) {
-        const actualId = stream.getVideoTracks?.()?.[0]?.getSettings?.()?.deviceId;
-        if (actualId && ultraId && actualId === ultraId) {
+      // 1x: nếu không đúng main → ép main
+      if (isBack && (z === "1x" || !z) && mainId) {
+        const actualId =
+          stream.getVideoTracks?.()?.[0]?.getSettings?.()?.deviceId;
+        if (actualId && actualId !== mainId) {
           stream.getTracks().forEach((t) => t.stop());
           try {
             stream = await tryGum({
-              deviceId: { ideal: mainId },
+              deviceId: { exact: mainId },
               ...quality,
             });
             resolvedDeviceId = mainId;
           } catch {
-            /* keep previous */
+            try {
+              stream = await tryGum({
+                deviceId: { ideal: mainId },
+                ...quality,
+              });
+              resolvedDeviceId = mainId;
+            } catch {
+              /* keep */
+            }
           }
         }
       }
@@ -283,8 +284,13 @@ const MediaPreviewIOS = () => {
       streamRef.current = stream;
       cameraInitialized.current = true;
       lastCameraMode.current = mode;
-      lastDeviceId.current = resolvedDeviceId || deviceId;
-      lastZoomLevel.current = zoomLevel;
+      lastZoomLevel.current = zoomLevel || "1x";
+      const actualId = stream.getVideoTracks?.()?.[0]?.getSettings?.()?.deviceId;
+      lastDeviceId.current = actualId || resolvedDeviceId || deviceId;
+      if (isBack && (z === "1x" || !z)) {
+        currentZoomValue.current = 1;
+        setZoomDisplay("1x");
+      }
       setTimeout(() => {
         refreshLensPills().catch(() => {});
       }, 0);
@@ -303,7 +309,7 @@ const MediaPreviewIOS = () => {
         }
       }
 
-      if (!facingChanged && oldStream && oldStream !== stream) {
+      if (!facingChanged && !switchingLens && oldStream && oldStream !== stream) {
         try {
           oldStream.getTracks().forEach((t) => t.stop());
         } catch {
@@ -383,7 +389,7 @@ const MediaPreviewIOS = () => {
     return Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY);
   };
 
-  /** Pinch 2 ngón: 0.5 ultra ↔ 1x main (iOS thường không có track zoom) */
+  /** Pinch: 0.5 ultra ↔ main 1x ↔ tele; mặc định luôn main */
   const handlePreviewTouchStart = (event) => {
     if (preview || selectedFile) return;
     if (event.touches.length !== 2) return;
@@ -396,18 +402,29 @@ const MediaPreviewIOS = () => {
           cameras?.backUltraWideCamera?.deviceId || null;
         pinchState.current.mainId =
           cameras?.backNormalCamera?.deviceId ||
-          cameras?.backCameras?.[0]?.deviceId ||
+          cameras?.backCameras?.find((c) => !isUltraLabel(c?.label))
+            ?.deviceId ||
           null;
+        pinchState.current.teleId =
+          cameras?.backZoomCamera?.deviceId || null;
       })
       .catch(() => {});
+
+    const base =
+      zoomLevel === "0.5x"
+        ? 0.5
+        : zoomLevel === "2x" || zoomLevel === "3x" || zoomLevel === "5x"
+          ? Math.max(currentZoomValue.current, 2)
+          : currentZoomValue.current || 1;
 
     pinchState.current = {
       active: true,
       distance: getTouchDistance(event.touches),
-      zoom: zoomLevel === "0.5x" ? 0.5 : currentZoomValue.current || 1,
+      zoom: base,
       ultraId: null,
       mainId: null,
-      switchedLens: false,
+      teleId: null,
+      lastSwitchAt: 0,
     };
   };
 
@@ -426,53 +443,67 @@ const MediaPreviewIOS = () => {
     const isBack = cameraMode === "environment";
     const ultraId = pinchState.current.ultraId;
     const mainId = pinchState.current.mainId;
+    const teleId = pinchState.current.teleId;
+    const canSwitch = now - (pinchState.current.lastSwitchAt || 0) > 450;
     const onUltra =
       zoomLevel === "0.5x" ||
-      (ultraId && deviceId && deviceId === ultraId);
+      (ultraId && lastDeviceId.current === ultraId);
+    const onTele =
+      zoomLevel === "2x" ||
+      zoomLevel === "3x" ||
+      zoomLevel === "5x" ||
+      (teleId && lastDeviceId.current === teleId);
 
-    if (
-      isBack &&
-      !pinchState.current.switchedLens &&
-      targetZoom < 0.72 &&
-      ultraId &&
-      !onUltra
-    ) {
-      pinchState.current.switchedLens = true;
-      currentZoomValue.current = 0.5;
-      setZoomDisplay("0.5x");
-      setZoomLevel("0.5x");
-      setDeviceId(ultraId);
-      return;
+    if (isBack && canSwitch) {
+      if (targetZoom < 0.7 && ultraId && !onUltra) {
+        pinchState.current.lastSwitchAt = now;
+        pinchState.current.zoom = 0.5;
+        currentZoomValue.current = 0.5;
+        setZoomDisplay("0.5x");
+        setZoomLevel("0.5x");
+        setDeviceId(ultraId);
+        return;
+      }
+      if (targetZoom >= 0.85 && onUltra && mainId) {
+        pinchState.current.lastSwitchAt = now;
+        pinchState.current.zoom = 1;
+        currentZoomValue.current = 1;
+        setZoomDisplay("1x");
+        setZoomLevel("1x");
+        setDeviceId(mainId);
+        return;
+      }
+      if (targetZoom >= 1.9 && teleId && !onTele && !onUltra) {
+        pinchState.current.lastSwitchAt = now;
+        pinchState.current.zoom = 2;
+        currentZoomValue.current = 2;
+        setZoomDisplay("2x");
+        setZoomLevel("2x");
+        setDeviceId(teleId);
+        return;
+      }
+      if (targetZoom < 1.65 && onTele && mainId) {
+        pinchState.current.lastSwitchAt = now;
+        pinchState.current.zoom = 1.5;
+        currentZoomValue.current = 1.5;
+        setZoomDisplay("1.5x");
+        setZoomLevel("1x");
+        setDeviceId(mainId);
+        return;
+      }
     }
 
-    if (
-      isBack &&
-      !pinchState.current.switchedLens &&
-      targetZoom > 0.92 &&
-      onUltra &&
-      mainId
-    ) {
-      pinchState.current.switchedLens = true;
-      currentZoomValue.current = 1;
-      setZoomDisplay("1x");
-      setZoomLevel("1x");
-      setDeviceId(mainId);
-      return;
-    }
-
-    // Preview mức zoom (track zoom iOS hạn chế)
     const shown = Math.max(0.5, Math.min(targetZoom, 5));
     currentZoomValue.current = shown;
     setZoomDisplay(`${Number(shown.toFixed(1))}x`);
 
-    // Thử applyConstraints zoom nếu Safari hỗ trợ
     try {
       const track = streamRef.current?.getVideoTracks?.()?.[0];
       const caps = track?.getCapabilities?.() || {};
-      if (caps.zoom && track) {
+      if (caps.zoom && track && !onUltra) {
         const z = Math.max(
           caps.zoom.min,
-          Math.min(shown, caps.zoom.max),
+          Math.min(Math.max(shown, 1), caps.zoom.max),
         );
         track.applyConstraints({ advanced: [{ zoom: z }] }).catch(() => {});
       }
@@ -488,7 +519,8 @@ const MediaPreviewIOS = () => {
       zoom: currentZoomValue.current,
       ultraId: null,
       mainId: null,
-      switchedLens: false,
+      teleId: null,
+      lastSwitchAt: 0,
     };
   };
 

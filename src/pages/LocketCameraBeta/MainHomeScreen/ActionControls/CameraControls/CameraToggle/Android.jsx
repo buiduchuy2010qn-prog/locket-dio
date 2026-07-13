@@ -33,15 +33,15 @@ const CameraToggleAndroid = () => {
     let nextDeviceId = null;
 
     try {
-      // Lật cam → luôn 1x + camera chính (mọi máy)
+      // Cam sau 1x = cam CHÍNH (wide) — không cam phụ/ultra
       nextDeviceId = await pickCameraDeviceId(newMode, "1x");
     } catch (error) {
       console.error("Lỗi khi lấy danh sách camera:", error);
     }
 
-    // deviceId=null nếu pick fail → MediaPreview dùng facingMode (tránh dính cam cũ)
     setCameraMode(newMode);
     setZoomLevel("1x");
+    // Ép deviceId main khi lật ra sau; null → MediaPreview resolve main
     setDeviceId(nextDeviceId);
   };
 
