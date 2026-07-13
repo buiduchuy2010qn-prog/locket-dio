@@ -18,33 +18,24 @@ export const isUltraLabel = (label = "") => ULTRA_RE.test(String(label).toLowerC
 export const isTeleLabel = (label = "") =>
   TELE_RE.test(String(label).toLowerCase()) && !isUltraLabel(label);
 
-/** Điểm ưu tiên: main 1x cao nhất, ultra/tele phụ thấp hơn */
+/** Điểm ưu tiên: main 1x cao nhất, ultra thấp nhất */
 function scoreBackCamera(device, index, total) {
   const label = (device.label || "").toLowerCase();
   let score = 50;
 
-  if (isUltraLabel(label)) score -= 100;
-  else if (isTeleLabel(label)) score -= 25;
-  else score += 50; // wide/main mặc định
+  if (isUltraLabel(label)) score -= 80;
+  else if (isTeleLabel(label)) score -= 15;
+  else score += 40;
 
-  if (MAIN_HINT_RE.test(label)) score += 35;
+  if (MAIN_HINT_RE.test(label)) score += 25;
 
-  // camera2 0 thường ultra/logical trên multi-cam Android khi không ghi ultra
-  if (total >= 2 && /camera2\s*0\b/.test(label) && !MAIN_HINT_RE.test(label)) {
-    score -= 20;
-  }
-  // camera2 1 / index 1 hay là wide chính
-  if (total >= 2 && /camera2\s*1\b/.test(label) && !isUltraLabel(label) && !isTeleLabel(label)) {
-    score += 25;
-  }
+  // Nhiều Android: index 0 back = ultra → phạt
   if (total >= 2 && index === 0 && isUltraLabel(label)) score -= 30;
+  // Index 1 thường là main trên multi-cam
   if (total >= 2 && index === 1 && !isUltraLabel(label) && !isTeleLabel(label)) {
     score += 20;
   }
-  // Multi-cam không label: index 0 hay cam phụ (ultra) → phạt nhẹ
-  if (total >= 3 && index === 0 && !MAIN_HINT_RE.test(label) && !isTeleLabel(label)) {
-    score -= 15;
-  }
+  // Camera cuối trong back list đôi khi là tele
   if (total >= 3 && index === total - 1 && isTeleLabel(label)) score -= 5;
 
   return score;
@@ -100,15 +91,9 @@ const classifyVideoDevices = (videoDevices) => {
     }
   }
 
-  // MAIN = điểm cao nhất trong nhóm KHÔNG ultra và KHÔNG tele (1x wide)
-  const mainCandidates = scored.filter(
-    (s) => !isUltraLabel(s.label) && !isTeleLabel(s.label),
-  );
-  const mainPool = (
-    mainCandidates.length
-      ? mainCandidates
-      : scored.filter((s) => !isUltraLabel(s.label))
-  ).slice();
+  // MAIN = điểm cao nhất trong nhóm KHÔNG ultra (bắt buộc)
+  const nonUltra = scored.filter((s) => !isUltraLabel(s.label));
+  const mainPool = (nonUltra.length ? nonUltra : scored).slice();
   mainPool.sort((a, b) => b.score - a.score);
   const backNormalCamera = mainPool[0]?.device || backCameras[0] || null;
 
@@ -120,20 +105,6 @@ const classifyVideoDevices = (videoDevices) => {
       if (cand.device.deviceId !== backNormalCamera?.deviceId) {
         backUltraWideCamera = cand.device;
       }
-    }
-  }
-
-  // Nếu không detect ultra bằng label: trên multi-back, cam điểm thấp nhất (khác main/tele) ≈ ultra
-  if (!backUltraWideCamera && scored.length >= 2 && backNormalCamera) {
-    const others = scored
-      .filter(
-        (s) =>
-          s.device.deviceId !== backNormalCamera.deviceId &&
-          s.device.deviceId !== backZoomCamera?.deviceId,
-      )
-      .sort((a, b) => a.score - b.score);
-    if (others.length && others[0].score < 40) {
-      backUltraWideCamera = others[0].device;
     }
   }
 
@@ -210,23 +181,20 @@ export const pickCameraDeviceId = async (mode, zoomLevel = "1x") => {
       return cameras?.frontCameras?.[0]?.deviceId || null;
     }
 
-    // 1x = LUÔN main wide — không bao giờ ultra / tele / backCameras[0] mù quáng
     const mainId =
       cameras?.backNormalCamera?.deviceId ||
-      cameras?.backCameras?.find(
-        (c) => !isUltraLabel(c.label) && !isTeleLabel(c.label),
-      )?.deviceId ||
       cameras?.backCameras?.find((c) => !isUltraLabel(c.label))?.deviceId ||
+      cameras?.backCameras?.[0]?.deviceId ||
       null;
 
     const z = String(zoomLevel || "1x").toLowerCase();
 
-    // 0.5x: ultra nếu có, không thì main (digital không được thì vẫn main)
+    // 0.5x: ultra nếu có, không thì main
     if (z === "0.5x" || z === "0.5") {
       return cameras?.backUltraWideCamera?.deviceId || mainId;
     }
 
-    // 2x / 3x / 5x: tele nếu có, không thì main + digital zoom
+    // 2x / 3x: tele nếu có, không thì main (zoom digital trên main)
     if (z === "2x" || z === "3x" || z === "5x") {
       return cameras?.backZoomCamera?.deviceId || mainId;
     }
@@ -260,10 +228,8 @@ export const getMainBackCameraId = async () => {
   const cameras = await getAvailableCameras();
   return (
     cameras?.backNormalCamera?.deviceId ||
-    cameras?.backCameras?.find(
-      (c) => !isUltraLabel(c.label) && !isTeleLabel(c.label),
-    )?.deviceId ||
     cameras?.backCameras?.find((c) => !isUltraLabel(c.label))?.deviceId ||
+    cameras?.backCameras?.[0]?.deviceId ||
     null
   );
 };

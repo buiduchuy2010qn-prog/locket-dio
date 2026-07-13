@@ -14,10 +14,17 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 4173);
 const PUBLIC_DIR = path.join(__dirname, "public");
 
-// API backend chính: set LOCKET_API_UPSTREAM=http://127.0.0.1:5007 (huy-locket-server)
-// Mặc định: api.locket-dio.com (public). Auth/storage vẫn sub-domain Dio trừ khi override env.
+// API backend chính: set LOCKET_API_UPSTREAM=...
+// - Local: http://127.0.0.1:5007
+// - Railway web: https://huy-locket-api-production.up.railway.app
+// - Render: inject từ render.yaml
+// Railway auto-detect nếu quên set env (tránh /dio-api trỏ nhầm api.locket-dio.com → 404 searchMusic)
 const API_UPSTREAM =
-  process.env.LOCKET_API_UPSTREAM || "https://api.locket-dio.com";
+  process.env.LOCKET_API_UPSTREAM ||
+  (process.env.RAILWAY_ENVIRONMENT
+    ? process.env.LOCKET_API_UPSTREAM_RAILWAY ||
+      "https://huy-locket-api-production.up.railway.app"
+    : "https://api.locket-dio.com");
 
 const PROXIES = [
   { prefix: "/dio-api", target: API_UPSTREAM },

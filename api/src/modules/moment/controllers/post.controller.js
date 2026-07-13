@@ -113,7 +113,13 @@ const uploadMediaV3 = async (req, res, next) => {
         return res.status(400).json({ error: "Missing file path" });
       }
 
-      if (!hasInline && path && mediaSignature) {
+      // Inline base64 / inline:// → bỏ qua chữ ký temp (tránh lệch secret giữa instance)
+      const isInlinePath =
+        typeof path === "string" &&
+        (path.startsWith("inline_") || path.startsWith("inline://"));
+      const skipSig = hasInline || isInlinePath;
+
+      if (!skipSig && path && mediaSignature) {
         const isValid = signature.verifySignature(path, mediaSignature);
 
         logInfo(
@@ -167,7 +173,7 @@ const uploadMediaV3 = async (req, res, next) => {
             data: null,
           });
         }
-      } else if (hasInline) {
+      } else if (skipSig) {
         logInfo("uploadMediaV3", "✅ Inline media (skip temp signature)");
       }
 

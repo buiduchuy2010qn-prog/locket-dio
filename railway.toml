@@ -1,16 +1,21 @@
-# Huy Locket Web — Railway (thay Render)
-# https://railway.app → New Project → Deploy from GitHub → repo locket-dio
+# Huy Locket Web — Railway
 #
-# Settings:
-#   Root Directory: /
-#   Builder: Dockerfile
-#   Start: (Dockerfile CMD)
+# Service huy-locket (web):
+#   Root Directory: . (hoặc trống)
+#   Dockerfile: Dockerfile
+#   Variables BẮT BUỘC:
+#     LOCKET_API_UPSTREAM=https://huy-locket-api-production.up.railway.app
 #
-# Variables:
-#   LOCKET_API_UPSTREAM=https://huy-locket-api.onrender.com
-#   NODE_ENV=production
-#   PORT= (Railway inject)
-#   DATABASE_URL= (Neon, optional Drive)
+# Service huy-locket-api:
+#   Root Directory: api
+#   Dockerfile: Dockerfile
+#   Variables:
+#     CORS_ORIGINS=https://huy-locket-production.up.railway.app
+#     LOCKETDIO_SIGNATURE_SECRET=<chuỗi dài cố định — đừng Generate mỗi lần>
+#     LOCKETDIO_JWT_SECRET=<cố định>
+#     COOKIE_SECRET=<cố định>
+#     SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET
+#     FIREBASE_API_KEY=AIzaSyCQngaaXQIfJaH0aS2l7REgIjD7nL431So
 
 [build]
   builder = "DOCKERFILE"

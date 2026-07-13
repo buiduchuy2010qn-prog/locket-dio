@@ -135,7 +135,8 @@ export const uploadFileAndGetInfoR2 = async (
         publicUrl: "inline://local",
         publicURL: "inline://local",
         downloadURL: "inline://local",
-        mediaSignature: data.mediaSignature,
+        // Inline: không dùng temp signature (tránh fail verify trên API)
+        mediaSignature: null,
         inline: true,
       };
     }
@@ -177,7 +178,7 @@ export const uploadFileAndGetInfoR2 = async (
         publicUrl,
         publicURL: publicUrl,
         downloadURL: publicUrl,
-        mediaSignature: data.mediaSignature,
+        mediaSignature: null,
         inline: true,
       };
     }
