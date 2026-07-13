@@ -483,41 +483,85 @@ async function getSpotifyMusicInfo(url) {
 
   const cleanUrl = normalizeSpotifyUrl(url, trackId);
 
-  // Song song: oEmbed (nhanh) + official API (đủ data)
-  const [official, oembed] = await Promise.all([
+  // Song song: official (ISRC) + oEmbed + song.link (chậm nhưng tin cậy)
+  const [official, oembed, songlink] = await Promise.all([
     fetchSpotifyOfficial(trackId),
     fetchSpotifyOembed(cleanUrl),
+    fetchSongLink(cleanUrl).catch(() => null),
   ]);
 
+  // Official API đôi khi fail market — thử thêm market VN/US
+  let official2 = null;
+  if (!official?.song_name || !official?.isrc) {
+    official2 = await fetchSpotifyOfficialWithMarket(trackId).catch(() => null);
+  }
+
   let merged = {
-    song_name: official?.song_name || oembed?.song_name || "",
-    artist: official?.artist || oembed?.artist || "",
-    album: official?.album || "",
-    image_url: official?.image_url || oembed?.image_url || "",
-    preview_url: official?.preview_url || null,
-    isrc: official?.isrc || null,
-    spotify_url: official?.spotify_url || cleanUrl,
-    apple_music_url: null,
-    deezerId: null,
-    source: official?.source || oembed?.source || "none",
+    song_name:
+      official?.song_name ||
+      official2?.song_name ||
+      oembed?.song_name ||
+      songlink?.song_name ||
+      "",
+    artist:
+      official?.artist ||
+      official2?.artist ||
+      oembed?.artist ||
+      songlink?.artist ||
+      "",
+    album: official?.album || official2?.album || "",
+    image_url:
+      official?.image_url ||
+      official2?.image_url ||
+      oembed?.image_url ||
+      songlink?.image_url ||
+      "",
+    preview_url: official?.preview_url || official2?.preview_url || null,
+    isrc: official?.isrc || official2?.isrc || null,
+    spotify_url:
+      official?.spotify_url ||
+      official2?.spotify_url ||
+      songlink?.spotify_url ||
+      cleanUrl,
+    apple_music_url: songlink?.apple_music_url || null,
+    deezerId: songlink?.deezerId || null,
+    source:
+      official?.source ||
+      official2?.source ||
+      oembed?.source ||
+      songlink?.source ||
+      "spotify",
   };
 
-  // song.link chỉ khi còn thiếu ISRC hoặc cần map Deezer/Apple (tránh chậm không cần)
-  if (!merged.isrc || !merged.song_name) {
-    const songlink = await fetchSongLink(cleanUrl).catch(() => null);
-    if (songlink) {
-      merged.song_name = merged.song_name || songlink.song_name || "";
-      merged.artist = merged.artist || songlink.artist || "";
-      merged.image_url = merged.image_url || songlink.image_url || "";
-      merged.spotify_url =
-        merged.spotify_url || songlink.spotify_url || cleanUrl;
-      merged.apple_music_url = songlink.apple_music_url || null;
-      merged.deezerId = songlink.deezerId || null;
-      if (songlink.source) merged.source = `${merged.source}+songlink`;
+  // Vẫn thiếu tên: enrich từ Deezer/iTunes bằng... chưa có tên → thử Deezer isrc lookup skip
+  // Preview ổn định + ISRC (Deezer/iTunes) — chấp nhận chậm
+  if (merged.song_name || merged.deezerId) {
+    merged = await enrichMusicMeta(merged);
+  } else {
+    // Thử Deezer/iTunes với id không có tên (chỉ deezerId)
+    if (merged.deezerId) {
+      const dz = await enrichFromDeezer(merged.deezerId, "", "");
+      if (dz) {
+        merged.song_name = dz.song_name || merged.song_name;
+        merged.artist = dz.artist || merged.artist;
+        merged.isrc = merged.isrc || dz.isrc;
+        merged.preview_url = merged.preview_url || dz.preview_url;
+        merged.image_url = merged.image_url || dz.image_url;
+      }
+    }
+  }
+
+  // Lần cuối: search Spotify theo track id qua API (đã có) — nếu vẫn trống
+  if (!merged.song_name && trackId) {
+    const again = await fetchSpotifyOfficial(trackId);
+    if (again?.song_name) {
+      merged = { ...merged, ...again, spotify_url: cleanUrl };
+      merged = await enrichMusicMeta(merged);
     }
   }
 
   if (!merged.song_name) {
+    // Không throw cứng — trả minimal để client fallback search theo tên
     const err = new Error(
       "Không tìm thấy bài hát trên Spotify (link có thể đã gỡ hoặc không công khai).",
     );
@@ -525,9 +569,47 @@ async function getSpotifyMusicInfo(url) {
     throw err;
   }
 
-  // Preview ổn định + ISRC (Deezer/iTunes) — bắt buộc cho Locket app + web play
-  merged = await enrichMusicMeta(merged);
+  // Bắt buộc cố lấy ISRC (Locket app)
+  if (!merged.isrc) {
+    merged = await enrichMusicMeta(merged);
+  }
+
   return toClientShape(merged, "spotify", cleanUrl);
+}
+
+/** Spotify track với market=VN rồi US — bổ sung ISRC/preview */
+async function fetchSpotifyOfficialWithMarket(trackId) {
+  if (!trackId) return null;
+  const accessToken = await getSpotifyAppToken();
+  if (!accessToken) return null;
+  for (const market of ["VN", "US"]) {
+    try {
+      const tr = await axios.get(
+        `https://api.spotify.com/v1/tracks/${trackId}`,
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          params: { market },
+          timeout: 12000,
+        },
+      );
+      const d = tr.data;
+      if (!d?.name) continue;
+      return {
+        song_name: d.name,
+        artist: (d.artists || []).map((a) => a.name).join(", "),
+        album: d.album?.name || "",
+        image_url: d.album?.images?.[0]?.url || d.album?.images?.[1]?.url || "",
+        preview_url: d.preview_url || null,
+        isrc: d.external_ids?.isrc || null,
+        spotify_url:
+          d.external_urls?.spotify || normalizeSpotifyUrl("", trackId),
+        source: `spotify-api-${market}`,
+      };
+    } catch (e) {
+      console.warn(`fetchSpotifyOfficial market=${market}:`, e.message);
+    }
+  }
+  return null;
 }
 
 async function getAppleMusicInfoLocal(url) {

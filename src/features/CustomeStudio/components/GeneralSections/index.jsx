@@ -3,6 +3,7 @@ import { PiClockFill } from "react-icons/pi";
 import { useApp } from "@/context/AppContext";
 import { useBatteryStatus } from "@/utils";
 import { getInfoMusicByUrl } from "@/services";
+import { resolveMusicForLocket } from "@/services/ExtensionsServices/MusicServices";
 import {
   SonnerError,
   SonnerInfo,
@@ -194,8 +195,8 @@ export default function GeneralThemes({ title }) {
   };
 
   /**
-   * Chọn bài từ search — Locket app CẦN isrc.
-   * Chờ getInfoMusicByUrl (ISRC) rồi gắn; không gắn thiếu isrc.
+   * Chọn bài — resolve ISRC chắc chắn (chấp nhận load lâu) rồi gắn.
+   * Locket app chỉ hiện nhạc khi có isrc.
    */
   const handleSpotifyLivePick = async (track) => {
     if (
@@ -212,81 +213,25 @@ export default function GeneralThemes({ title }) {
       return;
     }
     setLoading(true);
+    SonnerInfo("Đang lấy mã nhạc (ISRC)…", "Có thể mất vài giây");
     try {
-      // Flatten search library shape
       const raw = track._raw ? { ...track._raw, ...track } : track;
 
       const isLocalUpload =
         raw.source === "upload" ||
-        raw.source === "library" ||
         raw.platform === "upload" ||
-        Boolean(raw.musicTrackId && !raw.spotify_url && !raw._raw);
+        (Boolean(raw.musicTrackId) &&
+          !raw.spotify_url &&
+          !raw._raw &&
+          raw.source === "library");
 
       const songFromTrack =
-        raw.song_title ||
-        raw.song_name ||
-        raw.title ||
-        raw.name ||
-        "";
+        raw.song_title || raw.song_name || raw.title || raw.name || "";
       const artistFromTrack = raw.artist || "";
 
-      // Spotify track URL (chỉ khi id trông như Spotify id)
-      const spotifyId =
-        raw.spotify_url?.match(/track\/([a-zA-Z0-9]+)/)?.[1] ||
-        (typeof raw.id === "string" &&
-        /^[a-zA-Z0-9]{10,}$/.test(raw.id) &&
-        !String(raw.source || "").includes("deezer")
-          ? raw.id
-          : null);
-      const spotify_url =
-        raw.spotify_url ||
-        (spotifyId ? `https://open.spotify.com/track/${spotifyId}` : null);
-
-      let musicData = null;
-
-      // 1) Ưu tiên resolve full meta + ISRC qua API (bắt buộc cho Locket app)
-      if (!isLocalUpload) {
-        const platform =
-          raw.platform === "apple" || raw.source === "apple"
-            ? "apple"
-            : "spotify";
-        const resolveUrl =
-          spotify_url ||
-          raw.apple_music_url ||
-          (songFromTrack
-            ? null
-            : null);
-
-        if (spotify_url || raw.apple_music_url) {
-          try {
-            musicData = await getInfoMusicByUrl(
-              spotify_url || raw.apple_music_url,
-              platform,
-            );
-          } catch (e) {
-            console.warn("[music pick] getInfoMusicByUrl:", e?.message || e);
-          }
-        }
-
-        // 2) Fallback: nếu track search đã có isrc
-        if (!musicData?.isrc && raw.isrc) {
-          musicData = {
-            song_title: songFromTrack,
-            song_name: songFromTrack,
-            artist: artistFromTrack,
-            isrc: raw.isrc,
-            preview_url: raw.preview_url || raw.audioUrl || null,
-            image_url: raw.image_url || raw.coverUrl || "",
-            spotify_url,
-            platform: "spotify",
-          };
-        }
-      }
-
-      // Local upload — gắn với file, không có isrc Locket
+      // Local file
       if (isLocalUpload) {
-        const preview =
-          raw.preview_url || raw.audioUrl || raw.audio || null;
+        const preview = raw.preview_url || raw.audioUrl || raw.audio || null;
         const image_url = raw.image_url || raw.coverUrl || "";
         const endTime =
           Number(raw.endTime) ||
@@ -297,16 +242,11 @@ export default function GeneralThemes({ title }) {
           [songFromTrack, artistFromTrack].filter(Boolean).join(" - ") ||
           songFromTrack ||
           "Nhạc";
-
         applyOverlay({
           overlay_id: "caption:music",
           caption,
           text: caption,
-          icon: {
-            data: image_url,
-            type: "image",
-            source: "url",
-          },
+          icon: { data: image_url, type: "image", source: "url" },
           type: "music",
           payload: {
             song_title: songFromTrack,
@@ -318,10 +258,9 @@ export default function GeneralThemes({ title }) {
             audio: preview,
             image_url,
             image: image_url,
-            spotify_url: null,
             platform: "upload",
             musicTrackId: raw.musicTrackId || raw.id || null,
-            startTime: Number(raw.startTime) || 0,
+            startTime: 0,
             endTime: Math.max(1, endTime),
             volume: 1,
             originalVideoVolume: 1,
@@ -331,18 +270,20 @@ export default function GeneralThemes({ title }) {
         });
         setSpotifyPickerOpen(false);
         SonnerSuccess(
-          "Đã gắn nhạc (file)",
-          "Web nghe được; app Locket cần bài Spotify có ISRC.",
+          "Đã gắn file nhạc",
+          "App Locket chỉ hiện bài Spotify có ISRC — nên chọn từ tìm Spotify.",
         );
         return;
       }
 
-      // Spotify / Apple — BẮT BUỘC isrc để hiện trên Locket app
+      // Resolve multi-step (getInfo + search + ISRC)
+      const musicData = await resolveMusicForLocket(raw);
+
       const isrc = musicData?.isrc || raw.isrc || null;
       if (!isrc) {
         SonnerError(
           "Không lấy được mã ISRC",
-          "Chọn bài Spotify khác hoặc dán link Spotify đầy đủ.",
+          "Thử bài khác, dán link Spotify, hoặc đợi vài giây rồi chọn lại.",
         );
         return;
       }
@@ -354,33 +295,20 @@ export default function GeneralThemes({ title }) {
         songFromTrack;
       const artist = musicData?.artist || artistFromTrack;
       const preview =
-        musicData?.preview_url ||
-        raw.preview_url ||
-        raw.audioUrl ||
-        null;
+        musicData?.preview_url || raw.preview_url || raw.audioUrl || null;
       const image_url =
-        musicData?.image_url ||
-        raw.image_url ||
-        raw.coverUrl ||
-        "";
-      const finalSpotify =
-        musicData?.spotify_url || spotify_url || null;
+        musicData?.image_url || raw.image_url || raw.coverUrl || "";
+      const finalSpotify = musicData?.spotify_url || raw.spotify_url || null;
       const apple_music_url =
         musicData?.apple_music_url || raw.apple_music_url || null;
-
       const caption =
         [song_title, artist].filter(Boolean).join(" - ") || song_title;
-      const endTime = 30;
 
       applyOverlay({
         overlay_id: "caption:music",
         caption,
         text: caption,
-        icon: {
-          data: image_url,
-          type: "image",
-          source: "url",
-        },
+        icon: { data: image_url, type: "image", source: "url" },
         type: "music",
         payload: {
           song_title,
@@ -396,24 +324,22 @@ export default function GeneralThemes({ title }) {
           apple_music_url,
           platform: apple_music_url && !finalSpotify ? "apple" : "spotify",
           startTime: 0,
-          endTime,
+          endTime: 30,
           volume: 1,
           originalVideoVolume: 1,
-          duration: endTime,
+          duration: 30,
         },
         platform: apple_music_url && !finalSpotify ? "apple" : "spotify",
       });
 
       setSpotifyPickerOpen(false);
-      SonnerSuccess(
-        "Đã gắn nhạc",
-        preview
-          ? `${song_title} · ISRC OK`
-          : `${song_title} · ISRC OK (web có thể không nghe được preview)`,
-      );
+      SonnerSuccess("Đã gắn nhạc · ISRC OK", song_title);
     } catch (e) {
       console.error("[handleSpotifyLivePick]", e);
-      SonnerError(t("custom_studio.music_failed"));
+      SonnerError(
+        t("custom_studio.music_failed"),
+        e?.response?.data?.message || e?.message || "",
+      );
     } finally {
       setLoading(false);
     }

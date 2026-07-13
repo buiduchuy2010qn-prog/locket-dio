@@ -7,7 +7,11 @@ export const getInfoMusicByUrl = async (url, platform) => {
   }
 
   try {
-    const res = await api.post("/api/getInfoMusicV2", { url, platform });
+    const res = await api.post(
+      "/api/getInfoMusicV2",
+      { url, platform },
+      { timeout: 45000 }, // chấp nhận chậm — cần ISRC cho Locket
+    );
 
     if (res?.data?.status === "success") {
       return res.data.data;
@@ -16,9 +20,142 @@ export const getInfoMusicByUrl = async (url, platform) => {
     console.error("❌ getInfoMusicByUrl: Không có dữ liệu hợp lệ", res?.data);
     return null;
   } catch (error) {
-    console.error("🚨 Lỗi khi gọi getInfoMusicByUrl:", error.message);
+    console.error(
+      "🚨 Lỗi khi gọi getInfoMusicByUrl:",
+      error?.response?.data?.message || error.message,
+    );
+    // Gắn message để UI có thể fallback, không throw
     return null;
   }
+};
+
+/**
+ * Resolve meta + ISRC cho Locket — nhiều bước, chấp nhận lâu.
+ * 1) getInfoMusicByUrl(spotify)
+ * 2) searchMusic + getInfo từng hit có spotify_url
+ * 3) search hits có isrc sẵn
+ */
+export const resolveMusicForLocket = async (track = {}) => {
+  const song =
+    track.song_title ||
+    track.song_name ||
+    track.title ||
+    track.name ||
+    "";
+  const artist = track.artist || "";
+  const spotify_url =
+    track.spotify_url ||
+    (track.id &&
+    typeof track.id === "string" &&
+    /^[a-zA-Z0-9]{10,}$/.test(track.id) &&
+    !String(track.source || "").includes("deezer")
+      ? `https://open.spotify.com/track/${track.id}`
+      : null);
+
+  // Đã có ISRC
+  if (track.isrc) {
+    return {
+      song_title: song,
+      song_name: song,
+      name: song,
+      artist,
+      isrc: String(track.isrc).trim(),
+      preview_url: track.preview_url || track.audioUrl || null,
+      image_url: track.image_url || track.coverUrl || "",
+      spotify_url,
+      apple_music_url: track.apple_music_url || null,
+      platform: "spotify",
+    };
+  }
+
+  // 1) Theo link Spotify
+  if (spotify_url) {
+    const info = await getInfoMusicByUrl(spotify_url, "spotify");
+    if (info?.isrc) return info;
+    if (info && !info.isrc) {
+      // Có meta, thiếu ISRC — vẫn thử search enrich
+      const q = [info.song_title || info.song_name || song, info.artist || artist]
+        .filter(Boolean)
+        .join(" ");
+      if (q) {
+        try {
+          const hits = await searchMusicByQuery(q, 15);
+          const withIsrc = (hits || []).find((h) => h.isrc);
+          if (withIsrc?.isrc) {
+            return {
+              ...info,
+              isrc: withIsrc.isrc,
+              preview_url:
+                info.preview_url || withIsrc.preview_url || null,
+              image_url: info.image_url || withIsrc.image_url || "",
+              spotify_url: info.spotify_url || withIsrc.spotify_url || spotify_url,
+            };
+          }
+          // Gọi getInfo trên hit Spotify khác
+          for (const h of hits || []) {
+            const u = h.spotify_url;
+            if (!u || u === spotify_url) continue;
+            const again = await getInfoMusicByUrl(u, "spotify");
+            if (again?.isrc) {
+              return {
+                ...again,
+                song_title:
+                  again.song_title || info.song_title || song,
+                artist: again.artist || info.artist || artist,
+              };
+            }
+          }
+        } catch {
+          /* continue */
+        }
+      }
+      // Trả info dù thiếu isrc — caller quyết
+      return info;
+    }
+  }
+
+  // 2) Search theo tên + nghệ sĩ
+  const q = [song, artist].filter(Boolean).join(" ").trim();
+  if (!q) return null;
+
+  try {
+    const hits = await searchMusicByQuery(q, 20);
+    const withIsrc = (hits || []).find((h) => h.isrc);
+    if (withIsrc?.isrc) {
+      return {
+        song_title: withIsrc.song_title || withIsrc.song_name || song,
+        song_name: withIsrc.song_name || withIsrc.song_title || song,
+        name: withIsrc.name || song,
+        artist: withIsrc.artist || artist,
+        isrc: String(withIsrc.isrc).trim(),
+        preview_url: withIsrc.preview_url || null,
+        image_url: withIsrc.image_url || "",
+        spotify_url: withIsrc.spotify_url || null,
+        apple_music_url: withIsrc.apple_music_url || null,
+        platform: "spotify",
+      };
+    }
+
+    // 3) getInfo từng Spotify hit (chậm nhưng chắc)
+    for (const h of hits || []) {
+      const u = h.spotify_url;
+      if (!u) continue;
+      const info = await getInfoMusicByUrl(u, "spotify");
+      if (info?.isrc) return info;
+    }
+
+    // 4) Deezer/iTunes hit — getInfo apple nếu có
+    for (const h of hits || []) {
+      if (h.apple_music_url) {
+        const info = await getInfoMusicByUrl(h.apple_music_url, "apple");
+        if (info?.isrc) return info;
+      }
+    }
+  } catch (e) {
+    console.error("[resolveMusicForLocket] search:", e.message);
+  }
+
+  return null;
 };
 
 /** Bỏ dấu VN để so khớp tựa */
