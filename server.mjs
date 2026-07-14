@@ -206,17 +206,9 @@ function verifyOauthState(state) {
     return null;
   }
 }
-// Neon project huy-locket-drive — bền qua redeploy free
-const NEON_FALLBACK_URL =
-  "postgresql://neondb_owner:npg_Wd4gbkpS2JCa@ep-rough-math-atpq3c8p-pooler.c-9.us-east-1.aws.neon.tech/neondb?sslmode=require";
-
-/** Chọn URL Neon hợp lệ (env Render hay thiếu @ thì dùng fallback) */
+/** Chọn URL Neon hợp lệ — CHỈ từ env (không hardcode password trong source) */
 function resolveDatabaseUrl() {
-  const candidates = [
-    process.env.DATABASE_URL,
-    process.env.NEON_DATABASE_URL,
-    NEON_FALLBACK_URL,
-  ];
+  const candidates = [process.env.DATABASE_URL, process.env.NEON_DATABASE_URL];
   for (const raw of candidates) {
     const u = String(raw || "").trim();
     if (!u) continue;
@@ -227,7 +219,7 @@ function resolveDatabaseUrl() {
     }
     return u;
   }
-  return NEON_FALLBACK_URL;
+  return "";
 }
 
 const DATABASE_URL = resolveDatabaseUrl();
@@ -239,38 +231,40 @@ let neonSql = null;
 
 async function initNeon() {
   if (neonReady && neonSql) return true;
-  // Luôn ưu tiên URL Neon đã biết (tránh env Render sai làm hỏng lưu)
-  const urls = [NEON_FALLBACK_URL, DATABASE_URL].filter(
-    (u, i, a) => u && a.indexOf(u) === i
-  );
-  for (const url of urls) {
-    try {
-      const { neon } = await import("@neondatabase/serverless");
-      const sql = neon(url);
-      await sql`
-        CREATE TABLE IF NOT EXISTS gdrive_config (
-          id INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
-          folder_id TEXT,
-          oauth_client_id TEXT,
-          oauth_client_secret TEXT,
-          oauth_refresh_token TEXT,
-          oauth_email TEXT,
-          service_account_json JSONB,
-          updated_at TIMESTAMPTZ DEFAULT NOW(),
-          updated_by TEXT
-        )
-      `;
-      neonSql = sql;
-      neonReady = true;
-      console.log("[gdrive] Neon config store: ON");
-      return true;
-    } catch (e) {
-      console.warn("[gdrive] Neon init try failed:", e.message);
-    }
+  if (!DATABASE_URL) {
+    console.warn(
+      "[gdrive] Neon OFF — set DATABASE_URL or NEON_DATABASE_URL (never commit the password)"
+    );
+    neonReady = false;
+    neonSql = null;
+    return false;
   }
-  neonReady = false;
-  neonSql = null;
-  return false;
+  try {
+    const { neon } = await import("@neondatabase/serverless");
+    const sql = neon(DATABASE_URL);
+    await sql`
+      CREATE TABLE IF NOT EXISTS gdrive_config (
+        id INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+        folder_id TEXT,
+        oauth_client_id TEXT,
+        oauth_client_secret TEXT,
+        oauth_refresh_token TEXT,
+        oauth_email TEXT,
+        service_account_json JSONB,
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_by TEXT
+      )
+    `;
+    neonSql = sql;
+    neonReady = true;
+    console.log("[gdrive] Neon config store: ON");
+    return true;
+  } catch (e) {
+    console.warn("[gdrive] Neon init failed:", e.message);
+    neonReady = false;
+    neonSql = null;
+    return false;
+  }
 }
 
 /** Tìm hoặc tạo folder gốc "Huy Locket Web" trên Drive của user OAuth */
