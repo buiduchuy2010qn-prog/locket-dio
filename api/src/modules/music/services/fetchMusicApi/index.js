@@ -78,8 +78,27 @@ function normalizeSpotifyUrl(url, trackId) {
 /** Cache client-credentials token (Spotify Web API official) */
 let spotifyAppToken = null;
 let spotifyAppTokenExp = 0;
+/** Spotify Dev app without Premium → 403; skip API for a while */
+let spotifyApiBlockedUntil = 0;
+
+function markSpotifyApiBlocked(err) {
+  const msg = String(err?.response?.data?.error?.message || err?.message || "");
+  const status = err?.response?.status;
+  if (
+    status === 403 ||
+    /premium subscription required|insufficient client scope/i.test(msg)
+  ) {
+    spotifyApiBlockedUntil = Date.now() + 6 * 60 * 60 * 1000; // 6h
+    console.warn(
+      "getSpotifyAppToken: Spotify Web API blocked (Premium required) — using Deezer/iTunes",
+    );
+    return true;
+  }
+  return false;
+}
 
 async function getSpotifyAppToken() {
+  if (Date.now() < spotifyApiBlockedUntil) return null;
   // Client credentials — chỉ từ env (không hardcode secret trong source)
   const clientId =
     process.env.SPOTIFY_CLIENT_ID || process.env.VITE_SPOTIFY_CLIENT_ID || "";
@@ -114,6 +133,7 @@ async function getSpotifyAppToken() {
     spotifyAppTokenExp = Date.now() + (expiresIn - 60) * 1000;
     return accessToken;
   } catch (e) {
+    markSpotifyApiBlocked(e);
     console.warn("getSpotifyAppToken:", e.message);
     return null;
   }
@@ -125,6 +145,7 @@ async function getSpotifyAppToken() {
  */
 async function fetchSpotifyOfficial(trackId) {
   if (!trackId) return null;
+  if (Date.now() < spotifyApiBlockedUntil) return null;
   try {
     const accessToken = await getSpotifyAppToken();
     if (!accessToken) return null;
@@ -150,6 +171,7 @@ async function fetchSpotifyOfficial(trackId) {
       source: "spotify-api",
     };
   } catch (e) {
+    markSpotifyApiBlocked(e);
     console.warn("fetchSpotifyOfficial:", e.message);
     return null;
   }
@@ -726,10 +748,51 @@ function tokenAsWord(token, text) {
   return false;
 }
 
+/** Cover / karaoke / piano… — không được đứng trên bản gốc khi đăng Locket */
+function isCoverOrDerivative(track, query = "") {
+  const blob = normalizeSearchText(
+    [
+      track.song_title || track.song_name || track.name || track.title || "",
+      track.artist || "",
+      track.album || "",
+    ].join(" "),
+  );
+  const q = normalizeSearchText(query);
+  // Chỉ phạt remix/acoustic khi user không gõ từ đó
+  const wantsAlt =
+    /\b(remix|acoustic|cover|live|instrumental|karaoke)\b/.test(q);
+  if (
+    /\b(cover|covers|piano|karaoke|tribute|rendition|instrumental|nightcore|slowed|reverb|quartet|orchestra|ringtone|parody|8d|8 bit|8bit|lofi|music box|violin|guitar cover|drum cover|emulation)\b/.test(
+      blob,
+    )
+  ) {
+    return true;
+  }
+  if (
+    !wantsAlt &&
+    /\b(remix|acoustic|live version|piano version|slowed)\b/.test(blob)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/** Title sạch (bỏ ngoặc) — ưu tiên "Shape of You" hơn "Shape of You (Acoustic)" */
+function cleanTrackTitle(track) {
+  const raw =
+    track.song_title || track.song_name || track.name || track.title || "";
+  return normalizeSearchText(raw)
+    .replace(/\s*\([^)]*\)\s*/g, " ")
+    .replace(/\s*\[[^\]]*\]\s*/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 /**
  * Điểm khớp query — tên bài HOẶC tên ca sĩ (như Spotify).
  * - "tim em" → khớp title
  * - "sơn tùng" → khớp artist
+ * - "pink venom blackpink" → title + artist (không ưu tiên cover nhét artist vào title)
  * Token ngắn (em, tim) chỉ word-boundary, không dính "time"/"remember".
  */
 function scoreTrackMatch(query, track) {
@@ -747,19 +810,16 @@ function scoreTrackMatch(query, track) {
   const joined = tokens.join(" ");
   const phraseInTitle = Boolean(title) && (title === q || title.includes(q));
   const phraseExactTitle = title === q;
-  const phraseStartsTitle = Boolean(title) && (title.startsWith(q) || title.startsWith(`${q} `));
+  const phraseStartsTitle =
+    Boolean(title) && (title.startsWith(q) || title.startsWith(`${q} `));
   const phraseInArtist =
     Boolean(artist) &&
     (artist === q || artist.includes(q) || artist.startsWith(q));
   const phraseExactArtist = artist === q;
 
   const shortTokens = tokens.filter((t) => t.length <= 3);
-  const inTitle = title
-    ? tokens.filter((t) => tokenAsWord(t, title))
-    : [];
-  const inArtist = artist
-    ? tokens.filter((t) => tokenAsWord(t, artist))
-    : [];
+  const inTitle = title ? tokens.filter((t) => tokenAsWord(t, title)) : [];
+  const inArtist = artist ? tokens.filter((t) => tokenAsWord(t, artist)) : [];
   const inFull = tokens.filter((t) => tokenAsWord(t, full));
 
   // ── Path A: khớp NGHỆ SĨ (tìm theo tên ca sĩ) ──
@@ -770,7 +830,6 @@ function scoreTrackMatch(query, track) {
   const artistOk =
     phraseInArtist ||
     (allInArtist &&
-      // token ngắn: bắt buộc word-boundary trong artist (tránh tim∈timbaland lỏng)
       shortTokens.every((t) => tokenAsWord(t, artist) || phraseInArtist));
 
   // ── Path B: khớp TITLE ──
@@ -807,33 +866,79 @@ function scoreTrackMatch(query, track) {
     titleOk = ok;
   }
 
-  if (!titleOk && !artistOk) return 0;
+  // Path C: title + artist chia token (vd "pink venom blackpink")
+  const splitOk =
+    tokens.length >= 2 &&
+    inFull.length === tokens.length &&
+    inTitle.length >= 1 &&
+    inArtist.length >= 1;
+
+  if (!titleOk && !artistOk && !splitOk) return 0;
 
   let score = 0;
 
-  // Ưu tiên title match (đúng bài) hơn artist-only
-  if (phraseExactTitle) score += 8000;
+  // Title stuffing: "Pink Venom (BLACKPINK)" khớp full query nhưng artist ≠ BLACKPINK
+  const titleStuffedArtist =
+    phraseExactTitle &&
+    tokens.length >= 2 &&
+    inArtist.length === 0 &&
+    inTitle.length === tokens.length;
+
+  if (phraseExactTitle && !titleStuffedArtist) score += 8000;
+  else if (titleStuffedArtist) score += 600; // cover/nhét artist vào title
   else if (phraseStartsTitle) score += 4000;
   else if (phraseInTitle) score += 2500;
-  if (tokens.length > 1 && title.includes(joined)) score += 2000;
+  if (tokens.length > 1 && title.includes(joined) && !titleStuffedArtist) {
+    score += 2000;
+  }
   score += (inTitle.length / tokens.length) * 1000;
 
   // Artist search — điểm cao đủ để hiện list bài của ca sĩ
   if (phraseExactArtist) score += 5500;
   else if (phraseInArtist) score += 4200;
   else if (artistOk) score += 3200;
-  score += (inArtist.length / tokens.length) * 600;
+  score += (inArtist.length / tokens.length) * 900;
   score += (inFull.length / tokens.length) * 40;
 
+  // Query = "tên bài + ca sĩ" khớp đúng field
+  if (splitOk) score += 4500;
+
+  // Title sạch khớp query (không ngoặc remix/acoustic)
+  const clean = cleanTrackTitle(track);
+  if (clean && (clean === q || clean === joined)) score += 3500;
+  else if (clean && tokens.length >= 2 && clean === tokens.slice(0, -1).join(" ") && inArtist.length >= 1) {
+    // "pink venom" clean + artist blackpink
+    score += 2800;
+  }
+  // Phạt title dài / có ngoặc khi query gọn
+  const rawTitle =
+    track.song_title || track.song_name || track.name || track.title || "";
+  if (/\([^)]+\)|\[[^\]]+\]/.test(rawTitle) && !/[(\[]/.test(query || "")) {
+    score *= 0.55;
+  }
+
   // Title lỏng khi đang match artist: không phạt
-  if (titleOk && tokens.length >= 2 && inTitle.length < tokens.length && !phraseInTitle) {
+  if (
+    titleOk &&
+    tokens.length >= 2 &&
+    inTitle.length < tokens.length &&
+    !phraseInTitle &&
+    !splitOk
+  ) {
     score *= 0.4 + 0.4 * (inTitle.length / tokens.length);
   }
+
+  // Phạt cover/karaoke — Locket cần bản gốc có ISRC đúng
+  if (isCoverOrDerivative(track, query)) score *= 0.12;
 
   if (score < 40) return 0;
 
   if (typeof track.popularity === "number" && score >= 200) {
     score += Math.min(40, track.popularity * 0.25);
+  }
+  // Deezer rank (0–1e6+) — ưu tiên bản phổ biến
+  if (typeof track._deezerRank === "number" && track._deezerRank > 0) {
+    score += Math.min(120, Math.log10(track._deezerRank + 1) * 16);
   }
 
   return score;
@@ -896,8 +1001,10 @@ function mapDeezerTrack(t) {
     isrc: t.isrc || null,
     spotify_url: null,
     deezer_url: t.link || null,
+    deezerId: t.id ? String(t.id) : null,
     duration_ms: (t.duration || 0) * 1000,
     popularity: t.rank ? Math.min(100, Math.round(Number(t.rank) / 10000)) : 0,
+    _deezerRank: Number(t.rank) || 0,
     platform: "spotify",
     source: "deezer-search",
     title: [t.title, t.artist?.name].filter(Boolean).join(" - "),
@@ -931,12 +1038,13 @@ function mapITunesTrack(t) {
  */
 async function fetchSpotifySearchFull(q, limit = 50) {
   try {
+    if (Date.now() < spotifyApiBlockedUntil) return [];
     const token = await Promise.race([
       getSpotifyAppToken(),
       new Promise((r) => setTimeout(() => r(null), 8000)),
     ]);
     if (!token) {
-      console.warn("searchMusic spotify: no app token");
+      console.warn("searchMusic spotify: no app token / API blocked");
       return [];
     }
 
@@ -961,6 +1069,7 @@ async function fetchSpotifySearchFull(q, limit = 50) {
           });
           return (r.data?.tracks?.items || []).filter(Boolean);
         } catch (e) {
+          markSpotifyApiBlocked(e);
           console.warn(`searchMusic spotify market=${market}:`, e.message);
           return [];
         }
@@ -989,9 +1098,38 @@ async function fetchSpotifySearchFull(q, limit = 50) {
   }
 }
 
+/** MusicBrainz — fallback ISRC khi Deezer miss (rate-limit nhẹ) */
+async function fetchIsrcFromMusicBrainz(songName, artist) {
+  if (!songName) return null;
+  try {
+    const parts = [`recording:"${String(songName).replace(/"/g, "")}"`];
+    if (artist) parts.push(`artist:"${String(artist).replace(/"/g, "")}"`);
+    const r = await http.get("https://musicbrainz.org/ws/2/recording", {
+      params: {
+        query: parts.join(" AND "),
+        fmt: "json",
+        limit: 5,
+      },
+      timeout: 10000,
+      headers: {
+        "User-Agent": "HuyLocket/1.4 (https://github.com/buiduchuy2010qn-prog/locket-dio)",
+        Accept: "application/json",
+      },
+    });
+    const recs = r.data?.recordings || [];
+    for (const rec of recs) {
+      const isrcs = rec.isrcs || [];
+      if (isrcs.length) return String(isrcs[0]).trim();
+    }
+  } catch (e) {
+    console.warn("fetchIsrcFromMusicBrainz:", e.message);
+  }
+  return null;
+}
+
 /**
  * Hydrate ISRC cho track thiếu (iTunes/Spotify search thường không có ISRC).
- * Deezer /track/{id} và search theo tên — nguồn ISRC tin cậy khi Spotify API 403.
+ * Deezer /track/{id} + MusicBrainz — tin cậy khi Spotify API 403 Premium.
  */
 async function hydrateTrackIsrc(track) {
   if (!track || track.isrc) return track;
@@ -1001,7 +1139,6 @@ async function hydrateTrackIsrc(track) {
   if (!song && !track.deezerId && !track.id) return track;
 
   try {
-    // Deezer id từ source deezer
     let deezerId =
       track.deezerId ||
       (track.source === "deezer-search" && track.id ? String(track.id) : null);
@@ -1017,6 +1154,15 @@ async function hydrateTrackIsrc(track) {
         song_title: track.song_title || dz.song_name || song,
         artist: track.artist || dz.artist || artist,
         source: `${track.source || "search"}+isrc`,
+      };
+    }
+
+    const mbIsrc = await fetchIsrcFromMusicBrainz(song, artist);
+    if (mbIsrc) {
+      return {
+        ...track,
+        isrc: mbIsrc,
+        source: `${track.source || "search"}+mb-isrc`,
       };
     }
   } catch (e) {
@@ -1141,62 +1287,65 @@ async function searchMusicByQuery(query, limit = 30) {
     })(),
   ]);
 
-  // Chỉ add bài đã khớp query — Deezer raw hay nhiễu "tim"∈"time"
+  // Luôn merge Deezer (ISRC khi Spotify 403) + iTunes (preview) + Spotify (nếu có)
   const keepIfMatch = (t, prefer) => {
     if (!t) return;
     if (scoreTrackMatch(q, t) <= 0) return;
     addTrack(t, prefer);
   };
-  for (const t of itunesTracks) keepIfMatch(t, true);
+  // Deezer trước — thường đã có isrc + rank phổ biến
+  for (const t of deezerTracks) keepIfMatch(t, true);
   for (const t of spotifyTracks) keepIfMatch(t, true);
-  // Deezer chỉ khi iTunes/Spotify ít kết quả khớp
-  const matchedBeforeDz = merged.size;
-  if (matchedBeforeDz < Math.min(8, lim)) {
-    for (const t of deezerTracks) keepIfMatch(t, false);
-  }
+  for (const t of itunesTracks) keepIfMatch(t, true);
 
   let all = [...merged.values()];
 
   /**
-   * Rank Spotify-like: ưu tiên khớp tên chính xác.
-   * KHÔNG bao giờ trả bài 0 điểm (Basket Case khi gõ "tim em").
+   * Rank: bản gốc + ISRC trước cover; Deezer rank khi không có Spotify API.
    */
   const scored = all
     .map((t) => {
       let s = scoreTrackMatch(q, t);
       if (s <= 0) return { t, s: 0 };
-      if (t.isrc) s += 120;
+      if (t.isrc) s += 200;
       if (t.source === "spotify-search" || t.spotify_url) {
         s += 80 + Math.min(40, (t.popularity || 0) * 0.3);
+      }
+      if (
+        t.source === "deezer-search" ||
+        String(t.source || "").includes("deezer")
+      ) {
+        s += 100;
       }
       if (
         t.source === "itunes-search" ||
         String(t.source || "").includes("itunes")
       ) {
-        s += 60;
+        s += 50;
       }
       if (t.preview_url) s += 20;
+      if (t.apple_music_url) s += 15;
+      if (isCoverOrDerivative(t, q)) s -= 800;
+      // Title sạch ngắn = bản gốc
+      const clean = cleanTrackTitle(t);
+      if (clean === normalizeSearchText(q) || clean === q) s += 400;
       return { t, s };
     })
     .filter((x) => x.s > 0)
     .sort((a, b) => b.s - a.s);
 
-  // Cắt theo top score — bỏ outlier lệch quá xa
   let ranked = scored.map((x) => x.t);
   if (scored.length) {
     const topS = scored[0].s;
-    const minKeep = Math.max(80, topS * 0.12);
+    const minKeep = Math.max(60, topS * 0.1);
     ranked = scored.filter((x) => x.s >= minKeep).map((x) => x.t);
   }
 
-  // Không fallback raw list — rỗng thì rỗng (UI hiện "Không thấy")
-  if (!ranked.length) {
-    ranked = [];
-  }
+  if (!ranked.length) ranked = [];
 
-  // Hydrate ISRC cho top kết quả thiếu (iTunes) — chấp nhận chậm
+  // Hydrate ISRC top results — chấp nhận chậm (Locket bắt buộc isrc)
   const top = ranked.slice(0, Math.min(lim, 20));
-  const needHydrate = top.filter((t) => !t.isrc).slice(0, 8);
+  const needHydrate = top.filter((t) => !t.isrc).slice(0, 10);
   if (needHydrate.length) {
     const hydrated = await Promise.all(
       needHydrate.map((t) => hydrateTrackIsrc(t)),
@@ -1216,16 +1365,41 @@ async function searchMusicByQuery(query, limit = 30) {
         `${normalizeSearchText(t.song_title || t.name)}|${normalizeSearchText(t.artist)}`;
       return byKey.get(key) || t;
     });
-    // Re-sort: isrc first
-    ranked.sort((a, b) => {
-      const ai = a.isrc ? 1 : 0;
-      const bi = b.isrc ? 1 : 0;
-      if (bi !== ai) return bi - ai;
-      return 0;
-    });
   }
 
-  return ranked.slice(0, lim);
+  // Dedupe theo isrc / title|artist — giữ bản có isrc + platform link
+  const deduped = [];
+  const seen = new Set();
+  for (const t of ranked) {
+    const titleKey = normalizeSearchText(
+      t.song_title || t.song_name || t.name || "",
+    );
+    const artistKey = normalizeSearchText(t.artist || "");
+    const key = t.isrc
+      ? `isrc:${String(t.isrc).toUpperCase()}`
+      : `ta:${titleKey}|${artistKey}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    // Strip internal fields
+    const { _deezerRank, ...clean } = t;
+    deduped.push(clean);
+  }
+
+  // Ưu tiên có isrc (đăng Locket được) + bản gốc
+  deduped.sort((a, b) => {
+    const ai = a.isrc ? 1 : 0;
+    const bi = b.isrc ? 1 : 0;
+    if (bi !== ai) return bi - ai;
+    const ac = isCoverOrDerivative(a, q) ? 0 : 1;
+    const bc = isCoverOrDerivative(b, q) ? 0 : 1;
+    if (bc !== ac) return bc - ac;
+    const al = cleanTrackTitle(a).length;
+    const bl = cleanTrackTitle(b).length;
+    if (al !== bl && Math.abs(al - bl) > 2) return al - bl;
+    return 0;
+  });
+
+  return deduped.slice(0, lim);
 }
 
 module.exports = {

@@ -111,8 +111,18 @@ function scoreTitleMatch(query, track) {
   // Server đã trả về → giữ tối thiểu (không filter trắng)
   if (s === 0 && (title || artist)) s = 10;
 
-  if (track?.isrc) s += 80;
+  if (track?.isrc) s += 120;
   if (track?.spotify_url) s += 30;
+  if (track?.apple_music_url) s += 15;
+  // Hạ cover/karaoke — Locket cần bản gốc + ISRC đúng
+  const blob = `${title} ${artist}`;
+  if (
+    /\b(cover|piano|karaoke|tribute|rendition|instrumental|nightcore|ringtone|parody|quartet)\b/.test(
+      blob,
+    )
+  ) {
+    s *= 0.2;
+  }
   return s;
 }
 

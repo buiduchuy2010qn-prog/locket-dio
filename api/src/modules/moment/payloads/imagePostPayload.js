@@ -301,10 +301,11 @@ const imagePostPayloadMusic = ({ imageUrl, optionsData }) => {
     musicPayload.preview_url = preview;
   }
 
-  // Link platform — Locket dùng để mở / map track
+  // Link platform — Locket dùng để mở / map track (có thể gửi cả hai)
   if (payload?.spotify_url) {
     musicPayload.spotify_url = payload.spotify_url;
-  } else if (payload?.apple_music_url || payload?.appleMusicUrl) {
+  }
+  if (payload?.apple_music_url || payload?.appleMusicUrl) {
     musicPayload.apple_music_url =
       payload.apple_music_url || payload.appleMusicUrl;
   }

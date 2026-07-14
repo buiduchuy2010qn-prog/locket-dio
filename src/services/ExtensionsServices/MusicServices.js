@@ -234,8 +234,18 @@ function rankTracksByQuery(query, tracks, limit = 40) {
     else if (allInArtist) s += 4500;
     s += (inArtist.length / Math.max(1, tokens.length)) * 900;
 
-    if (track.isrc) s += 80;
+    if (track.isrc) s += 120;
     if (track.spotify_url || track.source === "spotify-search") s += 40;
+    if (track.apple_music_url) s += 20;
+    // Cover/karaoke không nên đứng trước bản gốc khi gắn Locket
+    const blob = `${title} ${artistN}`;
+    if (
+      /\b(cover|piano|karaoke|tribute|rendition|instrumental|nightcore|ringtone|parody|quartet)\b/.test(
+        blob,
+      )
+    ) {
+      s *= 0.2;
+    }
     if (typeof track.popularity === "number") {
       s += Math.min(40, track.popularity * 0.25);
     }
@@ -243,7 +253,12 @@ function rankTracksByQuery(query, tracks, limit = 40) {
   });
 
   return scored
-    .sort((a, b) => b.s - a.s)
+    .sort((a, b) => {
+      if (b.s !== a.s) return b.s - a.s;
+      const ai = a.track.isrc ? 1 : 0;
+      const bi = b.track.isrc ? 1 : 0;
+      return bi - ai;
+    })
     .map((x) => x.track)
     .slice(0, limit);
 }

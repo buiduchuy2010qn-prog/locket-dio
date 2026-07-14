@@ -288,13 +288,30 @@ export default function GeneralThemes({ title }) {
       }
 
       // Resolve multi-step (getInfo + search + ISRC)
-      const musicData = await resolveMusicForLocket(raw);
+      // Ưu tiên ISRC sẵn có từ search (Deezer) — tránh resolve lại chậm/fail
+      let musicData = null;
+      if (raw.isrc && (raw.song_title || raw.song_name || raw.name || songFromTrack)) {
+        musicData = {
+          song_title: songFromTrack,
+          song_name: songFromTrack,
+          name: songFromTrack,
+          artist: artistFromTrack,
+          isrc: String(raw.isrc).trim(),
+          preview_url: raw.preview_url || raw.audioUrl || null,
+          image_url: raw.image_url || raw.coverUrl || "",
+          spotify_url: raw.spotify_url || null,
+          apple_music_url: raw.apple_music_url || null,
+          platform: "spotify",
+        };
+      } else {
+        musicData = await resolveMusicForLocket(raw);
+      }
 
       const isrc = musicData?.isrc || raw.isrc || null;
       if (!isrc) {
         SonnerError(
           "Không lấy được mã ISRC",
-          "Thử bài khác, dán link Spotify, hoặc đợi vài giây rồi chọn lại.",
+          "Spotify API đang hạn chế — thử bài khác, dán link Spotify track, hoặc đợi vài giây rồi chọn lại.",
         );
         return;
       }
@@ -324,6 +341,10 @@ export default function GeneralThemes({ title }) {
       clipEnd = Math.min(Math.max(clipEnd, clipStart + 1), clipStart + 60);
       const clipDur = clipEnd - clipStart;
 
+      // Locket resolve bằng ISRC; apple/spotify url chỉ để mở app
+      const platform =
+        finalSpotify || !apple_music_url ? "spotify" : "apple";
+
       applyOverlay({
         overlay_id: "caption:music",
         caption,
@@ -342,14 +363,14 @@ export default function GeneralThemes({ title }) {
           image: image_url,
           spotify_url: finalSpotify,
           apple_music_url,
-          platform: apple_music_url && !finalSpotify ? "apple" : "spotify",
+          platform,
           startTime: clipStart,
           endTime: clipEnd,
           volume: Number(raw.volume) || 1,
           originalVideoVolume: Number(raw.originalVideoVolume) || 1,
           duration: clipDur,
         },
-        platform: apple_music_url && !finalSpotify ? "apple" : "spotify",
+        platform,
       });
 
       setSpotifyPickerOpen(false);

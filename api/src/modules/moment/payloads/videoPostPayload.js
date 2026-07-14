@@ -309,11 +309,16 @@ const videoPostPayloadMusic = ({ videoUrl, thumbnailUrl, optionsData }) => {
     musicPayload.preview_url = preview;
   }
 
+  // Có thể gửi cả spotify + apple — Locket resolve chính bằng isrc
   if (payload?.spotify_url) {
     musicPayload.spotify_url = payload.spotify_url;
-  } else if (payload?.apple_music_url || payload?.appleMusicUrl) {
+  }
+  if (payload?.apple_music_url || payload?.appleMusicUrl) {
     musicPayload.apple_music_url =
       payload.apple_music_url || payload.appleMusicUrl;
+  }
+  if (songTitle) {
+    musicPayload.song_name = songTitle;
   }
 
   let musicIcon = icon;
