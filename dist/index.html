@@ -30,7 +30,6 @@
 
     <meta name="robots" content="index, follow" />
 
-    <!-- Warm connections: CDN + same-origin API proxy -->
     <link rel="dns-prefetch" href="https://cdn.locket-dio.com" />
     <link rel="preconnect" href="https://cdn.locket-dio.com" crossorigin />
 
@@ -41,7 +40,7 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 
-    <!-- Early paint: shell tối + logo (trước khi JS tải xong) -->
+    <!-- Boot shell CSS only — KHÔNG MutationObserver trên #root (gây removeChild với React) -->
     <style>
       html, body {
         margin: 0;
@@ -51,19 +50,22 @@
         font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
         -webkit-tap-highlight-color: transparent;
       }
-      #root:empty + #boot-shell,
-      #root:not(:has(*)) + #boot-shell { display: flex; }
       #boot-shell {
-        display: none;
         position: fixed;
         inset: 0;
         z-index: 9999;
+        display: flex;
         flex-direction: column;
         align-items: center;
         justify-content: center;
         gap: 12px;
         background: #0a0a0a;
         pointer-events: none;
+        transition: opacity 0.25s ease;
+      }
+      html.boot-ready #boot-shell {
+        opacity: 0;
+        visibility: hidden;
       }
       #boot-shell img {
         width: 72px;
@@ -93,13 +95,11 @@
         0% { transform: translateX(-100%); }
         100% { transform: translateX(250%); }
       }
-      /* perf classes sớm — giảm jank trước React */
       html.perf-lite, html.perf-android {
         scroll-behavior: auto !important;
       }
     </style>
 
-    <!-- Detect perf + ẩn shell khi React mount — chạy sync, ~0.5ms -->
     <script>
       (function () {
         try {
@@ -115,50 +115,30 @@
           if (android || ios || /Mobile/i.test(ua)) r.classList.add("perf-mobile");
           if (low || android) r.classList.add("perf-lite");
         } catch (e) {}
-        // Ẩn boot shell khi #root có nội dung
-        function hideShell() {
-          var shell = document.getElementById("boot-shell");
-          var root = document.getElementById("root");
-          if (!shell || !root) return;
-          if (root.childNodes && root.childNodes.length) {
-            shell.style.display = "none";
-            try {
-              if (window.__bootObs) window.__bootObs.disconnect();
-            } catch (e) {}
-          }
-        }
-        document.addEventListener("DOMContentLoaded", function () {
-          var root = document.getElementById("root");
-          if (!root || typeof MutationObserver === "undefined") return;
-          window.__bootObs = new MutationObserver(hideShell);
-          window.__bootObs.observe(root, { childList: true, subtree: true });
-          hideShell();
-          // Fallback: luôn ẩn sau 8s (tránh kẹt shell)
-          setTimeout(function () {
-            var s = document.getElementById("boot-shell");
-            if (s) s.style.display = "none";
-          }, 8000);
-        });
+        // Fallback ẩn shell sau 6s nếu JS app fail
+        setTimeout(function () {
+          try { document.documentElement.classList.add("boot-ready"); } catch (e) {}
+        }, 6000);
       })();
     </script>
-    <script type="module" crossorigin src="/assets/index-C1viiyZ2.js"></script>
+    <script type="module" crossorigin src="/assets/index-DP42j4EP.js"></script>
     <link rel="modulepreload" crossorigin href="/assets/vendor-BIKn5vC0.js">
     <link rel="modulepreload" crossorigin href="/assets/i18n-BqiDvQba.js">
     <link rel="modulepreload" crossorigin href="/assets/react-ccKEJv6R.js">
-    <link rel="stylesheet" crossorigin href="/assets/index-BfMHGVbE.css">
+    <link rel="stylesheet" crossorigin href="/assets/index-BzG1FpCN.css">
   <link rel="manifest" href="/manifest.webmanifest"></head>
   <body>
-    <div id="root"></div>
-    <!-- Shell hiện ngay khi root còn trống -->
+    <!-- Shell ngoài #root — React không đụng tới -->
     <div id="boot-shell" aria-hidden="true">
       <img src="/apple-touch-icon.png" alt="" width="72" height="72" decoding="async" fetchpriority="high" />
       <div class="boot-title">Huy Locket</div>
       <div class="boot-sub">Đang mở…</div>
       <div class="boot-bar"><i></i></div>
     </div>
+    <div id="root"></div>
 
 
-    <!-- GA sau idle — không tranh bandwidth lúc boot mobile -->
+    <!-- GA sau idle -->
     <script>
       (function () {
         function loadGa() {

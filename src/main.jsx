@@ -20,16 +20,54 @@ applyPerfClasses();
 // Chunk recovery + local flags — nhẹ, sync OK
 initReloadState();
 
-const rootEl = document.getElementById("root");
-createRoot(rootEl).render(
-  <StrictMode>
-    <ErrorBoundary>
-      <App />
-    </ErrorBoundary>
-  </StrictMode>,
-);
+// App boot OK → reset cờ recover removeChild
+try {
+  sessionStorage.removeItem("hl_dom_recover");
+} catch {
+  /* ignore */
+}
 
-// PWA + update watcher sau first paint — không tranh main thread lúc boot
+/** Ẩn boot shell — chỉ CSS class, không đụng DOM tree của React */
+function markBootReady() {
+  try {
+    document.documentElement.classList.add("boot-ready");
+  } catch {
+    /* ignore */
+  }
+}
+
+const rootEl = document.getElementById("root");
+if (rootEl) {
+  // Tránh root “bẩn” từ SW/cache cũ (gây removeChild lệch fiber)
+  try {
+    if (rootEl.hasChildNodes()) rootEl.replaceChildren();
+  } catch {
+    try {
+      rootEl.innerHTML = "";
+    } catch {
+      /* ignore */
+    }
+  }
+
+  createRoot(rootEl).render(
+    <StrictMode>
+      <ErrorBoundary>
+        <App />
+      </ErrorBoundary>
+    </StrictMode>,
+  );
+
+  // Ẩn shell sau frame đầu — không MutationObserver trên #root
+  requestAnimationFrame(() => {
+    requestAnimationFrame(markBootReady);
+  });
+  // Phòng hờ
+  setTimeout(markBootReady, 1200);
+} else {
+  markBootReady();
+}
+
+// PWA + update watcher sau first paint
 const deferBoot = (fn) => {
   if (typeof window !== "undefined" && window.requestIdleCallback) {
     window.requestIdleCallback(fn, { timeout: 2500 });

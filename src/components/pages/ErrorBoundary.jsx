@@ -13,6 +13,25 @@ class ErrorBoundary extends React.Component {
 
   componentDidCatch(error, errorInfo) {
     console.error("Error caught by ErrorBoundary:", error, errorInfo);
+    this.setState({ errorInfo });
+
+    // removeChild lệch DOM (boot shell / extension / snow race) — tự recover 1 lần
+    const msg = String(error?.message || error || "");
+    const isDomRace =
+      /removeChild|NotFoundError|The node to be removed/i.test(msg);
+    if (isDomRace) {
+      const key = "hl_dom_recover";
+      try {
+        const n = Number(sessionStorage.getItem(key) || 0);
+        if (n < 1) {
+          sessionStorage.setItem(key, String(n + 1));
+          // Clear SW cache stale rồi reload
+          this.handleReload();
+        }
+      } catch {
+        /* ignore */
+      }
+    }
   }
 
   handleReload = async () => {
