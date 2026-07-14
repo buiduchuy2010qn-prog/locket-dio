@@ -1,1 +1,0 @@
-import{j as s}from"./index-zFWM-5QZ.js";import{i as t}from"./vendor-BIKn5vC0.js";t.register();const a=({size:i=40,stroke:e=5,bgOpacity:o=0,speed:r=2,color:n="black"})=>s.jsxDEV("l-ring",{size:i,stroke:e,"bg-opacity":o,speed:r,color:n},void 0,!1,{fileName:"C:/Users/DucHuyy/.grok/bin/locket-dio/src/components/ui/Loading/ring.jsx",lineNumber:8,columnNumber:5},void 0);export{a as L};
