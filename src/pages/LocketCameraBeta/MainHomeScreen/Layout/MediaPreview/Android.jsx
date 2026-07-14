@@ -201,7 +201,7 @@ const MediaPreviewAndroid = () => {
       const z = settings.zoom ?? currentZoomValue.current ?? 1;
       let display = z;
       const uf =
-        modes.ultraFactor || getUltraWideFactor(stream, shape) || 0.5;
+        modes.ultraFactor || getUltraWideFactor(stream, shape) || 0.6;
       if (
         shape.ultrawide?.deviceId &&
         actualId === shape.ultrawide.deviceId &&
@@ -330,7 +330,7 @@ const MediaPreviewAndroid = () => {
             mapped.displayZoom ??
             availableZoomModes?.ultraFactor ??
             getUltraWideFactor(stream, shape) ??
-            0.5;
+            0.6;
           setZoomLevel("0.5x");
           lastZoomLevel.current = "0.5x";
           setActiveZoomMode("0.5x");
@@ -473,7 +473,7 @@ const MediaPreviewAndroid = () => {
           result.currentZoom ??
           result.ultraFactor ??
           getUltraWideFactor(result.stream, shape) ??
-          0.5;
+          0.6;
         setZoomLevel("0.5x");
         lastZoomLevel.current = "0.5x";
         setActiveZoomMode("0.5x");
@@ -536,7 +536,7 @@ const MediaPreviewAndroid = () => {
       (mode === "0.5x"
         ? availableZoomModes?.ultraFactor ||
           getUltraWideFactor(streamRef.current, shape) ||
-          0.5
+          0.6
         : mode === "2x"
           ? 2
           : 1);
@@ -882,7 +882,7 @@ const MediaPreviewAndroid = () => {
             target.displayZoom ??
             availableZoomModes?.ultraFactor ??
             getUltraWideFactor(streamRef.current, shape) ??
-            0.5;
+            0.6;
         } else if (deviceId && z === "2x" && teleId && deviceId === teleId) {
           resolvedDeviceId = teleId;
           displayZoom = 2;

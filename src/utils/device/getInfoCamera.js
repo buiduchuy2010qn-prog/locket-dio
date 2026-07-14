@@ -83,7 +83,7 @@ export const pickCameraDeviceId = async (mode, zoomLevel = "1x") => {
 
     const z = String(zoomLevel || "1x").toLowerCase();
 
-    if (z === "0.5x" || z === "0.5") {
+    if (z === "0.5x" || z === "0.5" || z === "0.6x" || z === "0.6") {
       return cameras?.backUltraWideCamera?.deviceId || mainId;
     }
 
