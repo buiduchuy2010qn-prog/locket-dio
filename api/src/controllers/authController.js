@@ -72,7 +72,7 @@ const loginV2 = async (req, res, next) => {
     });
   }
 
-  // FIREBASE_API_KEY defaults to Locket public key in app.config — only block if empty after resolve
+  // FIREBASE_API_KEY must be set via env (Railway / .env) — never hardcode in source
   const { firebase } = require("../config/app.config");
   if (!firebase?.apiKey && !process.env.FIREBASE_API_KEY) {
     return res.status(503).json({

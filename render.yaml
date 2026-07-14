@@ -52,9 +52,9 @@ services:
       # Domain web được CORS
       - key: CORS_ORIGINS
         value: https://huy-locket.onrender.com
-      # Locket Firebase public API key (login Identity Toolkit) — override trên Dashboard nếu cần
+      # Locket Firebase API key (login Identity Toolkit) — set trên Dashboard, không commit
       - key: FIREBASE_API_KEY
-        value: AIzaSyCQngaaXQIfJaH0aS2l7REgIjD7nL431So
+        sync: false
       # Spotify Web API (dán link track → isrc/meta official)
       - key: SPOTIFY_CLIENT_ID
         sync: false

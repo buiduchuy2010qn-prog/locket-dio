@@ -2,6 +2,7 @@ const axios = require("axios");
 const constants = require("../../utils/constants");
 const { instanceFirebaseV2 } = require("../../libs/instanceFirebase");
 const { createGoogleInstance, instanceLocketV2 } = require("../../libs");
+const { firebase } = require("../../config/app.config");
 
 // Hàm xử lý đăng nhập
 const handleLogin = async (email, password) => {
@@ -34,6 +35,16 @@ const verifyCustomeToken = async (token) => {
 
 // Hàm xử lý đăng nhập
 const CheckEmail = async (email) => {
+  const apiKey = firebase.apiKey || process.env.FIREBASE_API_KEY || "";
+  if (!apiKey) {
+    const err = new Error(
+      "FIREBASE_API_KEY chưa cấu hình. Thêm vào .env / Railway Variables.",
+    );
+    err.status = 503;
+    err.code = "FIREBASE_NOT_CONFIGURED";
+    throw err;
+  }
+
   const loginPayload = {
     identifier: email,
     continueUri: "http://localhost",
@@ -47,7 +58,7 @@ const CheckEmail = async (email) => {
   };
 
   const response = await axios.post(
-    "https://identitytoolkit.googleapis.com/v1/accounts:createAuthUri?key=AIzaSyCQngaaXQIfJaH0aS2l7REgIjD7nL431So",
+    `https://identitytoolkit.googleapis.com/v1/accounts:createAuthUri?key=${apiKey}`,
     loginPayload,
     {
       headers,

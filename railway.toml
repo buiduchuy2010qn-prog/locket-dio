@@ -15,7 +15,7 @@
 #     LOCKETDIO_JWT_SECRET=<cố định>
 #     COOKIE_SECRET=<cố định>
 #     SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET
-#     FIREBASE_API_KEY=AIzaSyCQngaaXQIfJaH0aS2l7REgIjD7nL431So
+#     FIREBASE_API_KEY=<set trên Railway Variables — không commit key>
 
 [build]
   builder = "DOCKERFILE"
