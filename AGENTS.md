@@ -12,6 +12,33 @@
 2. **Weather real data** (Dio API + Open-Meteo fallback)
 3. **pinksnow** theme + snow effects
 4. Deploy scripts: `npm run build:static`, `server.mjs`, Dockerfile
+5. **Music caption (KNOWN GOOD — user confirmed 2026-07-14)** — do not “simplify” or rewrite casually
+
+### Music / ISRC — baseline ổn định (đừng phá)
+
+User: *“bản này được rồi ngon lắm”* — giữ hành vi này.
+
+| | |
+|--|--|
+| **Good commit** | `474aa184` — *fix(music): always resolve valid ISRC for Locket app caption* |
+| **Web** | https://huy-locket-production.up.railway.app |
+| **API** | https://huy-locket-api-production.up.railway.app |
+
+**App Locket cần:** `isrc` (12 ký tự) + `song_title` + `artist` + (`spotify_url` **hoặc** `apple_music_url`) + cover icon.
+
+**Files (đụng cẩn thận):**
+- Client attach: `src/features/CustomeStudio/components/GeneralSections/index.jsx`
+- Client resolve: `src/services/ExtensionsServices/MusicServices.js` (`normalizeIsrc`, `resolveMusicForLocket`)
+- Server enrich: `api/src/modules/music/services/ensureMusicPayload.js`, `fetchMusicApi/index.js`
+- Locket payload: `api/src/modules/moment/payloads/imagePostPayload.js` / `videoPostPayload.js` (`imagePostPayloadMusic`)
+- Feed giữ pill: `src/stores/PostStores/useUploadPostStore.js`, `src/stores/MomentStores/index.js`, `MusicOverlay.jsx`
+
+**Rules:**
+- Không đăng nhạc nếu thiếu ISRC / platform URL (chặn + toast rõ)
+- Server `ensureMusic` bù ISRC (Deezer → iTunes → MusicBrainz) trước post
+- Sau post: inject overlay local vào feed (Locket response hay cắt overlays)
+- Merge feed: **không** ghi đè mất music overlay khi API omit
+- Đổi music → test: gắn → toast có ISRC → đăng bài **mới** → web pill + app Locket
 
 ## Production deploy (mandatory)
 
