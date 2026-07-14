@@ -322,7 +322,7 @@ export default function GeneralThemes({ title }) {
         return;
       }
 
-      // Luôn resolve ISRC (Deezer/iTunes/MusicBrainz trên server) — app Locket bắt buộc
+      // Resolve ISRC — ưu tiên ISRC sẵn; thiếu thì multi-step server (Deezer/iTunes)
       let musicData = null;
       const rawIsrc = normalizeIsrc(raw.isrc);
       const hasPlatform = Boolean(raw.spotify_url || raw.apple_music_url);
@@ -345,13 +345,32 @@ export default function GeneralThemes({ title }) {
         };
       } else {
         musicData = await resolveMusicForLocket(raw);
+        // Retry: bỏ feat/ngoặc trong tên (hay làm miss ISRC)
+        if (!normalizeIsrc(musicData?.isrc || raw.isrc) && songFromTrack) {
+          const cleaned = songFromTrack
+            .replace(/\(.*?\)/g, " ")
+            .replace(/\[.*?\]/g, " ")
+            .replace(/\b(feat\.?|ft\.?|featuring|with)\s+.+$/i, " ")
+            .replace(/\s+/g, " ")
+            .trim();
+          if (cleaned && cleaned !== songFromTrack) {
+            musicData = await resolveMusicForLocket({
+              ...raw,
+              song_title: cleaned,
+              song_name: cleaned,
+              title: cleaned,
+              name: cleaned,
+              isrc: null,
+            });
+          }
+        }
       }
 
       const isrc = normalizeIsrc(musicData?.isrc || raw.isrc);
       if (!isrc) {
         SonnerError(
           "Không lấy được mã ISRC",
-          "App Locket cần ISRC để hiện nhạc. Thử bài khác hoặc dán link track Spotify/Apple Music.",
+          "Thử chọn đúng bản gốc (có cover), hoặc dán link Spotify/Apple Music track.",
         );
         return;
       }

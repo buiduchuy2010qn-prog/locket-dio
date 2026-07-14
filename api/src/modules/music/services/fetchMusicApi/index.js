@@ -1152,6 +1152,24 @@ function isValidIsrc(raw) {
   return Boolean(normalizeIsrc(raw));
 }
 
+/** Bỏ feat/ngoặc — Deezer/iTunes search ổn định hơn "Tìm Em (feat. Bảo Anh)" */
+function cleanSongTitleForSearch(s) {
+  return String(s || "")
+    .replace(/\(.*?\)/g, " ")
+    .replace(/\[.*?\]/g, " ")
+    .replace(/\b(feat\.?|ft\.?|featuring|with)\s+.+$/i, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function stripDiacritics(s) {
+  return String(s || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d")
+    .replace(/Đ/g, "D");
+}
+
 /** MusicBrainz — fallback ISRC khi Deezer miss (rate-limit nhẹ) */
 async function fetchIsrcFromMusicBrainz(songName, artist) {
   if (!songName) return null;
@@ -1201,7 +1219,7 @@ async function fetchIsrcFromMusicBrainz(songName, artist) {
 
 /**
  * Lấy ISRC mạnh: Deezer → iTunes → MusicBrainz.
- * Dùng khi attach/post — app Locket không hiện nhạc nếu thiếu isrc.
+ * Thử nhiều biến thể tên (bỏ feat/dấu) — tránh lỗi lúc được lúc không.
  */
 async function resolveIsrcAggressive({
   songName = "",
@@ -1214,25 +1232,40 @@ async function resolveIsrcAggressive({
 
   const song = String(songName || "").trim();
   const art = String(artist || "").trim();
+  const cleaned = cleanSongTitleForSearch(song);
+  const songVariants = [
+    ...new Set(
+      [song, cleaned, stripDiacritics(song), stripDiacritics(cleaned)].filter(
+        (s) => s && s.length >= 2,
+      ),
+    ),
+  ];
 
-  // 1) Deezer track detail (search thường có isrc; /track/{id} chắc chắn hơn)
-  try {
-    const dz = await enrichFromDeezer(deezerId, song, art);
-    const fromDz = normalizeIsrc(dz?.isrc);
-    if (fromDz) return fromDz;
-  } catch (e) {
-    console.warn("resolveIsrcAggressive deezer:", e.message);
+  // 1) Deezer — thử từng biến thể tên (feat. hay làm miss)
+  for (const s of songVariants.length ? songVariants : [song]) {
+    try {
+      const dz = await enrichFromDeezer(
+        s === song ? deezerId : null,
+        s,
+        art,
+      );
+      const fromDz = normalizeIsrc(dz?.isrc);
+      if (fromDz) return fromDz;
+    } catch (e) {
+      console.warn("resolveIsrcAggressive deezer:", e.message);
+    }
   }
 
-  // 2) iTunes lookup (US + VN) — một số bản có isrc
-  if (song) {
+  // 2) iTunes lookup (US + VN)
+  for (const s of songVariants.length ? songVariants : [song]) {
+    if (!s) continue;
     for (const country of ["US", "VN"]) {
       try {
         const r = await http.get("https://itunes.apple.com/search", {
           params: {
-            term: [song, art].filter(Boolean).join(" "),
+            term: [s, art].filter(Boolean).join(" "),
             entity: "song",
-            limit: 5,
+            limit: 8,
             country,
           },
           timeout: 10000,
@@ -1258,10 +1291,15 @@ async function resolveIsrcAggressive({
     }
   }
 
-  // 3) MusicBrainz
-  if (song) {
-    const mb = await fetchIsrcFromMusicBrainz(song, art);
-    if (mb) return mb;
+  // 3) MusicBrainz (hay 503 — không chặn flow)
+  for (const s of songVariants.slice(0, 2)) {
+    if (!s) continue;
+    try {
+      const mb = await fetchIsrcFromMusicBrainz(s, art);
+      if (mb) return mb;
+    } catch {
+      /* ignore */
+    }
   }
 
   return null;
@@ -1365,59 +1403,82 @@ async function searchMusicByQuery(query, limit = 30) {
     }
   };
 
-  // Song song: Spotify (optional) + Deezer (ISRC) + iTunes (preview)
-  const [spotifyTracks, deezerTracks, itunesTracks] = await Promise.all([
+  // Biến thể query: bỏ dấu / bỏ feat — Deezer trên cloud đôi khi miss Unicode
+  const qVariants = [
+    ...new Set(
+      [
+        q,
+        cleanSongTitleForSearch(q),
+        stripDiacritics(q),
+        stripDiacritics(cleanSongTitleForSearch(q)),
+      ].filter((s) => s && s.length >= 2),
+    ),
+  ];
+
+  async function fetchDeezerList(term) {
+    try {
+      const s = await http.get("https://api.deezer.com/search", {
+        params: { q: term, limit: fetchLim },
+        timeout: 14000,
+      });
+      const raw = (s.data?.data || []).slice(0, fetchLim);
+      return Promise.all(
+        raw.map(async (row) => {
+          let t = mapDeezerTrack(row);
+          if (t.isrc || !row.id) return t;
+          try {
+            const detail = await http.get(
+              `https://api.deezer.com/track/${row.id}`,
+              { timeout: 8000 },
+            );
+            if (detail.data?.isrc) {
+              t = {
+                ...t,
+                isrc: detail.data.isrc,
+                preview_url: t.preview_url || detail.data.preview || null,
+              };
+            }
+          } catch {
+            /* keep */
+          }
+          return t;
+        }),
+      );
+    } catch (e) {
+      console.warn("searchMusic deezer:", term, e.message);
+      return [];
+    }
+  }
+
+  // Song song: Spotify (optional) + Deezer (ISRC, multi-q) + iTunes
+  const [spotifyTracks, deezerNested, itunesTracks] = await Promise.all([
     fetchSpotifySearchFull(q, fetchLim).catch(() => []),
+    Promise.all(qVariants.slice(0, 3).map((term) => fetchDeezerList(term))),
     (async () => {
       try {
-        const s = await http.get("https://api.deezer.com/search", {
-          params: { q, limit: fetchLim },
-          timeout: 12000,
-        });
-        // Deezer search thường đã có isrc; hydrate /track song song nếu thiếu
-        const raw = (s.data?.data || []).slice(0, fetchLim);
-        return Promise.all(
-          raw.map(async (row) => {
-            let t = mapDeezerTrack(row);
-            if (t.isrc || !row.id) return t;
+        const terms = qVariants.slice(0, 2);
+        const batches = await Promise.all(
+          terms.map(async (term) => {
             try {
-              const detail = await http.get(
-                `https://api.deezer.com/track/${row.id}`,
-                { timeout: 8000 },
-              );
-              if (detail.data?.isrc) {
-                t = {
-                  ...t,
-                  isrc: detail.data.isrc,
-                  preview_url: t.preview_url || detail.data.preview || null,
-                };
-              }
+              const s = await axios.get("https://itunes.apple.com/search", {
+                params: {
+                  term,
+                  media: "music",
+                  entity: "song",
+                  limit: fetchLim,
+                  country: "vn",
+                },
+                timeout: 10000,
+                headers: { "User-Agent": UA },
+                validateStatus: (st) => st >= 200 && st < 500,
+              });
+              return (s.data?.results || []).map(mapITunesTrack);
             } catch {
-              /* keep */
+              return [];
             }
-            return t;
           }),
         );
-      } catch (e) {
-        console.warn("searchMusic deezer:", e.message);
-        return [];
-      }
-    })(),
-    (async () => {
-      try {
-        const s = await axios.get("https://itunes.apple.com/search", {
-          params: {
-            term: q,
-            media: "music",
-            entity: "song",
-            limit: fetchLim,
-            country: "vn",
-          },
-          timeout: 10000,
-          headers: { "User-Agent": UA },
-          validateStatus: (st) => st >= 200 && st < 500,
-        });
-        return (s.data?.results || []).map(mapITunesTrack);
+        return batches.flat();
       } catch (e) {
         console.warn("searchMusic itunes:", e.message);
         return [];
@@ -1425,16 +1486,30 @@ async function searchMusicByQuery(query, limit = 30) {
     })(),
   ]);
 
-  // Luôn merge Deezer (ISRC khi Spotify 403) + iTunes (preview) + Spotify (nếu có)
+  const deezerTracks = deezerNested.flat();
+
+  // Luôn merge Deezer (ISRC) + iTunes + Spotify
   const keepIfMatch = (t, prefer) => {
     if (!t) return;
     if (scoreTrackMatch(q, t) <= 0) return;
     addTrack(t, prefer);
   };
-  // Deezer trước — thường đã có isrc + rank phổ biến
   for (const t of deezerTracks) keepIfMatch(t, true);
   for (const t of spotifyTracks) keepIfMatch(t, true);
   for (const t of itunesTracks) keepIfMatch(t, true);
+
+  // Nếu filter quá chặt (0 hit) — vẫn giữ top Deezer/iTunes để có ISRC
+  if (merged.size === 0) {
+    console.warn(
+      `[searchMusic] score filter empty for "${q}" — soft fallback`,
+    );
+    for (const t of [...deezerTracks, ...itunesTracks, ...spotifyTracks].slice(
+      0,
+      fetchLim,
+    )) {
+      addTrack(t, true);
+    }
+  }
 
   let all = [...merged.values()];
 

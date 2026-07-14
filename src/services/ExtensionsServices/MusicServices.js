@@ -143,7 +143,8 @@ export const resolveMusicForLocket = async (track = {}) => {
     }
   }
 
-  // 1b) Apple Music link
+  // 1b) Apple Music link — lấy meta; ISRC có thể thiếu → search bù
+  let appleMeta = null;
   if (apple_music_url && !knownIsrc) {
     const info = await getInfoMusicByUrl(apple_music_url, "apple");
     const infoIsrc = normalizeIsrc(info?.isrc);
@@ -155,53 +156,89 @@ export const resolveMusicForLocket = async (track = {}) => {
         spotify_url: info.spotify_url || spotify_url || null,
       };
     }
+    if (info) appleMeta = info;
   }
 
-  // 2) Search theo tên + nghệ sĩ — ưu tiên hit có ISRC (Deezer)
-  const q = [song, artist].filter(Boolean).join(" ").trim();
-  if (!q && !knownIsrc) return null;
+  // 2) Search theo tên (+ biến thể bỏ feat/dấu) — ưu tiên hit có ISRC
+  const songClean = String(song || appleMeta?.song_title || appleMeta?.song_name || "")
+    .replace(/\(.*?\)/g, " ")
+    .replace(/\[.*?\]/g, " ")
+    .replace(/\b(feat\.?|ft\.?|featuring|with)\s+.+$/i, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const artistUse = artist || appleMeta?.artist || "";
+  const qList = [
+    ...new Set(
+      [
+        [song, artistUse].filter(Boolean).join(" ").trim(),
+        [songClean, artistUse].filter(Boolean).join(" ").trim(),
+        songClean,
+        song,
+      ].filter((s) => s && s.length >= 2),
+    ),
+  ];
+  if (!qList.length && !knownIsrc) return null;
 
   try {
-    if (q) {
+    for (const q of qList) {
       const hits = await searchMusicByQuery(q, 25);
-      const withIsrc = (hits || []).find(
-        (h) =>
-          normalizeIsrc(h.isrc) && (h.spotify_url || h.apple_music_url),
-      ) || (hits || []).find((h) => normalizeIsrc(h.isrc));
+      const withIsrc =
+        (hits || []).find(
+          (h) =>
+            normalizeIsrc(h.isrc) && (h.spotify_url || h.apple_music_url),
+        ) || (hits || []).find((h) => normalizeIsrc(h.isrc));
       if (withIsrc) {
         return {
-          song_title: withIsrc.song_title || withIsrc.song_name || song,
-          song_name: withIsrc.song_name || withIsrc.song_title || song,
+          song_title:
+            withIsrc.song_title ||
+            withIsrc.song_name ||
+            appleMeta?.song_title ||
+            song,
+          song_name:
+            withIsrc.song_name ||
+            withIsrc.song_title ||
+            appleMeta?.song_name ||
+            song,
           name: withIsrc.name || withIsrc.song_title || song,
-          artist: withIsrc.artist || artist,
+          artist: withIsrc.artist || artistUse,
           isrc: normalizeIsrc(withIsrc.isrc) || knownIsrc,
-          preview_url: withIsrc.preview_url || track.preview_url || null,
+          preview_url:
+            withIsrc.preview_url ||
+            track.preview_url ||
+            appleMeta?.preview_url ||
+            null,
           image_url:
-            withIsrc.image_url || track.image_url || track.coverUrl || "",
+            withIsrc.image_url ||
+            track.image_url ||
+            track.coverUrl ||
+            appleMeta?.image_url ||
+            "",
           spotify_url: withIsrc.spotify_url || spotify_url || null,
           apple_music_url:
-            withIsrc.apple_music_url || apple_music_url || null,
+            withIsrc.apple_music_url ||
+            apple_music_url ||
+            appleMeta?.apple_music_url ||
+            null,
           platform: withIsrc.spotify_url ? "spotify" : "apple",
         };
       }
+    }
 
-      // 3) getInfo từng Spotify hit (chậm)
-      for (const h of hits || []) {
-        const u = h.spotify_url;
-        if (!u) continue;
-        const info = await getInfoMusicByUrl(u, "spotify");
+    // 3–4) getInfo từng hit (chậm) — query đầu
+    const hits = qList[0] ? await searchMusicByQuery(qList[0], 15) : [];
+    for (const h of hits || []) {
+      const u = h.spotify_url;
+      if (!u) continue;
+      const info = await getInfoMusicByUrl(u, "spotify");
+      if (normalizeIsrc(info?.isrc)) {
+        return { ...info, isrc: normalizeIsrc(info.isrc) };
+      }
+    }
+    for (const h of hits || []) {
+      if (h.apple_music_url) {
+        const info = await getInfoMusicByUrl(h.apple_music_url, "apple");
         if (normalizeIsrc(info?.isrc)) {
           return { ...info, isrc: normalizeIsrc(info.isrc) };
-        }
-      }
-
-      // 4) Apple Music link nếu có
-      for (const h of hits || []) {
-        if (h.apple_music_url) {
-          const info = await getInfoMusicByUrl(h.apple_music_url, "apple");
-          if (normalizeIsrc(info?.isrc)) {
-            return { ...info, isrc: normalizeIsrc(info.isrc) };
-          }
         }
       }
     }
