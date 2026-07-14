@@ -22,10 +22,7 @@ const LoadingPageMain = ({ isLoading }) => {
         <img
           src="/apple-touch-icon.png"
           alt="Huy Locket"
-          width={80}
-          height={80}
-          decoding="async"
-          fetchPriority="high"
+          loading="lazy"
           className="w-20 h-20 shadow-md rounded-2xl loading-bounce-y"
         />
       </div>

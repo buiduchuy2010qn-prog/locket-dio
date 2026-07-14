@@ -30,29 +30,14 @@ function detect() {
   // deviceMemory (GB) — Chrome Android
   const memGB = navigator.deviceMemory || 4;
 
-  // Low-end / lite: save-data, RAM thấp, hoặc mobile lõi ít
+  // Low-end: Android + (≤4 cores hoặc ≤2GB RAM) hoặc save-data
   const saveData = navigator.connection?.saveData === true;
-  const slowNet =
-    navigator.connection &&
-    ["slow-2g", "2g", "3g"].includes(navigator.connection.effectiveType);
   const isLowEnd =
     saveData ||
-    slowNet ||
-    memGB <= 2 ||
-    (isAndroid && cores <= 4) ||
-    (isMobile && cores <= 2) ||
-    (isMobile && memGB <= 3 && cores <= 4);
+    (isAndroid && (cores <= 4 || memGB <= 2)) ||
+    (isMobile && cores <= 2);
 
-  return {
-    isAndroid,
-    isIOS,
-    isMobile,
-    isLowEnd,
-    cores,
-    memGB,
-    saveData,
-    slowNet: Boolean(slowNet),
-  };
+  return { isAndroid, isIOS, isMobile, isLowEnd, cores, memGB, saveData };
 }
 
 export function getPerfProfile() {
@@ -67,11 +52,7 @@ export function applyPerfClasses() {
   const root = document.documentElement;
   root.classList.toggle("perf-android", p.isAndroid);
   root.classList.toggle("perf-mobile", p.isMobile);
-  // Android + low-end + slow-net → lite (bớt blur/snow)
-  root.classList.toggle(
-    "perf-lite",
-    p.isLowEnd || p.isAndroid || Boolean(p.slowNet),
-  );
+  root.classList.toggle("perf-lite", p.isLowEnd || p.isAndroid);
 
   // Pause decorative FX when tab hidden
   if (!root.dataset.tabVisBound) {

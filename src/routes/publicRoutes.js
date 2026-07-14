@@ -1,9 +1,9 @@
 import React from "react";
+// const CameraCapture = React.lazy(() => import("../pages/UILocket"));
+import Home from "../pages/Public/Home";
+import Login from "../pages/Public/Login";
 import { CONFIG } from "@/config";
-
-// Home/Login lazy — giảm JS boot trên mobile (vào thẳng /locket khi đã login)
-const Home = React.lazy(() => import("../pages/Public/Home"));
-const Login = React.lazy(() => import("../pages/Public/Login"));
+// import LocketCameraBeta from "@/pages/LocketCameraBeta";
 const LocketUpload = React.lazy(() => import("@/pages/Public/CollabPage/LocketUpload"));
 const LocketCameraBeta = React.lazy(() => import("../pages/LocketCameraBeta"));
 // import CameraCapture from "@/pages/UILocket";

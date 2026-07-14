@@ -89,27 +89,12 @@ const SnowEffect = ({
       el.style.setProperty("--spin", `${spin}deg`);
       el.style.animationDuration = `${duration}s`;
 
-      // Chỉ append nếu layer còn gắn DOM (tránh race unmount → removeChild)
-      if (!alive || !layer.isConnected) return;
-      try {
-        layer.appendChild(el);
-      } catch {
-        return;
-      }
+      layer.appendChild(el);
       countRef.current += 1;
 
       const life = Math.ceil(duration * 1000) + 200;
       window.setTimeout(() => {
-        if (!alive) return;
-        try {
-          if (el.parentNode === layer) {
-            layer.removeChild(el);
-          } else if (el.isConnected) {
-            el.remove();
-          }
-        } catch {
-          /* node đã bị gỡ — bỏ qua */
-        }
+        el.remove();
         countRef.current = Math.max(0, countRef.current - 1);
       }, life);
     };
@@ -142,16 +127,7 @@ const SnowEffect = ({
       alive = false;
       if (timer) window.cancelAnimationFrame(timer);
       if (intervalId) window.clearInterval(intervalId);
-      // Xóa flake an toàn — không innerHTML (dễ đụng race với timeout removeChild)
-      try {
-        if (layer?.isConnected) {
-          while (layer.firstChild) {
-            layer.removeChild(layer.firstChild);
-          }
-        }
-      } catch {
-        /* ignore */
-      }
+      if (layer) layer.innerHTML = "";
       countRef.current = 0;
     };
   }, [spawnEvery, maxFlakes, containerHeight, pinkMode, lite]);

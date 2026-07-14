@@ -89,25 +89,6 @@ export default defineConfig({
     },
   },
   build: {
-    // ES2020: polyfill nhỏ hơn, parse nhanh hơn trên mobile hiện đại
-    target: "es2020",
-    cssCodeSplit: true,
-    cssMinify: true,
-    minify: "esbuild",
-    // Ảnh nhỏ inline; JS lớn tách chunk
-    assetsInlineLimit: 2048,
-    modulePreload: {
-      // Chỉ preload polyfill/module thật sự cần — bớt preload icons nặng
-      polyfill: true,
-      resolveDependencies: (filename, deps) => {
-        // Không modulepreload icons/media lúc entry (sidebar lazy)
-        return deps.filter(
-          (d) =>
-            !/icons-|media-|swiper|react-icons|lucide/i.test(d) &&
-            !/Camera|Crop|Editor|Spotify|Snow/i.test(d),
-        );
-      },
-    },
     rollupOptions: {
       output: {
         manualChunks: {
@@ -127,14 +108,12 @@ export default defineConfig({
             "i18next",
             "react-i18next",
             "i18next-browser-languagedetector",
-            "i18next-resources-to-backend",
           ],
-          // icons/media tách riêng — chỉ tải khi sidebar / editor mở
           icons: ["lucide-react", "react-icons"],
           media: ["swiper", "react-easy-crop"],
         },
       },
     },
-    chunkSizeWarningLimit: 1500,
+    chunkSizeWarningLimit: 1500, // tăng giới hạn warning, đỡ spam console
   },
 });

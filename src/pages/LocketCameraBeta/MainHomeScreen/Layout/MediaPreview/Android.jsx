@@ -71,9 +71,7 @@ const MediaPreviewAndroid = () => {
     currentZoom,
     setCurrentZoom,
     setCurrentLensType,
-    minZoom,
     setMinZoom,
-    maxZoom,
     setMaxZoom,
     setZoomStep,
     availableZoomModes,
@@ -1173,48 +1171,14 @@ const MediaPreviewAndroid = () => {
               </div>
             )}
 
-            {/* Thanh kéo zoom — kéo = zoom liên tục */}
-            {showZoomUi && (
+            {/* Zoom pills: ultra chỉ hiện khi máy hỗ trợ (0.5/0.6/0.7) */}
+            {showZoomUi && (cameraMode || "environment") === "environment" && (
               <ZoomPresets
+                activeMode={activeZoomMode}
                 currentZoom={currentZoom}
-                minZoom={
-                  (cameraMode || "environment") === "user"
-                    ? Math.max(1, minZoom || 1)
-                    : Number(availableZoomModes?.ultraFactor) > 0.2 &&
-                        Number(availableZoomModes?.ultraFactor) < 0.95
-                      ? Math.min(
-                          minZoom || 1,
-                          Number(availableZoomModes.ultraFactor),
-                        )
-                      : availableZoomModes?.["0.5x"]
-                        ? Math.min(minZoom || 1, 0.5)
-                        : minZoom || 1
-                }
-                maxZoom={
-                  maxZoom > 1 ? maxZoom : availableZoomModes?.["2x"] ? 2 : 1
-                }
-                available={
-                  (cameraMode || "environment") === "user"
-                    ? {
-                        "0.5x": false,
-                        "1x": true,
-                        "2x": (maxZoom || 1) >= 1.8,
-                        ultraFactor: null,
-                      }
-                    : availableZoomModes
-                }
+                available={availableZoomModes}
                 disabled={isSwitchingCamera || isPinching}
-                onChange={(z) => {
-                  applyDisplayZoom(z, {
-                    allowLensSwitch: false,
-                  }).catch(() => {});
-                }}
-                onChangeEnd={(z) => {
-                  applyDisplayZoom(z, {
-                    force: true,
-                    allowLensSwitch: true,
-                  }).catch(() => {});
-                }}
+                onSelect={handleSelectZoomMode}
                 visible
               />
             )}
