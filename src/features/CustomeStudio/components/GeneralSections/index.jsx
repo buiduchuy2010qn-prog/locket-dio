@@ -115,20 +115,21 @@ export default function GeneralThemes({ title }) {
       musicData.title ||
       [musicData.song_title || musicData.song_name, musicData.artist]
         .filter(Boolean)
-        .join(" - ");
+        .join(" · ");
 
+    const song_title =
+      musicData.song_title ||
+      musicData.song_name ||
+      musicData.name ||
+      "";
+    const hasSpotify = Boolean(musicData.spotify_url);
+    const hasApple = Boolean(
+      musicData.apple_music_url || musicData.appleMusicUrl,
+    );
     const musicPayload = {
-      ...musicData,
-      song_title:
-        musicData.song_title ||
-        musicData.song_name ||
-        musicData.name ||
-        "",
-      song_name:
-        musicData.song_name ||
-        musicData.song_title ||
-        musicData.name ||
-        "",
+      song_title,
+      song_name: song_title,
+      name: song_title,
       artist: musicData.artist || "",
       isrc: musicData.isrc || null,
       preview_url:
@@ -137,9 +138,18 @@ export default function GeneralThemes({ title }) {
         musicData.audio ||
         null,
       image_url: musicData.image_url || musicData.image || "",
-      platform: musicData.platform || platformHint,
-      spotify_url: musicData.spotify_url || null,
+      platform: hasSpotify
+        ? "spotify"
+        : hasApple
+          ? "apple"
+          : musicData.platform || platformHint,
     };
+    // XOR platform link — Locket hiện badge Spotify hoặc Apple Music
+    if (hasSpotify) musicPayload.spotify_url = musicData.spotify_url;
+    else if (hasApple) {
+      musicPayload.apple_music_url =
+        musicData.apple_music_url || musicData.appleMusicUrl;
+    }
 
     if (!musicPayload.isrc) {
       console.warn(
@@ -329,8 +339,9 @@ export default function GeneralThemes({ title }) {
       const finalSpotify = musicData?.spotify_url || raw.spotify_url || null;
       const apple_music_url =
         musicData?.apple_music_url || raw.apple_music_url || null;
+      // Locket app: "Tên bài · Nghệ sĩ" + Spotify/Apple Music badge
       const caption =
-        [song_title, artist].filter(Boolean).join(" - ") || song_title;
+        [song_title, artist].filter(Boolean).join(" · ") || song_title;
 
       // Clip từ picker (start/end) — preview web ~30s
       const clipStart = Math.max(0, Number(raw.startTime) || 0);
@@ -341,15 +352,22 @@ export default function GeneralThemes({ title }) {
       clipEnd = Math.min(Math.max(clipEnd, clipStart + 1), clipStart + 60);
       const clipDur = clipEnd - clipStart;
 
-      // Locket resolve bằng ISRC; apple/spotify url chỉ để mở app
+      // XOR platform URL — Locket hiện badge theo link (Spotify ưu tiên)
       const platform =
         finalSpotify || !apple_music_url ? "spotify" : "apple";
+      const platformPayload = finalSpotify
+        ? { spotify_url: finalSpotify }
+        : apple_music_url
+          ? { apple_music_url }
+          : {};
 
       applyOverlay({
         overlay_id: "caption:music",
         caption,
         text: caption,
-        icon: { data: image_url, type: "image", source: "url" },
+        icon: image_url
+          ? { data: image_url, type: "image", source: "url" }
+          : {},
         type: "music",
         payload: {
           song_title,
@@ -361,8 +379,7 @@ export default function GeneralThemes({ title }) {
           audio: preview,
           image_url,
           image: image_url,
-          spotify_url: finalSpotify,
-          apple_music_url,
+          ...platformPayload,
           platform,
           startTime: clipStart,
           endTime: clipEnd,

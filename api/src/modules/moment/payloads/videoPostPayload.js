@@ -292,14 +292,13 @@ const videoPostPayloadMusic = ({ videoUrl, thumbnailUrl, optionsData }) => {
   const artist = payload?.artist || "";
   const text =
     (caption || optText || "").trim() ||
-    [songTitle, artist].filter(Boolean).join(" - ") ||
-    songTitle ||
-    "Music";
+    [songTitle, artist].filter(Boolean).join(" · ") ||
+    songTitle;
 
   const isrc = payload?.isrc ? String(payload.isrc).trim() : "";
   if (!isrc) {
     const err = new Error(
-      "Thiếu mã ISRC — không đăng được nhạc. Chọn lại bài từ tìm Spotify/Deezer.",
+      "Thiếu mã ISRC — không đăng được nhạc. Chọn lại bài từ tìm nhạc.",
     );
     err.status = 400;
     throw err;
@@ -307,16 +306,19 @@ const videoPostPayloadMusic = ({ videoUrl, thumbnailUrl, optionsData }) => {
 
   const musicPayload = {
     song_title: songTitle,
-    song_name: songTitle,
     artist,
     isrc,
   };
+  if (songTitle) musicPayload.song_name = songTitle;
 
   const preview =
     payload?.preview_url || payload?.audio || payload?.previewUrl || null;
   if (preview) musicPayload.preview_url = preview;
-  if (payload?.spotify_url) musicPayload.spotify_url = payload.spotify_url;
-  if (payload?.apple_music_url || payload?.appleMusicUrl) {
+
+  // XOR platform — giống image (Locket hiện Spotify hoặc Apple Music)
+  if (payload?.spotify_url) {
+    musicPayload.spotify_url = payload.spotify_url;
+  } else if (payload?.apple_music_url || payload?.appleMusicUrl) {
     musicPayload.apple_music_url =
       payload.apple_music_url || payload.appleMusicUrl;
   }
@@ -328,24 +330,26 @@ const videoPostPayloadMusic = ({ videoUrl, thumbnailUrl, optionsData }) => {
     payload?.image ||
     payload?.thumbnail_url ||
     "";
-  musicIcon = cover
-    ? { type: "image", data: cover, source: musicIcon?.source || "url" }
-    : {
-        type: "image",
-        data: "https://cdn.locket-dio.com/v1/caption/caption-icon/spotify_music.png",
-        source: "url",
-      };
+  if (cover) {
+    musicIcon = {
+      type: "image",
+      data: cover,
+      source: musicIcon?.source || "url",
+    };
+  } else if (musicIcon?.data && !musicIcon.type) {
+    musicIcon = {
+      type: "image",
+      data: musicIcon.data,
+      source: musicIcon.source || "url",
+    };
+  }
 
-  data.caption = text;
   data.overlays.push({
     data: {
       text,
       text_color: "#FFFFFFE6",
       type: "music",
-      max_lines: {
-        "@type": "type.googleapis.com/google.protobuf.Int64Value",
-        value: "1",
-      },
+      max_lines: 1,
       payload: musicPayload,
       icon: musicIcon,
       background: {

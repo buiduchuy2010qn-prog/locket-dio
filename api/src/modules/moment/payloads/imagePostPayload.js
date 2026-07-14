@@ -267,9 +267,9 @@ const imagePostPayloadReview = ({ imageUrl, optionsData }) => {
   return { data };
 };
 
-// Đăng ảnh Music — Locket app thật cần isrc + song_title + artist + link platform
+// Đăng ảnh Music — Locket app thật cần isrc + song_title + artist + 1 link platform
+// (Format giống bản đã chạy ổn: max_lines number, XOR spotify|apple)
 const imagePostPayloadMusic = ({ imageUrl, optionsData }) => {
-  // Client gửi music trong payload; một số bản legacy dùng optionsData.music
   const payload = optionsData?.payload || optionsData?.music || {};
   const { caption, icon, text: optText } = optionsData || {};
   const data = createBaseImagePayload({ imageUrl, optionsData });
@@ -281,16 +281,16 @@ const imagePostPayloadMusic = ({ imageUrl, optionsData }) => {
     payload?.title ||
     "";
   const artist = payload?.artist || "";
+  // Locket hiển thị pill: "Tên bài · Nghệ sĩ" — text chỉ cần tên (hoặc full)
   const text =
     (caption || optText || "").trim() ||
-    [songTitle, artist].filter(Boolean).join(" - ") ||
-    songTitle ||
-    "Music";
+    [songTitle, artist].filter(Boolean).join(" · ") ||
+    songTitle;
 
   const isrc = payload?.isrc ? String(payload.isrc).trim() : "";
   if (!isrc) {
     const err = new Error(
-      "Thiếu mã ISRC — không đăng được nhạc. Chọn lại bài từ tìm Spotify/Deezer.",
+      "Thiếu mã ISRC — không đăng được nhạc. Chọn lại bài từ tìm nhạc.",
     );
     err.status = 400;
     throw err;
@@ -298,28 +298,24 @@ const imagePostPayloadMusic = ({ imageUrl, optionsData }) => {
 
   const musicPayload = {
     song_title: songTitle,
-    song_name: songTitle,
     artist,
     isrc,
   };
+  if (songTitle) musicPayload.song_name = songTitle;
 
-  // Preview — Locket + web phát thử
   const preview =
     payload?.preview_url || payload?.audio || payload?.previewUrl || null;
-  if (preview) {
-    musicPayload.preview_url = preview;
-  }
+  if (preview) musicPayload.preview_url = preview;
 
-  // Link platform — Locket dùng để mở / map track (gửi cả hai nếu có)
+  // Chỉ 1 platform — Locket app hiện Spotify HOẶC Apple Music (như screenshot)
+  // Ưu tiên Spotify; không có thì Apple (vẫn hiện pill nhạc đúng)
   if (payload?.spotify_url) {
     musicPayload.spotify_url = payload.spotify_url;
-  }
-  if (payload?.apple_music_url || payload?.appleMusicUrl) {
+  } else if (payload?.apple_music_url || payload?.appleMusicUrl) {
     musicPayload.apple_music_url =
       payload.apple_music_url || payload.appleMusicUrl;
   }
 
-  // Icon cover album — bắt buộc có data để Locket/web hiện pill
   let musicIcon = icon && typeof icon === "object" ? { ...icon } : null;
   const cover =
     musicIcon?.data ||
@@ -333,26 +329,20 @@ const imagePostPayloadMusic = ({ imageUrl, optionsData }) => {
       data: cover,
       source: musicIcon?.source || "url",
     };
-  } else {
+  } else if (musicIcon?.data && !musicIcon.type) {
     musicIcon = {
       type: "image",
-      data: "https://cdn.locket-dio.com/v1/caption/caption-icon/spotify_music.png",
-      source: "url",
+      data: musicIcon.data,
+      source: musicIcon.source || "url",
     };
   }
-
-  // Caption top-level (một số client Locket đọc)
-  data.caption = text;
 
   data.overlays.push({
     data: {
       text,
       text_color: "#FFFFFFE6",
       type: "music",
-      max_lines: {
-        "@type": "type.googleapis.com/google.protobuf.Int64Value",
-        value: "1",
-      },
+      max_lines: 1,
       payload: musicPayload,
       icon: musicIcon,
       background: { material_blur: "ultra_thin", colors: [] },
