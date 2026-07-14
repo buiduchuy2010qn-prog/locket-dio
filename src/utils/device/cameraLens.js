@@ -31,23 +31,107 @@ const ULTRA_RE =
 const TELE_RE =
   /chụp\s*xa|telephoto|\btele\b|periscope|\b2x\b|\b3x\b|\b5x\b|\b10x\b|camera2\s*[3-9]|cam[_\s-]*3|lens[_\s-]*3/;
 
-/** Samsung (S25 FE, …) ultra-wide thường là 0.6x, không phải 0.5x */
-function isSamsungDevice() {
+/**
+ * Guess ultra factor theo hãng — CHỈ khi browser không expose minZoom < 1.
+ * Thị trường:
+ * - iPhone ≈ 0.5x
+ * - Samsung Galaxy ≈ 0.6x (S/FE/A nhiều đời)
+ * - Pixel ≈ 0.5–0.6 (ưu tiên caps)
+ * - Xiaomi / Oppo / Vivo / OnePlus ≈ 0.6x phổ biến
+ */
+function getUserAgent() {
   try {
-    return /samsung|sm-|galaxy/i.test(navigator.userAgent || "");
+    return String(navigator.userAgent || navigator.vendor || "");
   } catch {
-    return false;
+    return "";
   }
 }
 
-function defaultUltraFactor() {
-  return isSamsungDevice() ? 0.6 : 0.5;
+export function isSamsungDevice() {
+  return /samsung|sm-|galaxy/i.test(getUserAgent());
 }
 
-function roundZoomFactor(z) {
+export function defaultUltraFactor() {
+  const ua = getUserAgent();
+  if (/iphone|ipad|ipod/i.test(ua)) return 0.5;
+  if (/samsung|sm-|galaxy/i.test(ua)) return 0.6;
+  if (/pixel/i.test(ua)) return 0.5;
+  if (/xiaomi|redmi|poco|\bmi\b|blackshark/i.test(ua)) return 0.6;
+  if (/oppo|realme|oneplus|oplus|reno/i.test(ua)) return 0.6;
+  if (/vivo|iqoo/i.test(ua)) return 0.6;
+  if (/huawei|honor|harmony/i.test(ua)) return 0.5;
+  if (/motorola|moto\s/i.test(ua)) return 0.5;
+  if (/sony|xperia/i.test(ua)) return 0.5;
+  if (/nokia|nothing|asus|zenfone|lg\b/i.test(ua)) return 0.5;
+  // Android generic multi-cam: nhiều hãng 0.6
+  if (/android/i.test(ua)) return 0.6;
+  return 0.5;
+}
+
+/** Làm tròn 1 chữ số (0.5 / 0.6 / 0.7…) */
+export function roundZoomFactor(z) {
   const n = Number(z);
   if (!Number.isFinite(n)) return defaultUltraFactor();
+  // Snap gần các mốc phổ biến
+  const snaps = [0.5, 0.6, 0.7, 0.8];
+  for (const s of snaps) {
+    if (Math.abs(n - s) < 0.06) return s;
+  }
   return Math.round(n * 10) / 10;
+}
+
+/**
+ * Factor ultra thật sự của máy — ưu tiên capabilities > zoom đã apply > guess hãng.
+ * @param {MediaStream|null} stream
+ * @param {object|null} detected
+ * @param {number|null} appliedZoom — zoom vừa set thành công (nếu có)
+ */
+export function resolveUltraWideFactor(
+  stream = null,
+  detected = null,
+  appliedZoom = null,
+) {
+  // 1) Zoom vừa apply trong dải ultra
+  const applied = Number(appliedZoom);
+  if (Number.isFinite(applied) && applied > 0.2 && applied < 0.95) {
+    return roundZoomFactor(applied);
+  }
+
+  // 2) Track settings.zoom hiện tại
+  if (stream) {
+    try {
+      const settingsZ = getCurrentTrackSettings(stream)?.zoom;
+      if (
+        typeof settingsZ === "number" &&
+        settingsZ > 0.2 &&
+        settingsZ < 0.95
+      ) {
+        return roundZoomFactor(settingsZ);
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  // 3) Capabilities minZoom (logical multi-cam iOS/Samsung/Pixel)
+  const range = stream ? readZoomRange(stream) : { supported: false };
+  if (range.supported && range.minZoom > 0.15 && range.minZoom < 0.95) {
+    return roundZoomFactor(range.minZoom);
+  }
+
+  // 4) Có lens ultra vật lý / multi-rear → guess theo hãng
+  const hasPhysical =
+    Boolean(detected?.ultrawide?.deviceId) ||
+    listUltraWideCandidates(
+      detected?.rear || [],
+      detected?.main || null,
+      detected?.telephoto || null,
+    ).length > 0 ||
+    (detected?.rear?.length || 0) >= 2;
+
+  if (hasPhysical) return defaultUltraFactor();
+
+  return null;
 }
 
 const MAIN_HINT_RE =
@@ -719,44 +803,32 @@ export function updateZoomBadge(value) {
 }
 
 /**
- * Hệ số góc siêu rộng thực tế của máy: 0.5 / 0.6 / 0.7…
- * null = máy không hỗ trợ (không bật nút).
- * Samsung (S25 FE, …) = 0.6 khi có ultra vật lý / digital min.
+ * Hệ số góc siêu rộng thực tế: 0.5 / 0.6 / 0.7… theo máy.
+ * null = không hỗ trợ ultra.
  */
 export function getUltraWideFactor(stream, detected = null) {
-  const range = readZoomRange(stream);
-  const hasPhysical =
-    Boolean(detected?.ultrawide?.deviceId) ||
-    listUltraWideCandidates(
-      detected?.rear || [],
-      detected?.main || null,
-      detected?.telephoto || null,
-    ).length > 0;
-
-  // Digital zoom min (iOS / Samsung logical multi-cam) — tin capabilities
-  if (range.supported && range.minZoom > 0.15 && range.minZoom < 0.95) {
-    return roundZoomFactor(range.minZoom); // 0.5, 0.6, 0.7…
-  }
-
-  // Có lens ultra vật lý nhưng track hiện tại min=1 → factor theo hãng
-  // Samsung S25 FE ultra = 0.6x; iPhone / khác ≈ 0.5x
-  if (hasPhysical) return defaultUltraFactor();
-
-  return null;
+  return resolveUltraWideFactor(stream, detected, null);
 }
 
+/**
+ * Nhãn nút zoom — ultra hiện đúng 0.5 / 0.6 / 0.7 theo máy (không hardcode 0.5).
+ */
 export function formatZoomModeLabel(mode, ultraFactor = null) {
-  if (mode === "0.5x" || mode === "0.6x" || mode === "wide") {
+  if (
+    mode === "0.5x" ||
+    mode === "0.6x" ||
+    mode === "0.7x" ||
+    mode === "wide"
+  ) {
     const f = Number(ultraFactor);
     if (Number.isFinite(f) && f > 0.2 && f < 0.95) {
-      return String(Number(f.toFixed(1)));
+      return String(roundZoomFactor(f));
     }
-    // Samsung → 0.6; khác → 0.5
     return String(defaultUltraFactor());
   }
-  if (mode === "1x") return "1x";
-  if (mode === "2x") return "2x";
-  if (mode === "3x") return "3x";
+  if (mode === "1x") return "1";
+  if (mode === "2x") return "2";
+  if (mode === "3x") return "3";
   if (mode === "max") return "Max";
   return String(mode);
 }
@@ -870,7 +942,7 @@ export function removeCaptionZoomControls(root = document) {
 export function computeAvailableZoomModes(detected, stream) {
   const range = readZoomRange(stream);
   const multiRear = (detected?.rear?.length || 0) >= 2;
-  const ultraFactor = getUltraWideFactor(stream, detected);
+  const ultraFactor = resolveUltraWideFactor(stream, detected, null);
   const ultraCandidates = listUltraWideCandidates(
     detected?.rear || [],
     detected?.main || null,
@@ -879,32 +951,35 @@ export function computeAvailableZoomModes(detected, stream) {
   const hasUltraLens =
     Boolean(detected?.ultrawide?.deviceId) || ultraCandidates.length > 0;
 
-  // Bật góc siêu rộng khi: có lens riêng, multi-cam rear, hoặc digital min < 1
-  // Multi rear (>=2) = gần như luôn có ultra vật lý (kể cả label trống)
+  // Bật góc siêu rộng khi: lens riêng | multi-cam | digital min < 1
   const canWide =
     hasUltraLens ||
     multiRear ||
     (range.supported && range.minZoom > 0.15 && range.minZoom < 0.95);
 
+  // Factor nút: caps thật → guess hãng (0.5 iPhone / 0.6 Samsung / …)
+  const displayUltra = canWide
+    ? ultraFactor || defaultUltraFactor()
+    : null;
+
   const modes = {
+    // Key nội bộ luôn "0.5x"; UI hiện ultraFactor (0.5 / 0.6 / 0.7)
     "0.5x": canWide,
     "1x": true,
     "2x": false,
     "3x": false,
-    // factor hiển thị: 0.5 / 0.6 / 0.7 theo máy
-    ultraFactor: canWide ? ultraFactor || defaultUltraFactor() : null,
+    ultraFactor: displayUltra,
   };
 
+  // 2x / 3x — theo tele hoặc max digital zoom của máy
   if (detected?.telephoto?.deviceId) {
     modes["2x"] = true;
-    // Tele riêng thường ≥2–3x
     modes["3x"] = true;
   }
   if (range.supported && range.maxZoom >= 1.8) modes["2x"] = true;
   else if (range.supported && range.maxZoom > range.minZoom + 0.2) {
     modes["2x"] = true;
   }
-  // Digital 3x khi track cho phép
   if (range.supported && range.maxZoom >= 2.7) modes["3x"] = true;
 
   return modes;
@@ -1290,7 +1365,7 @@ async function tryDigitalUltraWide(stream, detected, mainId) {
   if (!supportsHardwareZoom(stream)) return null;
 
   const range = readZoomRange(stream);
-  // Samsung S25 FE / multi-cam: minZoom ≈ 0.6
+  // minZoom thật của máy: 0.5 / 0.6 / 0.7… (không ép 0.5)
   if (!(range.minZoom > 0.15 && range.minZoom < 0.99)) return null;
 
   const z = range.minZoom;
@@ -1298,18 +1373,18 @@ async function tryDigitalUltraWide(stream, detected, mainId) {
     clearTrackZoomCache(stream);
     const applied = await applyCameraZoom(stream, z);
     if (applied === false) return null;
-    // Chấp nhận nếu settings gần min (Samsung đôi khi lệch step)
     const settingsZ = getCurrentTrackSettings(stream)?.zoom;
     const ok =
       typeof settingsZ !== "number" ||
       settingsZ <= z + 0.15 ||
       Math.abs(settingsZ - z) < 0.2;
     if (!ok && typeof settingsZ === "number" && settingsZ >= 0.95) {
-      // Vẫn kẹt ~1x → coi fail
       return null;
     }
-    const factor = roundZoomFactor(
-      typeof settingsZ === "number" && settingsZ < 0.95 ? settingsZ : z,
+    const factor = resolveUltraWideFactor(
+      stream,
+      detected,
+      typeof settingsZ === "number" && settingsZ < 0.95 ? settingsZ : applied || z,
     );
     return {
       stream,
@@ -1317,9 +1392,9 @@ async function tryDigitalUltraWide(stream, detected, mainId) {
       deviceId: getCurrentTrackSettings(stream).deviceId || mainId,
       lensType: "main",
       zoomMode: "0.5x",
-      currentZoom: factor,
+      currentZoom: factor || roundZoomFactor(z),
       digitalZoom: applied || z,
-      ultraFactor: factor,
+      ultraFactor: factor || roundZoomFactor(z),
       switchedDevice: false,
     };
   } catch {
@@ -1383,8 +1458,6 @@ export async function switchToUltraWide05(options = {}) {
             stopCurrentCamera(oldStream, videoEl);
           }
           lastOpened = stream2;
-          const factor2 =
-            getUltraWideFactor(stream2, detected) || defaultUltraFactor();
           if (supportsHardwareZoom(stream2)) {
             try {
               const range = readZoomRange(stream2);
@@ -1397,6 +1470,9 @@ export async function switchToUltraWide05(options = {}) {
               /* ignore */
             }
           }
+          const factor2 =
+            resolveUltraWideFactor(stream2, detected, null) ||
+            defaultUltraFactor();
           return {
             stream: stream2,
             detected,
@@ -1435,9 +1511,10 @@ export async function switchToUltraWide05(options = {}) {
         }
       }
 
-      // Factor hiển thị: digital min nếu có, không thì 0.6 Samsung / 0.5 khác
+      // Factor = caps/settings thật hoặc guess hãng (0.5 / 0.6 / 0.7)
       const factor =
-        getUltraWideFactor(stream, detected) || defaultUltraFactor();
+        resolveUltraWideFactor(stream, detected, null) ||
+        defaultUltraFactor();
       return {
         stream,
         detected,
@@ -1482,28 +1559,32 @@ export async function switchToUltraWide05(options = {}) {
   const digitalRetry = await tryDigitalUltraWide(stream, detected, mainId);
   if (digitalRetry) return digitalRetry;
 
-  // 4) Thử ép zoom = defaultUltra (0.6 Samsung) dù capabilities lệch
+  // 4) Ép zoom = min(factor hãng, max) trong dải track — phù hợp từng máy
   if (stream && supportsHardwareZoom(stream)) {
     const range = readZoomRange(stream);
+    const guess = defaultUltraFactor();
     const target = Math.max(
       range.minZoom,
-      Math.min(defaultUltraFactor(), range.maxZoom),
+      Math.min(
+        range.minZoom < 0.95 ? range.minZoom : guess,
+        range.maxZoom,
+      ),
     );
     if (target < 0.95) {
       try {
         clearTrackZoomCache(stream);
         const applied = await applyCameraZoom(stream, target);
         if (applied !== false && Number(applied) < 0.95) {
-          const factor = roundZoomFactor(applied);
+          const factor = resolveUltraWideFactor(stream, detected, applied);
           return {
             stream,
             detected,
             deviceId: getCurrentTrackSettings(stream).deviceId || mainId,
             lensType: "main",
             zoomMode: "0.5x",
-            currentZoom: factor,
+            currentZoom: factor || roundZoomFactor(applied),
             digitalZoom: applied,
-            ultraFactor: factor,
+            ultraFactor: factor || roundZoomFactor(applied),
             switchedDevice: false,
           };
         }

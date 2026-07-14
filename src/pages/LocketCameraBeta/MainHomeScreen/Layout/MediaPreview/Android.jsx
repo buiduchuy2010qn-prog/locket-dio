@@ -192,10 +192,11 @@ const MediaPreviewAndroid = () => {
       // Multi-lens rear → luôn bật 0.5x (ép thử ultra / digital)
       if ((shape.rear?.length || 0) >= 2 || shape.ultrawide?.deviceId) {
         modes["0.5x"] = true;
-        if (!modes.ultraFactor) {
-          modes.ultraFactor =
-            getUltraWideFactor(stream, shape) || 0.6;
-        }
+        // Factor theo máy: 0.5 iPhone / 0.6 Samsung / caps thật
+        modes.ultraFactor =
+          modes.ultraFactor ||
+          getUltraWideFactor(stream, shape) ||
+          null;
       }
       setAvailableZoomModes(modes);
 
@@ -518,14 +519,19 @@ const MediaPreviewAndroid = () => {
         const factor =
           result.currentZoom ??
           result.ultraFactor ??
-          getUltraWideFactor(result.stream, detShape) ??
-          0.6;
+          getUltraWideFactor(result.stream, detShape);
         setZoomLevel("0.5x");
         lastZoomLevel.current = "0.5x";
         setActiveZoomMode("0.5x");
-        currentZoomValue.current = factor;
-        setCurrentZoom(factor);
+        currentZoomValue.current = factor ?? 1;
+        setCurrentZoom(factor ?? 1);
         setCurrentLensType(result.lensType || "ultrawide");
+        // Cập nhật nhãn nút (0.5 / 0.6 / 0.7) theo máy vừa detect
+        setAvailableZoomModes((prev) => ({
+          ...(prev || {}),
+          "0.5x": true,
+          ultraFactor: factor || prev?.ultraFactor || null,
+        }));
         attachStreamToVideo(result.stream, "environment");
         syncZoomStateFromStream(
           result.stream,

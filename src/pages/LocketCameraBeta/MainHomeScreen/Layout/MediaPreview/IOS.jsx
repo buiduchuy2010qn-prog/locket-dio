@@ -186,9 +186,10 @@ const MediaPreviewIOS = () => {
       // Multi-lens / digital min → bật góc siêu rộng
       if ((shape.rear?.length || 0) >= 2 || shape.ultrawide?.deviceId) {
         modes["0.5x"] = true;
-        if (!modes.ultraFactor) {
-          modes.ultraFactor = getUltraWideFactor(stream, shape) || 0.5;
-        }
+        modes.ultraFactor =
+          modes.ultraFactor ||
+          getUltraWideFactor(stream, shape) ||
+          null;
       }
       setAvailableZoomModes(modes);
 
@@ -496,14 +497,18 @@ const MediaPreviewIOS = () => {
         const factor =
           result.currentZoom ??
           result.ultraFactor ??
-          getUltraWideFactor(result.stream, detShape) ??
-          0.5;
+          getUltraWideFactor(result.stream, detShape);
         setZoomLevel("0.5x");
         lastZoomLevel.current = "0.5x";
         setActiveZoomMode("0.5x");
-        currentZoomValue.current = factor;
-        setCurrentZoom(factor);
+        currentZoomValue.current = factor ?? 1;
+        setCurrentZoom(factor ?? 1);
         setCurrentLensType(result.lensType || "ultrawide");
+        setAvailableZoomModes((prev) => ({
+          ...(prev || {}),
+          "0.5x": true,
+          ultraFactor: factor || prev?.ultraFactor || null,
+        }));
         attachStreamToVideo(result.stream, "environment");
         syncZoomStateFromStream(
           result.stream,
