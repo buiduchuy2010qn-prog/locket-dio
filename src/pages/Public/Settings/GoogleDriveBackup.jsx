@@ -81,6 +81,12 @@ export default function GoogleDriveBackup() {
 
   const configured = Boolean(status?.configured);
   const enabled = status?.enabled !== false && configured;
+  const neonOn = Boolean(status?.neon);
+  const callbackUrl =
+    status?.oauthCallbackUrl ||
+    (typeof window !== "undefined"
+      ? `${window.location.origin}/api/drive-oauth-callback`
+      : "https://huy-locket-production.up.railway.app/api/drive-oauth-callback");
   const adminHeaders = {
     "Content-Type": "application/json",
     "X-Local-Id": localId || "",
@@ -175,8 +181,19 @@ export default function GoogleDriveBackup() {
       {enabled && (
         <div className="alert alert-success text-xs py-2">
           <span>
-            Đã bật. Chụp ảnh/video → tự backup. Deploy web không mất cấu hình
-            (Neon).
+            Đã bật. Chụp ảnh/video → tự backup. Cấu hình lưu Neon / env (không
+            commit secret).
+          </span>
+        </div>
+      )}
+
+      {!enabled && !neonOn && (
+        <div className="alert alert-warning text-xs py-2">
+          <span>
+            <strong>Neon chưa kết nối</strong> — Railway service <em>web</em>{" "}
+            cần biến <code className="bg-base-300 px-1">DATABASE_URL</code>{" "}
+            (Neon project <em>huy-locket-drive</em>). Token OAuth cũ vẫn nằm
+            trong Neon; set env + redeploy là bật lại, không mất folder.
           </span>
         </div>
       )}
@@ -195,16 +212,22 @@ export default function GoogleDriveBackup() {
 
       {!enabled && (
         <div className="rounded-xl bg-base-200 p-3 space-y-3 text-xs">
-          <p className="font-semibold">Bật auto backup (1 lần duy nhất)</p>
+          <p className="font-semibold">Bật auto backup (an toàn — 1 lần)</p>
           <ol className="list-decimal pl-4 space-y-1 opacity-80">
             <li>
-              Google Cloud → Credentials → OAuth client (Web) + redirect:{" "}
-              <code className="bg-base-300 px-1 break-all">
-                https://huy-locket.onrender.com/api/drive-oauth-callback
-              </code>
+              Railway → service web → Variables → thêm{" "}
+              <code className="bg-base-300 px-1">DATABASE_URL</code> từ Neon
+              Console (Connection string, SSL). Redeploy.
             </li>
-            <li>Dán Client ID + Secret bên dưới</li>
-            <li>Bấm nút → Cho phép Google</li>
+            <li>
+              Google Cloud → OAuth client (Web) → Authorized redirect URI:{" "}
+              <code className="bg-base-300 px-1 break-all">{callbackUrl}</code>
+            </li>
+            <li>
+              Dán Client ID + Secret bên dưới (lấy từ Google Cloud —{" "}
+              <strong>không</strong> commit lên Git)
+            </li>
+            <li>Bấm nút → Cho phép Google 1 lần</li>
           </ol>
           <label className="form-control w-full">
             <span className="label-text text-xs mb-1">OAuth Client ID</span>

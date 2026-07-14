@@ -5,6 +5,8 @@
 #   Dockerfile: Dockerfile
 #   Variables BẮT BUỘC:
 #     LOCKET_API_UPSTREAM=https://huy-locket-api-production.up.railway.app
+#     DATABASE_URL=<Neon pooled connection string — Drive OAuth bền, KHÔNG commit>
+#     COOKIE_SECRET=<chuỗi dài cố định>
 #
 # Service huy-locket-api:
 #   Root Directory: api

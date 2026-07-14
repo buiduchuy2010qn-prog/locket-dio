@@ -983,6 +983,8 @@ async function handleDriveStatus(req, res) {
           ? "file"
           : "none";
 
+  const oauthCallbackUrl = `${publicBaseUrl(req)}/api/drive-oauth-callback`;
+
   return corsJson(req, res, 200, {
     configured: ready,
     enabled: ready,
@@ -1000,12 +1002,16 @@ async function handleDriveStatus(req, res) {
     hasOauthClient: Boolean(oauth?.clientId && oauth?.clientSecret),
     hasRefreshToken: Boolean(oauth?.refreshToken),
     neon: neonReady,
+    needsDatabaseUrl: !neonReady && !process.env.DATABASE_URL && !process.env.NEON_DATABASE_URL,
+    oauthCallbackUrl,
     source,
     warning,
     message: ready
       ? "Auto backup Drive ON — ảnh→Ảnh, video→Video (lưu bền Neon/env)"
-      : warning ||
-        "Bật 1 lần OAuth — cấu hình lưu Neon nên không mất khi deploy.",
+      : !neonReady
+        ? "Chưa có DATABASE_URL trên Railway (web) — Neon vẫn giữ OAuth cũ. Set env + redeploy để bật lại."
+        : warning ||
+          "Bật 1 lần OAuth — cấu hình lưu Neon nên không mất khi deploy.",
   });
 }
 
