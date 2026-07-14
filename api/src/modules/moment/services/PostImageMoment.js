@@ -39,7 +39,7 @@ const postImageToLocketV2 = async ({
     }
     logInfo(
       "postImageToLocketV2",
-      `Music OK isrc=${p.isrc} title=${p.song_title || p.song_name || ""} platform=${p.spotify_url ? "spotify" : "apple"}`,
+      `Music OK isrc=${p.isrc} title=${p.song_title || p.song_name || ""} platform=${p.spotify_url ? "spotify" : "apple"} url=${(p.spotify_url || p.apple_music_url || "").slice(0, 80)} cover=${(optionsData.icon?.data || p.image_url || "").slice(0, 50)}`,
     );
   }
   const { type } = optionsData;

@@ -293,7 +293,8 @@ const videoPostPayloadMusic = ({ videoUrl, thumbnailUrl, optionsData }) => {
   const text =
     (caption || optText || "").trim() ||
     [songTitle, artist].filter(Boolean).join(" · ") ||
-    songTitle;
+    songTitle ||
+    "Music";
 
   const isrcRaw = payload?.isrc
     ? String(payload.isrc).trim().toUpperCase().replace(/[^A-Z0-9]/g, "")
@@ -310,9 +311,26 @@ const videoPostPayloadMusic = ({ videoUrl, thumbnailUrl, optionsData }) => {
     throw err;
   }
 
-  const spotify_url = payload?.spotify_url || null;
-  const apple_music_url =
+  let spotify_url = payload?.spotify_url || null;
+  if (spotify_url) {
+    const m = String(spotify_url).match(
+      /(?:open\.spotify\.com\/(?:intl-[a-z]{2}\/)?(?:embed\/)?track\/|spotify:track:)([a-zA-Z0-9]{10,})/i,
+    );
+    if (m) spotify_url = `https://open.spotify.com/track/${m[1]}`;
+  }
+
+  let apple_music_url =
     payload?.apple_music_url || payload?.appleMusicUrl || null;
+  if (apple_music_url) {
+    try {
+      const u = new URL(String(apple_music_url));
+      const trackId = u.searchParams.get("i");
+      apple_music_url = `https://music.apple.com${u.pathname}${trackId ? `?i=${trackId}` : ""}`;
+    } catch {
+      /* keep */
+    }
+  }
+
   if (!spotify_url && !apple_music_url) {
     const err = new Error(
       "Thiếu link Apple Music / Spotify — app Locket sẽ không hiện nhạc.",
@@ -322,15 +340,16 @@ const videoPostPayloadMusic = ({ videoUrl, thumbnailUrl, optionsData }) => {
   }
 
   const musicPayload = {
+    isrc,
     song_title: songTitle,
     artist,
-    isrc,
   };
-  if (songTitle) musicPayload.song_name = songTitle;
 
   const preview =
     payload?.preview_url || payload?.audio || payload?.previewUrl || null;
-  if (preview) musicPayload.preview_url = preview;
+  if (preview && !/dzcdn\.net|hdnea=/i.test(preview)) {
+    musicPayload.preview_url = preview;
+  }
   if (spotify_url) musicPayload.spotify_url = spotify_url;
   else musicPayload.apple_music_url = apple_music_url;
 
@@ -340,22 +359,23 @@ const videoPostPayloadMusic = ({ videoUrl, thumbnailUrl, optionsData }) => {
     payload?.image ||
     payload?.thumbnail_url ||
     "";
-  if (!cover) {
-    const err = new Error(
-      "Thiếu ảnh bìa album — chọn lại bài có cover rồi đăng.",
-    );
-    err.status = 400;
-    throw err;
-  }
-  const musicIcon = {
-    type: "image",
-    data: cover,
-    source: (icon && icon.source) || "url",
-  };
+  const musicIcon = cover
+    ? {
+        type: "image",
+        data: cover,
+        source: (icon && icon.source) || "url",
+      }
+    : {
+        type: "image",
+        data: "https://cdn.locket-dio.com/v1/caption/caption-icon/spotify_music.png",
+        source: "url",
+      };
+
+  data.caption = text;
 
   data.overlays.push({
     data: {
-      text: songTitle || text,
+      text,
       text_color: "#FFFFFFE6",
       type: "music",
       max_lines: 1,
@@ -366,7 +386,7 @@ const videoPostPayloadMusic = ({ videoUrl, thumbnailUrl, optionsData }) => {
         colors: [],
       },
     },
-    alt_text: [songTitle, artist].filter(Boolean).join(" · ") || text,
+    alt_text: text,
     overlay_id: "caption:music",
     overlay_type: "caption",
   });

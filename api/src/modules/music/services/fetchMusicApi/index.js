@@ -261,61 +261,108 @@ async function enrichFromDeezer(deezerId, songName, artist) {
   }
 }
 
-/** iTunes — preview .m4a ổn định (web play được) */
+/**
+ * Chuẩn hoá Apple Music URL cho Locket app.
+ * Bỏ query rác (uo, ls, at, ct…) — chỉ giữ path + ?i=trackId.
+ * geo.music.apple.com → music.apple.com
+ */
+function normalizeAppleMusicUrl(url = "") {
+  const s = String(url || "").trim();
+  if (!s) return null;
+  try {
+    const u = new URL(s);
+    const host = u.hostname.replace(/^geo\./i, "").toLowerCase();
+    if (!/^(music|itunes)\.apple\.com$/i.test(host)) return s.split("?")[0] || s;
+    const trackId = u.searchParams.get("i");
+    // pathname: /vn/album/name/albumId
+    let path = u.pathname || "";
+    if (!path.startsWith("/")) path = `/${path}`;
+    let out = `https://music.apple.com${path}`;
+    if (trackId) out += `?i=${trackId}`;
+    return out;
+  } catch {
+    return s.replace(/[?&]uo=\d+/gi, "").replace(/[?&]ls=1/gi, "") || s;
+  }
+}
+
+function isStablePreviewUrl(url = "") {
+  const u = String(url || "");
+  if (!u) return false;
+  // iTunes / Apple CDN preview — ổn định
+  if (/audio-ssl\.itunes\.apple\.com|mzstatic\.com.*AudioPreview/i.test(u)) {
+    return true;
+  }
+  // Deezer signed / Spotify short preview — hết hạn hoặc chặn
+  if (/dzcdn\.net|hdnea=|p\.scdn\.co/i.test(u)) return false;
+  return true;
+}
+
+function isStableCoverUrl(url = "") {
+  const u = String(url || "");
+  if (!u) return false;
+  if (/mzstatic\.com|scdn\.co|i\.scdn\.co/i.test(u)) return true;
+  if (/dzcdn\.net/i.test(u)) return false;
+  return true;
+}
+
+/** iTunes — preview .m4a ổn định; ưu tiên VN (nhạc Việt) rồi US */
 async function enrichFromItunes(songName, artist) {
   if (!songName) return null;
-  try {
-    const term = [songName, artist].filter(Boolean).join(" ");
-    const r = await http.get("https://itunes.apple.com/search", {
-      params: {
-        term,
-        entity: "song",
-        limit: 5,
-        country: "US",
-      },
-      timeout: 12000,
-    });
-    const hits = r.data?.results || [];
-    if (!hits.length) return null;
+  const term = [songName, artist].filter(Boolean).join(" ");
+  const nameL = songName.toLowerCase();
+  const artistL = (artist || "").toLowerCase();
 
-    const nameL = songName.toLowerCase();
-    const artistL = (artist || "").toLowerCase();
-    const best =
-      hits.find(
-        (t) =>
-          t.trackName?.toLowerCase() === nameL ||
-          (t.trackName?.toLowerCase().includes(nameL.slice(0, 10)) &&
-            (!artistL || t.artistName?.toLowerCase().includes(artistL.slice(0, 8)))),
-      ) || hits[0];
+  for (const country of ["vn", "us"]) {
+    try {
+      const r = await http.get("https://itunes.apple.com/search", {
+        params: {
+          term,
+          entity: "song",
+          limit: 8,
+          country,
+        },
+        timeout: 12000,
+      });
+      const hits = r.data?.results || [];
+      if (!hits.length) continue;
 
-    // lookup for isrc
-    let isrc = best.isrc || null;
-    if (best.trackId) {
-      try {
-        const lk = await http.get("https://itunes.apple.com/lookup", {
-          params: { id: best.trackId, country: "US" },
-          timeout: 8000,
-        });
-        isrc = lk.data?.results?.[0]?.isrc || isrc;
-      } catch {
-        /* optional */
+      const best =
+        hits.find(
+          (t) =>
+            t.trackName?.toLowerCase() === nameL ||
+            (t.trackName?.toLowerCase().includes(nameL.slice(0, 10)) &&
+              (!artistL ||
+                t.artistName?.toLowerCase().includes(artistL.slice(0, 8)))),
+        ) || hits[0];
+
+      let isrc = best.isrc || null;
+      if (best.trackId) {
+        try {
+          const lk = await http.get("https://itunes.apple.com/lookup", {
+            params: { id: best.trackId, country },
+            timeout: 8000,
+          });
+          isrc = lk.data?.results?.[0]?.isrc || isrc;
+        } catch {
+          /* optional */
+        }
       }
-    }
 
-    return {
-      song_name: best.trackName || songName,
-      artist: best.artistName || artist,
-      album: best.collectionName || "",
-      image_url: (best.artworkUrl100 || "").replace("100x100", "600x600"),
-      preview_url: best.previewUrl || null,
-      isrc,
-      apple_music_url: best.trackViewUrl || null,
-      source: "itunes-search",
-    };
-  } catch (e) {
-    console.warn("enrichFromItunes:", e.message);
-    return null;
+      return {
+        song_name: best.trackName || songName,
+        artist: best.artistName || artist,
+        album: best.collectionName || "",
+        image_url: (best.artworkUrl100 || "").replace("100x100", "600x600"),
+        preview_url: best.previewUrl || null,
+        isrc,
+        apple_music_url: normalizeAppleMusicUrl(best.trackViewUrl) || null,
+        source: `itunes-search-${country}`,
+      };
+    } catch (e) {
+      console.warn(`enrichFromItunes country=${country}:`, e.message);
+    }
   }
+  return null;
 }
 
 async function fetchSongLink(url) {
@@ -366,28 +413,32 @@ async function fetchAppleItunes(url) {
   const appleId = extractAppleId(url);
   if (!appleId) return null;
 
-  try {
-    const { data } = await http.get("https://itunes.apple.com/lookup", {
-      params: { id: appleId, country: "US" },
-      timeout: 12000,
-    });
-    const track = data?.results?.[0];
-    if (!track) return null;
+  for (const country of ["vn", "us"]) {
+    try {
+      const { data } = await http.get("https://itunes.apple.com/lookup", {
+        params: { id: appleId, country },
+        timeout: 12000,
+      });
+      const track = data?.results?.[0];
+      if (!track) continue;
 
-    return {
-      song_name: track.trackName || track.collectionName,
-      artist: track.artistName || "",
-      album: track.collectionName || "",
-      image_url: (track.artworkUrl100 || "").replace("100x100", "600x600"),
-      preview_url: track.previewUrl || null,
-      isrc: track.isrc || null,
-      apple_music_url: track.trackViewUrl || url,
-      source: "itunes",
-    };
-  } catch (e) {
-    console.warn("fetchAppleItunes:", e.message);
-    return null;
+      return {
+        song_name: track.trackName || track.collectionName,
+        artist: track.artistName || "",
+        album: track.collectionName || "",
+        image_url: (track.artworkUrl100 || "").replace("100x100", "600x600"),
+        preview_url: track.previewUrl || null,
+        isrc: track.isrc || null,
+        apple_music_url:
+          normalizeAppleMusicUrl(track.trackViewUrl || url) ||
+          normalizeAppleMusicUrl(url),
+        source: `itunes-${country}`,
+      };
+    } catch (e) {
+      console.warn(`fetchAppleItunes country=${country}:`, e.message);
+    }
   }
+  return null;
 }
 
 function isEphemeralPreview(url = "") {
@@ -1059,7 +1110,7 @@ function mapITunesTrack(t) {
     preview_url: t.previewUrl || null,
     isrc: null,
     spotify_url: null,
-    apple_music_url: t.trackViewUrl || null,
+    apple_music_url: normalizeAppleMusicUrl(t.trackViewUrl) || null,
     duration_ms: t.trackTimeMillis || 0,
     popularity: 50,
     platform: "spotify",
@@ -1681,4 +1732,9 @@ module.exports = {
   resolveIsrcAggressive,
   normalizeIsrc,
   isValidIsrc,
+  normalizeAppleMusicUrl,
+  isStablePreviewUrl,
+  isStableCoverUrl,
+  enrichFromItunes,
+  fetchSongLink,
 };
