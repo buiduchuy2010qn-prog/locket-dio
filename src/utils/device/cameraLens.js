@@ -24,12 +24,12 @@ const BACK_RE =
 const AVOID_RE =
   /telephoto|\btele\b|\bzoom\b|macro|depth|portrait|periscope|chụp\s*xa|siêu\s*xa|bokeh|tof|time[\s-]?of[\s-]?flight/;
 
-// 0.6x / 0.7x: Samsung / Pixel ultra-wide
+// 0.5x / 0.6x / 0.7x: Samsung / Pixel / Xiaomi / Oppo ultra-wide
 const ULTRA_RE =
-  /cực\s*rộng|siêu\s*rộng|góc\s*siêu\s*rộng|góc\s*rộng|ultra[\s_-]*wide|ultrawide|ultra\b|0\.[5-7]x|\b0\.[5-7]\b|wide[\s_-]*angle|fisheye|fish[\s_-]*eye|\buw\b|camera2\s*2(?!\d)|logical[\s_-]*multi|multi[\s_-]*camera|samsung[\s_-]*camera[\s_-]*2|cam[\s_-]*uw|uwcam|super[\s_-]*wide|extra[\s_-]*wide/;
+  /cực\s*rộng|siêu\s*rộng|góc\s*siêu\s*rộng|góc\s*rộng|ultra[\s_-]*wide|ultrawide|ultra\b|0\.[5-7]x|\b0\.[5-7]\b|wide[\s_-]*angle|fisheye|fish[\s_-]*eye|\buw\b|camera2\s*2(?!\d)|logical[\s_-]*multi|multi[\s_-]*camera|samsung[\s_-]*camera[\s_-]*2|cam[\s_-]*uw|uwcam|super[\s_-]*wide|extra[\s_-]*wide|uwb|\b0\.5\b|goc\s*rong|sieu\s*rong|cam[_\s-]*2(?!\d)|lens[_\s-]*2(?!\d)|secondary|aux(iliary)?/;
 
 const TELE_RE =
-  /chụp\s*xa|telephoto|\btele\b|periscope|\b2x\b|\b3x\b|\b5x\b|\b10x\b|camera2\s*[3-9]/;
+  /chụp\s*xa|telephoto|\btele\b|periscope|\b2x\b|\b3x\b|\b5x\b|\b10x\b|camera2\s*[3-9]|cam[_\s-]*3|lens[_\s-]*3/;
 
 /** Samsung (S25 FE, …) ultra-wide thường là 0.6x, không phải 0.5x */
 function isSamsungDevice() {
@@ -56,8 +56,8 @@ const MAIN_HINT_RE =
 const PREFER_RE =
   /back\s*camera|rear\s*camera|\bwide\b(?!\s*angle)|main|environment|primary|standard/;
 
-/** Preset buttons only — no Max pill, no slider */
-export const ZOOM_PRESETS = ["0.5x", "1x", "2x"];
+/** Preset buttons — bật theo máy (ultra / tele) */
+export const ZOOM_PRESETS = ["0.5x", "1x", "2x", "3x"];
 export const ZOOM_MODES = ZOOM_PRESETS;
 
 // ─── Labels ───────────────────────────────────────────────────────
@@ -262,13 +262,13 @@ export function pickUltraWideCamera(
     rearCameras.find((d) => isTeleLabel(d.label || ""))?.deviceId ||
     null;
 
-  // Mọi rear khác main/tele — ứng viên ultra
+  // Mọi rear khác main/tele — ứng viên ultra (không loại vì AVOID: label "zoom" hay nhầm)
   const others = rearCameras.filter(
     (d) =>
       d.deviceId !== mainId &&
       d.deviceId !== teleId &&
       !isTeleLabel(d.label || "") &&
-      !AVOID_RE.test((d.label || "").toLowerCase()),
+      !isUltraLabel(d.label || ""), // byLabel đã bắt ultra; còn lại non-tele
   );
 
   if (others.length) {
@@ -532,6 +532,8 @@ export async function startCameraByDeviceId(deviceId, options = {}) {
     fast = false,
     // Flip: bỏ deviceId, chỉ facingMode (tránh đảo cam)
     facingOnly = false,
+    // Ultra / tele: BẮT BUỘC exact deviceId — ideal hay bị browser giữ cam chính
+    forceDeviceId = false,
   } = options;
 
   const quality = highRes
@@ -560,18 +562,35 @@ export async function startCameraByDeviceId(deviceId, options = {}) {
     }
   }
 
-  // Lens cụ thể (0.5x / 2x): deviceId + verify facing nếu có
+  // Lens cụ thể (0.5x ultra / 2x tele): ưu tiên exact deviceId
   if (preferDeviceId && deviceId) {
-    try {
-      const stream = await tryOpen({
-        deviceId: { ideal: deviceId },
-        facingMode: { ideal: want },
-        ...quality,
-      });
-      return stream;
-    } catch {
+    // forceDeviceId / ultra: exact TRƯỚC — không để browser “ideal” ra cam 1x
+    if (forceDeviceId) {
       try {
         return await tryOpen({ deviceId: { exact: deviceId }, ...quality });
+      } catch {
+        try {
+          return await tryOpen({
+            deviceId: { exact: deviceId },
+            facingMode: { ideal: want },
+            ...quality,
+          });
+        } catch {
+          /* fall through to ideal */
+        }
+      }
+    }
+    try {
+      // exact trước ideal (fix góc siêu rộng bị kẹt main)
+      return await tryOpen({ deviceId: { exact: deviceId }, ...quality });
+    } catch {
+      try {
+        const stream = await tryOpen({
+          deviceId: { ideal: deviceId },
+          facingMode: { ideal: want },
+          ...quality,
+        });
+        return stream;
       } catch {
         /* fall through */
       }
@@ -737,6 +756,7 @@ export function formatZoomModeLabel(mode, ultraFactor = null) {
   }
   if (mode === "1x") return "1x";
   if (mode === "2x") return "2x";
+  if (mode === "3x") return "3x";
   if (mode === "max") return "Max";
   return String(mode);
 }
@@ -851,33 +871,41 @@ export function computeAvailableZoomModes(detected, stream) {
   const range = readZoomRange(stream);
   const multiRear = (detected?.rear?.length || 0) >= 2;
   const ultraFactor = getUltraWideFactor(stream, detected);
+  const ultraCandidates = listUltraWideCandidates(
+    detected?.rear || [],
+    detected?.main || null,
+    detected?.telephoto || null,
+  );
   const hasUltraLens =
-    Boolean(detected?.ultrawide?.deviceId) ||
-    listUltraWideCandidates(
-      detected?.rear || [],
-      detected?.main || null,
-      detected?.telephoto || null,
-    ).length > 0;
+    Boolean(detected?.ultrawide?.deviceId) || ultraCandidates.length > 0;
 
-  // Chỉ bật góc rộng khi máy THẬT SỰ có (lens ultra hoặc zoom min < 1)
-  // Không bật mù 0.5 trên máy single-lens min=1
+  // Bật góc siêu rộng khi: có lens riêng, multi-cam rear, hoặc digital min < 1
+  // Multi rear (>=2) = gần như luôn có ultra vật lý (kể cả label trống)
   const canWide =
     hasUltraLens ||
+    multiRear ||
     (range.supported && range.minZoom > 0.15 && range.minZoom < 0.95);
 
   const modes = {
     "0.5x": canWide,
     "1x": true,
     "2x": false,
+    "3x": false,
     // factor hiển thị: 0.5 / 0.6 / 0.7 theo máy
     ultraFactor: canWide ? ultraFactor || defaultUltraFactor() : null,
   };
 
-  if (detected?.telephoto?.deviceId) modes["2x"] = true;
-  else if (range.supported && range.maxZoom >= 1.8) modes["2x"] = true;
+  if (detected?.telephoto?.deviceId) {
+    modes["2x"] = true;
+    // Tele riêng thường ≥2–3x
+    modes["3x"] = true;
+  }
+  if (range.supported && range.maxZoom >= 1.8) modes["2x"] = true;
   else if (range.supported && range.maxZoom > range.minZoom + 0.2) {
     modes["2x"] = true;
   }
+  // Digital 3x khi track cho phép
+  if (range.supported && range.maxZoom >= 2.7) modes["3x"] = true;
 
   return modes;
 }
@@ -988,6 +1016,35 @@ export function resolveZoomModeTarget(mode, ctx = {}) {
       displayZoom: null,
       lensType: null,
       mode: "2x",
+      unavailable: true,
+    };
+  }
+
+  if (m === "3x" || m === "3") {
+    if (range.supported && range.maxZoom >= 2.7) {
+      return {
+        deviceId: mainId,
+        digitalZoom: Math.min(3, range.maxZoom),
+        displayZoom: Math.min(3, range.maxZoom),
+        lensType: "main",
+        mode: "3x",
+      };
+    }
+    if (teleId) {
+      return {
+        deviceId: teleId,
+        digitalZoom: 1,
+        displayZoom: 3,
+        lensType: "telephoto",
+        mode: "3x",
+      };
+    }
+    return {
+      deviceId: null,
+      digitalZoom: null,
+      displayZoom: null,
+      lensType: null,
+      mode: "3x",
       unavailable: true,
     };
   }
@@ -1294,7 +1351,7 @@ export async function switchToUltraWide05(options = {}) {
   const digitalFirst = await tryDigitalUltraWide(oldStream, detected, mainId);
   if (digitalFirst) return digitalFirst;
 
-  // 2) Physical ultra — KHÔNG stop oldStream cho đến khi new stream OK
+  // 2) Physical ultra — exact deviceId (không ideal) + không stop old cho đến khi OK
   let lastOpened = null;
   for (const id of candidates) {
     try {
@@ -1302,8 +1359,60 @@ export async function switchToUltraWide05(options = {}) {
         facingMode: "environment",
         highRes: false,
         preferDeviceId: true,
+        forceDeviceId: true, // QUAN TRỌNG: ép lens ultra
         facingOnly: false,
       });
+      // Xác nhận browser thật sự mở đúng device (không lén main)
+      const openedId = getCurrentTrackSettings(stream)?.deviceId || null;
+      if (openedId && openedId !== id && candidates.length > 1) {
+        // Thử lại exact-only
+        try {
+          const stream2 = await navigator.mediaDevices.getUserMedia({
+            video: {
+              deviceId: { exact: id },
+              ...getCameraPreviewConstraints(
+                CONFIG?.app?.camera?.constraints?.default || {},
+              ),
+            },
+            audio: false,
+          });
+          stopCurrentCamera(stream);
+          // Có stream mới → tắt cũ
+          if (oldStream && oldStream !== stream2) {
+            clearTrackZoomCache(oldStream);
+            stopCurrentCamera(oldStream, videoEl);
+          }
+          lastOpened = stream2;
+          const factor2 =
+            getUltraWideFactor(stream2, detected) || defaultUltraFactor();
+          if (supportsHardwareZoom(stream2)) {
+            try {
+              const range = readZoomRange(stream2);
+              const z =
+                range.minZoom > 0.15 && range.minZoom < 0.95
+                  ? range.minZoom
+                  : 1;
+              await applyCameraZoom(stream2, z);
+            } catch {
+              /* ignore */
+            }
+          }
+          return {
+            stream: stream2,
+            detected,
+            deviceId: getCurrentTrackSettings(stream2).deviceId || id,
+            lensType: "ultrawide",
+            zoomMode: "0.5x",
+            currentZoom: factor2,
+            digitalZoom: 1,
+            ultraFactor: factor2,
+            switchedDevice: true,
+          };
+        } catch {
+          /* keep stream từ attempt đầu */
+        }
+      }
+
       // Có stream mới → mới tắt stream cũ (tránh digital fallback chết)
       if (oldStream && oldStream !== stream) {
         clearTrackZoomCache(oldStream);
@@ -1332,7 +1441,7 @@ export async function switchToUltraWide05(options = {}) {
       return {
         stream,
         detected,
-        deviceId: id,
+        deviceId: getCurrentTrackSettings(stream).deviceId || id,
         lensType: "ultrawide",
         zoomMode: "0.5x",
         currentZoom: factor,

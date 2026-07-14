@@ -3,13 +3,19 @@ import { ZOOM_PRESETS, formatZoomModeLabel } from "@/utils";
 
 /**
  * Hàng nút zoom ấn (không kéo).
- * - Cam sau: 0.5/0.6 · 1x · 2x (khi máy hỗ trợ)
+ * - Cam sau: 0.5/0.6 · 1x · 2x · 3x (chỉ hiện mode máy hỗ trợ)
  * - Cam trước: 1x · 2x
  */
 const ZoomPresets = ({
   activeMode = "1x",
   currentZoom = 1,
-  available = { "0.5x": false, "1x": true, "2x": false, ultraFactor: null },
+  available = {
+    "0.5x": false,
+    "1x": true,
+    "2x": false,
+    "3x": false,
+    ultraFactor: null,
+  },
   facing = "environment",
   disabled = false,
   onSelect,
@@ -32,14 +38,16 @@ const ZoomPresets = ({
         return true;
       if (mode === "1x" && currentZoom >= wideThreshold && currentZoom < 1.5)
         return true;
-      if (mode === "2x" && currentZoom >= 1.5) return true;
+      if (mode === "2x" && currentZoom >= 1.5 && currentZoom < 2.5)
+        return true;
+      if (mode === "3x" && currentZoom >= 2.5) return true;
       // front: không ultra
       if (isFront && mode === "1x" && currentZoom < 1.4) return true;
     }
     return false;
   };
 
-  // Cam trước: chỉ 1x + 2x
+  // Cam trước: 1x + 2x · Cam sau: full presets (lọc theo available)
   const modes = isFront ? ["1x", "2x"] : ZOOM_PRESETS;
 
   return (
@@ -54,8 +62,8 @@ const ZoomPresets = ({
           let enabled = mode === "1x" || Boolean(available?.[mode]);
           // Cam trước: luôn cho ấn 2x (digital zoom nếu HW cho phép)
           if (isFront && mode === "2x") enabled = true;
-          if (mode === "0.5x" && !enabled) return null;
-          if (!isFront && mode === "2x" && !enabled) return null;
+          // Ẩn mode máy không có (0.5 / 2 / 3)
+          if (!enabled && mode !== "1x") return null;
 
           return (
             <button

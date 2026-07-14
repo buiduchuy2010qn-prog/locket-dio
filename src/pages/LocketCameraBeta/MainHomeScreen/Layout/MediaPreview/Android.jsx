@@ -189,7 +189,14 @@ const MediaPreviewAndroid = () => {
 
       const modes = computeAvailableZoomModes(shape, stream);
       modes["1x"] = true;
-      // Chỉ bật ultra khi máy hỗ trợ (không force true)
+      // Multi-lens rear → luôn bật 0.5x (ép thử ultra / digital)
+      if ((shape.rear?.length || 0) >= 2 || shape.ultrawide?.deviceId) {
+        modes["0.5x"] = true;
+        if (!modes.ultraFactor) {
+          modes.ultraFactor =
+            getUltraWideFactor(stream, shape) || 0.6;
+        }
+      }
       setAvailableZoomModes(modes);
 
       const settings = getCurrentTrackSettings(stream);
@@ -461,12 +468,16 @@ const MediaPreviewAndroid = () => {
     setDetectedCameras(cameras);
     const shape = toDetectedShape(cameras);
 
-    // ── Góc siêu rộng: chỉ khi máy hỗ trợ, factor 0.5/0.6/0.7 ──
+    // ── Góc siêu rộng 0.5/0.6/0.7 — multi-cam / digital min / lens ultra ──
     if (mode === "0.5x") {
       const preModes =
         availableZoomModes ||
         computeAvailableZoomModes(shape, streamRef.current);
-      if (preModes["0.5x"] === false) {
+      const canTryUltra =
+        preModes["0.5x"] !== false ||
+        Boolean(shape.ultrawide?.deviceId) ||
+        (shape.rear?.length || 0) >= 2;
+      if (!canTryUltra) {
         SonnerInfo(
           t("home.zoom_05_unsupported", {
             defaultValue: "Thiết bị này không có góc siêu rộng",
@@ -476,10 +487,20 @@ const MediaPreviewAndroid = () => {
       }
       setIsSwitchingCamera(true);
       try {
+        // Force re-detect khi user bấm ultra (cache có thể thiếu label)
+        let detShape = shape;
+        try {
+          const fresh = await getAvailableCameras({ force: true });
+          detectedRef.current = fresh;
+          setDetectedCameras(fresh);
+          detShape = toDetectedShape(fresh);
+        } catch {
+          /* keep shape */
+        }
         const result = await switchToUltraWide05({
           oldStream: streamRef.current,
           videoEl: videoRef.current,
-          detected: shape,
+          detected: detShape,
         });
         if (result?.unavailable || !result?.stream) {
           SonnerInfo(
@@ -497,7 +518,7 @@ const MediaPreviewAndroid = () => {
         const factor =
           result.currentZoom ??
           result.ultraFactor ??
-          getUltraWideFactor(result.stream, shape) ??
+          getUltraWideFactor(result.stream, detShape) ??
           0.6;
         setZoomLevel("0.5x");
         lastZoomLevel.current = "0.5x";
@@ -506,7 +527,11 @@ const MediaPreviewAndroid = () => {
         setCurrentZoom(factor);
         setCurrentLensType(result.lensType || "ultrawide");
         attachStreamToVideo(result.stream, "environment");
-        syncZoomStateFromStream(result.stream, cameras, "environment");
+        syncZoomStateFromStream(
+          result.stream,
+          detectedRef.current || cameras,
+          "environment",
+        );
       } catch (e) {
         console.error("[0.5x]", e);
         SonnerInfo(
