@@ -2,18 +2,16 @@
 <html lang="vi">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
     <title>Huy Locket - Đăng ảnh & Video lên Locket</title>
-    <!-- <meta name="robots" content="noindex, nofollow" /> -->
-    <!-- PWA Manifest -->
-    <!-- <link rel="manifest" href="./manifest.json" /> -->
-    <meta name="theme-color" content="#ffffff" />
+    <meta name="theme-color" content="#0a0a0a" />
+    <meta name="color-scheme" content="dark light" />
     <meta name="description" content="Huy Locket giúp bạn đăng ảnh và video lên Locket nhanh chóng ngay từ trình duyệt, hỗ trợ chụp/quay trực tiếp, thêm caption đầy màu sắc và chia sẻ khoảnh khắc dễ dàng." />
 
     <!-- iOS Support -->
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="Huy Locket" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 
     <!-- Open Graph -->
     <meta property="og:title" content="Huy Locket - Đăng ảnh & video lên Locket dễ dàng" />
@@ -29,51 +27,162 @@
     <meta name="twitter:title" content="Huy Locket - Chia sẻ khoảnh khắc ý nghĩa" />
     <meta name="twitter:description" content="Huy Locket giúp bạn chia sẻ ảnh, video trực tiếp lên Locket với giao diện hiện đại và tiện lợi." />
     <meta name="twitter:image" content="https://cdn.locket-dio.com/v1/images/og-locket-diov2.png" />
-    <meta name="twitter:site" content="@yourtwitterhandle" />
 
-    <!-- Cho phép các công cụ tìm kiếm lập chỉ mục và theo dõi liên kết -->
     <meta name="robots" content="index, follow" />
 
-    <!-- CDN Huy Locket -->
+    <!-- Warm connections: CDN + same-origin API proxy -->
     <link rel="dns-prefetch" href="https://cdn.locket-dio.com" />
     <link rel="preconnect" href="https://cdn.locket-dio.com" crossorigin />
-
-    <link rel="preconnect" href="https://www.googletagmanager.com" crossorigin>
-    <link rel="dns-prefetch" href="https://www.googletagmanager.com">
-
-    <!-- Cloudflare Turnstile -->
-    <link rel="preconnect" href="https://challenges.cloudflare.com" crossorigin>
-    <link rel="dns-prefetch" href="https://challenges.cloudflare.com">
 
     <link rel="canonical" href="https://locket-dio.com" />
     <link rel="shortcut icon" href="/favicon.ico" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-
     <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
-    <link rel="icon" type="image/png" sizes="96x96" href="/favicon-96x96.png" />
-    
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-    <noscript>
-    </noscript>
 
-    <!-- Google Analytics -->
-    <script async src="https://www.googletagmanager.com/gtag/js?id=G-7596Z1M8BB"></script>
-    <script defer>
-      window.dataLayer = window.dataLayer || [];
-      function gtag(){dataLayer.push(arguments);}
-      gtag('js', new Date());
-      gtag('config', 'G-7596Z1M8BB');
+    <!-- Early paint: shell tối + logo (trước khi JS tải xong) -->
+    <style>
+      html, body {
+        margin: 0;
+        min-height: 100%;
+        background: #0a0a0a;
+        color: #f5f5f5;
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        -webkit-tap-highlight-color: transparent;
+      }
+      #root:empty + #boot-shell,
+      #root:not(:has(*)) + #boot-shell { display: flex; }
+      #boot-shell {
+        display: none;
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        background: #0a0a0a;
+        pointer-events: none;
+      }
+      #boot-shell img {
+        width: 72px;
+        height: 72px;
+        border-radius: 18px;
+        box-shadow: 0 8px 24px rgba(0,0,0,.35);
+      }
+      #boot-shell .boot-title { font-size: 1.05rem; font-weight: 600; opacity: .95; }
+      #boot-shell .boot-sub { font-size: .8rem; opacity: .55; }
+      #boot-shell .boot-bar {
+        width: 72px;
+        height: 3px;
+        border-radius: 99px;
+        background: rgba(255,255,255,.12);
+        overflow: hidden;
+        margin-top: 4px;
+      }
+      #boot-shell .boot-bar > i {
+        display: block;
+        height: 100%;
+        width: 40%;
+        border-radius: inherit;
+        background: #f5c518;
+        animation: boot-slide 1s ease-in-out infinite;
+      }
+      @keyframes boot-slide {
+        0% { transform: translateX(-100%); }
+        100% { transform: translateX(250%); }
+      }
+      /* perf classes sớm — giảm jank trước React */
+      html.perf-lite, html.perf-android {
+        scroll-behavior: auto !important;
+      }
+    </style>
+
+    <!-- Detect perf + ẩn shell khi React mount — chạy sync, ~0.5ms -->
+    <script>
+      (function () {
+        try {
+          var ua = navigator.userAgent || "";
+          var android = /Android/i.test(ua);
+          var ios = /iPhone|iPad|iPod/i.test(ua);
+          var cores = navigator.hardwareConcurrency || 4;
+          var mem = navigator.deviceMemory || 4;
+          var save = !!(navigator.connection && navigator.connection.saveData);
+          var low = save || (android && (cores <= 4 || mem <= 2)) || cores <= 2;
+          var r = document.documentElement;
+          if (android) r.classList.add("perf-android");
+          if (android || ios || /Mobile/i.test(ua)) r.classList.add("perf-mobile");
+          if (low || android) r.classList.add("perf-lite");
+        } catch (e) {}
+        // Ẩn boot shell khi #root có nội dung
+        function hideShell() {
+          var shell = document.getElementById("boot-shell");
+          var root = document.getElementById("root");
+          if (!shell || !root) return;
+          if (root.childNodes && root.childNodes.length) {
+            shell.style.display = "none";
+            try {
+              if (window.__bootObs) window.__bootObs.disconnect();
+            } catch (e) {}
+          }
+        }
+        document.addEventListener("DOMContentLoaded", function () {
+          var root = document.getElementById("root");
+          if (!root || typeof MutationObserver === "undefined") return;
+          window.__bootObs = new MutationObserver(hideShell);
+          window.__bootObs.observe(root, { childList: true, subtree: true });
+          hideShell();
+          // Fallback: luôn ẩn sau 8s (tránh kẹt shell)
+          setTimeout(function () {
+            var s = document.getElementById("boot-shell");
+            if (s) s.style.display = "none";
+          }, 8000);
+        });
+      })();
     </script>
-    
-    <script type="module" crossorigin src="/assets/index-Bh_38G4S.js"></script>
-    <link rel="modulepreload" crossorigin href="/assets/vendor-hHZ6xKSS.js">
-    <link rel="modulepreload" crossorigin href="/assets/i18n-BYN5h6_Y.js">
-    <link rel="modulepreload" crossorigin href="/assets/react-DXKmAQT1.js">
-    <link rel="modulepreload" crossorigin href="/assets/icons-CrYxARk6.js">
-    <link rel="stylesheet" crossorigin href="/assets/index-DsWFtW0O.css">
+    <script type="module" crossorigin src="/assets/index-zFWM-5QZ.js"></script>
+    <link rel="modulepreload" crossorigin href="/assets/vendor-BIKn5vC0.js">
+    <link rel="modulepreload" crossorigin href="/assets/i18n-BqiDvQba.js">
+    <link rel="modulepreload" crossorigin href="/assets/react-ccKEJv6R.js">
+    <link rel="stylesheet" crossorigin href="/assets/index-DdzN0qjf.css">
   <link rel="manifest" href="/manifest.webmanifest"></head>
   <body>
     <div id="root"></div>
+    <!-- Shell hiện ngay khi root còn trống -->
+    <div id="boot-shell" aria-hidden="true">
+      <img src="/apple-touch-icon.png" alt="" width="72" height="72" decoding="async" fetchpriority="high" />
+      <div class="boot-title">Huy Locket</div>
+      <div class="boot-sub">Đang mở…</div>
+      <div class="boot-bar"><i></i></div>
+    </div>
+
+
+    <!-- GA sau idle — không tranh bandwidth lúc boot mobile -->
+    <script>
+      (function () {
+        function loadGa() {
+          if (window.__gaLoaded) return;
+          window.__gaLoaded = true;
+          window.dataLayer = window.dataLayer || [];
+          function gtag(){ dataLayer.push(arguments); }
+          window.gtag = gtag;
+          gtag("js", new Date());
+          gtag("config", "G-7596Z1M8BB", { send_page_view: true });
+          var s = document.createElement("script");
+          s.async = true;
+          s.src = "https://www.googletagmanager.com/gtag/js?id=G-7596Z1M8BB";
+          document.head.appendChild(s);
+        }
+        var ric = window.requestIdleCallback || function (cb) { setTimeout(cb, 2500); };
+        if (document.readyState === "complete") {
+          ric(loadGa, { timeout: 4000 });
+        } else {
+          window.addEventListener("load", function () {
+            ric(loadGa, { timeout: 4000 });
+          });
+        }
+      })();
+    </script>
   </body>
 </html>

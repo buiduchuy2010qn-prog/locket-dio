@@ -1,0 +1,1 @@
+function r(l=null,t=null){const o=l?.localId||l?.uid||l?.user_uid||l?.userUid||l?.user_id||l?.id||null;if(o)return String(o);try{return localStorage.getItem("localId")||sessionStorage.getItem("localId")||t?.localId||t?.user_id||""}catch{return""}}export{r as g};

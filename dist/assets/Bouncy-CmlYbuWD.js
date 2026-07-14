@@ -1,0 +1,1 @@
+import{j as n}from"./index-zFWM-5QZ.js";import{n as s}from"./vendor-BIKn5vC0.js";s.register();const c=({size:o=45,speed:e=1.75,color:r="black"})=>n.jsxDEV("l-bouncy",{size:o,speed:e,color:r},void 0,!1,{fileName:"C:/Users/DucHuyy/.grok/bin/locket-dio/src/components/ui/Loading/Bouncy.jsx",lineNumber:8,columnNumber:5},void 0);export{c as B};

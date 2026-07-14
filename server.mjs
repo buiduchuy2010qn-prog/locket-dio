@@ -8,11 +8,27 @@ import https from "https";
 import fs from "fs";
 import path from "path";
 import crypto from "crypto";
+import zlib from "zlib";
 import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 4173);
 const PUBLIC_DIR = path.join(__dirname, "public");
+
+/** Cache gzip cho asset text — giảm băng thông mobile (vendor ~484KB → ~150KB) */
+const gzipCache = new Map();
+const COMPRESS_EXT = new Set([
+  ".html",
+  ".js",
+  ".mjs",
+  ".css",
+  ".json",
+  ".svg",
+  ".webmanifest",
+  ".txt",
+  ".xml",
+  ".map",
+]);
 
 // API backend chính: set LOCKET_API_UPSTREAM=...
 // - Local: http://127.0.0.1:5007
@@ -98,6 +114,24 @@ function safeJoin(root, reqPath) {
   return full;
 }
 
+function wantsGzip(req) {
+  const ae = String(req.headers["accept-encoding"] || "");
+  return /\bgzip\b/i.test(ae);
+}
+
+function getGzipped(filePath, raw) {
+  let hit = gzipCache.get(filePath);
+  if (hit && hit.len === raw.length) return hit.buf;
+  const buf = zlib.gzipSync(raw, { level: 6 });
+  // Giới hạn RAM: max ~80 file gzip cache
+  if (gzipCache.size > 80) {
+    const first = gzipCache.keys().next().value;
+    gzipCache.delete(first);
+  }
+  gzipCache.set(filePath, { buf, len: raw.length });
+  return buf;
+}
+
 function serveStatic(req, res) {
   let urlPath = req.url.split("?")[0] || "/";
   if (urlPath === "/") urlPath = "/index.html";
@@ -127,11 +161,29 @@ function serveStatic(req, res) {
         : "no-cache"
       : "public, max-age=31536000, immutable";
 
-  send(res, 200, data, {
+  const headers = {
     "Content-Type": type,
     "Cache-Control": cache,
     "X-Content-Type-Options": "nosniff",
-  });
+    // Gợi ý browser giữ connection cho chunk tiếp theo
+    Connection: "keep-alive",
+  };
+
+  // Gzip text assets — quan trọng trên 4G/máy yếu
+  if (
+    wantsGzip(req) &&
+    COMPRESS_EXT.has(ext) &&
+    data.length >= 512
+  ) {
+    const gz = getGzipped(filePath, data);
+    headers["Content-Encoding"] = "gzip";
+    headers["Vary"] = "Accept-Encoding";
+    headers["Content-Length"] = gz.length;
+    return send(res, 200, gz, headers);
+  }
+
+  headers["Content-Length"] = data.length;
+  send(res, 200, data, headers);
 }
 
 function matchProxy(urlPath) {

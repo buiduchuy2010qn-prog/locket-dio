@@ -1,6 +1,34 @@
 @import "tailwindcss";
+/* Chỉ theme app dùng — tránh bundle `themes: all` (~200KB+ CSS) */
 @plugin "daisyui" {
-  themes: all;
+  themes:
+    light --default,
+    dark --prefersdark,
+    cupcake,
+    bumblebee,
+    emerald,
+    corporate,
+    synthwave,
+    retro,
+    valentine,
+    halloween,
+    garden,
+    forest,
+    lofi,
+    pastel,
+    fantasy,
+    wireframe,
+    black,
+    luxury,
+    dracula,
+    cmyk,
+    autumn,
+    business,
+    acid,
+    lemonade,
+    night,
+    coffee,
+    winter;
 }
 
 /* ═══════════════════════════════════════════

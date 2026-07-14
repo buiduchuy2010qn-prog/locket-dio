@@ -65,11 +65,27 @@ function AppContent() {
     if (el) el.setAttribute("content", content);
   }
   useEffect(() => {
-    import("./styles/animation.css");
-    // Đánh thức API Render free: poll đến khi healthy (cold start 20–60s)
+    // Auth local trước — UI vào camera không chờ network
+    hydrateAuth();
+    initAuth();
+
     let cancelled = false;
+    const idle =
+      typeof window !== "undefined" && window.requestIdleCallback
+        ? (cb, t) => window.requestIdleCallback(cb, { timeout: t ?? 2000 })
+        : (cb) => setTimeout(cb, 600);
+
+    // CSS animation / overlay / health — sau first paint (tránh tranh bandwidth mobile)
+    const idleId = idle(() => {
+      if (cancelled) return;
+      import("./styles/animation.css");
+      showDevWarning();
+      fetchCaptionOverlays();
+    }, 1800);
+
+    // Health check nhẹ: 1 lần ngay + vài retry thưa (không spam 8 request)
     const wakeApi = async () => {
-      const delays = [0, 2000, 4000, 6000, 8000, 10000, 12000, 15000];
+      const delays = [0, 3000, 8000, 15000];
       for (let i = 0; i < delays.length && !cancelled; i++) {
         if (delays[i]) await new Promise((r) => setTimeout(r, delays[i]));
         try {
@@ -80,27 +96,35 @@ function AppContent() {
           });
           if (r.ok) return;
         } catch {
-          /* cold start — thử tiếp */
+          /* cold start */
         }
       }
     };
-    wakeApi();
-    // Giữ API ấm khi tab còn mở (free sleep ~15 phút)
+    idle(() => {
+      if (!cancelled) wakeApi();
+    }, 1200);
+
     const keepAlive = setInterval(() => {
+      if (document.hidden) return;
       fetch("/dio-api/health", {
         method: "GET",
         credentials: "include",
         cache: "no-store",
       }).catch(() => {});
-    }, 10 * 60 * 1000);
-    // Token local → coi như đã login ngay (không chờ API)
-    hydrateAuth();
-    initAuth();
-    showDevWarning();
-    fetchCaptionOverlays();
+    }, 12 * 60 * 1000);
+
     return () => {
       cancelled = true;
       clearInterval(keepAlive);
+      if (typeof window !== "undefined" && window.cancelIdleCallback) {
+        try {
+          window.cancelIdleCallback(idleId);
+        } catch {
+          clearTimeout(idleId);
+        }
+      } else {
+        clearTimeout(idleId);
+      }
     };
   }, []);
 
@@ -116,14 +140,28 @@ function AppContent() {
   }, [isAuth, loading, location.pathname, navigate]);
 
   useEffect(() => {
-    if (user) {
-      // Force sync lần đầu sau login (tránh list rỗng do cache)
+    if (!user) return;
+    // Sync nặng (friends/chat) sau idle — camera mở trước
+    const run = () => {
       fetchAndSyncFriends(false, true);
       syncStreak();
       hydrateUploadQueue();
       fetchConversations();
       fetchAndSyncGroups();
+    };
+    let id;
+    if (typeof window !== "undefined" && window.requestIdleCallback) {
+      id = window.requestIdleCallback(run, { timeout: 2500 });
+      return () => {
+        try {
+          window.cancelIdleCallback(id);
+        } catch {
+          /* ignore */
+        }
+      };
     }
+    id = setTimeout(run, 700);
+    return () => clearTimeout(id);
   }, [user]);
 
   useEffect(() => {
