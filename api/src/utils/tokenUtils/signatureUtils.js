@@ -3,14 +3,22 @@ const { security } = require("../../config/app.config");
 const { logInfo } = require("../logEventUtils");
 
 // Set LOCKETDIO_SIGNATURE_SECRET / COOKIE_SECRET on Railway — never hardcode
-const signatureSecret =
-  security.signatureSecret ||
-  process.env.LOCKETDIO_SIGNATURE_SECRET ||
-  process.env.COOKIE_SECRET ||
-  "";
+function resolveSignatureSecret() {
+  const s =
+    security.signatureSecret ||
+    process.env.LOCKETDIO_SIGNATURE_SECRET ||
+    process.env.COOKIE_SECRET ||
+    "";
+  if (!s) {
+    throw new Error(
+      "LOCKETDIO_SIGNATURE_SECRET (or COOKIE_SECRET) is not configured",
+    );
+  }
+  return s;
+}
 
 // Generate signature
-const generateSignature = (value, secret = signatureSecret) => {
+const generateSignature = (value, secret = resolveSignatureSecret()) => {
   return crypto
     .createHmac("sha256", secret)
     .update(String(value))
@@ -18,7 +26,11 @@ const generateSignature = (value, secret = signatureSecret) => {
 };
 
 // Verify signature
-const verifySignature = (value, signature, secret = signatureSecret) => {
+const verifySignature = (
+  value,
+  signature,
+  secret = resolveSignatureSecret(),
+) => {
   // logInfo("verifySignature", `Verifying signature for value: ${value}`, { value, signature, signatureSecret });
   const expected = generateSignature(value, secret);
 

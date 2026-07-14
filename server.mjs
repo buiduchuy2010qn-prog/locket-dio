@@ -160,8 +160,10 @@ const GDRIVE_OAUTH_SCOPE = "https://www.googleapis.com/auth/drive.file";
 // State OAuth ký HMAC — không phụ thuộc RAM (Render restart không làm “Hết hạn”)
 const OAUTH_STATE_SECRET =
   process.env.OAUTH_STATE_SECRET ||
-  process.env.DATABASE_URL ||
-  "locket-dio-oauth-state-huy";
+  process.env.COOKIE_SECRET ||
+  process.env.LOCKETDIO_SIGNATURE_SECRET ||
+  // Last-resort local-only: derived per machine path (not a committed password)
+  crypto.createHash("sha256").update(`oauth:${__dirname}`).digest("hex");
 
 function signOauthState(payload) {
   const body = b64url(

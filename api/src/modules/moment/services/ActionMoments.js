@@ -98,11 +98,16 @@ exports.SendChatLocketMoments = async (idToken, uid, MessageInfo) => {
         msg: MessageInfo.message || " ", // Tin nhắn
         analytics: {
           amplitude: {
-            device_id: "7cedb89b-a932-4fe9-886f-23739e96870bR", // thiết bị ? - uuid v4 anyways
+            device_id:
+              process.env.LOCKET_ANALYTICS_DEVICE_ID ||
+              `web-${uid || "anon"}`.slice(0, 36),
             session_id: -1,
           },
           google_analytics: {
-            app_instance_id: "e88d4daed0ded172248753851bf67772", // ???
+            app_instance_id:
+              process.env.LOCKET_GA_APP_INSTANCE_ID ||
+              String(uid || "anon").replace(/[^a-zA-Z0-9]/g, "").slice(0, 32) ||
+              "web",
           },
           android_version: "1.196.0",
           android_build: "406",
