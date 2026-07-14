@@ -3,9 +3,10 @@
  *
  * Rules:
  * - Default rear = main wide @ 1x (never telephoto / macro).
- * - 0.5x / 0.6x → ultra-wide if exposed, else zoom.min (Samsung = 0.6).
- * - Pinch: continuous zoom min→max; badge top-left only.
- * - No zoom slider / caption zoom controls.
+ * - Ultra pill: open ultra lens / apply track.minZoom — label ONLY from
+ *   MediaStreamTrack.getCapabilities().zoom / getSettings().zoom
+ *   (never guess 0.5 vs 0.6 by User-Agent / brand).
+ * - Pinch: continuous min→max from live track.
  * - Stop old tracks only after the new stream is ready.
  */
 
@@ -32,12 +33,8 @@ const TELE_RE =
   /chụp\s*xa|telephoto|\btele\b|periscope|\b2x\b|\b3x\b|\b5x\b|\b10x\b|camera2\s*[3-9]|cam[_\s-]*3|lens[_\s-]*3/;
 
 /**
- * Guess ultra factor theo hãng — CHỈ khi browser không expose minZoom < 1.
- * Thị trường:
- * - iPhone ≈ 0.5x
- * - Samsung Galaxy ≈ 0.6x (S/FE/A nhiều đời)
- * - Pixel ≈ 0.5–0.6 (ưu tiên caps)
- * - Xiaomi / Oppo / Vivo / OnePlus ≈ 0.6x phổ biến
+ * Chỉ số zoom CHỈ lấy từ camera thật (getCapabilities / getSettings),
+ * KHÔNG đoán theo hãng (tránh máy 0.5 hiện nhầm 0.6).
  */
 function getUserAgent() {
   try {
@@ -51,87 +48,103 @@ export function isSamsungDevice() {
   return /samsung|sm-|galaxy/i.test(getUserAgent());
 }
 
+/**
+ * @deprecated Không dùng cho UI label — chỉ fallback kỹ thuật hiếm.
+ * UI phải dùng resolveUltraWideFactor(stream) từ cam thật.
+ */
 export function defaultUltraFactor() {
-  const ua = getUserAgent();
-  if (/iphone|ipad|ipod/i.test(ua)) return 0.5;
-  if (/samsung|sm-|galaxy/i.test(ua)) return 0.6;
-  if (/pixel/i.test(ua)) return 0.5;
-  if (/xiaomi|redmi|poco|\bmi\b|blackshark/i.test(ua)) return 0.6;
-  if (/oppo|realme|oneplus|oplus|reno/i.test(ua)) return 0.6;
-  if (/vivo|iqoo/i.test(ua)) return 0.6;
-  if (/huawei|honor|harmony/i.test(ua)) return 0.5;
-  if (/motorola|moto\s/i.test(ua)) return 0.5;
-  if (/sony|xperia/i.test(ua)) return 0.5;
-  if (/nokia|nothing|asus|zenfone|lg\b/i.test(ua)) return 0.5;
-  // Android generic multi-cam: nhiều hãng 0.6
-  if (/android/i.test(ua)) return 0.6;
-  return 0.5;
+  return null;
 }
 
-/** Làm tròn 1 chữ số (0.5 / 0.6 / 0.7…) */
+/** Làm tròn 1 chữ số từ giá trị camera thật (0.5 / 0.6 / 0.7…) */
 export function roundZoomFactor(z) {
   const n = Number(z);
-  if (!Number.isFinite(n)) return defaultUltraFactor();
-  // Snap gần các mốc phổ biến
-  const snaps = [0.5, 0.6, 0.7, 0.8];
+  if (!Number.isFinite(n) || n <= 0) return null;
+  // Snap gần mốc phổ biến nếu lệch float
+  const snaps = [0.5, 0.6, 0.7, 0.8, 1, 2, 3, 5];
   for (const s of snaps) {
-    if (Math.abs(n - s) < 0.06) return s;
+    if (Math.abs(n - s) < 0.05) return s;
   }
   return Math.round(n * 10) / 10;
 }
 
 /**
- * Factor ultra thật sự của máy — ưu tiên capabilities > zoom đã apply > guess hãng.
+ * Đọc hệ số zoom góc rộng TỪ STREAM CAMERA.
+ * Thứ tự: applied → settings.zoom → capabilities.zoom.min
+ * null = chưa đọc được (chưa mở cam / cam không expose zoom API).
+ *
  * @param {MediaStream|null} stream
- * @param {object|null} detected
- * @param {number|null} appliedZoom — zoom vừa set thành công (nếu có)
+ * @param {object|null} _detected — giữ signature; không dùng đoán hãng
+ * @param {number|null} appliedZoom — zoom vừa applyConstraints thành công
  */
 export function resolveUltraWideFactor(
   stream = null,
-  detected = null,
+  _detected = null,
   appliedZoom = null,
 ) {
-  // 1) Zoom vừa apply trong dải ultra
+  // 1) Zoom vừa apply (sau applyConstraints)
   const applied = Number(appliedZoom);
-  if (Number.isFinite(applied) && applied > 0.2 && applied < 0.95) {
+  if (Number.isFinite(applied) && applied > 0.15 && applied < 0.95) {
     return roundZoomFactor(applied);
   }
 
-  // 2) Track settings.zoom hiện tại
-  if (stream) {
-    try {
-      const settingsZ = getCurrentTrackSettings(stream)?.zoom;
-      if (
-        typeof settingsZ === "number" &&
-        settingsZ > 0.2 &&
-        settingsZ < 0.95
-      ) {
-        return roundZoomFactor(settingsZ);
-      }
-    } catch {
-      /* ignore */
+  if (!stream) return null;
+
+  // 2) getSettings().zoom — giá trị đang chạy
+  try {
+    const settingsZ = getCurrentTrackSettings(stream)?.zoom;
+    if (
+      typeof settingsZ === "number" &&
+      Number.isFinite(settingsZ) &&
+      settingsZ > 0.15 &&
+      settingsZ < 0.95
+    ) {
+      return roundZoomFactor(settingsZ);
     }
+  } catch {
+    /* ignore */
   }
 
-  // 3) Capabilities minZoom (logical multi-cam iOS/Samsung/Pixel)
-  const range = stream ? readZoomRange(stream) : { supported: false };
-  if (range.supported && range.minZoom > 0.15 && range.minZoom < 0.95) {
-    return roundZoomFactor(range.minZoom);
+  // 3) getCapabilities().zoom.min — dải zoom HW/logical multi-cam
+  try {
+    const range = readZoomRange(stream);
+    if (
+      range.supported &&
+      range.minZoom > 0.15 &&
+      range.minZoom < 0.95
+    ) {
+      return roundZoomFactor(range.minZoom);
+    }
+  } catch {
+    /* ignore */
   }
 
-  // 4) Có lens ultra vật lý / multi-rear → guess theo hãng
-  const hasPhysical =
-    Boolean(detected?.ultrawide?.deviceId) ||
-    listUltraWideCandidates(
-      detected?.rear || [],
-      detected?.main || null,
-      detected?.telephoto || null,
-    ).length > 0 ||
-    (detected?.rear?.length || 0) >= 2;
-
-  if (hasPhysical) return defaultUltraFactor();
-
+  // Không đoán hãng — chờ mở cam / apply xong mới có số
   return null;
+}
+
+/**
+ * Đọc min/max zoom thật từ stream (capabilities).
+ * Dùng cho UI + pinch.
+ */
+export function readLiveZoomFromCamera(stream) {
+  if (!stream) {
+    return { min: null, max: null, current: null, supported: false };
+  }
+  const range = readZoomRange(stream);
+  let current = null;
+  try {
+    const z = getCurrentTrackSettings(stream)?.zoom;
+    if (typeof z === "number" && Number.isFinite(z)) current = z;
+  } catch {
+    /* ignore */
+  }
+  return {
+    min: range.supported ? range.minZoom : null,
+    max: range.supported ? range.maxZoom : null,
+    current,
+    supported: Boolean(range.supported),
+  };
 }
 
 const MAIN_HINT_RE =
@@ -811,7 +824,8 @@ export function getUltraWideFactor(stream, detected = null) {
 }
 
 /**
- * Nhãn nút zoom — ultra hiện đúng 0.5 / 0.6 / 0.7 theo máy (không hardcode 0.5).
+ * Nhãn nút zoom — ultra chỉ hiện số KHI đã đọc từ camera (ultraFactor).
+ * Chưa đo được → "UW" (không bịa 0.5/0.6).
  */
 export function formatZoomModeLabel(mode, ultraFactor = null) {
   if (
@@ -821,10 +835,12 @@ export function formatZoomModeLabel(mode, ultraFactor = null) {
     mode === "wide"
   ) {
     const f = Number(ultraFactor);
-    if (Number.isFinite(f) && f > 0.2 && f < 0.95) {
-      return String(roundZoomFactor(f));
+    if (Number.isFinite(f) && f > 0.15 && f < 0.95) {
+      const r = roundZoomFactor(f);
+      return r != null ? String(r) : "UW";
     }
-    return String(defaultUltraFactor());
+    // Lens ultra vật lý nhưng API không trả minZoom — không đoán hãng
+    return "UW";
   }
   if (mode === "1x") return "1";
   if (mode === "2x") return "2";
@@ -957,18 +973,14 @@ export function computeAvailableZoomModes(detected, stream) {
     multiRear ||
     (range.supported && range.minZoom > 0.15 && range.minZoom < 0.95);
 
-  // Factor nút: caps thật → guess hãng (0.5 iPhone / 0.6 Samsung / …)
-  const displayUltra = canWide
-    ? ultraFactor || defaultUltraFactor()
-    : null;
-
+  // Chỉ số hiển thị = đọc từ cam (null → UI "UW" cho đến khi apply xong)
   const modes = {
-    // Key nội bộ luôn "0.5x"; UI hiện ultraFactor (0.5 / 0.6 / 0.7)
+    // Key nội bộ "0.5x"; label = ultraFactor từ getCapabilities/settings
     "0.5x": canWide,
     "1x": true,
     "2x": false,
     "3x": false,
-    ultraFactor: displayUltra,
+    ultraFactor: canWide ? ultraFactor : null,
   };
 
   // 2x / 3x — theo tele hoặc max digital zoom của máy
@@ -1008,11 +1020,8 @@ export function resolveZoomModeTarget(mode, ctx = {}) {
   const m = String(mode || "1x").toLowerCase();
 
   if (m === "0.5x" || m === "0.5" || m === "0.6x" || m === "0.6" || m === "wide") {
-    const factor =
-      getUltraWideFactor(stream, detected) ||
-      (range.supported && range.minZoom < 0.95
-        ? roundZoomFactor(range.minZoom)
-        : defaultUltraFactor());
+    // Chỉ số từ capabilities.zoom.min của stream hiện tại
+    const factor = resolveUltraWideFactor(stream, detected, null);
 
     // 1) Ultra vật lý
     if (ultraId) {
@@ -1042,16 +1051,17 @@ export function resolveZoomModeTarget(mode, ctx = {}) {
         ultraFactor: factor,
       };
     }
-    // 3) Digital: DÙNG minZoom THẬT (0.5 / 0.6 / 0.7) — không ép 0.5
+    // 3) Digital: minZoom THẬT từ track — không bịa số
     if (range.supported && range.minZoom > 0.15 && range.minZoom < 0.99) {
       const z = range.minZoom;
+      const f = roundZoomFactor(z);
       return {
         deviceId: mainId,
         digitalZoom: z,
-        displayZoom: Math.round(z * 10) / 10,
+        displayZoom: f,
         lensType: "main",
         mode: "0.5x",
-        ultraFactor: Math.round(z * 10) / 10,
+        ultraFactor: f,
       };
     }
     // Không hỗ trợ
@@ -1151,14 +1161,15 @@ export function getEffectiveZoomBounds(detected, stream) {
     hasUltra ||
     (range.supported && range.minZoom > 0.15 && range.minZoom < 0.95);
 
-  // Pinch min = factor thật (0.6 Samsung); không hạ mù nếu không có ultra
+  // Pinch min = minZoom THẬT từ track (không đoán hãng)
   if (canWide && ultraFactor && ultraFactor < 0.95) {
     min = Math.min(min, ultraFactor);
-  } else if (hasUltra) {
-    min = Math.min(min, defaultUltraFactor());
   }
-  if (range.supported && range.minZoom < 0.95) {
+  if (range.supported && range.minZoom > 0.15 && range.minZoom < 0.95) {
     min = Math.min(min, range.minZoom);
+  } else if (hasUltra && min > 0.5) {
+    // Có lens ultra nhưng track chưa expose min < 1 — giữ min=1 đến khi switch
+    // (không gán 0.5/0.6 giả)
   }
   if (detected?.telephoto?.deviceId && max < 2) {
     max = Math.max(max, 2);
@@ -1181,7 +1192,8 @@ export function getEffectiveZoomBounds(detected, stream) {
     trackMax: range.maxZoom,
     step: range.zoomStep,
     hasUltra,
-    ultraFactor: canWide ? ultraFactor || defaultUltraFactor() : null,
+    // Chỉ số từ cam thật — null nếu chưa đọc được
+    ultraFactor: canWide ? ultraFactor : null,
     canGo05: canWide,
   };
 }
@@ -1197,19 +1209,15 @@ export function mapDisplayZoomToLens(displayZoom, detected, stream) {
   const teleId = detected?.telephoto?.deviceId || null;
   const range = readZoomRange(stream);
 
-  // ── wide band: ultra lens first, then digital min (0.5 / 0.6 / 0.7) ──
+  // ── wide band: ultra lens / digital min từ getCapabilities ──
   if (z < 0.92) {
-    const factor =
-      getUltraWideFactor(stream, detected) ||
-      (range.supported && range.minZoom < 0.95
-        ? Math.round(range.minZoom * 10) / 10
-        : null);
+    const factor = resolveUltraWideFactor(stream, detected, null);
 
     if (ultraId) {
       return {
         deviceId: ultraId,
         digitalZoom: 1,
-        displayZoom: factor || z,
+        displayZoom: factor != null ? factor : z,
         lensType: "ultrawide",
         mode: "0.5x",
         switchDevice: true,
@@ -1470,16 +1478,15 @@ export async function switchToUltraWide05(options = {}) {
               /* ignore */
             }
           }
-          const factor2 =
-            resolveUltraWideFactor(stream2, detected, null) ||
-            defaultUltraFactor();
+          const factor2 = resolveUltraWideFactor(stream2, detected, null);
           return {
             stream: stream2,
             detected,
             deviceId: getCurrentTrackSettings(stream2).deviceId || id,
             lensType: "ultrawide",
             zoomMode: "0.5x",
-            currentZoom: factor2,
+            // Số chỉ khi cam báo; null → UI "UW"
+            currentZoom: factor2 != null ? factor2 : 1,
             digitalZoom: 1,
             ultraFactor: factor2,
             switchedDevice: true,
@@ -1511,17 +1518,20 @@ export async function switchToUltraWide05(options = {}) {
         }
       }
 
-      // Factor = caps/settings thật hoặc guess hãng (0.5 / 0.6 / 0.7)
-      const factor =
-        resolveUltraWideFactor(stream, detected, null) ||
-        defaultUltraFactor();
+      // Factor CHỈ từ getCapabilities/settings sau khi mở cam
+      const appliedZ = getCurrentTrackSettings(stream)?.zoom;
+      const factor = resolveUltraWideFactor(
+        stream,
+        detected,
+        typeof appliedZ === "number" ? appliedZ : null,
+      );
       return {
         stream,
         detected,
         deviceId: getCurrentTrackSettings(stream).deviceId || id,
         lensType: "ultrawide",
         zoomMode: "0.5x",
-        currentZoom: factor,
+        currentZoom: factor != null ? factor : 1,
         digitalZoom: 1,
         ultraFactor: factor,
         switchedDevice: true,
@@ -1559,18 +1569,11 @@ export async function switchToUltraWide05(options = {}) {
   const digitalRetry = await tryDigitalUltraWide(stream, detected, mainId);
   if (digitalRetry) return digitalRetry;
 
-  // 4) Ép zoom = min(factor hãng, max) trong dải track — phù hợp từng máy
+  // 4) Chỉ apply minZoom THẬT của track (không đoán 0.5/0.6)
   if (stream && supportsHardwareZoom(stream)) {
     const range = readZoomRange(stream);
-    const guess = defaultUltraFactor();
-    const target = Math.max(
-      range.minZoom,
-      Math.min(
-        range.minZoom < 0.95 ? range.minZoom : guess,
-        range.maxZoom,
-      ),
-    );
-    if (target < 0.95) {
+    if (range.minZoom > 0.15 && range.minZoom < 0.95) {
+      const target = range.minZoom;
       try {
         clearTrackZoomCache(stream);
         const applied = await applyCameraZoom(stream, target);

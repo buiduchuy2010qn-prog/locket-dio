@@ -43,6 +43,8 @@ import {
   switchToUltraWide05,
   updateZoomBadge,
   getUltraWideFactor,
+  resolveUltraWideFactor,
+  readLiveZoomFromCamera,
 } from "@/utils";
 const EditorCaption = lazy(() => import("@/features/EditorCaption"));
 import { useApp } from "@/context/AppContext";
@@ -516,21 +518,29 @@ const MediaPreviewAndroid = () => {
           lastDeviceId.current = result.deviceId;
           setDeviceId(result.deviceId);
         }
-        const factor =
-          result.currentZoom ??
+        // Đọc lại từ cam sau khi mở (capabilities/settings) — không đoán hãng
+        const live = readLiveZoomFromCamera(result.stream);
+        const factor = resolveUltraWideFactor(
+          result.stream,
+          detShape,
           result.ultraFactor ??
-          getUltraWideFactor(result.stream, detShape);
+            result.currentZoom ??
+            live.current ??
+            live.min,
+        );
         setZoomLevel("0.5x");
         lastZoomLevel.current = "0.5x";
         setActiveZoomMode("0.5x");
-        currentZoomValue.current = factor ?? 1;
-        setCurrentZoom(factor ?? 1);
+        // Badge: số thật hoặc 1 (lens UW vật lý chưa expose min)
+        currentZoomValue.current =
+          factor != null ? factor : live.current ?? 1;
+        setCurrentZoom(currentZoomValue.current);
         setCurrentLensType(result.lensType || "ultrawide");
-        // Cập nhật nhãn nút (0.5 / 0.6 / 0.7) theo máy vừa detect
+        // Nhãn nút = số cam báo; null → "UW"
         setAvailableZoomModes((prev) => ({
           ...(prev || {}),
           "0.5x": true,
-          ultraFactor: factor || prev?.ultraFactor || null,
+          ultraFactor: factor,
         }));
         attachStreamToVideo(result.stream, "environment");
         syncZoomStateFromStream(

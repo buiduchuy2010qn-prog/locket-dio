@@ -43,6 +43,8 @@ import {
   switchToUltraWide05,
   updateZoomBadge,
   getUltraWideFactor,
+  resolveUltraWideFactor,
+  readLiveZoomFromCamera,
 } from "@/utils";
 const EditorCaption = lazy(() => import("@/features/EditorCaption"));
 import { useApp } from "@/context/AppContext";
@@ -494,20 +496,26 @@ const MediaPreviewIOS = () => {
           lastDeviceId.current = result.deviceId;
           setDeviceId(result.deviceId);
         }
-        const factor =
-          result.currentZoom ??
+        const live = readLiveZoomFromCamera(result.stream);
+        const factor = resolveUltraWideFactor(
+          result.stream,
+          detShape,
           result.ultraFactor ??
-          getUltraWideFactor(result.stream, detShape);
+            result.currentZoom ??
+            live.current ??
+            live.min,
+        );
         setZoomLevel("0.5x");
         lastZoomLevel.current = "0.5x";
         setActiveZoomMode("0.5x");
-        currentZoomValue.current = factor ?? 1;
-        setCurrentZoom(factor ?? 1);
+        currentZoomValue.current =
+          factor != null ? factor : live.current ?? 1;
+        setCurrentZoom(currentZoomValue.current);
         setCurrentLensType(result.lensType || "ultrawide");
         setAvailableZoomModes((prev) => ({
           ...(prev || {}),
           "0.5x": true,
-          ultraFactor: factor || prev?.ultraFactor || null,
+          ultraFactor: factor,
         }));
         attachStreamToVideo(result.stream, "environment");
         syncZoomStateFromStream(
