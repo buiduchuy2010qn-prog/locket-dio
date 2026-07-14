@@ -391,7 +391,7 @@ const MediaPreviewIOS = () => {
   const handleSelectZoomMode = async (mode) => {
     if (isSwitchingCamera || isPinching) return;
 
-    // Front camera: no 0.5x
+    // Cam trước: nút 1x / 2x — không 0.5x
     if ((cameraMode || "environment") === "user") {
       if (mode === "0.5x") return;
       if (mode === "1x") {
@@ -405,6 +405,31 @@ const MediaPreviewIOS = () => {
         } catch {
           /* ignore */
         }
+        return;
+      }
+      if (mode === "2x" || mode === "2") {
+        const stream = streamRef.current;
+        const caps = refreshFrontCameraZoomCapabilities(stream);
+        const target = Math.min(2, caps.maxZoom || 2);
+        if (!caps.supported || target < 1.2) {
+          SonnerInfo(
+            t("home.camera_no_zoom", {
+              defaultValue: "Camera trước không hỗ trợ zoom 2x",
+            }),
+          );
+          return;
+        }
+        setActiveZoomMode("2x");
+        setZoomLevel("2x");
+        lastZoomLevel.current = "2x";
+        currentZoomValue.current = target;
+        setCurrentZoom(target);
+        try {
+          await applyFrontCameraZoom(stream, target);
+        } catch {
+          /* ignore */
+        }
+        return;
       }
       return;
     }
@@ -1086,12 +1111,22 @@ const MediaPreviewIOS = () => {
               </div>
             )}
 
-            {/* Nút zoom — chỉ cam sau (ổn định) */}
-            {showZoomUi && (cameraMode || "environment") === "environment" && (
+            {/* Hàng nút zoom ấn — cam trước (1x·2x) + cam sau (0.6·1x·2x) */}
+            {showZoomUi && (
               <ZoomPresets
                 activeMode={activeZoomMode}
                 currentZoom={currentZoom}
-                available={availableZoomModes}
+                available={
+                  (cameraMode || "environment") === "user"
+                    ? {
+                        "0.5x": false,
+                        "1x": true,
+                        "2x": true,
+                        ultraFactor: null,
+                      }
+                    : availableZoomModes
+                }
+                facing={cameraMode || "environment"}
                 disabled={isSwitchingCamera || isPinching}
                 onSelect={handleSelectZoomMode}
                 visible
