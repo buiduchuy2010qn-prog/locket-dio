@@ -3,8 +3,7 @@ import "./styles.css";
 import { MusicPlayer } from "@/components/Widgets/MusicPlayer";
 
 /**
- * Pill nhạc trên moment — giống app Locket:
- * cover + "Tên bài · Nghệ sĩ" + badge Spotify/Apple Music
+ * Pill nhạc trên moment — cover + tên bài · nghệ sĩ (không logo Spotify/Apple).
  */
 const MusicOverlay = ({ overlayData, momentId }) => {
   const selectedMomentId = useSelectedStore((s) => s.selectedMomentId);
@@ -31,19 +30,6 @@ const MusicOverlay = ({ overlayData, momentId }) => {
     music.thumbnail_url ||
     "";
 
-  const platform = String(
-    overlayData?.platform || music.platform || "",
-  ).toLowerCase();
-  const isApple =
-    platform === "apple" ||
-    platform === "apple_music" ||
-    Boolean(music.apple_music_url || music.appleMusicUrl);
-  const isSpotify =
-    !isApple &&
-    (platform === "spotify" ||
-      Boolean(music.spotify_url) ||
-      Boolean(music.isrc));
-
   if (!text && !urlImage && !music.isrc) return null;
   const displayText = text || "Nhạc";
 
@@ -52,16 +38,10 @@ const MusicOverlay = ({ overlayData, momentId }) => {
       {urlImage ? (
         <img
           src={urlImage}
-          alt="Cover"
+          alt=""
           className="w-6 h-6 object-cover rounded-sm shrink-0 no-select no-save"
         />
-      ) : (
-        <img
-          src="/icons/music_icon.png"
-          alt="Music"
-          className="w-5 h-5 object-contain shrink-0 opacity-90 no-select no-save"
-        />
-      )}
+      ) : null}
 
       <div className="relative overflow-hidden whitespace-nowrap flex-1 min-w-0">
         <div
@@ -79,23 +59,6 @@ const MusicOverlay = ({ overlayData, momentId }) => {
           <span className="mr-4 absolute">{displayText}</span>
         </div>
       </div>
-
-      {(isSpotify || isApple) && (
-        <div className="flex items-center gap-2 shrink-0 no-select no-save">
-          <div className="border-l border-white/70 h-5" />
-          {isApple ? (
-            <span className="text-[11px] font-bold tracking-tight whitespace-nowrap text-white drop-shadow">
-              🍎 Music
-            </span>
-          ) : (
-            <img
-              src="/icons/spotify_icon.png"
-              alt="Spotify"
-              className="w-6 h-6 object-contain"
-            />
-          )}
-        </div>
-      )}
 
       <MusicPlayer
         thumbnail={urlImage}

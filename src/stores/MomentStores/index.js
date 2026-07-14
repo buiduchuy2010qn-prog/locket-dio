@@ -21,6 +21,94 @@ const defaultBucket = () => ({
   visibleCount: initialVisible,
 });
 
+/** createTime luôn là ms number — tránh sort NaN làm bài "biến mất" */
+function toCreateTimeMs(v) {
+  if (typeof v === "number" && Number.isFinite(v)) {
+    return v > 0 && v < 1e12 ? v * 1000 : v;
+  }
+  if (typeof v === "string" && v.trim()) {
+    const n = Date.parse(v);
+    return Number.isNaN(n) ? 0 : n;
+  }
+  if (v && typeof v === "object") {
+    if (typeof v._seconds === "number") return v._seconds * 1000;
+    if (typeof v.seconds === "number") return v.seconds * 1000;
+  }
+  return 0;
+}
+
+function hasMusicOverlay(m) {
+  const o = m?.overlays;
+  if (!o) return false;
+  if (o.type === "music" || o.overlay_id === "caption:music") return true;
+  if (o.payload?.isrc || o.payload?.song_title) return true;
+  const cap = Array.isArray(m?.captions) ? m.captions[0] : null;
+  return Boolean(cap?.type === "music" || cap?.payload?.isrc);
+}
+
+/**
+ * Merge moment: không xóa bài local; giữ overlay nhạc nếu API trả thiếu.
+ * (pullLatest/fetch trước đây ghi đè → bài "Vừa xong" biến mất / mất nhạc)
+ */
+function mergeMoment(local, incoming) {
+  if (!incoming && !local) return null;
+  if (!incoming) {
+    return {
+      ...local,
+      createTime: toCreateTimeMs(local.createTime) || Date.now(),
+    };
+  }
+  if (!local) {
+    return {
+      ...incoming,
+      createTime:
+        toCreateTimeMs(incoming.createTime || incoming.date) || Date.now(),
+    };
+  }
+
+  const createTime = Math.max(
+    toCreateTimeMs(local.createTime || local.date),
+    toCreateTimeMs(incoming.createTime || incoming.date),
+    0,
+  );
+
+  const preferLocalMusic =
+    hasMusicOverlay(local) && !hasMusicOverlay(incoming);
+
+  return {
+    ...local,
+    ...incoming,
+    createTime: createTime || Date.now(),
+    overlays: preferLocalMusic
+      ? local.overlays
+      : incoming.overlays || local.overlays,
+    captions: preferLocalMusic
+      ? local.captions
+      : incoming.captions || local.captions,
+    image_url:
+      incoming.image_url ||
+      local.image_url ||
+      incoming.thumbnail_url ||
+      local.thumbnail_url ||
+      null,
+    thumbnail_url:
+      incoming.thumbnail_url ||
+      local.thumbnail_url ||
+      incoming.image_url ||
+      local.image_url ||
+      null,
+    video_url: incoming.video_url || local.video_url || null,
+  };
+}
+
+function sortByCreateTimeDesc(list) {
+  return [...list].sort(
+    (a, b) =>
+      toCreateTimeMs(b.createTime || b.date) -
+      toCreateTimeMs(a.createTime || a.date),
+  );
+}
+
 /* --------------------------------------------------
  * Store
  * -------------------------------------------------- */
@@ -76,21 +164,27 @@ export const useMomentsStoreV2 = create((set, get) => ({
       if (localData?.length) {
         set((state) => {
           const bucket = state.momentsByUser[key] ?? defaultBucket();
+          // Giữ moment đang có trong RAM (vừa đăng) + local DB
+          const byId = new Map(
+            (bucket.moments || []).map((m) => [m.id, m]),
+          );
+          for (const m of localData) {
+            if (!m?.id) continue;
+            byId.set(m.id, mergeMoment(byId.get(m.id), m));
+          }
           return {
             momentsByUser: {
               ...state.momentsByUser,
               [key]: {
                 ...bucket,
-                moments: [...localData].sort(
-                  (a, b) => b.createTime - a.createTime
-                ),
+                moments: sortByCreateTimeDesc([...byId.values()]),
               },
             },
           };
         });
       }
 
-      /* ---------- API sync ---------- */
+      /* ---------- API sync — MERGE, không wipe feed ---------- */
       const apiData = await GetAllMoments({
         timestamp: Math.floor(Date.now() / 1000),
         friendId: selectedFriendUid,
@@ -98,21 +192,32 @@ export const useMomentsStoreV2 = create((set, get) => ({
       });
 
       if (apiData?.length) {
+        let mergedForCache = [];
         set((state) => {
           const bucket = state.momentsByUser[key] ?? defaultBucket();
+          const byId = new Map(
+            (bucket.moments || []).map((m) => [m.id, m]),
+          );
+          for (const m of apiData) {
+            if (!m?.id) continue;
+            byId.set(m.id, mergeMoment(byId.get(m.id), m));
+          }
+          mergedForCache = sortByCreateTimeDesc([...byId.values()]);
           return {
             momentsByUser: {
               ...state.momentsByUser,
               [key]: {
                 ...bucket,
-                moments: [...apiData].sort((a, b) => b.createTime - a.createTime),
+                moments: mergedForCache,
               },
             },
           };
         });
 
-        // cache lại local
-        await bulkAddMoments(apiData);
+        // Cache bản đã merge (giữ nhạc) — không ghi đè bằng API thiếu overlay
+        if (mergedForCache.length) {
+          await bulkAddMoments(mergedForCache);
+        }
       }
     } catch (err) {
       console.error("❌ fetchMoments error:", err);
@@ -134,89 +239,8 @@ export const useMomentsStoreV2 = create((set, get) => ({
   },
 
   reloadMoments: async (selectedFriendUid = null) => {
-    const key = selectedFriendUid ?? "all";
-    get().ensureBucket(key);
-
-    // loading = true
-    set((state) => {
-      const bucket = state.momentsByUser[key] ?? defaultBucket();
-      return {
-        momentsByUser: {
-          ...state.momentsByUser,
-          [key]: {
-            ...bucket,
-            loading: true,
-            hasMore: true,
-            visibleCount: initialVisible,
-          },
-        },
-      };
-    });
-
-    try {
-      /* ---------- Local DB ---------- */
-      const localData = selectedFriendUid
-        ? await getMomentsByUser(selectedFriendUid)
-        : await getAllMoments();
-
-      if (localData?.length) {
-        set((state) => {
-          const bucket = state.momentsByUser[key] ?? defaultBucket();
-          return {
-            momentsByUser: {
-              ...state.momentsByUser,
-              [key]: {
-                ...bucket,
-                moments: [...localData].sort(
-                  (a, b) => b.createTime - a.createTime
-                ),
-              },
-            },
-          };
-        });
-      }
-
-      /* ---------- API sync ---------- */
-      const apiData = await GetAllMoments({
-        timestamp: Math.floor(Date.now() / 1000),
-        friendId: selectedFriendUid,
-        limit: initialVisible,
-      });
-
-      if (apiData?.length) {
-        set((state) => {
-          const bucket = state.momentsByUser[key] ?? defaultBucket();
-          return {
-            momentsByUser: {
-              ...state.momentsByUser,
-              [key]: {
-                ...bucket,
-                moments: [...apiData].sort((a, b) => b.createTime - a.createTime),
-              },
-            },
-          };
-        });
-
-        // cache lại local
-        await bulkAddMoments(apiData);
-      }
-    } catch (err) {
-      console.error("❌ fetchMoments error:", err);
-    } finally {
-      set((state) => {
-        const bucket = state.momentsByUser[key];
-        if (!bucket) return state;
-        return {
-          momentsByUser: {
-            ...state.momentsByUser,
-            [key]: {
-              ...bucket,
-              loading: false,
-            },
-          },
-        };
-      });
-    }
+    // Cùng logic merge với fetchMoments (user truthy để không early-return)
+    return get().fetchMoments({ reload: true }, selectedFriendUid);
   },
 
   /* --------------------------------------------------
@@ -323,25 +347,28 @@ export const useMomentsStoreV2 = create((set, get) => ({
     set((state) => {
       const next = { ...state.momentsByUser };
 
-      for (const m of items) {
-        if (!m?.id) continue;
+      for (const raw of items) {
+        if (!raw?.id) continue;
+        const m = {
+          ...raw,
+          createTime:
+            toCreateTimeMs(raw.createTime || raw.date) || Date.now(),
+        };
 
         const ownerUid = m.userUid || m.user || m.owner;
-        const keys = [ownerUid ?? "all", "all"]; // 👈 add vào feed + all
+        const keys = [ownerUid ?? "all", "all"];
 
         for (const key of keys) {
           if (!key) continue;
 
           const bucket = next[key] ?? defaultBucket();
-
-          // ❌ duplicate
-          if (bucket.moments.some((i) => i.id === m.id)) continue;
+          const existing = bucket.moments.find((i) => i.id === m.id);
+          const merged = mergeMoment(existing, m);
+          const rest = bucket.moments.filter((i) => i.id !== m.id);
 
           next[key] = {
             ...bucket,
-            moments: [m, ...bucket.moments].sort(
-              (a, b) => b.createTime - a.createTime
-            ),
+            moments: sortByCreateTimeDesc([merged, ...rest]),
           };
         }
 
@@ -394,15 +421,15 @@ export const useMomentsStoreV2 = create((set, get) => ({
 
         for (const m of apiData) {
           if (!m?.id) continue;
-          byId.set(m.id, m);
-          dbQueue.push(m);
+          // MERGE — giữ overlay nhạc local nếu API cắt
+          const merged = mergeMoment(byId.get(m.id), m);
+          byId.set(m.id, merged);
+          dbQueue.push(merged);
         }
 
         next[key] = {
           ...bucket,
-          moments: [...byId.values()].sort(
-            (a, b) => b.createTime - a.createTime,
-          ),
+          moments: sortByCreateTimeDesc([...byId.values()]),
         };
 
         // Keep "all" feed in sync when filtering by friend
@@ -410,13 +437,12 @@ export const useMomentsStoreV2 = create((set, get) => ({
           const all = next["all"] ?? defaultBucket();
           const allById = new Map(all.moments.map((m) => [m.id, m]));
           for (const m of apiData) {
-            if (m?.id) allById.set(m.id, m);
+            if (!m?.id) continue;
+            allById.set(m.id, mergeMoment(allById.get(m.id), m));
           }
           next["all"] = {
             ...all,
-            moments: [...allById.values()].sort(
-              (a, b) => b.createTime - a.createTime,
-            ),
+            moments: sortByCreateTimeDesc([...allById.values()]),
           };
         }
 
