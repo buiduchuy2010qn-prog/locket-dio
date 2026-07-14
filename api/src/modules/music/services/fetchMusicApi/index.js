@@ -1201,9 +1201,10 @@ async function searchMusicByQuery(query, limit = 30) {
       merged.set(key, t);
       return;
     }
-    // Ưu tiên track có ISRC + Spotify URL
+    // Ưu tiên ISRC + platform link (Apple/Spotify) — Locket cần isrc + 1 url
     const score = (x) =>
       (x.isrc ? 4 : 0) +
+      (x.apple_music_url ? 3 : 0) +
       (x.spotify_url || x.source === "spotify-search" ? 2 : 0) +
       (x.preview_url ? 1 : 0);
     const next = {
@@ -1223,6 +1224,7 @@ async function searchMusicByQuery(query, limit = 30) {
         isrc: prev.isrc || t.isrc,
         preview_url: prev.preview_url || t.preview_url,
         spotify_url: prev.spotify_url || t.spotify_url,
+        apple_music_url: prev.apple_music_url || t.apple_music_url,
       });
     }
   };
@@ -1364,6 +1366,44 @@ async function searchMusicByQuery(query, limit = 30) {
         t.isrc ||
         `${normalizeSearchText(t.song_title || t.name)}|${normalizeSearchText(t.artist)}`;
       return byKey.get(key) || t;
+    });
+  }
+
+  // Bổ sung apple_music_url + preview ổn định (iTunes) — Locket hiện 🍎 Music
+  const needApple = ranked
+    .slice(0, Math.min(lim, 12))
+    .filter((t) => !t.apple_music_url && !t.spotify_url)
+    .slice(0, 8);
+  if (needApple.length) {
+    const filled = await Promise.all(
+      needApple.map(async (t) => {
+        const song = t.song_title || t.song_name || t.name || "";
+        const it = await enrichFromItunes(song, t.artist || "");
+        if (!it) return t;
+        return {
+          ...t,
+          isrc: t.isrc || it.isrc || null,
+          preview_url: t.preview_url || it.preview_url || null,
+          apple_music_url: it.apple_music_url || null,
+          image_url: t.image_url || it.image_url || "",
+          source: `${t.source || "search"}+apple`,
+        };
+      }),
+    );
+    const byId = new Map(
+      filled.map((t) => [
+        t.id ||
+          t.isrc ||
+          `${normalizeSearchText(t.song_title || t.name)}|${normalizeSearchText(t.artist)}`,
+        t,
+      ]),
+    );
+    ranked = ranked.map((t) => {
+      const key =
+        t.id ||
+        t.isrc ||
+        `${normalizeSearchText(t.song_title || t.name)}|${normalizeSearchText(t.artist)}`;
+      return byId.get(key) || t;
     });
   }
 

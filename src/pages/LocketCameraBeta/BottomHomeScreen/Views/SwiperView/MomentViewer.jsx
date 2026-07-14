@@ -65,9 +65,24 @@ const MomentViewer = ({ moment, handleClose }) => {
               onLoadedData={() => setIsVideoReady(true)}
             />
           )}
-          {/* Caption */}
+          {/* Caption / music pill — fallback captions[] nếu overlays trống */}
           <OverlayRenderer
-            overlayData={moment?.overlays}
+            overlayData={
+              moment?.overlays ||
+              (Array.isArray(moment?.captions) && moment.captions[0]
+                ? {
+                    type: moment.captions[0].type || "caption",
+                    text: moment.captions[0].text,
+                    text_color: moment.captions[0].text_color,
+                    icon: moment.captions[0].icon,
+                    payload: moment.captions[0].payload || {},
+                    overlay_id:
+                      moment.captions[0].type === "music"
+                        ? "caption:music"
+                        : undefined,
+                  }
+                : null)
+            }
             momentId={moment?.id}
             pollCounts={pollCounts}
             pollVariant={isOwnMoment ? "owner" : "friend"}

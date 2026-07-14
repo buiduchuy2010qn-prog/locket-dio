@@ -176,11 +176,17 @@ export default function GeneralThemes({ title }) {
       platform: musicPayload.platform,
     });
 
+    const label =
+      musicPayload.platform === "apple" || musicPayload.apple_music_url
+        ? "Apple Music"
+        : platformHint === "apple"
+          ? "Apple Music"
+          : "Spotify";
     SonnerSuccess(
-      platformHint === "apple" ? "Apple Music" : "Spotify",
+      label,
       musicPayload.preview_url
         ? t("custom_studio.music_success")
-        : "Đã gắn nhạc (ISRC OK). Preview web có thể im — app Locket vẫn hiện.",
+        : "Đã gắn nhạc (ISRC OK) — hiện trên web + app Locket.",
     );
     return true;
   };

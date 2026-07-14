@@ -174,61 +174,86 @@ export const useUploadQueueStore = create((set, get) => ({
           : res?.data;
       let normalized = normalizeMoment(raw) || normalizeMoment(res?.data);
 
-      // Response Locket thường thiếu / cắt payload music → LUÔN ghép từ optionsData
-      if (normalized && item?.optionsData) {
-        const od = item.optionsData;
-        const special =
-          od.type === "music" ||
-          od.type === "poll" ||
-          od.type === "review" ||
-          od.type === "color_palette";
-        const ov = overlayFromOptionsData(od);
-        const incoming = normalized.overlays;
-        const musicNeedsRestore =
-          od.type === "music" &&
-          (!incoming ||
-            incoming.type !== "music" ||
-            !incoming.payload?.isrc);
-        if (ov && (special || !incoming || musicNeedsRestore)) {
-          normalized = {
-            ...normalized,
-            overlays: {
-              ...(incoming || {}),
-              ...ov,
-              payload: {
-                ...(incoming?.payload || {}),
-                ...(ov.payload || {}),
-                // Đảm bảo isrc/cover từ lúc gắn caption
-                ...(od.payload || {}),
-              },
-              icon:
-                (ov.icon?.data && ov.icon) ||
-                (od.icon?.data && od.icon) ||
-                incoming?.icon ||
-                ov.icon,
-              type: od.type === "music" ? "music" : ov.type || incoming?.type,
-              overlay_id:
-                od.type === "music"
-                  ? "caption:music"
-                  : ov.overlay_id || incoming?.overlay_id,
-              text: ov.text || od.text || od.caption || incoming?.text || "",
-              caption: ov.text || od.caption || od.text || "",
-              platform: od.platform || ov.platform || incoming?.platform,
+      const od = item?.optionsData || {};
+      const media = item?.mediaInfo || {};
+      const mediaUrl =
+        media.publicUrl ||
+        media.publicURL ||
+        media.downloadURL ||
+        media.url ||
+        normalized?.image_url ||
+        normalized?.thumbnail_url ||
+        null;
+
+      // ── Music/poll/review: LUÔN lấy overlay từ lúc đăng (Locket hay cắt response)
+      const ov = overlayFromOptionsData(od);
+      if (ov && (od.type === "music" || od.type === "poll" || od.type === "review" || od.type === "color_palette")) {
+        const musicPayload = {
+          ...(ov.payload || {}),
+          ...(od.payload || {}),
+          ...(od.music || {}),
+        };
+        const cover =
+          ov.icon?.data ||
+          od.icon?.data ||
+          musicPayload.image_url ||
+          musicPayload.image ||
+          "";
+        const text =
+          ov.text ||
+          od.text ||
+          od.caption ||
+          [musicPayload.song_title || musicPayload.song_name, musicPayload.artist]
+            .filter(Boolean)
+            .join(" · ") ||
+          "";
+        const musicOverlay = {
+          overlay_id:
+            od.type === "music" ? "caption:music" : ov.overlay_id || od.overlay_id,
+          overlay_type: "caption",
+          type: od.type === "music" ? "music" : ov.type || od.type,
+          text,
+          caption: text,
+          text_color: od.text_color || "#FFFFFFE6",
+          payload: musicPayload,
+          icon: cover
+            ? { type: "image", data: cover, source: "url" }
+            : ov.icon || od.icon || {},
+          platform:
+            od.platform ||
+            (musicPayload.apple_music_url && !musicPayload.spotify_url
+              ? "apple"
+              : "spotify"),
+          background: ov.background || {
+            material_blur: "ultra_thin",
+            colors: [],
+          },
+        };
+        normalized = {
+          ...(normalized || {}),
+          overlays: musicOverlay,
+          captions: [
+            {
+              text,
+              text_color: "#FFFFFFE6",
+              icon: musicOverlay.icon,
+              type: musicOverlay.type,
+              payload: musicPayload,
             },
-            // Caption list cho UI legacy
-            captions:
-              od.type === "music"
-                ? [
-                    {
-                      text: od.text || od.caption || "",
-                      text_color: "#FFFFFFE6",
-                      icon: od.icon || null,
-                      type: "music",
-                      payload: od.payload || {},
-                    },
-                  ]
-                : normalized.captions,
-          };
+          ],
+        };
+      } else if (normalized && ov && !normalized.overlays) {
+        normalized = { ...normalized, overlays: ov };
+      }
+
+      // Ảnh / video URL cho feed web
+      if (normalized) {
+        if (!normalized.image_url && !normalized.thumbnail_url && mediaUrl) {
+          normalized.image_url = mediaUrl;
+          normalized.thumbnail_url = mediaUrl;
+        }
+        if (!normalized.video_url && media.type === "video" && mediaUrl) {
+          normalized.video_url = mediaUrl;
         }
       }
 
