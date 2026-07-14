@@ -11,7 +11,8 @@ export default function Profile() {
   const formatDateTime = (timestamp) => {
     if (!timestamp) return "Không có dữ liệu";
 
-    const date = new Date(parseInt(timestamp));
+    const date = new Date(parseInt(timestamp, 10));
+    if (Number.isNaN(date.getTime())) return "Không có dữ liệu";
     const options = {
       year: "numeric",
       month: "numeric",
@@ -23,12 +24,17 @@ export default function Profile() {
       timeZone: "Asia/Ho_Chi_Minh",
     };
 
-    return date.toLocaleString("vi-VN", options);
+    try {
+      return date.toLocaleString("vi-VN", options);
+    } catch {
+      return "Không có dữ liệu";
+    }
   };
   const formatDateTimeV2 = (timestamp) => {
     if (!timestamp) return "Không có dữ liệu";
 
     const date = new Date(timestamp);
+    if (Number.isNaN(date.getTime())) return "Không có dữ liệu";
     const options = {
       year: "numeric",
       month: "numeric",
@@ -40,7 +46,11 @@ export default function Profile() {
       timeZone: "Asia/Ho_Chi_Minh",
     };
 
-    return date.toLocaleString("vi-VN", options);
+    try {
+      return date.toLocaleString("vi-VN", options);
+    } catch {
+      return "Không có dữ liệu";
+    }
   };
 
   return (

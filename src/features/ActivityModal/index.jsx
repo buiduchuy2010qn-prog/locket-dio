@@ -246,9 +246,7 @@ export const ActivityModal = ({
                                     className="text-xs text-base-content/70"
                                   >
                                     {r.emoji} · {t("activity.intensity", { intensity: r.intensity || 0 })} ·{" "}
-                                    {new Date(r.createdAt).toLocaleString(
-                                      i18n.language === "vi" ? "vi-VN" : "en-US",
-                                    )}
+                                    {formatTimeAgo(r.createdAt)}
                                   </p>
                                 ))}
                               </div>

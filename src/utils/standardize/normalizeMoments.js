@@ -30,21 +30,64 @@ export function normalizeMoment(data) {
   const momentId = canonical_uid || id || null;
 
   let dateVNString = null;
-  let createTimeMs = createTime || 0;
+  let createTimeMs =
+    typeof createTime === "number" && Number.isFinite(createTime)
+      ? createTime
+      : 0;
 
-  if (date?._seconds) {
-    const firestoreDate = new Date(date._seconds * 1000);
-    dateVNString = firestoreDate.toLocaleString("vi-VN", {
-      timeZone: "Asia/Ho_Chi_Minh",
-    });
-    createTimeMs = createTimeMs || date._seconds * 1000;
-  } else if (typeof date === "number") {
-    createTimeMs = createTimeMs || date;
-    dateVNString = new Date(date).toLocaleString("vi-VN", {
-      timeZone: "Asia/Ho_Chi_Minh",
-    });
-  } else if (typeof date === "string") {
-    dateVNString = date;
+  const safeLocale = (ms) => {
+    try {
+      const d = new Date(ms);
+      if (Number.isNaN(d.getTime())) return null;
+      return d.toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" });
+    } catch {
+      return null;
+    }
+  };
+
+  const sec =
+    date?._seconds ??
+    date?.seconds ??
+    (typeof date === "object" && typeof date?.toMillis === "function"
+      ? null
+      : null);
+
+  if (typeof sec === "number" && Number.isFinite(sec)) {
+    createTimeMs = createTimeMs || sec * 1000;
+    dateVNString = safeLocale(sec * 1000);
+  } else if (typeof date?.toMillis === "function") {
+    try {
+      const ms = date.toMillis();
+      if (Number.isFinite(ms)) {
+        createTimeMs = createTimeMs || ms;
+        dateVNString = safeLocale(ms);
+      }
+    } catch {
+      /* ignore */
+    }
+  } else if (typeof date === "number" && Number.isFinite(date)) {
+    // seconds (~1e9) vs ms (~1e12)
+    const ms = date < 1e12 && date > 1e9 ? date * 1000 : date;
+    createTimeMs = createTimeMs || ms;
+    dateVNString = safeLocale(ms);
+  } else if (typeof date === "string" && date.trim()) {
+    const parsed = Date.parse(date);
+    if (!Number.isNaN(parsed)) {
+      createTimeMs = createTimeMs || parsed;
+      dateVNString = safeLocale(parsed);
+    } else {
+      // Đã là chuỗi hiển thị (vi-VN) — giữ text, không gán createTime
+      dateVNString = date;
+    }
+  }
+
+  // createTime có thể là seconds
+  if (
+    createTimeMs > 0 &&
+    createTimeMs < 1e12 &&
+    createTimeMs > 1e9
+  ) {
+    createTimeMs = createTimeMs * 1000;
   }
 
   // Normalize overlays → object shape used by OverlayRenderer

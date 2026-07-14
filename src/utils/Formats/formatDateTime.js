@@ -1,5 +1,7 @@
 export const formatDateTime = (isoString) => {
+  if (isoString == null || isoString === "") return "";
   const date = new Date(isoString);
+  if (Number.isNaN(date.getTime())) return "";
 
   // ví dụ format thành dd/MM/yyyy HH:mm:ss
   const pad = (n) => n.toString().padStart(2, "0");
