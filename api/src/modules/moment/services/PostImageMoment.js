@@ -19,28 +19,28 @@ const postImageToLocketV2 = async ({
 }) => {
   // Lấy các giá trị từ tokenData và optionsData
   let optionsData = rawOptions || {};
-  // Music: re-enrich isrc + preview ổn định trước khi build payload Locket
+  // Music: bắt buộc isrc + (spotify_url | apple_music_url) — app Locket mới hiện
   if (optionsData.type === "music") {
-    try {
-      optionsData = await ensureMusicOptionsData(optionsData);
-      if (!optionsData?.payload?.isrc) {
-        logWarning(
-          "postImageToLocketV2",
-          "Music thiếu ISRC sau enrich — chặn đăng để tránh post trắng",
-        );
-        const err = new Error(
-          "Thiếu mã ISRC bài hát. Chọn lại bài từ tìm nhạc (có ISRC) rồi đăng.",
-        );
-        err.status = 400;
-        throw err;
-      }
-      logInfo(
-        "postImageToLocketV2",
-        `Music OK isrc=${optionsData.payload.isrc} title=${optionsData.payload.song_title || optionsData.payload.song_name || ""}`,
+    optionsData = await ensureMusicOptionsData(optionsData);
+    const p = optionsData?.payload || {};
+    if (!p.isrc) {
+      const err = new Error(
+        "Thiếu mã ISRC bài hát. Chọn lại bài từ tìm nhạc rồi đăng.",
       );
-    } catch (e) {
-      logWarning("postImageToLocketV2", `ensureMusic: ${e.message}`);
+      err.status = 400;
+      throw err;
     }
+    if (!p.spotify_url && !p.apple_music_url) {
+      const err = new Error(
+        "Thiếu link Apple Music / Spotify. Chọn lại bài (ưu tiên có preview) rồi đăng.",
+      );
+      err.status = 400;
+      throw err;
+    }
+    logInfo(
+      "postImageToLocketV2",
+      `Music OK isrc=${p.isrc} title=${p.song_title || p.song_name || ""} platform=${p.spotify_url ? "spotify" : "apple"}`,
+    );
   }
   const { type } = optionsData;
   const { fileBuffer } = mediaData;

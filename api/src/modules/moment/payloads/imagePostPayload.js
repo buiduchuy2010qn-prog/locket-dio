@@ -267,8 +267,8 @@ const imagePostPayloadReview = ({ imageUrl, optionsData }) => {
   return { data };
 };
 
-// Đăng ảnh Music — Locket app thật cần isrc + song_title + artist + 1 link platform
-// (Format giống bản đã chạy ổn: max_lines number, XOR spotify|apple)
+// Đăng ảnh Music — app Locket cần:
+// isrc + song_title + artist + (spotify_url XOR apple_music_url) + icon cover
 const imagePostPayloadMusic = ({ imageUrl, optionsData }) => {
   const payload = optionsData?.payload || optionsData?.music || {};
   const { caption, icon, text: optText } = optionsData || {};
@@ -281,16 +281,27 @@ const imagePostPayloadMusic = ({ imageUrl, optionsData }) => {
     payload?.title ||
     "";
   const artist = payload?.artist || "";
-  // Locket hiển thị pill: "Tên bài · Nghệ sĩ" — text chỉ cần tên (hoặc full)
+  // text = tên bài (Locket tự ghép · artist từ payload)
   const text =
     (caption || optText || "").trim() ||
-    [songTitle, artist].filter(Boolean).join(" · ") ||
-    songTitle;
+    songTitle ||
+    [songTitle, artist].filter(Boolean).join(" · ");
 
   const isrc = payload?.isrc ? String(payload.isrc).trim() : "";
   if (!isrc) {
     const err = new Error(
       "Thiếu mã ISRC — không đăng được nhạc. Chọn lại bài từ tìm nhạc.",
+    );
+    err.status = 400;
+    throw err;
+  }
+
+  const spotify_url = payload?.spotify_url || null;
+  const apple_music_url =
+    payload?.apple_music_url || payload?.appleMusicUrl || null;
+  if (!spotify_url && !apple_music_url) {
+    const err = new Error(
+      "Thiếu link Apple Music / Spotify — app Locket sẽ không hiện nhạc.",
     );
     err.status = 400;
     throw err;
@@ -307,39 +318,32 @@ const imagePostPayloadMusic = ({ imageUrl, optionsData }) => {
     payload?.preview_url || payload?.audio || payload?.previewUrl || null;
   if (preview) musicPayload.preview_url = preview;
 
-  // Chỉ 1 platform — Locket app hiện Spotify HOẶC Apple Music (như screenshot)
-  // Ưu tiên Spotify; không có thì Apple (vẫn hiện pill nhạc đúng)
-  if (payload?.spotify_url) {
-    musicPayload.spotify_url = payload.spotify_url;
-  } else if (payload?.apple_music_url || payload?.appleMusicUrl) {
-    musicPayload.apple_music_url =
-      payload.apple_music_url || payload.appleMusicUrl;
-  }
+  // XOR platform URL
+  if (spotify_url) musicPayload.spotify_url = spotify_url;
+  else musicPayload.apple_music_url = apple_music_url;
 
-  let musicIcon = icon && typeof icon === "object" ? { ...icon } : null;
   const cover =
-    musicIcon?.data ||
+    (icon && icon.data) ||
     payload?.image_url ||
     payload?.image ||
     payload?.thumbnail_url ||
     "";
-  if (cover) {
-    musicIcon = {
-      type: "image",
-      data: cover,
-      source: musicIcon?.source || "url",
-    };
-  } else if (musicIcon?.data && !musicIcon.type) {
-    musicIcon = {
-      type: "image",
-      data: musicIcon.data,
-      source: musicIcon.source || "url",
-    };
+  if (!cover) {
+    const err = new Error(
+      "Thiếu ảnh bìa album — chọn lại bài có cover rồi đăng.",
+    );
+    err.status = 400;
+    throw err;
   }
+  const musicIcon = {
+    type: "image",
+    data: cover,
+    source: (icon && icon.source) || "url",
+  };
 
   data.overlays.push({
     data: {
-      text,
+      text: songTitle || text,
       text_color: "#FFFFFFE6",
       type: "music",
       max_lines: 1,
@@ -347,7 +351,7 @@ const imagePostPayloadMusic = ({ imageUrl, optionsData }) => {
       icon: musicIcon,
       background: { material_blur: "ultra_thin", colors: [] },
     },
-    alt_text: text,
+    alt_text: [songTitle, artist].filter(Boolean).join(" · ") || text,
     overlay_id: "caption:music",
     overlay_type: "caption",
   });

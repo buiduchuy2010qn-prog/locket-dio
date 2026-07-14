@@ -1,15 +1,14 @@
 /**
- * Đảm bảo payload music đủ isrc + preview ổn định trước khi gửi Locket.
- * Gọi lúc POST moment (server-side) để bù client thiếu/cold-start.
+ * Đảm bảo payload music đủ isrc + preview + platform URL trước khi gửi Locket.
+ * App Locket cần: isrc + song_title + artist + (spotify_url | apple_music_url) + icon.
+ * Web merge local vẫn hiện nếu chỉ có isrc — nhưng app thật thì không.
  */
-const { fetchMusicApi } = require("./fetchMusicApi");
+const { fetchMusicApi, searchMusicByQuery } = require("./fetchMusicApi");
 
 function isSignedEphemeralPreview(url = "") {
   const u = String(url || "");
   if (!u) return true;
-  // Deezer signed CDN — hết hạn theo hdnea=exp=
   if (/dzcdn\.net|deezer\.com.*hdnea=/i.test(u)) return true;
-  // Spotify preview đôi khi 403 / mất
   if (/p\.scdn\.co/i.test(u)) return true;
   return false;
 }
@@ -19,7 +18,7 @@ function pickSongTitle(p = {}) {
     p.song_title ||
     p.song_name ||
     p.name ||
-    (typeof p.title === "string" && !p.title.includes(" - ")
+    (typeof p.title === "string" && !p.title.includes(" - ") && !p.title.includes(" · ")
       ? p.title
       : "") ||
     ""
@@ -33,21 +32,27 @@ function pickSongTitle(p = {}) {
 async function ensureMusicOptionsData(optionsData = {}) {
   if (!optionsData || optionsData.type !== "music") return optionsData;
 
-  const payload = { ...(optionsData.payload || {}) };
+  const payload = {
+    ...(optionsData.payload || {}),
+    ...(optionsData.music || {}),
+  };
   let isrc = payload.isrc ? String(payload.isrc).trim() : "";
   let preview =
     payload.preview_url || payload.previewUrl || payload.audio || null;
   let song_title = pickSongTitle(payload);
   let artist = payload.artist || "";
-  let image_url = payload.image_url || payload.image || optionsData.icon?.data || "";
+  let image_url =
+    payload.image_url || payload.image || optionsData.icon?.data || "";
   let spotify_url = payload.spotify_url || null;
   let apple_music_url =
     payload.apple_music_url || payload.appleMusicUrl || null;
 
   const needIsrc = !isrc;
   const needStablePreview = !preview || isSignedEphemeralPreview(preview);
+  // QUAN TRỌNG: app Locket không hiện nhạc nếu thiếu cả 2 link platform
+  const needPlatformUrl = !spotify_url && !apple_music_url;
 
-  if (needIsrc || needStablePreview) {
+  if (needIsrc || needStablePreview || needPlatformUrl) {
     let link =
       spotify_url ||
       apple_music_url ||
@@ -59,12 +64,13 @@ async function ensureMusicOptionsData(optionsData = {}) {
       optionsData.platform ||
       (apple_music_url && !spotify_url ? "apple" : "spotify");
 
-    // Fallback: build Spotify URL from track id if present
     if (
       !link &&
       payload.id &&
       typeof payload.id === "string" &&
-      /^[a-zA-Z0-9]{10,}$/.test(payload.id)
+      /^[a-zA-Z0-9]{10,22}$/.test(payload.id) &&
+      !String(payload.source || "").includes("deezer") &&
+      !String(payload.source || "").includes("itunes")
     ) {
       link = `https://open.spotify.com/track/${payload.id}`;
       spotify_url = link;
@@ -72,7 +78,10 @@ async function ensureMusicOptionsData(optionsData = {}) {
 
     if (link) {
       try {
-        const fresh = await fetchMusicApi(link, platform);
+        const fresh = await fetchMusicApi(
+          link,
+          /music\.apple|itunes\.apple/i.test(link) ? "apple" : platform,
+        );
         if (fresh) {
           isrc = isrc || (fresh.isrc ? String(fresh.isrc).trim() : "");
           if (needStablePreview && fresh.preview_url) {
@@ -97,16 +106,17 @@ async function ensureMusicOptionsData(optionsData = {}) {
       }
     }
 
-    // Vẫn thiếu ISRC: tìm theo tên + nghệ sĩ (Spotify search / enrich)
-    if (!isrc && song_title) {
+    // Search theo tên: lấy ISRC + apple_music_url (iTunes)
+    if ((!isrc || needPlatformUrl) && song_title) {
       try {
-        const { searchMusicByQuery } = require("./fetchMusicApi");
         const hits = await searchMusicByQuery(
           [song_title, artist].filter(Boolean).join(" "),
-          5,
+          12,
         );
         const hit =
+          (hits || []).find((h) => h.isrc && (h.apple_music_url || h.spotify_url)) ||
           (hits || []).find((h) => h.isrc) ||
+          (hits || []).find((h) => h.apple_music_url) ||
           (hits || [])[0] ||
           null;
         if (hit) {
@@ -121,16 +131,8 @@ async function ensureMusicOptionsData(optionsData = {}) {
           artist = artist || hit.artist || "";
           image_url = image_url || hit.image_url || "";
           spotify_url = spotify_url || hit.spotify_url || null;
-          if (hit.spotify_url && !isrc) {
-            try {
-              const fresh2 = await fetchMusicApi(hit.spotify_url, "spotify");
-              if (fresh2?.isrc) isrc = String(fresh2.isrc).trim();
-              if (fresh2?.preview_url) preview = preview || fresh2.preview_url;
-              if (fresh2?.image_url) image_url = image_url || fresh2.image_url;
-            } catch {
-              /* ignore */
-            }
-          }
+          apple_music_url =
+            apple_music_url || hit.apple_music_url || null;
         }
       } catch (e) {
         console.warn(
@@ -141,8 +143,15 @@ async function ensureMusicOptionsData(optionsData = {}) {
     }
   }
 
+  // Platform: ưu tiên link có sẵn; Apple OK khi không có Spotify
+  let platformOut = "spotify";
+  if (spotify_url) platformOut = "spotify";
+  else if (apple_music_url) platformOut = "apple";
+  else if (payload.platform === "apple" || optionsData.platform === "apple") {
+    platformOut = "apple";
+  }
+
   const nextPayload = {
-    ...payload,
     song_title: song_title || payload.song_title || "",
     song_name: song_title || payload.song_name || "",
     name: song_title || payload.name || "",
@@ -150,29 +159,34 @@ async function ensureMusicOptionsData(optionsData = {}) {
     isrc: isrc || null,
     preview_url: preview || null,
     image_url: image_url || null,
-    platform: payload.platform || optionsData.platform || "spotify",
+    platform: platformOut,
   };
+  // XOR — chỉ 1 platform URL cho Locket
   if (spotify_url) nextPayload.spotify_url = spotify_url;
-  if (apple_music_url) nextPayload.apple_music_url = apple_music_url;
+  else if (apple_music_url) nextPayload.apple_music_url = apple_music_url;
 
   const nextIcon =
     optionsData.icon?.data
-      ? optionsData.icon
+      ? {
+          type: optionsData.icon.type || "image",
+          data: optionsData.icon.data,
+          source: optionsData.icon.source || "url",
+        }
       : image_url
         ? { type: "image", data: image_url, source: "url" }
-        : optionsData.icon;
+        : null;
 
   const caption =
     (optionsData.caption || optionsData.text || "").trim() ||
-    [song_title, artist].filter(Boolean).join(" - ");
+    [song_title, artist].filter(Boolean).join(" · ");
 
   return {
     ...optionsData,
     caption,
-    text: optionsData.text || caption,
+    text: caption,
     payload: nextPayload,
     icon: nextIcon,
-    platform: nextPayload.platform,
+    platform: platformOut,
   };
 }
 

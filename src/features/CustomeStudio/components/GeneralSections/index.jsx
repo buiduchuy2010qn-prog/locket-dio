@@ -153,11 +153,25 @@ export default function GeneralThemes({ title }) {
 
     if (!musicPayload.isrc) {
       console.warn(
-        "[music] thiếu ISRC — Locket app có thể không hiện nhạc",
+        "[music] thiếu ISRC — Locket app không hiện nhạc",
         musicPayload,
       );
       SonnerError(
-        "Không lấy được mã ISRC bài hát. Thử bài khác hoặc dán link Spotify.",
+        "Không lấy được mã ISRC bài hát. Thử bài khác hoặc dán link track.",
+      );
+      return false;
+    }
+    if (!musicPayload.spotify_url && !musicPayload.apple_music_url) {
+      SonnerError(
+        "Thiếu link Apple Music / Spotify",
+        "Chọn bài khác (có preview) — app Locket cần link để hiện nhạc.",
+      );
+      return false;
+    }
+    if (!musicPayload.image_url) {
+      SonnerError(
+        "Thiếu ảnh bìa album",
+        "Chọn lại bài có cover rồi gắn nhạc.",
       );
       return false;
     }
@@ -327,7 +341,7 @@ export default function GeneralThemes({ title }) {
       if (!isrc) {
         SonnerError(
           "Không lấy được mã ISRC",
-          "Spotify API đang hạn chế — thử bài khác, dán link Spotify track, hoặc đợi vài giây rồi chọn lại.",
+          "Thử bài khác hoặc dán link track — app Locket cần ISRC.",
         );
         return;
       }
@@ -345,11 +359,23 @@ export default function GeneralThemes({ title }) {
       const finalSpotify = musicData?.spotify_url || raw.spotify_url || null;
       const apple_music_url =
         musicData?.apple_music_url || raw.apple_music_url || null;
-      // Locket app: "Tên bài · Nghệ sĩ" + Spotify/Apple Music badge
+
+      // App Locket: bắt buộc 1 platform URL (Apple OK)
+      if (!finalSpotify && !apple_music_url) {
+        SonnerError(
+          "Thiếu link Apple Music / Spotify",
+          "Chọn bài khác có preview — app Locket mới hiện nhạc.",
+        );
+        return;
+      }
+      if (!image_url) {
+        SonnerError("Thiếu ảnh bìa album", "Chọn lại bài có cover.");
+        return;
+      }
+
       const caption =
         [song_title, artist].filter(Boolean).join(" · ") || song_title;
 
-      // Clip từ picker (start/end) — preview web ~30s
       const clipStart = Math.max(0, Number(raw.startTime) || 0);
       let clipEnd = Number(raw.endTime);
       if (!Number.isFinite(clipEnd) || clipEnd <= clipStart) {
@@ -358,22 +384,16 @@ export default function GeneralThemes({ title }) {
       clipEnd = Math.min(Math.max(clipEnd, clipStart + 1), clipStart + 60);
       const clipDur = clipEnd - clipStart;
 
-      // XOR platform URL — Locket hiện badge theo link (Spotify ưu tiên)
-      const platform =
-        finalSpotify || !apple_music_url ? "spotify" : "apple";
+      const platform = finalSpotify ? "spotify" : "apple";
       const platformPayload = finalSpotify
         ? { spotify_url: finalSpotify }
-        : apple_music_url
-          ? { apple_music_url }
-          : {};
+        : { apple_music_url };
 
       applyOverlay({
         overlay_id: "caption:music",
         caption,
         text: caption,
-        icon: image_url
-          ? { data: image_url, type: "image", source: "url" }
-          : {},
+        icon: { data: image_url, type: "image", source: "url" },
         type: "music",
         payload: {
           song_title,

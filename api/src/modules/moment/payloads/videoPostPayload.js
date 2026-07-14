@@ -304,6 +304,17 @@ const videoPostPayloadMusic = ({ videoUrl, thumbnailUrl, optionsData }) => {
     throw err;
   }
 
+  const spotify_url = payload?.spotify_url || null;
+  const apple_music_url =
+    payload?.apple_music_url || payload?.appleMusicUrl || null;
+  if (!spotify_url && !apple_music_url) {
+    const err = new Error(
+      "Thiếu link Apple Music / Spotify — app Locket sẽ không hiện nhạc.",
+    );
+    err.status = 400;
+    throw err;
+  }
+
   const musicPayload = {
     song_title: songTitle,
     artist,
@@ -314,39 +325,31 @@ const videoPostPayloadMusic = ({ videoUrl, thumbnailUrl, optionsData }) => {
   const preview =
     payload?.preview_url || payload?.audio || payload?.previewUrl || null;
   if (preview) musicPayload.preview_url = preview;
+  if (spotify_url) musicPayload.spotify_url = spotify_url;
+  else musicPayload.apple_music_url = apple_music_url;
 
-  // XOR platform — giống image (Locket hiện Spotify hoặc Apple Music)
-  if (payload?.spotify_url) {
-    musicPayload.spotify_url = payload.spotify_url;
-  } else if (payload?.apple_music_url || payload?.appleMusicUrl) {
-    musicPayload.apple_music_url =
-      payload.apple_music_url || payload.appleMusicUrl;
-  }
-
-  let musicIcon = icon && typeof icon === "object" ? { ...icon } : null;
   const cover =
-    musicIcon?.data ||
+    (icon && icon.data) ||
     payload?.image_url ||
     payload?.image ||
     payload?.thumbnail_url ||
     "";
-  if (cover) {
-    musicIcon = {
-      type: "image",
-      data: cover,
-      source: musicIcon?.source || "url",
-    };
-  } else if (musicIcon?.data && !musicIcon.type) {
-    musicIcon = {
-      type: "image",
-      data: musicIcon.data,
-      source: musicIcon.source || "url",
-    };
+  if (!cover) {
+    const err = new Error(
+      "Thiếu ảnh bìa album — chọn lại bài có cover rồi đăng.",
+    );
+    err.status = 400;
+    throw err;
   }
+  const musicIcon = {
+    type: "image",
+    data: cover,
+    source: (icon && icon.source) || "url",
+  };
 
   data.overlays.push({
     data: {
-      text,
+      text: songTitle || text,
       text_color: "#FFFFFFE6",
       type: "music",
       max_lines: 1,
@@ -357,7 +360,7 @@ const videoPostPayloadMusic = ({ videoUrl, thumbnailUrl, optionsData }) => {
         colors: [],
       },
     },
-    alt_text: text,
+    alt_text: [songTitle, artist].filter(Boolean).join(" · ") || text,
     overlay_id: "caption:music",
     overlay_type: "caption",
   });

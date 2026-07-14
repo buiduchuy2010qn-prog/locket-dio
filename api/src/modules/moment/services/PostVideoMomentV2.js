@@ -27,21 +27,21 @@ const postVideoToLocket = async (
   try {
     let optionsData = rawOptions || {};
     if (optionsData.type === "music") {
-      try {
-        optionsData = await ensureMusicOptionsData(optionsData);
-        if (!optionsData?.payload?.isrc) {
-          logWarning(
-            "postVideoToLocket",
-            "Music thiếu ISRC sau enrich — chặn đăng",
-          );
-          const err = new Error(
-            "Thiếu mã ISRC bài hát. Chọn lại bài từ tìm nhạc (có ISRC) rồi đăng.",
-          );
-          err.status = 400;
-          throw err;
-        }
-      } catch (e) {
-        logWarning("postVideoToLocket", `ensureMusic: ${e.message}`);
+      optionsData = await ensureMusicOptionsData(optionsData);
+      const p = optionsData?.payload || {};
+      if (!p.isrc) {
+        const err = new Error(
+          "Thiếu mã ISRC bài hát. Chọn lại bài từ tìm nhạc rồi đăng.",
+        );
+        err.status = 400;
+        throw err;
+      }
+      if (!p.spotify_url && !p.apple_music_url) {
+        const err = new Error(
+          "Thiếu link Apple Music / Spotify. Chọn lại bài rồi đăng.",
+        );
+        err.status = 400;
+        throw err;
       }
     }
     const { type } = optionsData;
