@@ -1,12 +1,12 @@
 const jwt = require("jsonwebtoken");
 const { security } = require("../../config/app.config");
 
-// Render generateValue sets LOCKETDIO_JWT_SECRET; fallback keeps plan session working
+// Set LOCKETDIO_JWT_SECRET / COOKIE_SECRET on Railway — never hardcode
 const jwtToken =
   security.jwtSecret ||
   process.env.LOCKETDIO_JWT_SECRET ||
   process.env.COOKIE_SECRET ||
-  "huy-locket-dev-jwt-secret";
+  "";
 
 const signToken = (payload, expiresIn = "30d") => {
   return jwt.sign(payload, jwtToken, { expiresIn });

@@ -2,11 +2,12 @@ const crypto = require("crypto");
 const { security } = require("../../config/app.config");
 const { logInfo } = require("../logEventUtils");
 
+// Set LOCKETDIO_SIGNATURE_SECRET / COOKIE_SECRET on Railway — never hardcode
 const signatureSecret =
   security.signatureSecret ||
   process.env.LOCKETDIO_SIGNATURE_SECRET ||
   process.env.COOKIE_SECRET ||
-  "huy-locket-dev-signature-secret";
+  "";
 
 // Generate signature
 const generateSignature = (value, secret = signatureSecret) => {

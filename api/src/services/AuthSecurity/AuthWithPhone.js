@@ -11,7 +11,10 @@ const sendVerifiCode = async (phone) => {
         platform: "ios",
         is_retry: false,
         use_password_if_available: true,
-        client_token: "0de0a23710ad3964c317e7a727977d5ca6ff9fc7",
+        client_token:
+          process.env.LOCKET_CLIENT_TOKEN ||
+          process.env.LOCKET_PHONE_CLIENT_TOKEN ||
+          "",
         analytics: constants.locketAnalytics,
       },
     };

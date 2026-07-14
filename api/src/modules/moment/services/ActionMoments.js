@@ -108,7 +108,10 @@ exports.SendChatLocketMoments = async (idToken, uid, MessageInfo) => {
           android_build: "406",
           platform: "android",
         },
-        client_token: "c805987e-e0f8-4adb-9185-6ff10c577129", // ????
+        client_token:
+          process.env.LOCKET_CLIENT_TOKEN ||
+          process.env.LOCKET_CHAT_CLIENT_TOKEN ||
+          "",
         moment_uid: MessageInfo?.moment_id || null, //Moment id nếu có ko thì null
         receiver_uid: MessageInfo.receiver_uid, //Người nhận
       },

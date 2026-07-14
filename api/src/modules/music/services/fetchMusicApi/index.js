@@ -80,15 +80,16 @@ let spotifyAppToken = null;
 let spotifyAppTokenExp = 0;
 
 async function getSpotifyAppToken() {
-  // Ưu tiên env Render; fallback app "huy locket" (client credentials)
+  // Client credentials — chỉ từ env (không hardcode secret trong source)
   const clientId =
-    process.env.SPOTIFY_CLIENT_ID ||
-    process.env.VITE_SPOTIFY_CLIENT_ID ||
-    "1f89199367264178a0b8c66d7e74c1d6";
-  const clientSecret =
-    process.env.SPOTIFY_CLIENT_SECRET ||
-    "e600849643f94f8b9eb5ca247e1febf8";
-  if (!clientId || !clientSecret) return null;
+    process.env.SPOTIFY_CLIENT_ID || process.env.VITE_SPOTIFY_CLIENT_ID || "";
+  const clientSecret = process.env.SPOTIFY_CLIENT_SECRET || "";
+  if (!clientId || !clientSecret) {
+    console.warn(
+      "getSpotifyAppToken: missing SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET",
+    );
+    return null;
+  }
   if (spotifyAppToken && Date.now() < spotifyAppTokenExp) {
     return spotifyAppToken;
   }
