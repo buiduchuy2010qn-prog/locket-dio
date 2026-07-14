@@ -424,7 +424,7 @@ async function enrichMusicMeta(base) {
   ]);
 
   if (dz) {
-    isrc = isrc || dz.isrc;
+    isrc = isrc || normalizeIsrc(dz.isrc);
     // Chỉ dùng Deezer preview nếu chưa có gì (sẽ bị iTunes ghi đè nếu có)
     if (!preview_url && dz.preview_url) preview_url = dz.preview_url;
     if (!image_url && dz.image_url) image_url = dz.image_url;
@@ -436,7 +436,7 @@ async function enrichMusicMeta(base) {
   if (it) {
     // Ưu tiên iTunes preview (m4a ổn định, CORS *, không signed expire)
     if (it.preview_url) preview_url = it.preview_url;
-    isrc = isrc || it.isrc;
+    isrc = isrc || normalizeIsrc(it.isrc);
     if (!image_url && it.image_url) image_url = it.image_url;
     if (!apple_music_url && it.apple_music_url) apple_music_url = it.apple_music_url;
     if (!album && it.album) album = it.album;
@@ -462,7 +462,7 @@ async function enrichMusicMeta(base) {
           preview_url = hit.previewUrl;
           source = `${source}+itunes-vn`;
         }
-        isrc = isrc || hit.isrc || null;
+        isrc = isrc || normalizeIsrc(hit.isrc);
         if (!apple_music_url && hit.trackViewUrl) {
           apple_music_url = hit.trackViewUrl;
         }
@@ -472,13 +472,22 @@ async function enrichMusicMeta(base) {
     }
   }
 
+  // MusicBrainz nếu vẫn thiếu ISRC
+  if (!isrc && song_name) {
+    const mb = await fetchIsrcFromMusicBrainz(song_name, artist);
+    if (mb) {
+      isrc = mb;
+      source = `${source}+mb-isrc`;
+    }
+  }
+
   return {
     song_name,
     artist,
     album,
     image_url,
     preview_url,
-    isrc,
+    isrc: normalizeIsrc(isrc),
     apple_music_url,
     spotify_url,
     source,
@@ -625,6 +634,20 @@ async function getSpotifyMusicInfo(url) {
     merged = await enrichMusicMeta(merged);
   }
 
+  // ISRC bắt buộc cho Locket app — Deezer/iTunes/MusicBrainz
+  if (!normalizeIsrc(merged.isrc) && merged.song_name) {
+    const forced = await resolveIsrcAggressive({
+      songName: merged.song_name,
+      artist: merged.artist,
+      deezerId: merged.deezerId,
+    });
+    if (forced) {
+      merged.isrc = forced;
+      merged.source = `${merged.source || "spotify"}+isrc-force`;
+    }
+  }
+  merged.isrc = normalizeIsrc(merged.isrc);
+
   if (!merged.song_name) {
     const err = new Error(
       "Không tìm thấy bài hát trên Spotify (link có thể đã gỡ hoặc không công khai).",
@@ -699,6 +722,19 @@ async function getAppleMusicInfoLocal(url) {
   }
 
   merged = await enrichMusicMeta(merged);
+  // ISRC bắt buộc cho Locket app
+  if (!normalizeIsrc(merged.isrc) && merged.song_name) {
+    const forced = await resolveIsrcAggressive({
+      songName: merged.song_name,
+      artist: merged.artist,
+      deezerId: merged.deezerId,
+    });
+    if (forced) {
+      merged.isrc = forced;
+      merged.source = `${merged.source || "apple"}+isrc-force`;
+    }
+  }
+  merged.isrc = normalizeIsrc(merged.isrc);
   return toClientShape(merged, "apple", url);
 }
 
@@ -1098,32 +1134,136 @@ async function fetchSpotifySearchFull(q, limit = 50) {
   }
 }
 
+/** Chuẩn hoá / validate ISRC (12 ký tự, bỏ gạch). Locket app bắt buộc field này. */
+function normalizeIsrc(raw) {
+  if (!raw) return null;
+  const s = String(raw)
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "");
+  // CC-XXX-YY-NNNNN → 12 chars
+  if (/^[A-Z]{2}[A-Z0-9]{3}\d{7}$/.test(s)) return s;
+  // Một số API trả 12 ký tự generic
+  if (/^[A-Z0-9]{12}$/.test(s)) return s;
+  return null;
+}
+
+function isValidIsrc(raw) {
+  return Boolean(normalizeIsrc(raw));
+}
+
 /** MusicBrainz — fallback ISRC khi Deezer miss (rate-limit nhẹ) */
 async function fetchIsrcFromMusicBrainz(songName, artist) {
   if (!songName) return null;
   try {
-    const parts = [`recording:"${String(songName).replace(/"/g, "")}"`];
-    if (artist) parts.push(`artist:"${String(artist).replace(/"/g, "")}"`);
+    const clean = (s) =>
+      String(s || "")
+        .replace(/"/g, "")
+        .replace(/[()[\]]/g, " ")
+        .trim()
+        .slice(0, 80);
+    const parts = [`recording:"${clean(songName)}"`];
+    if (artist) parts.push(`artist:"${clean(artist)}"`);
     const r = await http.get("https://musicbrainz.org/ws/2/recording", {
       params: {
         query: parts.join(" AND "),
         fmt: "json",
-        limit: 5,
+        limit: 8,
       },
-      timeout: 10000,
+      timeout: 12000,
       headers: {
-        "User-Agent": "HuyLocket/1.4 (https://github.com/buiduchuy2010qn-prog/locket-dio)",
+        "User-Agent":
+          "HuyLocket/1.4 (https://github.com/buiduchuy2010qn-prog/locket-dio)",
         Accept: "application/json",
       },
     });
     const recs = r.data?.recordings || [];
-    for (const rec of recs) {
-      const isrcs = rec.isrcs || [];
-      if (isrcs.length) return String(isrcs[0]).trim();
-    }
+    // Ưu tiên bản studio có ISRC, tránh live/karaoke
+    const scored = recs
+      .map((rec) => {
+        const isrcs = rec.isrcs || [];
+        if (!isrcs.length) return null;
+        const blob = `${rec.title || ""} ${rec.disambiguation || ""}`.toLowerCase();
+        let s = Number(rec.score) || 50;
+        if (/\b(live|karaoke|cover|remix|instrumental|acoustic)\b/.test(blob)) {
+          s -= 40;
+        }
+        return { isrc: String(isrcs[0]).trim(), s };
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.s - a.s);
+    if (scored[0]?.isrc) return normalizeIsrc(scored[0].isrc);
   } catch (e) {
     console.warn("fetchIsrcFromMusicBrainz:", e.message);
   }
+  return null;
+}
+
+/**
+ * Lấy ISRC mạnh: Deezer → iTunes → MusicBrainz.
+ * Dùng khi attach/post — app Locket không hiện nhạc nếu thiếu isrc.
+ */
+async function resolveIsrcAggressive({
+  songName = "",
+  artist = "",
+  deezerId = null,
+  existingIsrc = null,
+} = {}) {
+  const already = normalizeIsrc(existingIsrc);
+  if (already) return already;
+
+  const song = String(songName || "").trim();
+  const art = String(artist || "").trim();
+
+  // 1) Deezer track detail (search thường có isrc; /track/{id} chắc chắn hơn)
+  try {
+    const dz = await enrichFromDeezer(deezerId, song, art);
+    const fromDz = normalizeIsrc(dz?.isrc);
+    if (fromDz) return fromDz;
+  } catch (e) {
+    console.warn("resolveIsrcAggressive deezer:", e.message);
+  }
+
+  // 2) iTunes lookup (US + VN) — một số bản có isrc
+  if (song) {
+    for (const country of ["US", "VN"]) {
+      try {
+        const r = await http.get("https://itunes.apple.com/search", {
+          params: {
+            term: [song, art].filter(Boolean).join(" "),
+            entity: "song",
+            limit: 5,
+            country,
+          },
+          timeout: 10000,
+        });
+        for (const hit of r.data?.results || []) {
+          let isrc = normalizeIsrc(hit.isrc);
+          if (!isrc && hit.trackId) {
+            try {
+              const lk = await http.get("https://itunes.apple.com/lookup", {
+                params: { id: hit.trackId, country },
+                timeout: 8000,
+              });
+              isrc = normalizeIsrc(lk.data?.results?.[0]?.isrc);
+            } catch {
+              /* optional */
+            }
+          }
+          if (isrc) return isrc;
+        }
+      } catch (e) {
+        console.warn(`resolveIsrcAggressive itunes-${country}:`, e.message);
+      }
+    }
+  }
+
+  // 3) MusicBrainz
+  if (song) {
+    const mb = await fetchIsrcFromMusicBrainz(song, art);
+    if (mb) return mb;
+  }
+
   return null;
 }
 
@@ -1132,7 +1272,10 @@ async function fetchIsrcFromMusicBrainz(songName, artist) {
  * Deezer /track/{id} + MusicBrainz — tin cậy khi Spotify API 403 Premium.
  */
 async function hydrateTrackIsrc(track) {
-  if (!track || track.isrc) return track;
+  if (!track) return track;
+  const existing = normalizeIsrc(track.isrc);
+  if (existing) return { ...track, isrc: existing };
+
   const song =
     track.song_title || track.song_name || track.name || track.title || "";
   const artist = track.artist || "";
@@ -1143,26 +1286,19 @@ async function hydrateTrackIsrc(track) {
       track.deezerId ||
       (track.source === "deezer-search" && track.id ? String(track.id) : null);
 
-    const dz = await enrichFromDeezer(deezerId, song, artist);
-    if (dz?.isrc) {
+    const isrc = await resolveIsrcAggressive({
+      songName: song,
+      artist,
+      deezerId,
+    });
+    if (isrc) {
       return {
         ...track,
-        isrc: dz.isrc,
-        preview_url: track.preview_url || dz.preview_url || null,
-        image_url: track.image_url || dz.image_url || "",
-        song_name: track.song_name || dz.song_name || song,
-        song_title: track.song_title || dz.song_name || song,
-        artist: track.artist || dz.artist || artist,
+        isrc,
+        song_name: track.song_name || song,
+        song_title: track.song_title || song,
+        artist: track.artist || artist,
         source: `${track.source || "search"}+isrc`,
-      };
-    }
-
-    const mbIsrc = await fetchIsrcFromMusicBrainz(song, artist);
-    if (mbIsrc) {
-      return {
-        ...track,
-        isrc: mbIsrc,
-        source: `${track.source || "search"}+mb-isrc`,
       };
     }
   } catch (e) {
@@ -1451,4 +1587,7 @@ module.exports = {
   searchMusicByQuery,
   getSpotifyAppToken,
   hydrateTrackIsrc,
+  resolveIsrcAggressive,
+  normalizeIsrc,
+  isValidIsrc,
 };

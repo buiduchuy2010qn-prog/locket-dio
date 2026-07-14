@@ -3,7 +3,12 @@
  * App Locket cần: isrc + song_title + artist + (spotify_url | apple_music_url) + icon.
  * Web merge local vẫn hiện nếu chỉ có isrc — nhưng app thật thì không.
  */
-const { fetchMusicApi, searchMusicByQuery } = require("./fetchMusicApi");
+const {
+  fetchMusicApi,
+  searchMusicByQuery,
+  resolveIsrcAggressive,
+  normalizeIsrc,
+} = require("./fetchMusicApi");
 
 function isSignedEphemeralPreview(url = "") {
   const u = String(url || "");
@@ -18,7 +23,9 @@ function pickSongTitle(p = {}) {
     p.song_title ||
     p.song_name ||
     p.name ||
-    (typeof p.title === "string" && !p.title.includes(" - ") && !p.title.includes(" · ")
+    (typeof p.title === "string" &&
+    !p.title.includes(" - ") &&
+    !p.title.includes(" · ")
       ? p.title
       : "") ||
     ""
@@ -36,7 +43,7 @@ async function ensureMusicOptionsData(optionsData = {}) {
     ...(optionsData.payload || {}),
     ...(optionsData.music || {}),
   };
-  let isrc = payload.isrc ? String(payload.isrc).trim() : "";
+  let isrc = normalizeIsrc(payload.isrc);
   let preview =
     payload.preview_url || payload.previewUrl || payload.audio || null;
   let song_title = pickSongTitle(payload);
@@ -83,7 +90,7 @@ async function ensureMusicOptionsData(optionsData = {}) {
           /music\.apple|itunes\.apple/i.test(link) ? "apple" : platform,
         );
         if (fresh) {
-          isrc = isrc || (fresh.isrc ? String(fresh.isrc).trim() : "");
+          isrc = isrc || normalizeIsrc(fresh.isrc);
           if (needStablePreview && fresh.preview_url) {
             preview = fresh.preview_url;
           } else if (!preview && fresh.preview_url) {
@@ -106,7 +113,7 @@ async function ensureMusicOptionsData(optionsData = {}) {
       }
     }
 
-    // Search theo tên: lấy ISRC + apple_music_url (iTunes)
+    // Search theo tên: lấy ISRC + apple_music_url (iTunes/Deezer)
     if ((!isrc || needPlatformUrl) && song_title) {
       try {
         const hits = await searchMusicByQuery(
@@ -114,13 +121,15 @@ async function ensureMusicOptionsData(optionsData = {}) {
           12,
         );
         const hit =
-          (hits || []).find((h) => h.isrc && (h.apple_music_url || h.spotify_url)) ||
-          (hits || []).find((h) => h.isrc) ||
+          (hits || []).find(
+            (h) => h.isrc && (h.apple_music_url || h.spotify_url),
+          ) ||
+          (hits || []).find((h) => normalizeIsrc(h.isrc)) ||
           (hits || []).find((h) => h.apple_music_url) ||
           (hits || [])[0] ||
           null;
         if (hit) {
-          isrc = isrc || (hit.isrc ? String(hit.isrc).trim() : "");
+          isrc = isrc || normalizeIsrc(hit.isrc);
           if (!preview && hit.preview_url) preview = hit.preview_url;
           song_title =
             song_title ||
@@ -141,6 +150,28 @@ async function ensureMusicOptionsData(optionsData = {}) {
         );
       }
     }
+  }
+
+  // ISRC aggressive: Deezer → iTunes → MusicBrainz (bắt buộc cho app Locket)
+  if (!isrc && song_title) {
+    try {
+      const forced = await resolveIsrcAggressive({
+        songName: song_title,
+        artist,
+        deezerId: payload.deezerId || payload.deezer_id || null,
+        existingIsrc: payload.isrc,
+      });
+      if (forced) {
+        isrc = forced;
+        console.log(
+          `[ensureMusicOptionsData] ISRC resolved: ${isrc} for "${song_title}"`,
+        );
+      }
+    } catch (e) {
+      console.warn("[ensureMusicOptionsData] resolveIsrcAggressive:", e.message);
+    }
+  } else {
+    isrc = normalizeIsrc(isrc);
   }
 
   // Platform: ưu tiên link có sẵn; Apple OK khi không có Spotify
@@ -185,6 +216,12 @@ async function ensureMusicOptionsData(optionsData = {}) {
     caption,
     text: caption,
     payload: nextPayload,
+    // Legacy alias — một số path đọc music.*
+    music: {
+      ...(optionsData.music || {}),
+      ...nextPayload,
+      image: image_url || null,
+    },
     icon: nextIcon,
     platform: platformOut,
   };

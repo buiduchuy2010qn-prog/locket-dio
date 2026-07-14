@@ -32,6 +32,18 @@ export const getInfoMusicByUrl = async (url, platform) => {
   }
 };
 
+/** Chuẩn hoá ISRC 12 ký tự — app Locket bắt buộc */
+export function normalizeIsrc(raw) {
+  if (!raw) return null;
+  const s = String(raw)
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "");
+  if (/^[A-Z]{2}[A-Z0-9]{3}\d{7}$/.test(s)) return s;
+  if (/^[A-Z0-9]{12}$/.test(s)) return s;
+  return null;
+}
+
 /**
  * Resolve meta + ISRC cho Locket — nhiều bước, chấp nhận lâu.
  * Locket app cần isrc; Spotify Web API hay 403 → ưu tiên search (Deezer ISRC).
@@ -53,6 +65,8 @@ export const resolveMusicForLocket = async (track = {}) => {
     !String(track.source || "").includes("itunes")
       ? `https://open.spotify.com/track/${track.id}`
       : null);
+  let apple_music_url = track.apple_music_url || track.appleMusicUrl || null;
+  const knownIsrc = normalizeIsrc(track.isrc);
 
   const baseShape = (extra = {}) => ({
     song_title: song,
@@ -62,15 +76,15 @@ export const resolveMusicForLocket = async (track = {}) => {
     preview_url: track.preview_url || track.audioUrl || null,
     image_url: track.image_url || track.coverUrl || "",
     spotify_url,
-    apple_music_url: track.apple_music_url || null,
-    platform: "spotify",
+    apple_music_url,
+    platform: spotify_url ? "spotify" : apple_music_url ? "apple" : "spotify",
     ...extra,
   });
 
-  // Đã có ISRC — gắn ngay (nhanh nhất)
-  if (track.isrc) {
+  // Đã có ISRC + platform URL — gắn ngay
+  if (knownIsrc && (spotify_url || apple_music_url)) {
     return baseShape({
-      isrc: String(track.isrc).trim(),
+      isrc: knownIsrc,
       song_title:
         track.song_title || track.song_name || track.title || track.name || song,
       song_name:
@@ -82,84 +96,122 @@ export const resolveMusicForLocket = async (track = {}) => {
         track.preview_url || track.audioUrl || track.audio || null,
       image_url: track.image_url || track.coverUrl || "",
       spotify_url,
-      apple_music_url: track.apple_music_url || null,
+      apple_music_url,
     });
   }
 
   // 1) Theo link Spotify (oEmbed + Deezer ISRC trên server)
   if (spotify_url) {
     const info = await getInfoMusicByUrl(spotify_url, "spotify");
-    if (info?.isrc) return info;
-    if (info && !info.isrc) {
+    const infoIsrc = normalizeIsrc(info?.isrc) || knownIsrc;
+    if (info && infoIsrc) {
+      return {
+        ...info,
+        isrc: infoIsrc,
+        spotify_url: info.spotify_url || spotify_url,
+        apple_music_url: info.apple_music_url || apple_music_url || null,
+      };
+    }
+    if (info && !infoIsrc) {
       const q = [info.song_title || info.song_name || song, info.artist || artist]
         .filter(Boolean)
         .join(" ");
       if (q) {
         try {
           const hits = await searchMusicByQuery(q, 20);
-          const withIsrc = (hits || []).find((h) => h.isrc);
-          if (withIsrc?.isrc) {
+          const withIsrc = (hits || []).find((h) => normalizeIsrc(h.isrc));
+          if (withIsrc) {
             return {
               ...info,
-              isrc: String(withIsrc.isrc).trim(),
+              isrc: normalizeIsrc(withIsrc.isrc),
               preview_url:
                 info.preview_url || withIsrc.preview_url || null,
               image_url: info.image_url || withIsrc.image_url || "",
               spotify_url:
                 info.spotify_url || withIsrc.spotify_url || spotify_url,
               apple_music_url:
-                info.apple_music_url || withIsrc.apple_music_url || null,
+                info.apple_music_url ||
+                withIsrc.apple_music_url ||
+                apple_music_url ||
+                null,
             };
           }
         } catch {
           /* continue */
         }
       }
-      // Có meta, thiếu isrc — caller có thể reject
-      return info;
+    }
+  }
+
+  // 1b) Apple Music link
+  if (apple_music_url && !knownIsrc) {
+    const info = await getInfoMusicByUrl(apple_music_url, "apple");
+    const infoIsrc = normalizeIsrc(info?.isrc);
+    if (info && infoIsrc) {
+      return {
+        ...info,
+        isrc: infoIsrc,
+        apple_music_url: info.apple_music_url || apple_music_url,
+        spotify_url: info.spotify_url || spotify_url || null,
+      };
     }
   }
 
   // 2) Search theo tên + nghệ sĩ — ưu tiên hit có ISRC (Deezer)
   const q = [song, artist].filter(Boolean).join(" ").trim();
-  if (!q) return null;
+  if (!q && !knownIsrc) return null;
 
   try {
-    const hits = await searchMusicByQuery(q, 25);
-    const withIsrc = (hits || []).find((h) => h.isrc);
-    if (withIsrc?.isrc) {
-      return {
-        song_title: withIsrc.song_title || withIsrc.song_name || song,
-        song_name: withIsrc.song_name || withIsrc.song_title || song,
-        name: withIsrc.name || withIsrc.song_title || song,
-        artist: withIsrc.artist || artist,
-        isrc: String(withIsrc.isrc).trim(),
-        preview_url: withIsrc.preview_url || track.preview_url || null,
-        image_url:
-          withIsrc.image_url || track.image_url || track.coverUrl || "",
-        spotify_url: withIsrc.spotify_url || spotify_url || null,
-        apple_music_url: withIsrc.apple_music_url || null,
-        platform: "spotify",
-      };
-    }
+    if (q) {
+      const hits = await searchMusicByQuery(q, 25);
+      const withIsrc = (hits || []).find(
+        (h) =>
+          normalizeIsrc(h.isrc) && (h.spotify_url || h.apple_music_url),
+      ) || (hits || []).find((h) => normalizeIsrc(h.isrc));
+      if (withIsrc) {
+        return {
+          song_title: withIsrc.song_title || withIsrc.song_name || song,
+          song_name: withIsrc.song_name || withIsrc.song_title || song,
+          name: withIsrc.name || withIsrc.song_title || song,
+          artist: withIsrc.artist || artist,
+          isrc: normalizeIsrc(withIsrc.isrc) || knownIsrc,
+          preview_url: withIsrc.preview_url || track.preview_url || null,
+          image_url:
+            withIsrc.image_url || track.image_url || track.coverUrl || "",
+          spotify_url: withIsrc.spotify_url || spotify_url || null,
+          apple_music_url:
+            withIsrc.apple_music_url || apple_music_url || null,
+          platform: withIsrc.spotify_url ? "spotify" : "apple",
+        };
+      }
 
-    // 3) getInfo từng Spotify hit (chậm)
-    for (const h of hits || []) {
-      const u = h.spotify_url;
-      if (!u) continue;
-      const info = await getInfoMusicByUrl(u, "spotify");
-      if (info?.isrc) return info;
-    }
+      // 3) getInfo từng Spotify hit (chậm)
+      for (const h of hits || []) {
+        const u = h.spotify_url;
+        if (!u) continue;
+        const info = await getInfoMusicByUrl(u, "spotify");
+        if (normalizeIsrc(info?.isrc)) {
+          return { ...info, isrc: normalizeIsrc(info.isrc) };
+        }
+      }
 
-    // 4) Apple Music link nếu có
-    for (const h of hits || []) {
-      if (h.apple_music_url) {
-        const info = await getInfoMusicByUrl(h.apple_music_url, "apple");
-        if (info?.isrc) return info;
+      // 4) Apple Music link nếu có
+      for (const h of hits || []) {
+        if (h.apple_music_url) {
+          const info = await getInfoMusicByUrl(h.apple_music_url, "apple");
+          if (normalizeIsrc(info?.isrc)) {
+            return { ...info, isrc: normalizeIsrc(info.isrc) };
+          }
+        }
       }
     }
   } catch (e) {
     console.error("[resolveMusicForLocket] search:", e.message);
+  }
+
+  // Còn ISRC sẵn nhưng thiếu platform URL — trả partial
+  if (knownIsrc) {
+    return baseShape({ isrc: knownIsrc });
   }
 
   return null;

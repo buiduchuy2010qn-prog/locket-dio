@@ -287,7 +287,12 @@ const imagePostPayloadMusic = ({ imageUrl, optionsData }) => {
     songTitle ||
     [songTitle, artist].filter(Boolean).join(" · ");
 
-  const isrc = payload?.isrc ? String(payload.isrc).trim() : "";
+  // ISRC 12 ký tự — app Locket bắt buộc để hiện caption nhạc
+  const isrcRaw = payload?.isrc ? String(payload.isrc).trim().toUpperCase().replace(/[^A-Z0-9]/g, "") : "";
+  const isrc =
+    /^[A-Z]{2}[A-Z0-9]{3}\d{7}$/.test(isrcRaw) || /^[A-Z0-9]{12}$/.test(isrcRaw)
+      ? isrcRaw
+      : "";
   if (!isrc) {
     const err = new Error(
       "Thiếu mã ISRC — không đăng được nhạc. Chọn lại bài từ tìm nhạc.",
