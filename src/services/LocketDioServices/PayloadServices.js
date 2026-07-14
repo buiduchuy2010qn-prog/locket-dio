@@ -56,6 +56,21 @@ export const createRequestPayloadV6 = async () => {
       recipients: determineRecipients(audience, selectedRecipients, localId),
     };
 
+    // Music: giữ payload đầy đủ + alias `music` cho server legacy
+    if (overlayData?.type === "music" && overlayData?.payload) {
+      optionsDataObj.payload = { ...overlayData.payload };
+      optionsDataObj.music = { ...overlayData.payload };
+      optionsDataObj.overlay_id =
+        overlayData.overlay_id || "caption:music";
+      if (!optionsDataObj.caption && !optionsDataObj.text) {
+        const p = overlayData.payload;
+        optionsDataObj.caption = [p.song_title || p.song_name, p.artist]
+          .filter(Boolean)
+          .join(" - ");
+        optionsDataObj.text = optionsDataObj.caption;
+      }
+    }
+
     if (videoCropData) {
       optionsDataObj.videoCropData = videoCropData;
     }

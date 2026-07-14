@@ -4,14 +4,22 @@ import { MusicPlayer } from "@/components/Widgets/MusicPlayer";
 
 const MusicOverlay = ({ overlayData, momentId }) => {
   const selectedMomentId = useSelectedStore((s) => s.selectedMomentId);
-  const music = overlayData?.payload || {};
+  // Hỗ trợ payload lồng / optionsData phẳng sau đăng
+  const music =
+    overlayData?.payload ||
+    overlayData?.music ||
+    (overlayData?.isrc || overlayData?.song_title ? overlayData : {}) ||
+    {};
 
   const text =
     overlayData?.text ||
+    overlayData?.caption ||
     music.title ||
     [music.song_title || music.song_name || music.name, music.artist]
       .filter(Boolean)
       .join(" - ") ||
+    music.song_title ||
+    music.song_name ||
     "";
   const urlImage =
     overlayData?.icon?.data ||
@@ -23,9 +31,12 @@ const MusicOverlay = ({ overlayData, momentId }) => {
   const isSpotify =
     music.platform === "spotify" ||
     Boolean(music.spotify_url) ||
-    overlayData?.platform === "spotify";
+    overlayData?.platform === "spotify" ||
+    Boolean(music.isrc);
 
-  if (!text && !urlImage) return null;
+  // Vẫn hiện pill nếu có ISRC / tên bài (tránh mất nhạc khi thiếu cover)
+  if (!text && !urlImage && !music.isrc) return null;
+  const displayText = text || "Nhạc";
 
   return (
     <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex w-auto items-center gap-2 py-2 px-4 rounded-4xl text-white font-semibold bg-white/50 backdrop-blur-2xl max-w-[85%] overflow-hidden z-20">
@@ -42,11 +53,15 @@ const MusicOverlay = ({ overlayData, momentId }) => {
           className="inline-block animate-marquee"
           style={{
             animationDuration:
-              text.length < 30 ? "9s" : text.length < 60 ? "15s" : "17s",
+              displayText.length < 30
+                ? "9s"
+                : displayText.length < 60
+                  ? "15s"
+                  : "17s",
           }}
         >
-          <span className="mr-4">{text}</span>
-          <span className="mr-4 absolute">{text}</span>
+          <span className="mr-4">{displayText}</span>
+          <span className="mr-4 absolute">{displayText}</span>
         </div>
       </div>
       {isSpotify && (
@@ -63,7 +78,6 @@ const MusicOverlay = ({ overlayData, momentId }) => {
       <MusicPlayer
         thumbnail={urlImage}
         payload={music}
-        // Phát khi moment đang chọn, hoặc khi chưa có selection (preview editor)
         isVisible={
           !momentId ||
           !selectedMomentId ||

@@ -279,7 +279,8 @@ const videoPostPayloadReview = ({ videoUrl, thumbnailUrl, optionsData }) => {
 };
 
 const videoPostPayloadMusic = ({ videoUrl, thumbnailUrl, optionsData }) => {
-  const { caption, payload, icon } = optionsData;
+  const payload = optionsData?.payload || optionsData?.music || {};
+  const { caption, icon, text: optText } = optionsData || {};
   const data = createBaseVideoPayload({ videoUrl, thumbnailUrl, optionsData });
 
   const songTitle =
@@ -290,58 +291,61 @@ const videoPostPayloadMusic = ({ videoUrl, thumbnailUrl, optionsData }) => {
     "";
   const artist = payload?.artist || "";
   const text =
-    (caption || "").trim() ||
+    (caption || optText || "").trim() ||
     [songTitle, artist].filter(Boolean).join(" - ") ||
-    songTitle;
+    songTitle ||
+    "Music";
+
+  const isrc = payload?.isrc ? String(payload.isrc).trim() : "";
+  if (!isrc) {
+    const err = new Error(
+      "Thiếu mã ISRC — không đăng được nhạc. Chọn lại bài từ tìm Spotify/Deezer.",
+    );
+    err.status = 400;
+    throw err;
+  }
 
   const musicPayload = {
     song_title: songTitle,
+    song_name: songTitle,
     artist,
+    isrc,
   };
-
-  if (payload?.isrc) {
-    musicPayload.isrc = String(payload.isrc).trim();
-  }
 
   const preview =
     payload?.preview_url || payload?.audio || payload?.previewUrl || null;
-  if (preview) {
-    musicPayload.preview_url = preview;
-  }
-
-  // Có thể gửi cả spotify + apple — Locket resolve chính bằng isrc
-  if (payload?.spotify_url) {
-    musicPayload.spotify_url = payload.spotify_url;
-  }
+  if (preview) musicPayload.preview_url = preview;
+  if (payload?.spotify_url) musicPayload.spotify_url = payload.spotify_url;
   if (payload?.apple_music_url || payload?.appleMusicUrl) {
     musicPayload.apple_music_url =
       payload.apple_music_url || payload.appleMusicUrl;
   }
-  if (songTitle) {
-    musicPayload.song_name = songTitle;
-  }
 
-  let musicIcon = icon;
-  if (!musicIcon?.data && (payload?.image_url || payload?.image)) {
-    musicIcon = {
-      type: "image",
-      data: payload.image_url || payload.image,
-      source: "url",
-    };
-  } else if (musicIcon?.data && !musicIcon.type) {
-    musicIcon = {
-      type: "image",
-      data: musicIcon.data,
-      source: musicIcon.source || "url",
-    };
-  }
+  let musicIcon = icon && typeof icon === "object" ? { ...icon } : null;
+  const cover =
+    musicIcon?.data ||
+    payload?.image_url ||
+    payload?.image ||
+    payload?.thumbnail_url ||
+    "";
+  musicIcon = cover
+    ? { type: "image", data: cover, source: musicIcon?.source || "url" }
+    : {
+        type: "image",
+        data: "https://cdn.locket-dio.com/v1/caption/caption-icon/spotify_music.png",
+        source: "url",
+      };
 
+  data.caption = text;
   data.overlays.push({
     data: {
       text,
       text_color: "#FFFFFFE6",
       type: "music",
-      max_lines: 1,
+      max_lines: {
+        "@type": "type.googleapis.com/google.protobuf.Int64Value",
+        value: "1",
+      },
       payload: musicPayload,
       icon: musicIcon,
       background: {

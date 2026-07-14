@@ -26,14 +26,18 @@ const postImageToLocketV2 = async ({
       if (!optionsData?.payload?.isrc) {
         logWarning(
           "postImageToLocketV2",
-          "Music thiếu ISRC sau enrich — Locket app có thể không hiện nhạc",
+          "Music thiếu ISRC sau enrich — chặn đăng để tránh post trắng",
         );
-      } else {
-        logInfo(
-          "postImageToLocketV2",
-          `Music OK isrc=${optionsData.payload.isrc}`,
+        const err = new Error(
+          "Thiếu mã ISRC bài hát. Chọn lại bài từ tìm nhạc (có ISRC) rồi đăng.",
         );
+        err.status = 400;
+        throw err;
       }
+      logInfo(
+        "postImageToLocketV2",
+        `Music OK isrc=${optionsData.payload.isrc} title=${optionsData.payload.song_title || optionsData.payload.song_name || ""}`,
+      );
     } catch (e) {
       logWarning("postImageToLocketV2", `ensureMusic: ${e.message}`);
     }

@@ -269,7 +269,9 @@ const imagePostPayloadReview = ({ imageUrl, optionsData }) => {
 
 // Đăng ảnh Music — Locket app thật cần isrc + song_title + artist + link platform
 const imagePostPayloadMusic = ({ imageUrl, optionsData }) => {
-  const { caption, payload, icon } = optionsData;
+  // Client gửi music trong payload; một số bản legacy dùng optionsData.music
+  const payload = optionsData?.payload || optionsData?.music || {};
+  const { caption, icon, text: optText } = optionsData || {};
   const data = createBaseImagePayload({ imageUrl, optionsData });
 
   const songTitle =
@@ -280,19 +282,26 @@ const imagePostPayloadMusic = ({ imageUrl, optionsData }) => {
     "";
   const artist = payload?.artist || "";
   const text =
-    (caption || "").trim() ||
+    (caption || optText || "").trim() ||
     [songTitle, artist].filter(Boolean).join(" - ") ||
-    songTitle;
+    songTitle ||
+    "Music";
+
+  const isrc = payload?.isrc ? String(payload.isrc).trim() : "";
+  if (!isrc) {
+    const err = new Error(
+      "Thiếu mã ISRC — không đăng được nhạc. Chọn lại bài từ tìm Spotify/Deezer.",
+    );
+    err.status = 400;
+    throw err;
+  }
 
   const musicPayload = {
     song_title: songTitle,
+    song_name: songTitle,
     artist,
+    isrc,
   };
-
-  // ISRC — bắt buộc để Locket app resolve nhạc
-  if (payload?.isrc) {
-    musicPayload.isrc = String(payload.isrc).trim();
-  }
 
   // Preview — Locket + web phát thử
   const preview =
@@ -301,7 +310,7 @@ const imagePostPayloadMusic = ({ imageUrl, optionsData }) => {
     musicPayload.preview_url = preview;
   }
 
-  // Link platform — Locket dùng để mở / map track (có thể gửi cả hai)
+  // Link platform — Locket dùng để mở / map track (gửi cả hai nếu có)
   if (payload?.spotify_url) {
     musicPayload.spotify_url = payload.spotify_url;
   }
@@ -310,33 +319,40 @@ const imagePostPayloadMusic = ({ imageUrl, optionsData }) => {
       payload.apple_music_url || payload.appleMusicUrl;
   }
 
-  // Một số bản Locket cần thêm song_name trong payload
-  if (songTitle) {
-    musicPayload.song_name = songTitle;
-  }
-
-  // Icon cover album
-  let musicIcon = icon;
-  if (!musicIcon?.data && (payload?.image_url || payload?.image)) {
+  // Icon cover album — bắt buộc có data để Locket/web hiện pill
+  let musicIcon = icon && typeof icon === "object" ? { ...icon } : null;
+  const cover =
+    musicIcon?.data ||
+    payload?.image_url ||
+    payload?.image ||
+    payload?.thumbnail_url ||
+    "";
+  if (cover) {
     musicIcon = {
       type: "image",
-      data: payload.image_url || payload.image,
+      data: cover,
+      source: musicIcon?.source || "url",
+    };
+  } else {
+    musicIcon = {
+      type: "image",
+      data: "https://cdn.locket-dio.com/v1/caption/caption-icon/spotify_music.png",
       source: "url",
     };
-  } else if (musicIcon?.data && !musicIcon.type) {
-    musicIcon = {
-      type: "image",
-      data: musicIcon.data,
-      source: musicIcon.source || "url",
-    };
   }
+
+  // Caption top-level (một số client Locket đọc)
+  data.caption = text;
 
   data.overlays.push({
     data: {
       text,
       text_color: "#FFFFFFE6",
       type: "music",
-      max_lines: 1,
+      max_lines: {
+        "@type": "type.googleapis.com/google.protobuf.Int64Value",
+        value: "1",
+      },
       payload: musicPayload,
       icon: musicIcon,
       background: { material_blur: "ultra_thin", colors: [] },

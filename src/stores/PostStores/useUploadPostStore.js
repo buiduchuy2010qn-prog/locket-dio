@@ -167,10 +167,14 @@ export const useUploadQueueStore = create((set, get) => ({
 
     try {
       const res = await PostMoments(item);
-      let normalized = normalizeMoment(res?.data);
+      // API body: { success, data: locketMoment } — hỗ trợ cả hai lớp
+      const raw =
+        res?.data?.data && typeof res.data.data === "object"
+          ? res.data.data
+          : res?.data;
+      let normalized = normalizeMoment(raw) || normalizeMoment(res?.data);
 
-      // Response Locket thường thiếu / cắt payload music → luôn ghép từ optionsData
-      // khi type đặc biệt (music/poll/review) hoặc overlays rỗng
+      // Response Locket thường thiếu / cắt payload music → LUÔN ghép từ optionsData
       if (normalized && item?.optionsData) {
         const od = item.optionsData;
         const special =
@@ -180,39 +184,67 @@ export const useUploadQueueStore = create((set, get) => ({
           od.type === "color_palette";
         const ov = overlayFromOptionsData(od);
         const incoming = normalized.overlays;
-        const missingPayload =
-          special &&
+        const musicNeedsRestore =
+          od.type === "music" &&
           (!incoming ||
-            !incoming.payload ||
-            (od.type === "music" &&
-              !incoming.payload?.isrc &&
-              !incoming.payload?.preview_url));
-        if (ov && (!incoming || missingPayload || special)) {
+            incoming.type !== "music" ||
+            !incoming.payload?.isrc);
+        if (ov && (special || !incoming || musicNeedsRestore)) {
           normalized = {
             ...normalized,
             overlays: {
               ...(incoming || {}),
               ...ov,
-              // Giữ payload/icon đầy đủ từ lúc đăng
               payload: {
                 ...(incoming?.payload || {}),
                 ...(ov.payload || {}),
+                // Đảm bảo isrc/cover từ lúc gắn caption
+                ...(od.payload || {}),
               },
-              icon: ov.icon?.data ? ov.icon : incoming?.icon || ov.icon,
-              type: ov.type || incoming?.type,
-              overlay_id: ov.overlay_id || incoming?.overlay_id,
+              icon:
+                (ov.icon?.data && ov.icon) ||
+                (od.icon?.data && od.icon) ||
+                incoming?.icon ||
+                ov.icon,
+              type: od.type === "music" ? "music" : ov.type || incoming?.type,
+              overlay_id:
+                od.type === "music"
+                  ? "caption:music"
+                  : ov.overlay_id || incoming?.overlay_id,
+              text: ov.text || od.text || od.caption || incoming?.text || "",
+              caption: ov.text || od.caption || od.text || "",
+              platform: od.platform || ov.platform || incoming?.platform,
             },
+            // Caption list cho UI legacy
+            captions:
+              od.type === "music"
+                ? [
+                    {
+                      text: od.text || od.caption || "",
+                      text_color: "#FFFFFFE6",
+                      icon: od.icon || null,
+                      type: "music",
+                      payload: od.payload || {},
+                    },
+                  ]
+                : normalized.captions,
           };
         }
       }
 
       // Nếu API không trả id, vẫn thử gắn id tạm để hiện feed + overlay
-      if (normalized && !normalized.id && res?.data) {
+      if (normalized && !normalized.id) {
+        const src = raw || res?.data || {};
         normalized.id =
-          res.data.id ||
-          res.data.canonical_uid ||
-          res.data.momentId ||
+          src.id ||
+          src.canonical_uid ||
+          src.momentId ||
+          src.uid ||
           `local_${Date.now()}`;
+      }
+      // createTime để sort feed — tránh NaN đẩy bài mất
+      if (normalized && !normalized.createTime) {
+        normalized.createTime = Date.now();
       }
 
       // ❗ Validate response

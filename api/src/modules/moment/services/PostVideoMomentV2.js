@@ -32,8 +32,13 @@ const postVideoToLocket = async (
         if (!optionsData?.payload?.isrc) {
           logWarning(
             "postVideoToLocket",
-            "Music thiếu ISRC sau enrich — Locket app có thể không hiện nhạc",
+            "Music thiếu ISRC sau enrich — chặn đăng",
           );
+          const err = new Error(
+            "Thiếu mã ISRC bài hát. Chọn lại bài từ tìm nhạc (có ISRC) rồi đăng.",
+          );
+          err.status = 400;
+          throw err;
         }
       } catch (e) {
         logWarning("postVideoToLocket", `ensureMusic: ${e.message}`);

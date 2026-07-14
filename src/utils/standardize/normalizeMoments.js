@@ -193,18 +193,36 @@ export function overlayFromOptionsData(optionsData) {
   if (type === "default" && !optionsData.caption && !optionsData.text) {
     return null;
   }
+  const payload = optionsData.payload || optionsData.music || {};
+  let text = optionsData.text || optionsData.caption || "";
+  if (!text && type === "music") {
+    text = [payload.song_title || payload.song_name, payload.artist]
+      .filter(Boolean)
+      .join(" - ");
+  }
+  let icon = optionsData.icon || {};
+  if (type === "music" && !icon?.data) {
+    const cover = payload.image_url || payload.image || "";
+    if (cover) {
+      icon = { type: "image", data: cover, source: "url" };
+    }
+  }
   return {
-    overlay_id: optionsData.overlay_id || type,
+    overlay_id:
+      type === "music"
+        ? "caption:music"
+        : optionsData.overlay_id || type,
     overlay_type: "caption",
     type: type === "default" ? "caption" : type,
-    text: optionsData.text || optionsData.caption || "",
+    text,
+    caption: text,
     text_color: optionsData.text_color || "#FFFFFFE6",
     background: optionsData.background || {
       material_blur: "ultra_thin",
       colors: [],
     },
-    icon: optionsData.icon || {},
-    payload: optionsData.payload || {},
-    platform: optionsData.platform,
+    icon,
+    payload,
+    platform: optionsData.platform || (type === "music" ? "spotify" : undefined),
   };
 }
