@@ -790,31 +790,55 @@ export function handlePinchZoomEnd() {
 }
 
 /**
- * Ensure no caption-area zoom controls exist (DOM cleanup guard).
- * Call after mount; safe no-op if none found.
+ * Dọn zoom control LẠC trong vùng caption/editor thôi.
+ *
+ * TUYỆT ĐỐI KHÔNG xóa:
+ * - [data-zoom-slider] / [data-zoom-presets] của camera React (gây removeChild crash)
+ * - Bất kỳ node nào React đang render trong #root camera frame
+ *
+ * Chỉ gỡ leftover trong .editor-caption / caption tools.
  */
 export function removeCaptionZoomControls(root = document) {
   if (typeof document === "undefined") return;
   try {
+    // Chỉ trong caption editor — không quét toàn document
+    const scopes = [
+      root.querySelector?.(".editor-caption"),
+      root.querySelector?.("[data-caption-editor]"),
+      root.querySelector?.(".caption-tools"),
+    ].filter(Boolean);
+
+    if (!scopes.length) return;
+
     const selectors = [
-      "[data-zoom-slider]",
       "[data-caption-zoom]",
       ".caption-zoom",
       ".caption-zoom-bar",
       ".zoom-slider",
       ".zoom-bar",
       'input[type="range"][data-camera-zoom]',
-      ".editor-caption .zoom-control",
-      ".editor-caption input[type='range']",
+      ".zoom-control",
+      'input[type="range"]',
     ];
-    for (const sel of selectors) {
-      root.querySelectorAll?.(sel)?.forEach((el) => {
-        try {
-          el.remove();
-        } catch {
-          /* ignore */
-        }
-      });
+
+    for (const scope of scopes) {
+      for (const sel of selectors) {
+        scope.querySelectorAll?.(sel)?.forEach((el) => {
+          // Không đụng camera zoom UI
+          if (
+            el.closest?.("[data-zoom-slider]") ||
+            el.closest?.("[data-zoom-presets]") ||
+            el.closest?.("[data-locket-camera]")
+          ) {
+            return;
+          }
+          try {
+            el.remove();
+          } catch {
+            /* ignore */
+          }
+        });
+      }
     }
   } catch {
     /* ignore */

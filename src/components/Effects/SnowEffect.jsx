@@ -89,12 +89,22 @@ const SnowEffect = ({
       el.style.setProperty("--spin", `${spin}deg`);
       el.style.animationDuration = `${duration}s`;
 
-      layer.appendChild(el);
+      if (!alive || !layer.isConnected) return;
+      try {
+        layer.appendChild(el);
+      } catch {
+        return;
+      }
       countRef.current += 1;
 
       const life = Math.ceil(duration * 1000) + 200;
       window.setTimeout(() => {
-        el.remove();
+        if (!alive) return;
+        try {
+          if (el.parentNode === layer) layer.removeChild(el);
+        } catch {
+          /* already detached */
+        }
         countRef.current = Math.max(0, countRef.current - 1);
       }, life);
     };
@@ -127,7 +137,13 @@ const SnowEffect = ({
       alive = false;
       if (timer) window.cancelAnimationFrame(timer);
       if (intervalId) window.clearInterval(intervalId);
-      if (layer) layer.innerHTML = "";
+      try {
+        if (layer?.isConnected) {
+          while (layer.firstChild) layer.removeChild(layer.firstChild);
+        }
+      } catch {
+        /* ignore */
+      }
       countRef.current = 0;
     };
   }, [spawnEvery, maxFlakes, containerHeight, pinkMode, lite]);

@@ -35,6 +35,9 @@ const GlobalThemeEffects = () => {
     location.pathname.startsWith("/locket") ||
     location.pathname.startsWith("/camera");
 
+  // Camera: tắt tuyết hẳn — tránh DOM append/remove đụng React khi mở cam
+  if (onCameraRoute) return null;
+
   const isPink = isPinkSnowTheme(theme);
   const isPinkSnow = theme === "pinksnow";
 

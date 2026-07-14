@@ -87,7 +87,8 @@ const ZoomPresets = ({
   return (
     <div
       className="absolute inset-x-0 bottom-4 z-30 flex justify-center px-3 pointer-events-none"
-      data-zoom-slider="true"
+      data-zoom-presets="true"
+      data-locket-zoom-ui="true"
     >
       <div
         className={`pointer-events-auto w-full max-w-[260px] rounded-2xl px-3 py-2
