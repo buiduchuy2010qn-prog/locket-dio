@@ -208,23 +208,43 @@ function verifyOauthState(state) {
     return null;
   }
 }
+/** Chuẩn hoá Neon URL (bỏ channel_binding — serverless hay fail) */
+function sanitizeDatabaseUrl(raw) {
+  let u = String(raw || "").trim();
+  if (!u) return "";
+  // URL sai thường dính password@host thành passwordhost
+  if (!u.includes("@") || !u.startsWith("postgres")) {
+    console.warn("[gdrive] skip invalid DATABASE_URL (missing @ or scheme)");
+    return "";
+  }
+  try {
+    const url = new URL(u);
+    url.searchParams.delete("channel_binding");
+    if (!url.searchParams.get("sslmode")) {
+      url.searchParams.set("sslmode", "require");
+    }
+    return url.toString();
+  } catch {
+    return u
+      .replace(/([?&])channel_binding=require&?/g, "$1")
+      .replace(/[?&]$/, "");
+  }
+}
+
 /** Chọn URL Neon hợp lệ — CHỈ từ env (không hardcode password trong source) */
 function resolveDatabaseUrl() {
   const candidates = [process.env.DATABASE_URL, process.env.NEON_DATABASE_URL];
   for (const raw of candidates) {
-    const u = String(raw || "").trim();
-    if (!u) continue;
-    // URL sai thường dính password@host thành passwordhost
-    if (!u.includes("@") || !u.startsWith("postgres")) {
-      console.warn("[gdrive] skip invalid DATABASE_URL (missing @ or scheme)");
-      continue;
-    }
-    return u;
+    const u = sanitizeDatabaseUrl(raw);
+    if (u) return u;
   }
   return "";
 }
 
-const DATABASE_URL = resolveDatabaseUrl();
+// Resolve mỗi lần init (Railway inject env lúc boot)
+function getDatabaseUrl() {
+  return resolveDatabaseUrl();
+}
 
 /** @type {null | { folderId?: string, oauth?: object, serviceAccount?: object, updatedAt?: string, updatedBy?: string, source?: string }} */
 let driveConfigMemory = null;
@@ -233,9 +253,10 @@ let neonSql = null;
 
 async function initNeon() {
   if (neonReady && neonSql) return true;
+  const DATABASE_URL = getDatabaseUrl();
   if (!DATABASE_URL) {
     console.warn(
-      "[gdrive] Neon OFF — set DATABASE_URL or NEON_DATABASE_URL (never commit the password)"
+      "[gdrive] Neon OFF — set DATABASE_URL or NEON_DATABASE_URL on Railway web service (never commit the password)"
     );
     neonReady = false;
     neonSql = null;
