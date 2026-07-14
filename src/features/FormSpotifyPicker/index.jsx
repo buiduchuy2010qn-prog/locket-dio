@@ -292,9 +292,14 @@ export default function FormSpotifyPicker({
           };
         });
 
-        // Soft re-rank: ưu tiên khớp title/artist — KHÔNG xóa list server
+        // Soft re-rank: khớp title + ưu tiên bài có ISRC (đăng Locket được)
         const scored = normalized
-          .map((t) => ({ t, s: scoreTitleMatch(q, t) }))
+          .map((t) => {
+            let s = scoreTitleMatch(q, t);
+            if (t.isrc) s += 500;
+            if (t.spotify_url || t.apple_music_url) s += 80;
+            return { t, s };
+          })
           .sort((a, b) => b.s - a.s)
           .map((x) => x.t);
 
@@ -745,7 +750,7 @@ export default function FormSpotifyPicker({
               <div className="flex-1 min-w-0">
                 <h3 className="text-lg font-bold leading-tight">Tìm nhạc</h3>
                 <p className="text-xs text-base-content/60 truncate">
-                  Tìm theo tên bài hoặc tên ca sĩ · chạm → cắt → gắn
+                  Ưu tiên bản có ✓ (ISRC) — đăng app Locket mới hiện nhạc
                 </p>
               </div>
               <button
@@ -853,17 +858,19 @@ export default function FormSpotifyPicker({
               ) : (
                 results.map((track) => {
                   const key = track.id || track.spotify_url || track.song_title;
+                  const hasIsrc = Boolean(track.isrc);
+                  const dur = track.duration_ms
+                    ? formatMs(track.duration_ms)
+                    : "";
                   return (
                     <TrackRow
                       key={key}
                       title={titleOf(track)}
                       artist={track.artist}
                       image={track.image_url}
-                      meta={
-                        track.duration_ms
-                          ? formatMs(track.duration_ms)
-                          : undefined
-                      }
+                      meta={[hasIsrc ? "✓ ISRC" : null, dur]
+                        .filter(Boolean)
+                        .join(" · ") || undefined}
                       busy={busy}
                       picking={pickingId === key || pickingId === track.id}
                       onPick={() => openClipEditor(track)}

@@ -1226,6 +1226,7 @@ async function resolveIsrcAggressive({
   artist = "",
   deezerId = null,
   existingIsrc = null,
+  skipMusicBrainz = false,
 } = {}) {
   const already = normalizeIsrc(existingIsrc);
   if (already) return already;
@@ -1291,14 +1292,16 @@ async function resolveIsrcAggressive({
     }
   }
 
-  // 3) MusicBrainz (hay 503 — không chặn flow)
-  for (const s of songVariants.slice(0, 2)) {
-    if (!s) continue;
-    try {
-      const mb = await fetchIsrcFromMusicBrainz(s, art);
-      if (mb) return mb;
-    } catch {
-      /* ignore */
+  // 3) MusicBrainz — hay 503, chỉ khi không batch hydrate
+  if (!skipMusicBrainz) {
+    for (const s of songVariants.slice(0, 2)) {
+      if (!s) continue;
+      try {
+        const mb = await fetchIsrcFromMusicBrainz(s, art);
+        if (mb) return mb;
+      } catch {
+        /* ignore */
+      }
     }
   }
 
@@ -1324,10 +1327,12 @@ async function hydrateTrackIsrc(track) {
       track.deezerId ||
       (track.source === "deezer-search" && track.id ? String(track.id) : null);
 
+    // Batch search: chỉ Deezer+iTunes (bỏ MusicBrainz — hay 503 làm chậm / miss)
     const isrc = await resolveIsrcAggressive({
       songName: song,
       artist,
       deezerId,
+      skipMusicBrainz: true,
     });
     if (isrc) {
       return {
@@ -1556,13 +1561,17 @@ async function searchMusicByQuery(query, limit = 30) {
 
   if (!ranked.length) ranked = [];
 
-  // Hydrate ISRC top results — chấp nhận chậm (Locket bắt buộc isrc)
-  const top = ranked.slice(0, Math.min(lim, 20));
-  const needHydrate = top.filter((t) => !t.isrc).slice(0, 10);
+  // Hydrate ISRC top results (Deezer+iTunes) — Locket bắt buộc isrc
+  const top = ranked.slice(0, Math.min(lim, 25));
+  const needHydrate = top.filter((t) => !normalizeIsrc(t.isrc)).slice(0, 18);
   if (needHydrate.length) {
-    const hydrated = await Promise.all(
-      needHydrate.map((t) => hydrateTrackIsrc(t)),
-    );
+    // Song song theo batch 6 — tránh flood API
+    const hydrated = [];
+    for (let i = 0; i < needHydrate.length; i += 6) {
+      const chunk = needHydrate.slice(i, i + 6);
+      const part = await Promise.all(chunk.map((t) => hydrateTrackIsrc(t)));
+      hydrated.push(...part);
+    }
     const byKey = new Map(
       hydrated.map((t) => [
         t.id ||
@@ -1636,21 +1645,28 @@ async function searchMusicByQuery(query, limit = 30) {
     deduped.push(clean);
   }
 
-  // Ưu tiên có isrc (đăng Locket được) + bản gốc
+  // Ưu tiên: ISRC + platform URL (đăng Locket được) → bản gốc → còn lại
   deduped.sort((a, b) => {
-    const ai = a.isrc ? 1 : 0;
-    const bi = b.isrc ? 1 : 0;
-    if (bi !== ai) return bi - ai;
-    const ac = isCoverOrDerivative(a, q) ? 0 : 1;
-    const bc = isCoverOrDerivative(b, q) ? 0 : 1;
-    if (bc !== ac) return bc - ac;
+    const score = (t) =>
+      (normalizeIsrc(t.isrc) ? 100 : 0) +
+      (t.spotify_url || t.apple_music_url ? 40 : 0) +
+      (t.preview_url ? 10 : 0) +
+      (isCoverOrDerivative(t, q) ? -50 : 20);
+    const d = score(b) - score(a);
+    if (d !== 0) return d;
     const al = cleanTrackTitle(a).length;
     const bl = cleanTrackTitle(b).length;
     if (al !== bl && Math.abs(al - bl) > 2) return al - bl;
     return 0;
   });
 
-  return deduped.slice(0, lim);
+  // Nếu đã có ≥3 bài có ISRC: đẩy bài không ISRC xuống cuối (vẫn giữ để user thấy)
+  const withIsrc = deduped.filter((t) => normalizeIsrc(t.isrc));
+  const withoutIsrc = deduped.filter((t) => !normalizeIsrc(t.isrc));
+  const ordered =
+    withIsrc.length >= 3 ? [...withIsrc, ...withoutIsrc] : deduped;
+
+  return ordered.slice(0, lim);
 }
 
 module.exports = {

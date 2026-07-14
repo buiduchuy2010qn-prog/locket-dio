@@ -6,6 +6,7 @@ import { getInfoMusicByUrl } from "@/services";
 import {
   normalizeIsrc,
   resolveMusicForLocket,
+  searchMusicByQuery,
 } from "@/services/ExtensionsServices/MusicServices";
 import {
   SonnerError,
@@ -322,7 +323,7 @@ export default function GeneralThemes({ title }) {
         return;
       }
 
-      // Resolve ISRC — ưu tiên ISRC sẵn; thiếu thì multi-step server (Deezer/iTunes)
+      // Resolve ISRC — ưu tiên ISRC sẵn; thiếu thì multi-step (Deezer/iTunes)
       let musicData = null;
       const rawIsrc = normalizeIsrc(raw.isrc);
       const hasPlatform = Boolean(raw.spotify_url || raw.apple_music_url);
@@ -345,7 +346,7 @@ export default function GeneralThemes({ title }) {
         };
       } else {
         musicData = await resolveMusicForLocket(raw);
-        // Retry: bỏ feat/ngoặc trong tên (hay làm miss ISRC)
+        // Retry: bỏ feat/ngoặc + bỏ dấu
         if (!normalizeIsrc(musicData?.isrc || raw.isrc) && songFromTrack) {
           const cleaned = songFromTrack
             .replace(/\(.*?\)/g, " ")
@@ -353,15 +354,44 @@ export default function GeneralThemes({ title }) {
             .replace(/\b(feat\.?|ft\.?|featuring|with)\s+.+$/i, " ")
             .replace(/\s+/g, " ")
             .trim();
-          if (cleaned && cleaned !== songFromTrack) {
+          const bare = cleaned
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .replace(/đ/g, "d")
+            .replace(/Đ/g, "D");
+          for (const titleTry of [cleaned, bare]) {
+            if (!titleTry || titleTry === songFromTrack) continue;
             musicData = await resolveMusicForLocket({
               ...raw,
-              song_title: cleaned,
-              song_name: cleaned,
-              title: cleaned,
-              name: cleaned,
+              song_title: titleTry,
+              song_name: titleTry,
+              title: titleTry,
+              name: titleTry,
               isrc: null,
             });
+            if (normalizeIsrc(musicData?.isrc)) break;
+          }
+        }
+        // Lần cuối: search lại lấy bài CÓ ISRC gần tên
+        if (!normalizeIsrc(musicData?.isrc || raw.isrc) && songFromTrack) {
+          try {
+            const q = [songFromTrack, artistFromTrack]
+              .filter(Boolean)
+              .join(" ");
+            const hits = await searchMusicByQuery(q, 20);
+            const hit = (hits || []).find((h) => normalizeIsrc(h.isrc));
+            if (hit) {
+              musicData = {
+                ...(musicData || {}),
+                ...hit,
+                isrc: normalizeIsrc(hit.isrc),
+                song_title:
+                  hit.song_title || hit.song_name || songFromTrack,
+                artist: hit.artist || artistFromTrack,
+              };
+            }
+          } catch {
+            /* keep */
           }
         }
       }
@@ -369,8 +399,8 @@ export default function GeneralThemes({ title }) {
       const isrc = normalizeIsrc(musicData?.isrc || raw.isrc);
       if (!isrc) {
         SonnerError(
-          "Không lấy được mã ISRC",
-          "Thử chọn đúng bản gốc (có cover), hoặc dán link Spotify/Apple Music track.",
+          "Bài này chưa có mã ISRC",
+          "Chọn bản khác trong list (ưu tiên bản có dấu ✓), hoặc dán link Spotify/Apple Music.",
         );
         return;
       }
@@ -385,11 +415,33 @@ export default function GeneralThemes({ title }) {
         musicData?.preview_url || raw.preview_url || raw.audioUrl || null;
       const image_url =
         musicData?.image_url || raw.image_url || raw.coverUrl || "";
-      const finalSpotify = musicData?.spotify_url || raw.spotify_url || null;
-      const apple_music_url =
+      let finalSpotify = musicData?.spotify_url || raw.spotify_url || null;
+      let apple_music_url =
         musicData?.apple_music_url || raw.apple_music_url || null;
 
-      // App Locket: bắt buộc 1 platform URL (Apple OK)
+      // Có ISRC nhưng thiếu link platform → search bù
+      if (!finalSpotify && !apple_music_url) {
+        try {
+          const hits = await searchMusicByQuery(
+            [song_title, artist].filter(Boolean).join(" "),
+            10,
+          );
+          const hit = (hits || []).find(
+            (h) =>
+              normalizeIsrc(h.isrc) === isrc ||
+              h.spotify_url ||
+              h.apple_music_url,
+          );
+          if (hit) {
+            finalSpotify = hit.spotify_url || finalSpotify;
+            apple_music_url = hit.apple_music_url || apple_music_url;
+          }
+        } catch {
+          /* keep */
+        }
+      }
+
+      // App Locket: bắt buộc ≥1 platform URL
       if (!finalSpotify && !apple_music_url) {
         SonnerError(
           "Thiếu link Apple Music / Spotify",
@@ -414,9 +466,11 @@ export default function GeneralThemes({ title }) {
       const clipDur = clipEnd - clipStart;
 
       const platform = finalSpotify ? "spotify" : "apple";
-      const platformPayload = finalSpotify
-        ? { spotify_url: finalSpotify }
-        : { apple_music_url };
+      // Gửi cả 2 URL nếu có — Locket map track ổn định hơn
+      const platformPayload = {
+        ...(finalSpotify ? { spotify_url: finalSpotify } : {}),
+        ...(apple_music_url ? { apple_music_url } : {}),
+      };
 
       applyOverlay({
         overlay_id: "caption:music",
