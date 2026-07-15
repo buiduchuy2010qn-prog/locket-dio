@@ -8,7 +8,8 @@
   "scripts": {
     "start": "node server.mjs",
     "dev": "vite",
-    "build": "node scripts/write-version.mjs && vite build",
+    "build": "node scripts/vercel-prebuilt.mjs",
+    "build:vite": "node scripts/write-version.mjs && vite build",
     "build:static": "node scripts/write-version.mjs && node scripts/clean-public-build.mjs && vite build && node scripts/prepare-static.mjs",
 
     "lint": "eslint .",
@@ -16,7 +17,7 @@
     "serve": "node server.mjs"
   },
   "engines": {
-    "node": "20.x"
+    "node": ">=18"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",
