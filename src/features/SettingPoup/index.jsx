@@ -73,7 +73,7 @@ const SettingPoup = ({ open, onClose }) => {
     {
       key: "watermark",
       icon: Heart,
-      title: t("setting_poup.media.watermark.title"),
+      title: t("setting_poup.media.watermark.title", { defaultValue: "Watermark" }),
       description: t("setting_poup.media.watermark.description"),
       checked: saveWatermark,
       onChange: toggleSaveWatermark,

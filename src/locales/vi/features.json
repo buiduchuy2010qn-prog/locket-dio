@@ -277,10 +277,13 @@
       "title": "Ngôn ngữ"
     },
     "media": {
-      "section": "♥ Watermark",
+      "section": "Watermark",
+      "menu_name": "Watermark",
       "watermark": {
-        "title": "Watermark khi lưu ảnh",
-        "description": "Bật: thêm ♥ Locket khi tải / chia sẻ. Tắt: lưu ảnh gốc."
+        "title": "Watermark",
+        "description": "Bật: thêm ♥ Locket khi tải ảnh. Tắt: lưu ảnh gốc.",
+        "on_hint": "Đang bật · ♥ Locket khi lưu ảnh",
+        "off_hint": "Đang tắt · lưu ảnh gốc"
       }
     },
     "privacy": {

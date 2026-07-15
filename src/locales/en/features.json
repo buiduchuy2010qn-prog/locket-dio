@@ -277,10 +277,13 @@
       "title": "Language"
     },
     "media": {
-      "section": "♥ Watermark",
+      "section": "Watermark",
+      "menu_name": "Watermark",
       "watermark": {
-        "title": "Watermark on save",
-        "description": "On: add ♥ Locket when download / share. Off: save original."
+        "title": "Watermark",
+        "description": "On: add ♥ Locket when saving. Off: original photo.",
+        "on_hint": "On · ♥ Locket when saving",
+        "off_hint": "Off · save original"
       }
     },
     "privacy": {

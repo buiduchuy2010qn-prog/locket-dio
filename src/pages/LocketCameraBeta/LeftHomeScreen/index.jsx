@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { useApp } from "@/context/AppContext";
 import HeaderOne from "./Layout/HeaderOne";
 import InfoUser from "./Layout/InfoUser";
+import WatermarkMenuItem from "./Layout/WatermarkMenuItem";
 import SegmentedToggle from "./Layout/SegmentedToggle";
 import RollcallsPost from "./Views/RollcallsPage";
 import StreakLocket from "./Views/CalenderStreak";
@@ -36,6 +37,8 @@ const LeftHomeScreen = ({ setIsProfileOpen }) => {
       <div className="relative shadow-md">
         <HeaderOne setIsProfileOpen={setIsProfileOpen} />
         <InfoUser user={user} />
+        {/* Mục menu riêng: Watermark on/off */}
+        <WatermarkMenuItem />
       </div>
 
       {/* ==== Nội dung chính ==== */}
