@@ -58,8 +58,11 @@ export const getAvailableCameras = async (opts = {}) => {
     backUltraWideCamera: result.backUltraWideCamera,
     backNormalCamera: result.backNormalCamera,
     backZoomCamera: result.backZoomCamera,
-    // Full rear list for manual lens pick / debug — never hide hardware
-    rearOptions: result.backCameras || [],
+    // Full rear list for manual lens pick — never hide hardware
+    rearOptions: result.rearOptions || result.backCameras || [],
+    ultraConfidence: result.ultraConfidence || "none",
+    needsManualLensPick: Boolean(result.needsManualLensPick),
+    ultraRanked: result.ultraRanked || [],
     detected: result.detected || null,
   };
   camerasCacheAt = Date.now();

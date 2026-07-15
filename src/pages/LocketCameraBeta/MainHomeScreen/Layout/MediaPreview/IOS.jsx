@@ -203,12 +203,13 @@ const MediaPreviewIOS = () => {
 
       const z = settings.zoom ?? currentZoomValue.current ?? 1;
       let display = z;
-      const uf =
-        modes.ultraFactor || getUltraWideFactor(stream, shape) || 0.5;
+      // Live factor only — never invent 0.5 when API omits zoom
+      const uf = modes.ultraFactor || getUltraWideFactor(stream, shape);
       if (
         shape.ultrawide?.deviceId &&
         actualId === shape.ultrawide.deviceId &&
-        z <= 1.1
+        z <= 1.1 &&
+        uf != null
       ) {
         display = uf;
       }
@@ -312,12 +313,14 @@ const MediaPreviewIOS = () => {
           mapped.displayZoom ??
           availableZoomModes?.ultraFactor ??
           getUltraWideFactor(stream, shape) ??
-          0.5;
+          null;
         setZoomLevel("0.5x");
         lastZoomLevel.current = "0.5x";
         setActiveZoomMode("0.5x");
-        currentZoomValue.current = factor;
-        setCurrentZoom(factor);
+        // Live factor only — never invent 0.5
+        currentZoomValue.current =
+          factor != null ? factor : currentZoomValue.current || 1;
+        setCurrentZoom(currentZoomValue.current);
         setIsSwitchingCamera(true);
         setDeviceId(ultraId);
         return true;
@@ -1226,12 +1229,4 @@ const MediaPreviewIOS = () => {
           </Suspense>
         </div>
 
-        <div className="absolute inset-0 z-50 pointer-events-none">
-          <BorderProgress />
-        </div>
-      </div>
-    </>
-  );
-};
-
-export default MediaPreviewIOS;
+        <div className="absolute inset-0 z-50 pointer-

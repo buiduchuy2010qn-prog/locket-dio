@@ -1,13 +1,25 @@
 /**
  * Camera lens selection + pinch zoom system.
  *
- * Rules:
+ * ## Universal classification (no model-specific tables)
+ *
+ * NEVER identify ultra-wide by zoom number alone.
+ * The same phone may expose 0.5 / 0.6 / 0.7 / 0.8 / 0.9 / 1.0 / no zoom /
+ * only deviceId / only labels — and values differ across Chrome, Samsung
+ * Internet, Edge, Safari, and future browsers.
+ *
+ * Classification uses an ensemble of signals:
+ *   labels · multi-rear structure · facingMode · optional capability probe
+ *   (zoom range is only a WEAK supporting signal)
+ *
+ * Display factors (0.5x / 0.6x …) are read LIVE from getSettings/getCapabilities
+ * AFTER the correct lens/stream is open — never used to guess the lens first.
+ *
+ * If confidence is low → ultrawide = null, needsManualLensPick = true,
+ * rearOptions = every rear camera for user selection.
+ *
+ * Other rules:
  * - Default rear = main wide @ 1x (never telephoto / macro).
- * - Ultra pill: open ultra lens / apply track.minZoom — display factor ONLY from
- *   MediaStreamTrack.getCapabilities().zoom / getSettings().zoom
- *   (never guess 0.5 vs 0.6 by User-Agent / brand).
- * - Universal ultra detection: multi-heuristic (label + multi-rear + optional
- *   capability probe). Works for 0.5x–0.9x and unlabeled devices.
  * - Pinch: continuous min→max from live track.
  * - Stop old tracks only after the new stream is ready.
  * - Never hide a usable rear camera from candidate lists.
@@ -38,16 +50,36 @@ const AVOID_RE =
 const ULTRA_RE =
   /cực\s*rộng|siêu\s*rộng|góc\s*siêu\s*rộng|góc\s*rộng|goc\s*rong|sieu\s*rong|ultra[\s_-]*wide|ultrawide|ultra\b|0\.[5-9]\s*x|\b0\.[5-9]\b|wide[\s_-]*angle|fisheye|fish[\s_-]*eye|\buw\b|cam[\s_-]*uw|uwcam|super[\s_-]*wide|extra[\s_-]*wide|uwb|camera2\s*2(?!\d)|samsung[\s_-]*camera[\s_-]*2|cam[_\s-]*2(?!\d)|lens[_\s-]*2(?!\d)|secondary|aux(iliary)?|超广角|超廣角|广角|초광각|광각|超広角|広角|grand[\s_-]*angle|angolo[\s_-]*ultra|ultrawinkel|ultra[\s_-]*weit/;
 
-/** Strong ultra signal — safe to skip capability probe */
+/**
+ * Strong ultra label — text/identity only.
+ * MUST NOT include bare 0.5x–0.9x numbers (those are display values, not IDs).
+ */
 const CONFIDENT_ULTRA_RE =
-  /ultra[\s_-]*wide|ultrawide|siêu\s*rộng|cực\s*rộng|góc\s*siêu\s*rộng|0\.[5-9]\s*x|\b0\.[5-9]\b|fisheye|fish[\s_-]*eye|super[\s_-]*wide|extra[\s_-]*wide|\buw\b|超广角|超廣角|초광각|超広角|grand[\s_-]*angle/;
+  /ultra[\s_-]*wide|ultrawide|siêu\s*rộng|cực\s*rộng|góc\s*siêu\s*rộng|fisheye|fish[\s_-]*eye|super[\s_-]*wide|extra[\s_-]*wide|\buw\b|超广角|超廣角|초광각|超広角|grand[\s_-]*angle/;
+
+/** Weak: zoom-like text in label — supporting only, never sufficient alone */
+const ZOOM_IN_LABEL_RE = /0\.[5-9]\s*x|\b0\.[5-9]\b/;
 
 const TELE_RE =
   /chụp\s*xa|telephoto|\btele\b|periscope|\b2x\b|\b3x\b|\b5x\b|\b10x\b|camera2\s*[3-9]|cam[_\s-]*3|lens[_\s-]*3|长焦|長焦|망원|望遠/;
 
-/** Zoom factor band treated as ultra-wide (physical or digital min) */
+/**
+ * Live zoom band used only for DISPLAY / digital wide apply after stream is open.
+ * NEVER use this alone to decide which deviceId is ultra-wide.
+ */
 const ULTRA_ZOOM_MIN = 0.15;
 const ULTRA_ZOOM_MAX = 0.95;
+
+/** Signals that are NOT zoom-number based (required for auto-pick) */
+const NON_ZOOM_SIGNALS = new Set([
+  "confident_label",
+  "ultra_label",
+  "multi_rear",
+  "not_main",
+  "not_tele",
+  "index_hint",
+  "secondary_hint",
+]);
 
 /**
  * Chỉ số zoom CHỈ lấy từ camera thật (getCapabilities / getSettings),
@@ -193,11 +225,13 @@ export async function probeDeviceCapabilities(deviceId) {
 }
 
 /**
- * Score a rear device as ultra-wide candidate (higher = more likely UW).
- * Combines label + optional probe (minZoom) + weak index hints.
- * Never brand-specific.
+ * Score + signal breakdown for ultra-wide candidate.
+ * Zoom numbers are WEAK supporting evidence only — never sufficient alone.
+ * Never brand-specific / never fixed 0.5 assumption.
+ *
+ * @returns {{ score: number, signals: string[] }}
  */
-export function scoreUltraWideCandidate(
+export function analyzeUltraWideCandidate(
   device,
   {
     mainId = null,
@@ -207,49 +241,139 @@ export function scoreUltraWideCandidate(
     probe = null,
   } = {},
 ) {
-  if (!device?.deviceId) return -999;
-  if (device.deviceId === mainId) return -200;
-  if (device.deviceId === teleId) return -150;
+  if (!device?.deviceId) return { score: -999, signals: [] };
+  if (device.deviceId === mainId) {
+    return { score: -200, signals: ["is_main"] };
+  }
+  if (device.deviceId === teleId) {
+    return { score: -150, signals: ["is_tele"] };
+  }
 
   const label = String(device.label || "").toLowerCase();
   let score = 0;
+  const signals = [];
 
-  if (isConfidentUltraLabel(label)) score += 120;
-  else if (isUltraLabel(label)) score += 70;
-
-  if (isTeleLabel(label) || AVOID_RE.test(label)) score -= 120;
-  if (/macro|depth|portrait|tof|bokeh|infrared|ir\b|mono/.test(label)) {
-    score -= 80;
+  // ── Primary: identity labels (not zoom numbers) ──
+  if (isConfidentUltraLabel(label)) {
+    score += 120;
+    signals.push("confident_label");
+  } else if (isUltraLabel(label) && !ZOOM_IN_LABEL_RE.test(label)) {
+    // ultra_label without pure-number match
+    score += 70;
+    signals.push("ultra_label");
+  } else if (isUltraLabel(label) && ZOOM_IN_LABEL_RE.test(label)) {
+    // Label is only/mostly a zoom number like "0.6x" — weak
+    score += 20;
+    signals.push("zoom_in_label");
   }
 
-  // Explicit factor in label: 0.5–0.9
-  const factorMatch = label.match(/\b0\.([5-9])\b/);
-  if (factorMatch) score += 40 + (9 - Number(factorMatch[1])); // prefer wider
+  if (isTeleLabel(label) || AVOID_RE.test(label)) {
+    score -= 120;
+    signals.push("tele_or_avoid");
+  }
+  if (/macro|depth|portrait|tof|bokeh|infrared|ir\b|mono/.test(label)) {
+    score -= 80;
+    signals.push("macro_depth");
+  }
 
-  // Probe: minZoom < 1 is the strongest universal signal
+  // Bare 0.x in label (supporting only)
+  if (ZOOM_IN_LABEL_RE.test(label) && !signals.includes("zoom_in_label")) {
+    score += 12;
+    signals.push("zoom_in_label");
+  }
+
+  // Secondary device hints (camera2 2, aux, secondary) — structure, not zoom
+  if (
+    /camera2\s*2(?!\d)|cam[_\s-]*2(?!\d)|lens[_\s-]*2(?!\d)|secondary|aux(iliary)?/.test(
+      label,
+    )
+  ) {
+    score += 25;
+    signals.push("secondary_hint");
+  }
+
+  // ── Weak: capability probe zoom (NEVER sole auto-pick) ──
   const minZ = probe?.minZoom;
   if (typeof minZ === "number" && Number.isFinite(minZ)) {
     if (isUltraZoomValue(minZ)) {
-      score += 150;
-      // Wider min → slightly higher (0.5 better ultra signal than 0.9)
-      score += Math.round((0.95 - minZ) * 40);
+      // Small weight only — browsers disagree on the number
+      score += 22;
+      signals.push("min_zoom_lt_1");
     } else if (minZ >= 0.95 && minZ <= 1.05) {
-      score -= 30; // looks like main
+      score -= 25;
+      signals.push("min_zoom_mainish");
     } else if (minZ > 1.2) {
-      score -= 100; // tele-like
+      score -= 100;
+      signals.push("min_zoom_teleish");
     }
   }
 
-  // Facing must not be user
-  if (probe?.facingMode === "user") score -= 200;
+  if (probe?.facingMode === "user") {
+    score -= 200;
+    signals.push("facing_user");
+  } else if (probe?.facingMode === "environment") {
+    score += 5;
+    signals.push("facing_env");
+  }
 
-  // Weak index hint only (never sole decision): some Android lists ultra early
-  if (rearTotal >= 2 && rearIndex === 0 && !isTeleLabel(label)) score += 8;
+  // Multi-rear structure (not zoom)
+  if (rearTotal >= 2) {
+    score += 18;
+    signals.push("multi_rear");
+    signals.push("not_main");
+    if (device.deviceId !== teleId) signals.push("not_tele");
+  }
+
+  // Weak index hint only with multi-rear (never sole)
+  if (rearTotal >= 2 && rearIndex === 0 && !isTeleLabel(label)) {
+    score += 6;
+    signals.push("index_hint");
+  }
   if (rearTotal >= 3 && rearIndex === rearTotal - 1 && isTeleLabel(label)) {
     score -= 20;
   }
 
-  return score;
+  return { score, signals };
+}
+
+/**
+ * @deprecated Prefer analyzeUltraWideCandidate — kept for call-site compatibility.
+ */
+export function scoreUltraWideCandidate(device, opts = {}) {
+  return analyzeUltraWideCandidate(device, opts).score;
+}
+
+/**
+ * Confidence for auto-selecting a device as ultra-wide.
+ * Zoom-only evidence → always "low" (manual pick recommended).
+ *
+ * @returns {"high"|"medium"|"low"|"none"}
+ */
+export function ultraWideConfidenceFromAnalysis({ score = 0, signals = [] } = {}) {
+  const nonZoom = signals.filter((s) => NON_ZOOM_SIGNALS.has(s));
+  const hasConfidentLabel = signals.includes("confident_label");
+  const hasUltraLabel = signals.includes("ultra_label");
+  const hasStructure =
+    signals.includes("multi_rear") || signals.includes("secondary_hint");
+
+  if (score <= 0) return "none";
+
+  // High: clear text identity
+  if (hasConfidentLabel && score >= 80) return "high";
+  if (hasUltraLabel && hasStructure && score >= 60) return "high";
+
+  // Medium: label or multi-rear structure with supporting evidence
+  if (nonZoom.length >= 2 && score >= 40) return "medium";
+  if ((hasUltraLabel || hasStructure) && score >= 50) return "medium";
+
+  // Low: zoom-only or single weak signal — do NOT trust as THE ultra lens
+  if (score > 0) return "low";
+  return "none";
+}
+
+/** True if analysis has at least one non-zoom identity/structure signal */
+export function hasNonZoomUltraSignal(signals = []) {
+  return signals.some((s) => NON_ZOOM_SIGNALS.has(s));
 }
 
 /**
@@ -507,15 +631,20 @@ export function detectRearCameras(videoDevices = []) {
 
   const main = pickMainRearCamera(rear);
   const telephoto = pickTeleCamera(rear, main);
-  const ultrawide = pickUltraWideCamera(rear, main, telephoto);
+  const ultraState = classifyUltraWideState(rear, main, telephoto);
 
   return {
     all: videoDevices,
     front,
     rear,
     main,
-    ultrawide,
+    ultrawide: ultraState.ultrawide,
     telephoto,
+    // Always expose every rear cam for manual pick when auto is unsure
+    rearOptions: rear.slice(),
+    ultraConfidence: ultraState.confidence,
+    needsManualLensPick: ultraState.needsManualLensPick,
+    ultraRanked: ultraState.ranked,
   };
 }
 
@@ -538,17 +667,20 @@ export function pickMainRearCamera(rearCameras = []) {
 }
 
 /**
- * Ultra-wide picker — universal multi-heuristic (not brand-specific).
- * 1) Confident label (ultra / 0.5–0.9 / siêu rộng / 超广角 …)
- * 2) Capability probe minZoom in (0.15, 0.95) when cached
- * 3) Scored non-main, non-tele rear (never hide candidates)
- * 4) Dual-rear unlabeled: remaining rear as ultra fallback
+ * Ultra-wide picker — ensemble only; NEVER zoom-number alone.
+ *
+ * Auto-returns a device only at high/medium confidence with ≥1 non-zoom signal.
+ * Low confidence → null (caller should expose rearOptions for manual pick).
+ *
+ * Pass `{ allowLowConfidence: true }` only for candidate lists / trial open.
  */
 export function pickUltraWideCamera(
   rearCameras = [],
   mainCamera = null,
   teleCamera = null,
+  opts = {},
 ) {
+  const { allowLowConfidence = false } = opts;
   if (!rearCameras.length) return null;
 
   const mainId =
@@ -558,29 +690,50 @@ export function pickUltraWideCamera(
     rearCameras.find((d) => isTeleLabel(d.label || ""))?.deviceId ||
     null;
 
-  // 1) Confident ultra label first
+  // 1) Confident text identity (not a bare zoom number)
   const confident = rearCameras.find((d) =>
     isConfidentUltraLabel(d.label || ""),
   );
   if (confident) return confident;
 
-  // 2) Any ultra label
-  const byLabel = rearCameras.find((d) => isUltraLabel(d.label || ""));
-  if (byLabel) return byLabel;
+  // 2) Ultra label that is more than just "0.6x" text
+  const byLabel = rearCameras.find((d) => {
+    const l = d.label || "";
+    if (!isUltraLabel(l)) return false;
+    // Reject if the ONLY ultra match is a zoom number in the label
+    const stripped = String(l)
+      .toLowerCase()
+      .replace(ZOOM_IN_LABEL_RE, "")
+      .replace(/\s+/g, "");
+    return isUltraLabel(l) && (stripped.length > 2 || isConfidentUltraLabel(l));
+  });
+  // Prefer label that still has identity words after stripping zoom tokens
+  const byStrongLabel = rearCameras.find((d) => {
+    const l = String(d.label || "").toLowerCase();
+    if (!isUltraLabel(l)) return false;
+    return (
+      isConfidentUltraLabel(l) ||
+      /ultra|wide|rộng|广角|광각|fisheye|uw|aux|secondary|camera2/.test(l)
+    );
+  });
+  if (byStrongLabel) return byStrongLabel;
+  if (byLabel && isConfidentUltraLabel(byLabel.label || "")) return byLabel;
 
-  // 3) Score all rear using labels + probe cache (if any)
+  // 3) Ensemble score — require non-zoom signal for auto-pick
   const scored = rearCameras
     .map((device, rearIndex) => {
       const probe = deviceProbeCache.get(device.deviceId) || null;
+      const analysis = analyzeUltraWideCandidate(device, {
+        mainId,
+        teleId,
+        rearIndex,
+        rearTotal: rearCameras.length,
+        probe,
+      });
       return {
         device,
-        score: scoreUltraWideCandidate(device, {
-          mainId,
-          teleId,
-          rearIndex,
-          rearTotal: rearCameras.length,
-          probe,
-        }),
+        ...analysis,
+        confidence: ultraWideConfidenceFromAnalysis(analysis),
       };
     })
     .filter((s) => s.device.deviceId !== mainId)
@@ -588,34 +741,75 @@ export function pickUltraWideCamera(
     .filter((s) => !isTeleLabel(s.device.label || ""))
     .sort((a, b) => b.score - a.score);
 
-  if (scored.length && scored[0].score > 0) {
-    return scored[0].device;
+  const best = scored[0];
+  if (!best) return null;
+
+  if (best.confidence === "high" || best.confidence === "medium") {
+    // Guard: zoom-only must never win auto-pick
+    if (hasNonZoomUltraSignal(best.signals)) return best.device;
   }
 
-  // 4) Dual/triple rear unlabeled — never hide: pick best remaining
-  if (rearCameras.length >= 2 && mainId) {
-    if (scored.length) return scored[0].device;
-    const mainIdx = rearCameras.findIndex((d) => d.deviceId === mainId);
-    if (mainIdx > 0) {
-      const earlier = rearCameras[mainIdx - 1];
-      if (
-        earlier &&
-        !isTeleLabel(earlier.label || "") &&
-        earlier.deviceId !== teleId
-      ) {
-        return earlier;
-      }
-    }
-    const other = rearCameras.find(
-      (d) =>
-        d.deviceId !== mainId &&
-        d.deviceId !== teleId &&
-        !isTeleLabel(d.label || ""),
-    );
-    if (other) return other;
+  if (allowLowConfidence && best.score > 0) {
+    return best.device;
   }
 
+  // Low / zoom-only / uncertain → no auto ultra device
   return null;
+}
+
+/**
+ * Full analysis of ultra classification for UI (manual pick when needed).
+ */
+export function classifyUltraWideState(
+  rearCameras = [],
+  mainCamera = null,
+  teleCamera = null,
+) {
+  const mainId =
+    mainCamera?.deviceId || pickMainRearCamera(rearCameras)?.deviceId;
+  const teleId =
+    teleCamera?.deviceId ||
+    rearCameras.find((d) => isTeleLabel(d.label || ""))?.deviceId ||
+    null;
+
+  const ranked = rearCameras
+    .filter((d) => d?.deviceId)
+    .map((device, rearIndex) => {
+      const probe = deviceProbeCache.get(device.deviceId) || null;
+      const analysis = analyzeUltraWideCandidate(device, {
+        mainId,
+        teleId,
+        rearIndex,
+        rearTotal: rearCameras.length,
+        probe,
+      });
+      return {
+        device,
+        deviceId: device.deviceId,
+        label: device.label || "",
+        ...analysis,
+        confidence: ultraWideConfidenceFromAnalysis(analysis),
+      };
+    })
+    .sort((a, b) => b.score - a.score);
+
+  const auto = pickUltraWideCamera(rearCameras, mainCamera, teleCamera);
+  const best = ranked.find((r) => r.deviceId === auto?.deviceId) || ranked[0];
+  const confidence = auto
+    ? best?.confidence || "medium"
+    : ranked.some((r) => r.score > 0)
+      ? "low"
+      : "none";
+
+  return {
+    ultrawide: auto,
+    confidence,
+    /** User must pick when we cannot trust auto classification */
+    needsManualLensPick:
+      !auto && rearCameras.length >= 2 && confidence !== "high",
+    ranked,
+    rearOptions: rearCameras.slice(),
+  };
 }
 
 /**
@@ -639,7 +833,7 @@ export function listUltraWideCandidates(
     .filter((d) => d?.deviceId)
     .filter((d) => d.deviceId !== mainId && d.deviceId !== teleId)
     .filter((d) => !isTeleLabel(d.label || ""))
-    .map((device, rearIndex) => ({
+    .map((device) => ({
       device,
       score: scoreUltraWideCandidate(device, {
         mainId,
@@ -651,14 +845,16 @@ export function listUltraWideCandidates(
     }))
     .sort((a, b) => b.score - a.score);
 
+  // Always expose every non-main/non-tele rear as a candidate (manual + trial open)
   const ids = scored.map((s) => s.device.deviceId);
 
-  // Primary pick first if not already first
+  // Prefer confident auto pick first when available
   const primary = pickUltraWideCamera(rearCameras, mainCamera, teleCamera);
   if (primary?.deviceId) {
     const rest = ids.filter((id) => id !== primary.deviceId);
     return [primary.deviceId, ...rest];
   }
+  // Low confidence: still return all candidates so open can trial / user can pick
   return ids;
 }
 
@@ -696,41 +892,19 @@ export async function enrichDetectedWithCapabilityProbes(detected) {
     }
   }
 
-  // Re-classify with probe-aware scoring
+  // Re-classify — probe zoom only supports labels/structure, never sole promote
   const main = detected.main || pickMainRearCamera(detected.rear);
   const telephoto = pickTeleCamera(detected.rear, main);
-  const ultrawide = pickUltraWideCamera(detected.rear, main, telephoto);
-
-  // Promote device whose probe minZoom is ultra even if pick missed
-  let bestUltra = ultrawide;
-  let bestScore = -Infinity;
-  for (let i = 0; i < detected.rear.length; i++) {
-    const d = detected.rear[i];
-    if (d.deviceId === main?.deviceId) continue;
-    const probe = deviceProbeCache.get(d.deviceId);
-    const sc = scoreUltraWideCandidate(d, {
-      mainId: main?.deviceId,
-      teleId: telephoto?.deviceId,
-      rearIndex: i,
-      rearTotal: detected.rear.length,
-      probe,
-    });
-    if (sc > bestScore) {
-      bestScore = sc;
-      bestUltra = d;
-    }
-  }
-  if (bestScore > 20) {
-    bestUltra = bestUltra || ultrawide;
-  } else {
-    bestUltra = ultrawide || bestUltra;
-  }
+  const ultraState = classifyUltraWideState(detected.rear, main, telephoto);
 
   return {
     ...detected,
     main,
     telephoto,
-    ultrawide: bestUltra || ultrawide,
+    ultrawide: ultraState.ultrawide,
+    ultraConfidence: ultraState.confidence,
+    needsManualLensPick: ultraState.needsManualLensPick,
+    ultraRanked: ultraState.ranked,
     rearOptions: detected.rear,
     probes: Object.fromEntries(
       detected.rear
@@ -1282,40 +1456,43 @@ export function removeCaptionZoomControls(root = document) {
 export function computeAvailableZoomModes(detected, stream) {
   const range = readZoomRange(stream);
   const multiRear = (detected?.rear?.length || 0) >= 2;
+  // Display factor ONLY from live stream — never a fixed 0.5 assumption
   const ultraFactor = resolveUltraWideFactor(stream, detected, null);
   const ultraCandidates = listUltraWideCandidates(
     detected?.rear || [],
     detected?.main || null,
     detected?.telephoto || null,
   );
-  const hasUltraLens =
-    Boolean(detected?.ultrawide?.deviceId) || ultraCandidates.length > 0;
+  const hasClassifiedUltra = Boolean(detected?.ultrawide?.deviceId);
+  const hasUltraCandidates = ultraCandidates.length > 0;
+  const conf = detected?.ultraConfidence || null;
 
-  // Probe cache: any rear reporting minZoom in ultra band (0.5–0.9)
-  let probeUltra = false;
-  for (const d of detected?.rear || []) {
-    const p = deviceProbeCache.get(d?.deviceId);
-    if (p && isUltraZoomValue(p.minZoom)) {
-      probeUltra = true;
-      break;
-    }
-  }
+  // Digital wide on the *current* track (logical multi-cam) is a zoom FEATURE,
+  // not classification of a separate ultra deviceId. Safe to enable the pill
+  // when the live track exposes minZoom in the wide band — still never used
+  // alone to assign `detected.ultrawide`.
+  const digitalWideRange =
+    range.supported && isUltraZoomValue(range.minZoom);
 
-  // Bật góc siêu rộng khi: lens riêng | multi-cam | digital min < 1 | probe
+  // Enable UW pill: classified lens · multi-rear candidates · live digital range
+  // (display number still comes from live factor / "UW", never hard-coded 0.5)
   const canWide =
-    hasUltraLens ||
-    multiRear ||
-    probeUltra ||
-    (range.supported && isUltraZoomValue(range.minZoom));
+    hasClassifiedUltra ||
+    (hasUltraCandidates && multiRear) ||
+    digitalWideRange ||
+    conf === "high" ||
+    conf === "medium";
 
-  // Chỉ số hiển thị = đọc từ cam (null → UI "UW" cho đến khi apply xong)
+  // Internal mode key stays "0.5x"; UI label uses live ultraFactor or "UW"
   const modes = {
-    // Key nội bộ "0.5x"; label = ultraFactor từ getCapabilities/settings
-    "0.5x": canWide,
+    "0.5x": Boolean(canWide),
     "1x": true,
     "2x": false,
     "3x": false,
     ultraFactor: canWide ? ultraFactor : null,
+    ultraConfidence: conf,
+    needsManualLensPick: Boolean(detected?.needsManualLensPick),
+    rearOptions: detected?.rearOptions || detected?.rear || [],
   };
 
   // 2x / 3x — theo tele hoặc max digital zoom của máy
@@ -1967,8 +2144,11 @@ export async function detectAndClassifyCameras() {
     backNormalCamera: d.main,
     backUltraWideCamera: d.ultrawide,
     backZoomCamera: d.telephoto,
-    // Expose full rear list — never hide usable hardware
+    // Always expose full rear list — manual pick when confidence is low
     rearOptions: d.rearOptions || d.rear || [],
+    ultraConfidence: d.ultraConfidence || "none",
+    needsManualLensPick: Boolean(d.needsManualLensPick),
+    ultraRanked: d.ultraRanked || [],
     detected: d,
   };
 }
