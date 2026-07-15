@@ -203,22 +203,18 @@ export default function GeneralThemes({ title }) {
       );
       return false;
     }
+    // iOS MusicKit: BẮT BUỘC apple_music_url có ?i=trackId — thiếu = có tên nhưng im
     const appleOk =
       musicPayload.apple_music_url &&
       /[?&]i=\d{5,}/.test(String(musicPayload.apple_music_url));
     if (!appleOk) {
-      // Drop non-playable apple so we don't send bad URLs
-      delete musicPayload.apple_music_url;
-    }
-    if (!musicPayload.spotify_url && !musicPayload.apple_music_url) {
       SonnerError(
-        "Thiếu link Apple Music / Spotify",
-        "Chọn bài khác (có ✓ ISRC) — app Locket cần link để hiện nhạc.",
+        "Thiếu Apple Music (iOS)",
+        "iPhone cần link Apple có mã bài (?i=). Chọn bản khác trong tìm nhạc hoặc dán link Apple Music.",
       );
       return false;
     }
     if (!musicPayload.image_url) {
-      // Cover optional for web; Locket still shows text pill — use placeholder
       musicPayload.image_url =
         "https://cdn.locket-dio.com/v1/caption/caption-icon/spotify_music.png";
     }
@@ -375,13 +371,16 @@ export default function GeneralThemes({ title }) {
         return;
       }
 
-      // Resolve ISRC — ưu tiên ISRC sẵn; thiếu thì multi-step (Deezer/iTunes)
+      // Resolve ISRC + Apple (?i=) — iOS im nếu thiếu Apple dù có tên
       let musicData = null;
       const rawIsrc = normalizeIsrc(raw.isrc);
-      const hasPlatform = Boolean(raw.spotify_url || raw.apple_music_url);
+      const rawAppleOk =
+        raw.apple_music_url &&
+        /[?&]i=\d{5,}/.test(String(raw.apple_music_url));
+      // Chỉ skip resolve khi đã có ISRC + Apple playable (đủ cho iOS)
       if (
         rawIsrc &&
-        hasPlatform &&
+        rawAppleOk &&
         (raw.song_title || raw.song_name || raw.name || songFromTrack)
       ) {
         musicData = {
@@ -493,33 +492,58 @@ export default function GeneralThemes({ title }) {
         }
       }
 
-      // Bù dual platform: Apple ?i= (iOS) + Spotify (Android)
-      if (
-        !finalSpotify ||
-        !apple_music_url ||
-        !/[?&]i=\d{5,}/.test(String(apple_music_url || ""))
-      ) {
+      // Bù Apple ?i= (iOS) + Spotify (Android) — ưu tiên Apple playable
+      const needApple =
+        !apple_music_url || !/[?&]i=\d{5,}/.test(String(apple_music_url || ""));
+      if (needApple || !finalSpotify) {
         try {
-          const hits = await searchMusicByQuery(
+          const qList = [
             [song_title, artist].filter(Boolean).join(" "),
-            15,
-          );
-          const hitApple = (hits || []).find(
-            (h) =>
-              h.apple_music_url &&
-              /[?&]i=\d{5,}/.test(String(h.apple_music_url)),
-          );
-          const hitSp = (hits || []).find((h) => h.spotify_url);
-          if (hitApple) {
-            apple_music_url = apple_music_url || hitApple.apple_music_url;
-            finalSpotify = finalSpotify || hitApple.spotify_url || null;
-            if (!image_url && hitApple.image_url) image_url = hitApple.image_url;
-            if (!preview && hitApple.preview_url) {
-              /* keep preview from hit if better */
+            song_title,
+            // bỏ dấu + feat để iTunes/Deezer match tốt hơn
+            String(song_title || "")
+              .replace(/\(.*?\)/g, " ")
+              .replace(/\b(feat\.?|ft\.?|featuring)\s+.+$/i, " ")
+              .normalize("NFD")
+              .replace(/[\u0300-\u036f]/g, "")
+              .replace(/đ/g, "d")
+              .replace(/\s+/g, " ")
+              .trim(),
+          ].filter((q, i, arr) => q && q.length >= 2 && arr.indexOf(q) === i);
+
+          for (const q of qList) {
+            if (
+              apple_music_url &&
+              /[?&]i=\d{5,}/.test(String(apple_music_url)) &&
+              finalSpotify
+            ) {
+              break;
             }
-          }
-          if (hitSp?.spotify_url) {
-            finalSpotify = finalSpotify || hitSp.spotify_url;
+            const hits = await searchMusicByQuery(q, 20);
+            const sameIsrc = (hits || []).find(
+              (h) =>
+                normalizeIsrc(h.isrc) === isrc &&
+                h.apple_music_url &&
+                /[?&]i=\d{5,}/.test(String(h.apple_music_url)),
+            );
+            const hitApple =
+              sameIsrc ||
+              (hits || []).find(
+                (h) =>
+                  h.apple_music_url &&
+                  /[?&]i=\d{5,}/.test(String(h.apple_music_url)),
+              );
+            const hitSp = (hits || []).find((h) => h.spotify_url);
+            if (hitApple?.apple_music_url) {
+              apple_music_url = hitApple.apple_music_url;
+              finalSpotify = finalSpotify || hitApple.spotify_url || null;
+              if (!image_url && hitApple.image_url) {
+                image_url = hitApple.image_url;
+              }
+            }
+            if (hitSp?.spotify_url) {
+              finalSpotify = finalSpotify || hitSp.spotify_url;
+            }
           }
         } catch {
           /* keep */
@@ -551,12 +575,10 @@ export default function GeneralThemes({ title }) {
 
       const applePlayable =
         apple_music_url && /[?&]i=\d{5,}/.test(String(apple_music_url));
-      if (!applePlayable) apple_music_url = null;
-
-      if (!finalSpotify && !apple_music_url) {
+      if (!applePlayable) {
         SonnerError(
-          "Thiếu link Apple Music / Spotify",
-          "Chọn bài khác có ✓ ISRC, hoặc dán link Spotify/Apple Music.",
+          "Thiếu Apple Music cho iPhone",
+          "Không lấy được link Apple (?i=). Chọn bài có badge Apple / ✓ ISRC, hoặc dán link Apple Music — không đăng sẽ có tên nhưng im trên iOS.",
         );
         return;
       }
@@ -576,11 +598,12 @@ export default function GeneralThemes({ title }) {
       clipEnd = Math.min(Math.max(clipEnd, clipStart + 1), clipStart + 60);
       const clipDur = clipEnd - clipStart;
 
+      // Dual: Apple (iOS) bắt buộc + Spotify (Android) nếu có
+      // platform badge: spotify nếu có (Android), vẫn gửi apple_music_url
       const platform = finalSpotify ? "spotify" : "apple";
-      // Gửi cả 2 URL nếu có — Locket map track ổn định hơn
       const platformPayload = {
+        apple_music_url,
         ...(finalSpotify ? { spotify_url: finalSpotify } : {}),
-        ...(apple_music_url ? { apple_music_url } : {}),
       };
 
       applyOverlay({
@@ -611,12 +634,9 @@ export default function GeneralThemes({ title }) {
       });
 
       setSpotifyPickerOpen(false);
-      const dualHint =
-        finalSpotify && apple_music_url
-          ? "Android + iOS"
-          : finalSpotify
-            ? "Android OK — thiếu Apple (iOS có thể im)"
-            : "iOS OK — thiếu Spotify (Android có thể im)";
+      const dualHint = finalSpotify
+        ? "iOS + Android (Apple + Spotify)"
+        : "iOS OK — thiếu Spotify (Android có thể im)";
       SonnerSuccess(
         `Đã gắn · ${song_title}${artist ? ` · ${artist}` : ""}`,
         `${dualHint} · ISRC ${isrc}`,
@@ -651,7 +671,11 @@ export default function GeneralThemes({ title }) {
     music: () => openMusicForm("spotify"),
     music_apple: () => openMusicForm("apple"),
     // Caption nhạc live (kiểu TikTok) — liên kết Spotify user
-    music_spotify_live: () => setSpotifyPickerOpen(true),
+    music_spotify_live: () => {
+      // Mở sheet tìm nhạc trên portal z-9999 — không đóng studio ngay
+      // (portal nằm ngoài stack z-62; mobile cần rAF để focus input)
+      setSpotifyPickerOpen(true);
+    },
 
     review: () => setReviewOpen(true),
 

@@ -1,4 +1,11 @@
 import api from "@/libs/axios";
+import { CONFIG } from "@/config";
+
+/** Base API (production: /dio-api) — search dùng fetch để không kẹt interceptor auth */
+function apiBase() {
+  const b = CONFIG?.api?.baseUrl || import.meta.env.VITE_BASE_API_URL || "/dio-api";
+  return String(b).replace(/\/$/, "") || "/dio-api";
+}
 
 export const getInfoMusicByUrl = async (url, platform) => {
   if (!url || !platform) {
@@ -81,8 +88,11 @@ export const resolveMusicForLocket = async (track = {}) => {
     ...extra,
   });
 
-  // Đã có ISRC + platform URL — gắn ngay
-  if (knownIsrc && (spotify_url || apple_music_url)) {
+  const applePlayable = (u) =>
+    u && /[?&]i=\d{5,}/.test(String(u));
+
+  // Đã có ISRC + Apple playable — đủ iOS; gắn ngay (Spotify optional)
+  if (knownIsrc && applePlayable(apple_music_url)) {
     return baseShape({
       isrc: knownIsrc,
       song_title:
@@ -99,6 +109,7 @@ export const resolveMusicForLocket = async (track = {}) => {
       apple_music_url,
     });
   }
+  // Có ISRC + Spotify nhưng thiếu Apple — vẫn resolve tiếp (không return sớm)
 
   // 1) Theo link Spotify (oEmbed + Deezer ISRC trên server)
   if (spotify_url) {
@@ -531,69 +542,149 @@ function mergeTrackLists(...lists) {
   return [...merged.values()];
 }
 
-/** Tìm nhạc theo tên — server (Deezer/iTunes/Spotify) + fallback client + Spotify user */
+/**
+ * Gọi server searchMusic qua fetch (không phụ thuộc axios auth reject).
+ * Timeout ngắn để mobile không treo — iTunes/Deezer chạy song song.
+ */
+async function searchMusicServerFetch(query, limit = 30, timeoutMs = 14000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const headers = {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    };
+    const token = localStorage.getItem("idToken");
+    if (token) headers.Authorization = `Bearer ${token}`;
+
+    const res = await fetch(`${apiBase()}/api/searchMusic`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ query, limit }),
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      throw new Error(`searchMusic HTTP ${res.status}`);
+    }
+    const data = await res.json();
+    if (data?.status === "success" && Array.isArray(data.data)) return data.data;
+    if (Array.isArray(data?.data)) return data.data;
+    if (Array.isArray(data)) return data;
+    return [];
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Tìm nhạc theo tên — SONG SONG server + iTunes + Deezer (+ Spotify user).
+ * Mobile: không chờ server 45s; luôn có fallback public API.
+ */
 export const searchMusicByQuery = async (query, limit = 30) => {
   const q = String(query || "").trim();
   if (!q) return [];
   const fetchLimit = Math.min(50, Math.max(Number(limit) || 30, 25));
-  let serverList = [];
-  let serverError = null;
 
-  try {
-    const res = await api.post(
-      "/api/searchMusic",
-      { query: q, limit: fetchLimit },
-      { timeout: 45000, skipErrorToast: true },
-    );
-    if (res?.data?.status === "success" && Array.isArray(res.data.data)) {
-      serverList = res.data.data;
-    } else if (Array.isArray(res?.data)) {
-      serverList = res.data;
-    } else if (Array.isArray(res?.data?.data)) {
-      serverList = res.data.data;
+  // Biến thể không dấu — VN hay miss
+  const bare = normalizeSearchText(q);
+  const terms = [...new Set([q, bare].filter((s) => s && s.length >= 2))];
+
+  const serverPromise = (async () => {
+    try {
+      let list = await searchMusicServerFetch(terms[0], fetchLimit, 14000);
+      if (!list?.length && terms[1]) {
+        list = await searchMusicServerFetch(terms[1], fetchLimit, 10000);
+      }
+      return Array.isArray(list) ? list : [];
+    } catch (e) {
+      console.warn("searchMusic server:", e?.message || e);
+      return [];
     }
-  } catch (error) {
-    serverError = error;
-    console.error("🚨 searchMusicByQuery server:", error?.message || error);
-  }
+  })();
 
-  // Spotify user token (nếu đã liên kết) — bù spotify_url cho Android
-  let userSpotify = [];
-  try {
-    const localId =
-      localStorage.getItem("localId") ||
-      sessionStorage.getItem("localId") ||
-      "guest";
-    const { isSpotifyUserLinked, searchSpotifyTracks } = await import(
-      "@/services/ExtensionsServices/SpotifyUserServices"
-    );
-    if (isSpotifyUserLinked(localId)) {
-      userSpotify = await searchSpotifyTracks(localId, q, Math.min(20, fetchLimit));
-    }
-  } catch {
-    /* optional */
-  }
+  const itunesPromise = Promise.all(
+    terms.slice(0, 2).map((term) => searchItunesClient(term, fetchLimit)),
+  ).then((batches) => batches.flat());
 
-  // Fallback iTunes + Deezer khi server rỗng / lỗi
-  let clientFallback = [];
-  if (!serverList.length) {
-    const [it, dz] = await Promise.all([
-      searchItunesClient(q, fetchLimit),
-      searchDeezerClient(q, fetchLimit),
-    ]);
-    clientFallback = [...dz, ...it];
-  }
+  const deezerPromise = Promise.all(
+    terms.slice(0, 2).map((term) => searchDeezerClient(term, fetchLimit)),
+  ).then((batches) => batches.flat());
 
-  const merged = mergeTrackLists(serverList, userSpotify, clientFallback);
-  if (!merged.length) {
-    if (serverError) {
-      const err = new Error(
-        serverError?.response?.data?.message ||
-          serverError?.message ||
-          "Không tìm được nhạc — kiểm tra mạng / đăng nhập lại",
+  const spotifyUserPromise = (async () => {
+    try {
+      const localId =
+        localStorage.getItem("localId") ||
+        sessionStorage.getItem("localId") ||
+        "guest";
+      const { isSpotifyUserLinked, searchSpotifyTracks } = await import(
+        "@/services/ExtensionsServices/SpotifyUserServices"
       );
-      err.cause = serverError;
-      throw err;
+      if (!isSpotifyUserLinked(localId)) return [];
+      return await searchSpotifyTracks(localId, q, Math.min(20, fetchLimit));
+    } catch {
+      return [];
+    }
+  })();
+
+  const [serverList, itunesList, deezerList, userSpotify] = await Promise.all([
+    serverPromise,
+    itunesPromise,
+    deezerPromise,
+    spotifyUserPromise,
+  ]);
+
+  const merged = mergeTrackLists(
+    serverList,
+    userSpotify,
+    deezerList,
+    itunesList,
+  );
+
+  if (!merged.length) {
+    // Thử lại iTunes country US nếu VN rỗng
+    try {
+      const url = new URL("https://itunes.apple.com/search");
+      url.searchParams.set("term", q);
+      url.searchParams.set("media", "music");
+      url.searchParams.set("entity", "song");
+      url.searchParams.set("limit", String(fetchLimit));
+      url.searchParams.set("country", "us");
+      const res = await fetch(url.toString());
+      if (res.ok) {
+        const data = await res.json();
+        const us = (data?.results || []).map((t) => {
+          let apple = t.trackViewUrl || null;
+          try {
+            if (apple) {
+              const u = new URL(apple);
+              const i = u.searchParams.get("i");
+              apple = `https://music.apple.com${u.pathname}${i ? `?i=${i}` : ""}`;
+            }
+          } catch {
+            /* keep */
+          }
+          return {
+            id: String(t.trackId || ""),
+            song_name: t.trackName || "",
+            song_title: t.trackName || "",
+            name: t.trackName || "",
+            artist: t.artistName || "",
+            image_url:
+              (t.artworkUrl100 || "").replace("100x100", "600x600") || "",
+            preview_url: t.previewUrl || null,
+            isrc: null,
+            apple_music_url: apple,
+            platform: "apple",
+            source: "itunes-us",
+          };
+        });
+        if (us.length) {
+          const rankedUs = rankTracksByQuery(q, us, fetchLimit);
+          return (rankedUs.length ? rankedUs : us).slice(0, fetchLimit);
+        }
+      }
+    } catch {
+      /* empty */
     }
     return [];
   }
@@ -601,15 +692,17 @@ export const searchMusicByQuery = async (query, limit = 30) => {
   const ranked = rankTracksByQuery(q, merged, fetchLimit);
   const out = ranked.length ? ranked : merged;
   out.sort((a, b) => {
+    const appleA = a.apple_music_url && /[?&]i=\d{5,}/.test(String(a.apple_music_url));
+    const appleB = b.apple_music_url && /[?&]i=\d{5,}/.test(String(b.apple_music_url));
     const sa =
       (normalizeIsrc(a.isrc) ? 4 : 0) +
+      (appleA ? 4 : 0) +
       (a.spotify_url ? 2 : 0) +
-      (a.apple_music_url ? 2 : 0) +
       (a.preview_url ? 1 : 0);
     const sb =
       (normalizeIsrc(b.isrc) ? 4 : 0) +
+      (appleB ? 4 : 0) +
       (b.spotify_url ? 2 : 0) +
-      (b.apple_music_url ? 2 : 0) +
       (b.preview_url ? 1 : 0);
     return sb - sa;
   });

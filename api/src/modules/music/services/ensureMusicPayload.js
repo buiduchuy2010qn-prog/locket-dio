@@ -399,20 +399,15 @@ async function ensureMusicOptionsData(optionsData = {}) {
     apple_music_url = null;
   }
 
-  // Cần ít nhất 1 platform playable. Ưu tiên dual (Android Spotify + iOS Apple).
-  if (!spotify_url && !isPlayableAppleMusicUrl(apple_music_url)) {
+  // iOS MusicKit: BẮT BUỘC apple_music_url playable (?i=). Thiếu = có tên nhưng im trên iPhone.
+  if (!isPlayableAppleMusicUrl(apple_music_url)) {
     const err = new Error(
-      "Thiếu link Apple Music / Spotify — app Locket không hiện nhạc. Thử bài khác hoặc dán link track.",
+      "Thiếu link Apple Music hợp lệ (cần ?i=trackId) — iPhone sẽ không phát nhạc. Chọn bài khác hoặc dán link Apple Music.",
     );
     err.status = 400;
     throw err;
   }
-  if (!isPlayableAppleMusicUrl(apple_music_url) && spotify_url) {
-    console.warn(
-      `[ensureMusicOptionsData] no Apple URL — iOS may be silent: "${song_title}"`,
-    );
-  }
-  if (!spotify_url && isPlayableAppleMusicUrl(apple_music_url)) {
+  if (!spotify_url) {
     console.warn(
       `[ensureMusicOptionsData] no Spotify URL — Android may be silent: "${song_title}"`,
     );

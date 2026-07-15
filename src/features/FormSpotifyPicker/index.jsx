@@ -300,13 +300,16 @@ export default function FormSpotifyPicker({
           };
         });
 
-        // Soft re-rank: title/artist + ISRC + dual platform
+        // Soft re-rank: title/artist + ISRC + Apple (?i= iOS) + Spotify
         const scored = normalized
           .map((t) => {
             let s = scoreTitleMatch(q, t);
             if (t.isrc) s += 500;
+            const appleOk =
+              t.apple_music_url &&
+              /[?&]i=\d{5,}/.test(String(t.apple_music_url));
+            if (appleOk) s += 400; // iOS playable — ưu tiên cao
             if (t.spotify_url) s += 100;
-            if (t.apple_music_url) s += 80;
             if (t.preview_url) s += 20;
             return { t, s };
           })
@@ -615,23 +618,28 @@ export default function FormSpotifyPicker({
   return ReactDOM.createPortal(
     <div
       className={clsx(
-        "fixed inset-0 bg-base-100/40 backdrop-blur-[6px] transition-opacity duration-300 z-[99] text-base-content",
+        // z trên Customize studio (62/63) + camera chrome — mobile Android/iOS
+        "fixed inset-0 bg-base-100/50 backdrop-blur-[6px] transition-opacity duration-300 z-[9998] text-base-content touch-manipulation",
         {
           "opacity-100": animate,
           "opacity-0 pointer-events-none": !animate,
         },
       )}
       onClick={!busy ? onClose : undefined}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Tìm nhạc"
     >
       <div
         className={clsx(
-          "fixed border-t border-base-300 bottom-0 left-0 w-full max-h-[90vh] bg-base-100 rounded-t-4xl shadow-2xl transition-all duration-300 ease-out z-[100] flex flex-col",
+          "fixed border-t border-base-300 bottom-0 left-0 w-full max-h-[92dvh] bg-base-100 rounded-t-4xl shadow-2xl transition-all duration-300 ease-out z-[9999] flex flex-col pb-[env(safe-area-inset-bottom)]",
           {
             "translate-y-0": animate,
             "translate-y-full": !animate,
           },
         )}
         onClick={(e) => e.stopPropagation()}
+        onTouchStart={(e) => e.stopPropagation()}
       >
         <div className="flex justify-center pt-3 pb-1">
           <div className="w-10 h-1 rounded-full bg-base-300" />
@@ -799,7 +807,7 @@ export default function FormSpotifyPicker({
               <div className="flex-1 min-w-0">
                 <h3 className="text-lg font-bold leading-tight">Tìm nhạc</h3>
                 <p className="text-xs text-base-content/60 truncate">
-                  Ưu tiên bản có ✓ (ISRC) — đăng app Locket mới hiện nhạc
+                  Ưu tiên ✓ ISRC + Apple — iPhone mới phát được
                 </p>
               </div>
               <button
@@ -818,11 +826,22 @@ export default function FormSpotifyPicker({
                 <Search className="w-4 h-4 opacity-50 shrink-0" />
                 <input
                   ref={inputRef}
-                  type="search"
+                  type="text"
+                  inputMode="search"
+                  enterKeyHint="search"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  spellCheck={false}
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    // Tránh iOS submit / reload
+                    if (e.key === "Enter") e.preventDefault();
+                  }}
                   placeholder="Tên bài hoặc ca sĩ (Sơn Tùng, Tìm Em...)"
-                  className="bg-transparent outline-none w-full text-sm font-medium placeholder:text-base-content/40"
+                  className="bg-transparent outline-none w-full text-base font-medium placeholder:text-base-content/40 min-h-[28px]"
+                  // text-base (≥16px) tránh iOS auto-zoom
                   autoFocus
                   disabled={busy}
                 />
@@ -917,13 +936,17 @@ export default function FormSpotifyPicker({
                       track.apple_music_url ||
                       `${titleOf(track)}-${track.artist}-${idx}`;
                     const hasIsrc = Boolean(track.isrc);
+                    const appleOk =
+                      track.apple_music_url &&
+                      /[?&]i=\d{5,}/.test(String(track.apple_music_url));
                     const dur = track.duration_ms
                       ? formatMs(track.duration_ms)
                       : "";
                     const badges = [
                       hasIsrc ? "✓ ISRC" : null,
+                      appleOk ? "Apple" : null,
                       track.spotify_url ? "Spotify" : null,
-                      track.apple_music_url ? "Apple" : null,
+                      !appleOk && hasIsrc ? "⚠️ thiếu Apple" : null,
                       dur || null,
                     ].filter(Boolean);
                     return (
