@@ -1,199 +1,170 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
+import { Pause, Play, Loader2 } from "lucide-react";
+import { resolvePlayablePreview } from "@/utils/musicPreview";
+import {
+  toggleMusicUrl,
+  pauseMusic,
+  subscribeMusicAudio,
+  stopMusicIfKey,
+} from "@/utils/musicAudio";
 
-function resizeAppleCover(url, size = 64) {
-  if (!url || typeof url !== "string") return "";
-  return url.replace(/\/\d+x\d+bb(\.(jpg|png))?$/, `/${size}x${size}bb.jpg`);
-}
-
-function resolvePreviewSrc(payload) {
-  if (!payload || typeof payload !== "object") return null;
-  return (
-    payload.preview_url ||
-    payload.previewUrl ||
-    payload.audio ||
-    payload.preview ||
-    null
-  );
-}
-
+/**
+ * Nút phát nhạc web — dùng global Audio, bắt buộc user gesture.
+ * props.payload: { song_title, artist, preview_url, text, ... }
+ */
 export function MusicPlayer({
-  thumbnail,
   payload,
   isVisible = true,
+  showButton = true,
+  className = "",
+  /** id ổn định theo moment để pause khi đổi slide */
+  trackKey,
+  /** callback khi parent muốn biết đang phát */
+  onPlayingChange,
 }) {
-  const audioRef = useRef(null);
-  const [blocked, setBlocked] = useState(false);
+  const reactId = useId();
+  const key = trackKey || reactId;
+  const [src, setSrc] = useState(null);
+  const [resolving, setResolving] = useState(false);
+  const [playing, setPlaying] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState("");
 
-  // 🎧 Media Session
+  // Sync global audio state
   useEffect(() => {
-    if (!("mediaSession" in navigator) || !isVisible) {
-      return;
-    }
-
-    navigator.mediaSession.metadata = new MediaMetadata({
-      title: payload?.song_title || payload?.song_name || payload?.name || "",
-      artist: payload?.artist || "",
-      album: payload?.album || "",
-      artwork: [
-        {
-          src: resizeAppleCover(thumbnail, 96),
-          sizes: "96x96",
-          type: "image/jpeg",
-        },
-        {
-          src: resizeAppleCover(thumbnail, 256),
-          sizes: "256x256",
-          type: "image/jpeg",
-        },
-        {
-          src: resizeAppleCover(thumbnail, 512),
-          sizes: "512x512",
-          type: "image/jpeg",
-        },
-      ],
+    return subscribeMusicAudio((s) => {
+      const mine = s.key === key;
+      setPlaying(mine && s.playing);
+      setLoading(mine && s.loading);
+      if (mine && s.error) setErr(s.error);
+      onPlayingChange?.(mine && s.playing);
     });
+  }, [key, onPlayingChange]);
 
-    navigator.mediaSession.setActionHandler("play", () => {
-      audioRef.current?.play().catch(() => {});
-    });
-
-    navigator.mediaSession.setActionHandler("pause", () => {
-      audioRef.current?.pause();
-    });
-
-    return () => {
-      navigator.mediaSession.metadata = null;
-      navigator.mediaSession.setActionHandler("play", null);
-      navigator.mediaSession.setActionHandler("pause", null);
-    };
-  }, [payload, thumbnail, isVisible]);
-
-  // ▶️ Audio Logic — KHÔNG set crossOrigin (tránh fail khi CDN thiếu CORS)
+  // Resolve preview URL
   useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-
-    if (!isVisible) {
-      audio.pause();
+    let cancelled = false;
+    if (!payload) {
+      setSrc(null);
       return;
     }
-
-    const src = resolvePreviewSrc(payload);
-    if (!src) {
-      setBlocked(false);
-      return;
-    }
-
-    // Bỏ crossOrigin — iTunes/Deezer vẫn play được nếu không taint canvas
-    try {
-      audio.removeAttribute("crossorigin");
-    } catch {
-      /* ignore */
-    }
-    audio.preload = "auto";
-    // Clip loop within startTime/endTime when set
-    const start = Number(payload?.startTime) || 0;
-    const end = Number(payload?.endTime) || 0;
-    const vol = Number(payload?.volume);
-    audio.loop = !(end > start);
-    audio.volume = Number.isFinite(vol) ? Math.max(0, Math.min(1, vol)) : 1;
-    audio.muted = false;
-
-    if (audio.src !== src) {
-      audio.src = src;
-      audio.load();
-    }
-
-    const seekStart = () => {
-      try {
-        if (start > 0 && Number.isFinite(audio.currentTime)) {
-          if (audio.currentTime < start || (end > start && audio.currentTime >= end)) {
-            audio.currentTime = start;
-          }
+    setResolving(true);
+    setErr("");
+    resolvePlayablePreview(payload)
+      .then((url) => {
+        if (!cancelled) {
+          setSrc(url || null);
+          if (!url) setErr("Không có file nghe thử");
         }
-      } catch {
-        /* ignore */
-      }
-    };
-
-    const onTimeUpdate = () => {
-      if (end > start && audio.currentTime >= end) {
-        try {
-          audio.currentTime = start;
-          if (!audio.paused) audio.play().catch(() => {});
-        } catch {
-          /* ignore */
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setSrc(null);
+          setErr("Lỗi tải nhạc");
         }
-      }
-    };
-
-    const tryPlay = () => {
-      seekStart();
-      const p = audio.play();
-      if (p && typeof p.then === "function") {
-        p.then(() => setBlocked(false)).catch(() => {
-          // Autoplay policy — user tap unlocks; never crash
-          setBlocked(true);
-        });
-      }
-    };
-
-    const onCanPlay = () => tryPlay();
-    const onError = () => {
-      console.warn("[MusicPlayer] preview load error", src?.slice?.(0, 80));
-      setBlocked(true);
-    };
-
-    audio.addEventListener("canplay", onCanPlay);
-    audio.addEventListener("error", onError);
-    audio.addEventListener("timeupdate", onTimeUpdate);
-    tryPlay();
-
-    // Gesture unlock: lần chạm đầu trên document
-    const unlock = () => {
-      tryPlay();
-      document.removeEventListener("pointerdown", unlock, true);
-      document.removeEventListener("touchstart", unlock, true);
-      document.removeEventListener("click", unlock, true);
-    };
-    document.addEventListener("pointerdown", unlock, true);
-    document.addEventListener("touchstart", unlock, true);
-    document.addEventListener("click", unlock, true);
-
+      })
+      .finally(() => {
+        if (!cancelled) setResolving(false);
+      });
     return () => {
-      audio.pause();
-      audio.removeEventListener("canplay", onCanPlay);
-      audio.removeEventListener("error", onError);
-      audio.removeEventListener("timeupdate", onTimeUpdate);
-      document.removeEventListener("pointerdown", unlock, true);
-      document.removeEventListener("touchstart", unlock, true);
-      document.removeEventListener("click", unlock, true);
+      cancelled = true;
     };
   }, [
     payload?.preview_url,
     payload?.previewUrl,
     payload?.audio,
-    payload?.preview,
-    payload?.startTime,
-    payload?.endTime,
-    payload?.volume,
-    isVisible,
+    payload?.audioUrl,
+    payload?.song_title,
+    payload?.song_name,
+    payload?.artist,
+    payload?.isrc,
+    payload?.text,
+    payload?.caption,
+    payload?.title,
   ]);
 
-  return (
-    <>
-      <audio
-        ref={audioRef}
-        className="hidden"
-        playsInline
-        preload="auto"
+  // Pause khi ẩn (đổi moment)
+  useEffect(() => {
+    if (!isVisible) {
+      stopMusicIfKey(key);
+    }
+  }, [isVisible, key]);
+
+  // Unmount → dừng nếu đang phát bài này
+  useEffect(() => {
+    return () => stopMusicIfKey(key);
+  }, [key]);
+
+  const toggle = useCallback(
+    async (e) => {
+      e?.stopPropagation?.();
+      e?.preventDefault?.();
+
+      if (playing) {
+        pauseMusic();
+        return;
+      }
+
+      setLoading(true);
+      setErr("");
+
+      let playSrc = src;
+      if (!playSrc) {
+        playSrc = await resolvePlayablePreview(payload || {});
+        if (playSrc) setSrc(playSrc);
+      }
+
+      if (!playSrc) {
+        setLoading(false);
+        setErr("Không có file nghe thử");
+        return;
+      }
+
+      const result = await toggleMusicUrl(playSrc, key);
+      setLoading(false);
+      if (result === "error") {
+        setErr("Chạm lại để nghe");
+      } else {
+        setErr("");
+      }
+    },
+    [src, payload, key, playing],
+  );
+
+  if (!isVisible) return null;
+
+  if (!showButton) {
+    return (
+      <button
+        type="button"
+        onClick={toggle}
+        className="absolute inset-0 z-30 cursor-pointer"
+        aria-label={playing ? "Tạm dừng" : "Phát nhạc"}
       />
-      {/* hint nhỏ nếu autoplay bị chặn — tap bất kỳ để nghe */}
-      {blocked && isVisible && resolvePreviewSrc(payload) ? (
-        <span className="sr-only" aria-live="polite">
-          Chạm màn hình để phát nhạc
-        </span>
-      ) : null}
-    </>
+    );
+  }
+
+  const busy = resolving || loading;
+
+  return (
+    <button
+      type="button"
+      onClick={toggle}
+      className={
+        className ||
+        "shrink-0 w-9 h-9 rounded-full bg-black/70 text-white flex items-center justify-center active:scale-95 transition shadow-md border border-white/30 hover:bg-black/85"
+      }
+      aria-label={playing ? "Tạm dừng" : "Phát nhạc"}
+      title={err || (playing ? "Tạm dừng" : "Phát nhạc")}
+    >
+      {busy ? (
+        <Loader2 className="w-4 h-4 animate-spin" />
+      ) : playing ? (
+        <Pause className="w-4 h-4 fill-current" />
+      ) : (
+        <Play className="w-4 h-4 fill-current ml-0.5" />
+      )}
+    </button>
   );
 }
+
