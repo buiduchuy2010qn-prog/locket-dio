@@ -26,8 +26,8 @@ export const CONFIG = {
   app: {
     name: "Huy Locket",
     watermark: "huy-locket",
-    /** Short text drawn on save watermark: ♥ Huy */
-    watermarkLabel: "Huy",
+    /** Save watermark text: official-style ♥ Locket */
+    watermarkLabel: "Locket",
     author: "Huy",
     shortname: "huylocket",
     fullName: "Huy Locket - Đăng ảnh & Video lên Locket",

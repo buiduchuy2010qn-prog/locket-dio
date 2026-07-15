@@ -5,31 +5,9 @@
  */
 
 import { useUserSetting } from "@/stores/SettingStores/useUserSetting";
-import { CONFIG } from "@/config";
 
-/**
- * Brand watermark text from app config.
- * Prefer short `author` (e.g. "Huy") so it matches official ♥ + short-word style.
- */
-function getBrandWatermarkLabel() {
-  try {
-    const app = CONFIG?.app || {};
-    // Short label for bottom watermark (♥ Huy)
-    const short =
-      app.watermarkLabel ||
-      app.author ||
-      (typeof app.watermark === "string" && app.watermark.length <= 12
-        ? app.watermark
-            .replace(/[-_]/g, " ")
-            .replace(/\b\w/g, (c) => c.toUpperCase())
-        : null) ||
-      app.name ||
-      "Huy";
-    return String(short).trim() || "Huy";
-  } catch {
-    return "Huy";
-  }
-}
+/** Official-style watermark: ♥ Locket (not Huy) */
+const WATERMARK_LABEL = "Locket";
 
 /**
  * Draw a clean filled heart (classic card-suit shape) centered at (cx, cy).
@@ -113,7 +91,7 @@ export async function applyLocketStyleWatermark(blob, opts = {}) {
     if (!opts.forceImage) return blob;
   }
 
-  const label = opts.text || getBrandWatermarkLabel();
+  const label = opts.text || WATERMARK_LABEL;
   const quality =
     typeof opts.quality === "number" && opts.quality > 0 && opts.quality <= 1
       ? opts.quality
