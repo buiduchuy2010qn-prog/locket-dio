@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import PlanBadge from "@/components/UI/PlanBadge/PlanBadge";
+import PlanBadge from "@/components/ui/PlanBadge/PlanBadge";
 import { RefreshCw } from "lucide-react";
 import { getMaxUploads, FREE_FOR_ALL } from "@/hooks/useFeature";
 import { SonnerInfo } from "@/components/ui/SonnerToast";
