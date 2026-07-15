@@ -640,7 +640,8 @@ export default function GeneralThemes({ title }) {
           name: song_title,
           artist,
           isrc,
-          // chỉ preview iTunes ổn định — server cũng lọc
+          // Giữ preview local cho web player; server KHÔNG gửi lên Locket
+          // (preview ~30s → nghe một lúc rồi mất trên app official)
           preview_url: preview,
           audio: preview,
           image_url,

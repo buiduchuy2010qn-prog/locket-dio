@@ -348,24 +348,15 @@ const imagePostPayloadMusic = ({ imageUrl, optionsData }) => {
     throw err;
   }
 
+  // KHÔNG gửi preview_url lên Locket official.
+  // Preview iTunes/Deezer ~30s → nghe một lúc rồi mất (đúng triệu chứng user).
+  // App phát full qua Spotify / Apple MusicKit (platform URL).
   const musicPayload = {
     song_title: songTitle || text,
     song_name: songTitle || text,
     artist,
     isrc,
   };
-
-  // Preview iTunes ổn định only
-  const preview =
-    payload?.preview_url || payload?.audio || payload?.previewUrl || null;
-  if (
-    preview &&
-    /audio-ssl\.itunes\.apple\.com|mzstatic\.com.*AudioPreview/i.test(
-      String(preview),
-    )
-  ) {
-    musicPayload.preview_url = preview;
-  }
 
   if (spotify_url) musicPayload.spotify_url = spotify_url;
   if (apple_music_url) musicPayload.apple_music_url = apple_music_url;
