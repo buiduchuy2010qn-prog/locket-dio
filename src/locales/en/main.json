@@ -154,7 +154,7 @@
   "home": {
     "everyone": "Everyone",
     "send_to": "Send to...",
-    "friends_count": "friends",
+    "friends_count": "{{count}} friends",
     "history": "History",
     "post_mode_notice": "Post Mode Notice",
     "private_mode_selected": "You are selecting private mode!",

@@ -23,7 +23,7 @@
     "all": "😊 Tất cả"
   },
   "custom_studio": {
-    "general_title": "🎨 General",
+    "general_title": "🎨 Chung",
     "kanade_caption_title": "🎨 Caption Kanade hợp tác",
     "music_success": "Lấy nhạc thành công",
     "music_failed": "Không thể lấy thông tin bài hát",
@@ -55,7 +55,7 @@
     "preparing_image": "Đang chuẩn bị ảnh của bạn",
     "preparing_desc": "Quá trình này thường mất khoảng <b>30–60 giây</b> tùy vào kích thước và định dạng ảnh.",
     "do_not_close": "Vui lòng không đóng trình duyệt trong khi hệ thống xử lý ảnh.",
-    "title": "🖼️ Crop Image Studio",
+    "title": "🖼️ Studio cắt ảnh",
     "instruction_zoom": "Kéo ảnh lên/xuống hoặc zoom để chọn vùng muốn cắt.",
     "instruction_convert": "Nếu ảnh không hiển thị đúng, vui lòng thử chuyển đổi định dạng.",
     "cancel": "Huỷ",
@@ -66,14 +66,14 @@
     "crop_failed_default": "Không thể cắt ảnh.",
     "crop_failed_detail": "⚠️ Không thể cắt ảnh. Chi tiết lỗi: {{error}}",
     "metadata": {
-      "name": "Name",
-      "type": "Type",
-      "extension": "Extension",
-      "size": "Size"
+      "name": "Tên",
+      "type": "Loại",
+      "extension": "Phần mở rộng",
+      "size": "Kích thước"
     }
   },
   "crop_video": {
-    "title": "🎬 Crop Video Studio",
+    "title": "🎬 Studio cắt video",
     "instruction": "Kéo video lên/xuống hoặc zoom để chọn vùng muốn cắt",
     "crop_failed": "Không thể lưu vùng cắt video.",
     "cancel": "Huỷ",
@@ -178,7 +178,7 @@
     "item": {
       "slow_down": "Chậm một chút :))",
       "feature_developing": "Tính năng đang được phát triển!",
-      "hidden_label": "Hidden",
+      "hidden_label": "Đã ẩn",
       "info": {
         "share_history": "Chia sẻ lịch sử:",
         "unknown": "Không rõ",
@@ -238,7 +238,7 @@
   "editor_caption": {
     "placeholder": "Nhập tin nhắn...",
     "poll": {
-      "ask_question": "Ask a question...",
+      "ask_question": "Đặt một câu hỏi...",
       "select_emoji": "Chọn emoji"
     },
     "emoji_modal": {

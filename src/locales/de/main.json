@@ -153,7 +153,7 @@
   "home": {
     "everyone": "Alle",
     "send_to": "Senden an...",
-    "friends_count": "Freunde",
+    "friends_count": "{{count}} Freunde",
     "history": "Verlauf",
     "post_mode_notice": "Hinweis zum Veröffentlichungsmodus",
     "private_mode_selected": "Du hast den privaten Modus ausgewählt!",

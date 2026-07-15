@@ -171,7 +171,9 @@ const HeaderHome = ({
                     clipRule="evenodd"
                   />
                 </svg>
-                <span>{friendList.length || "0"}</span> {t("home.friends_count")}
+                {t("home.friends_count", {
+                  count: friendList.length || 0,
+                })}
               </>
             )}
           </button>

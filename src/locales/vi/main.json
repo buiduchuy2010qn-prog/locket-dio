@@ -110,7 +110,7 @@
     "sys_name_changed": "Đã đổi tên nhóm thành \"{{name}}\"",
     "sys_photo_changed_by_actor": "{{actor}} đã thay đổi ảnh đại diện nhóm",
     "sys_photo_changed": "Đã thay đổi ảnh đại diện nhóm",
-    "reactions": "Reactions",
+    "reactions": "Cảm xúc",
     "chat_details": "Chi tiết cuộc trò",
     "send_message_placeholder": "Gửi tin nhắn...",
     "removing_reaction": "Đang gỡ cảm xúc...",
@@ -148,13 +148,13 @@
     "uploading_media_retry_note": "Nếu bài đăng chưa thành công hãy click vào chúng và bấm thử lại để tiếp tục đăng lại.",
     "incident_ref_page": "Page tham khảo lỗi",
     "media_not_exist_error": "Ảnh/Video này không tồn tại.",
-    "media_not_found": "Media not found",
+    "media_not_found": "Không tìm thấy media",
     "retry": "Thử lại"
   },
   "home": {
     "everyone": "Mọi người",
     "send_to": "Gửi đến...",
-    "friends_count": "người bạn",
+    "friends_count": "{{count}} người bạn",
     "history": "Lịch sử",
     "post_mode_notice": "Lưu ý chế độ đăng bài",
     "private_mode_selected": "Bạn đang chọn chế độ riêng tư!",
@@ -179,7 +179,6 @@
     "zoom_05_unsupported": "0.5x không được hỗ trợ trên thiết bị này",
     "zoom_2x_unsupported": "2x không được hỗ trợ trên thiết bị này",
     "zoom_max_unsupported": "Max zoom không được hỗ trợ trên thiết bị này",
-
     "feature_coming_soon": "Chức năng này sẽ sớm có mặt!",
     "only_media_supported_short": "Chỉ hỗ trợ ảnh và video.",
     "flash_not_supported": "Camera này không hỗ trợ flash",

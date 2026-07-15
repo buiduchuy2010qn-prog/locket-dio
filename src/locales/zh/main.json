@@ -153,7 +153,7 @@
   "home": {
     "everyone": "所有人",
     "send_to": "发送到...",
-    "friends_count": "位好友",
+    "friends_count": "{{count}} 位好友",
     "history": "历史记录",
     "post_mode_notice": "发布模式说明",
     "private_mode_selected": "你当前选择的是私密模式！",
