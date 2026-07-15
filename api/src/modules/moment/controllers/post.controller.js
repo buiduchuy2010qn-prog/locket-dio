@@ -279,16 +279,16 @@ const uploadMediaV3 = async (req, res, next) => {
 
       try {
         if (type === "image") {
-          //Phân bổ độ phân giải cho các gói thành viên
+          // Free-for-all high quality — 1920px square max, soft size budget
           const resolution = getResolution({
             planData: planData,
-            normal: 1440,
-            member: 1920,
+            normal: 1920,
+            member: 2048,
           });
-          //Gọi quá trình xử lý ảnh
+          // Preserve sharpness: higher maxSizeMB avoids aggressive WebP re-encode
           processedBuffer = await processImageBuffer({
             imageBuffer: mediaBuffer,
-            maxSizeMB: 1,
+            maxSizeMB: 2.5,
             resolution: resolution,
           });
         } else if (type === "video") {

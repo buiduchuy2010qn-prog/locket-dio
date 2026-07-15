@@ -49,10 +49,42 @@ const prepareImageForProcessing = async (imageBuffer) => {
   }
 };
 
+/**
+ * Encode square WebP from a prepared sharp pipeline (clone-safe).
+ */
+async function encodeWebp(basePipeline, side, quality) {
+  let pipe = basePipeline.clone();
+  if (side && side > 0) {
+    pipe = pipe.resize(side, side, {
+      fit: "fill",
+      kernel: sharp.kernel.lanczos3,
+      withoutEnlargement: true,
+    });
+  }
+  return pipe
+    .webp({
+      quality,
+      alphaQuality: 100,
+      // Keep chroma for fine text / edges (smartSubsample blurs detail)
+      smartSubsample: false,
+      effort: 4,
+    })
+    .toBuffer();
+}
+
+/**
+ * Process image for Locket upload — preserve sharpness.
+ *
+ * - Center-crop square at source resolution
+ * - Downscale only if larger than `resolution` (Lanczos3)
+ * - Never upscale
+ * - WebP start q95, floor q85 before emergency downscale
+ * - maxSizeMB default 2.5 (was 1.0 — caused soft recompress)
+ */
 const processImageBuffer = async ({
   imageBuffer,
-  maxSizeMB = 1,
-  resolution = 1440, // px cho chiều dài mỗi cạnh
+  maxSizeMB = 2.5,
+  resolution = 1920,
 }) => {
   try {
     if (!imageBuffer || !Buffer.isBuffer(imageBuffer) || imageBuffer.length < 32) {
@@ -61,47 +93,76 @@ const processImageBuffer = async ({
       );
     }
 
-    logInfo("processImageBuffer", "Start processing image buffer to webp...");
+    logInfo(
+      "processImageBuffer",
+      "Start processing image (quality-preserving)...",
+    );
 
     let image = await prepareImageForProcessing(imageBuffer);
     const metadata = await image.metadata();
-    const { width, height } = metadata;
+    const width = metadata.width || 0;
+    const height = metadata.height || 0;
 
     logInfo("processImageBuffer", `Original size: ${width}x${height}`);
 
-    logInfo(
-      "processImageBuffer",
-      `🖼️ Resize resolution -> ${resolution}x${resolution}px (fit: cover, center crop)`
-    );
-    image = image.resize(resolution, resolution, {
-      fit: "cover", // Tự crop giữa ảnh nếu không vuông
-      position: "center", // Crop phần trung tâm
+    if (!width || !height) {
+      throw new Error("Invalid image dimensions");
+    }
+
+    // Center-crop square at source resolution
+    const cropSide = Math.min(width, height);
+    const left = Math.max(0, Math.floor((width - cropSide) / 2));
+    const top = Math.max(0, Math.floor((height - cropSide) / 2));
+
+    const squared = image.extract({
+      left,
+      top,
+      width: cropSide,
+      height: cropSide,
     });
 
-    // Bước 2: Nén webp với nhiều mức chất lượng
-    let quality = 90;
+    const target = Math.max(720, Math.min(Number(resolution) || 1920, 4096));
+    // Output side: native if smaller/equal, else target
+    const outSide = cropSide > target ? target : cropSide;
+
+    logInfo(
+      "processImageBuffer",
+      cropSide > target
+        ? `Downscale ${cropSide}px → ${outSide}px (lanczos3)`
+        : `Keep native square ${outSide}px (no upscale)`,
+    );
+
+    const maxBytes = Math.max(0.5, Number(maxSizeMB) || 2.5) * 1024 * 1024;
+
+    let quality = 95;
     let compressedBuffer;
 
-    while (quality >= 30) {
-      compressedBuffer = await image.webp({ quality }).toBuffer();
+    while (quality >= 85) {
+      compressedBuffer = await encodeWebp(squared, outSide, quality);
       const sizeInMB = (compressedBuffer.length / 1024 / 1024).toFixed(2);
       logInfo(
         "processImageBuffer",
-        `Tried quality ${quality}, size = ${sizeInMB}MB`
+        `WebP quality ${quality} → ${sizeInMB}MB`,
       );
-
-      if (compressedBuffer.length <= maxSizeMB * 1024 * 1024) break;
-      quality -= 10;
+      if (compressedBuffer.length <= maxBytes) break;
+      quality -= 5;
     }
 
-    // Nếu vẫn quá lớn, thử resize nhỏ hơn (720x720)
-    if (compressedBuffer.length > maxSizeMB * 1024 * 1024) {
-      logInfo("processImageBuffer", `Still too large. Trying resize to 720px`);
-      image = image.resize(720, 720, {
-        fit: "cover",
-        position: "center",
-      });
-      compressedBuffer = await image.webp({ quality: 70 }).toBuffer();
+    // Soft fallback only if still over budget
+    if (compressedBuffer.length > maxBytes && outSide > 1440) {
+      logInfo(
+        "processImageBuffer",
+        `Over budget — resize 1440 @ q90`,
+      );
+      compressedBuffer = await encodeWebp(squared, 1440, 90);
+    }
+
+    if (compressedBuffer.length > maxBytes && outSide > 1080) {
+      logInfo(
+        "processImageBuffer",
+        `Over budget — resize 1080 @ q88`,
+      );
+      compressedBuffer = await encodeWebp(squared, 1080, 88);
     }
 
     const finalSize = (compressedBuffer.length / 1024 / 1024).toFixed(2);

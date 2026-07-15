@@ -7,6 +7,7 @@ import { SonnerInfo } from "@/components/ui/SonnerToast";
 import { usePostStore } from "@/stores";
 import { useTranslation } from "react-i18next";
 import { getPerfProfile } from "@/utils/device/perfProfile";
+import { captureSharpSquarePhoto } from "@/utils/device/capturePhoto";
 
 /** Ngưỡng giữ để bắt đầu quay (ms) — thấp hơn = nhạy hơn */
 const HOLD_TO_RECORD_MS = 380;
@@ -76,21 +77,11 @@ function recordProfile() {
   };
 }
 
-/** Square export size from live video — prefer native, cap by profile */
-function squareOutputSize(video, maxSide) {
-  const vw = video?.videoWidth || 0;
-  const vh = video?.videoHeight || 0;
-  const native = Math.min(vw, vh);
-  if (native > 0) return Math.min(native, maxSide);
-  return maxSide;
-}
-
 const CameraButton = () => {
   const { t } = useTranslation("main");
   const { camera } = useApp();
   const {
     videoRef,
-    canvasRef,
     isHolding,
     setIsHolding,
     holdTime,
@@ -339,137 +330,52 @@ const CameraButton = () => {
   };
 
   /**
-   * Chụp — freeze + preview JPEG ngay, blob encode nền.
+   * Chụp nét — ưu tiên ImageCapture.takePhoto (still sensor),
+   * fallback grabFrame / video canvas. Crop vuông native, JPEG ~0.97.
    */
   const captureImage = () => {
     if (capturingRef.current) return;
     const video = videoRef.current;
-    const canvas = canvasRef.current;
-    if (!video || !canvas) return;
+    if (!video) return;
 
     if (!video.videoWidth || video.readyState < 2) {
-      SonnerInfo(t("home.camera_not_ready"));
-      return;
+      // ImageCapture may still work without videoWidth on some devices
+      const track = video.srcObject?.getVideoTracks?.()?.[0];
+      if (!track || track.readyState !== "live") {
+        SonnerInfo(t("home.camera_not_ready"));
+        return;
+      }
     }
 
     capturingRef.current = true;
+    const mirror = cameraMode === "user";
 
-    try {
-      video.pause();
-    } catch {
-      /* ignore */
-    }
-
-    const paintAndShow = () => {
-      const prof = recordProfile();
-      // Prefer native sensor square size — no forced downscale to 1280/1440
-      const outputSize = squareOutputSize(
-        video,
-        prof.maxCapture || prof.captureSize || 1920,
-      );
-
-      canvas.width = outputSize;
-      canvas.height = outputSize;
-
-      const ctx = canvas.getContext("2d", {
-        alpha: false,
-        desynchronized: true,
-      });
-      if (!ctx) {
-        capturingRef.current = false;
-        return;
-      }
-
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      // Only smooth if we must scale; native 1:1 stays sharp
-      const nativeSide = Math.min(video.videoWidth || 0, video.videoHeight || 0);
-      const scaling = nativeSide > 0 && nativeSide !== outputSize;
-      ctx.imageSmoothingEnabled = scaling;
-      ctx.imageSmoothingQuality = scaling ? "high" : "low";
-
-      let sx = 0;
-      let sy = 0;
-      let sw = video.videoWidth;
-      let sh = video.videoHeight;
-
-      if (video.videoWidth > video.videoHeight) {
-        const offset = (video.videoWidth - video.videoHeight) / 2;
-        sx = offset;
-        sw = video.videoHeight;
-      } else {
-        const offset = (video.videoHeight - video.videoWidth) / 2;
-        sy = offset;
-        sh = video.videoWidth;
-      }
-
-      if (cameraMode === "user") {
-        ctx.translate(outputSize, 0);
-        ctx.scale(-1, 1);
-      }
-
-      ctx.drawImage(video, sx, sy, sw, sh, 0, 0, outputSize, outputSize);
-
-      const jpegQ = Math.min(0.97, Math.max(0.9, prof.jpegQ || 0.94));
-
-      let instantUrl = null;
-      try {
-        // Slightly lower Q for instant preview only (memory); final blob uses full Q
-        instantUrl = canvas.toDataURL("image/jpeg", Math.min(0.88, jpegQ));
-      } catch {
-        instantUrl = null;
-      }
-
-      if (instantUrl) {
+    captureSharpSquarePhoto(video, {
+      mirror,
+      onPreviewUrl: (url) => {
+        // Instant UI preview (object URL — no base64 memory spike)
         usePostStore.setState({
-          preview: { type: "image", data: instantUrl },
+          preview: { type: "image", data: url },
           selectedFile: null,
           isSizeMedia: null,
         });
         setCameraActive(false);
-      }
-
-      const finishWithBlob = (blob) => {
-        capturingRef.current = false;
-        if (!blob) {
-          if (instantUrl) {
-            try {
-              const arr = instantUrl.split(",");
-              const mime = arr[0].match(/:(.*?);/)?.[1] || "image/jpeg";
-              const bstr = atob(arr[1]);
-              const n = bstr.length;
-              const u8 = new Uint8Array(n);
-              for (let i = 0; i < n; i++) u8[i] = bstr.charCodeAt(i);
-              setMediaFromFile(
-                new File([u8], "locket_dio.jpg", { type: mime }),
-              );
-            } catch {
-              /* ignore */
-            }
-          }
-          return;
+      },
+    })
+      .then(({ file, method }) => {
+        if (import.meta.env?.DEV) {
+          console.info("[capture]", method, file?.size);
         }
-        setMediaFromFile(
-          new File([blob], "locket_dio.jpg", { type: "image/jpeg" }),
-        );
+        setMediaFromFile(file);
         setCameraActive(false);
-      };
-
-      // Final encode at high JPEG quality — no extra downscale
-      const runBlob = () => {
-        if (typeof canvas.toBlob === "function") {
-          canvas.toBlob(finishWithBlob, "image/jpeg", jpegQ);
-        } else {
-          finishWithBlob(null);
-        }
-      };
-      if (typeof requestIdleCallback === "function") {
-        requestIdleCallback(runBlob, { timeout: 200 });
-      } else {
-        setTimeout(runBlob, 0);
-      }
-    };
-
-    requestAnimationFrame(paintAndShow);
+      })
+      .catch((err) => {
+        console.warn("[capture] failed:", err?.message || err);
+        SonnerInfo(t("home.camera_not_ready"));
+      })
+      .finally(() => {
+        capturingRef.current = false;
+      });
   };
 
   useEffect(() => {

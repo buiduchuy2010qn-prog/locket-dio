@@ -38,10 +38,17 @@ function isUploadAllowed(planData, sizeMb, limitMb = 12) {
   return !(isFree && sizeMb > limitMb);
 }
 
-function getResolution({planData, normal = 1440, member = 1920}) {
-  const planId = planData?.plan_id || "free";
-  const isFree = planId.toLowerCase() === "free";
-  return isFree ? normal : member;
+/**
+ * Output square resolution for processImageBuffer.
+ * Free-for-all: always use high resolution (1920+).
+ * Only downscales when source is larger — never invents detail.
+ */
+function getResolution({ planData, normal = 1920, member = 1920 }) {
+  // Huy Locket free-for-all — do not downgrade free users to soft 1440
+  const hi = Math.max(Number(normal) || 1920, Number(member) || 1920, 1920);
+  // planData reserved for future caps; keep signature stable
+  void planData;
+  return hi;
 }
 
 module.exports = {
