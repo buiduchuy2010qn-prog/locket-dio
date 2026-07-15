@@ -1,44 +1,65 @@
 import { useAuthStore } from "@/stores";
 
-export const useFeatureVisible = (type) => {
-  const userPlan = useAuthStore((s) => s.userPlan);
+/**
+ * Huy Locket — hoàn toàn MIỄN PHÍ cho mọi user.
+ * Mọi feature flag client-side luôn mở; limits rộng (chỉ giới hạn kỹ thuật Locket).
+ * Không khóa theo plan / premium / feature_blocks.
+ */
+export const FREE_FOR_ALL = true;
 
+/** Giới hạn kỹ thuật mặc định (không phải paywall) */
+const FREE_LIMITS = {
+  maxImageSizeMB: 25,
+  maxVideoSizeMB: 50,
+  storage_limit_mb: 99999,
+  video_record_max_length: 10, // Locket native ~10s
+};
+
+/**
+ * Feature luôn visible khi FREE_FOR_ALL.
+ * @param {string} [_type]
+ * @returns {boolean}
+ */
+export const useFeatureVisible = (_type) => {
+  if (FREE_FOR_ALL) return true;
+
+  const userPlan = useAuthStore((s) => s.userPlan);
   if (!userPlan) return false;
 
   const blocks = userPlan?.feature_blocks || {};
   const features = userPlan?.features || {};
 
-  // Ưu tiên block trước
-  if (blocks[type]) return false;
-
-  // Không bị block thì theo plan
-  return features[type] ?? false;
+  if (blocks[_type]) return false;
+  return features[_type] ?? false;
 };
 
-export const useGetCode = (type) => {
+export const useGetCode = () => {
   const userPlan = useAuthStore((s) => s.userPlan);
-
-  const code = userPlan?.user?.customer_code;
-  return code;
+  return userPlan?.user?.customer_code;
 };
 
 export const getMaxUploads = () => {
-  const userPlan = useAuthStore((s) => s.userPlan);
+  if (FREE_FOR_ALL) {
+    return {
+      maxImageSizeMB: FREE_LIMITS.maxImageSizeMB,
+      maxVideoSizeMB: FREE_LIMITS.maxVideoSizeMB,
+      storage_limit_mb: FREE_LIMITS.storage_limit_mb,
+    };
+  }
 
+  const userPlan = useAuthStore((s) => s.userPlan);
   const limits = userPlan?.limits || {};
 
-  // Self-host free defaults when plan API chưa trả limits
   return {
-    maxImageSizeMB: limits.image_storage_limit_mb ?? 10,
-    maxVideoSizeMB: limits.video_storage_limit_mb ?? 10,
-    storage_limit_mb: limits.storage_limit_mb ?? 50,
+    maxImageSizeMB: limits.image_storage_limit_mb ?? FREE_LIMITS.maxImageSizeMB,
+    maxVideoSizeMB: limits.video_storage_limit_mb ?? FREE_LIMITS.maxVideoSizeMB,
+    storage_limit_mb: limits.storage_limit_mb ?? FREE_LIMITS.storage_limit_mb,
   };
 };
 
 export const getVideoRecordLimit = () => {
+  if (FREE_FOR_ALL) return FREE_LIMITS.video_record_max_length;
+
   const userPlan = useAuthStore((s) => s.userPlan);
-
-  const limit = userPlan?.limits?.video_record_max_length ?? 10;
-
-  return limit;
+  return userPlan?.limits?.video_record_max_length ?? FREE_LIMITS.video_record_max_length;
 };

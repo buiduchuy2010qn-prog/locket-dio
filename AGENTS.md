@@ -6,6 +6,13 @@
 - Author: Bùi Đức Huy · STK MBBank 0394709137
 - Repo folder may still be `locket-dio`; Docker service: **huy-locket**
 
+## Free for all (mandatory)
+
+- **Huy Locket is 100% free** — open every client feature for every user.
+- `src/hooks/useFeature.js` → `FREE_FOR_ALL = true` (do not re-enable plan locks casually).
+- `useFeatureVisible` always `true`; generous upload limits; no FeatureGate paywall.
+- Pricing page may remain for optional support/sponsors; never block core camera/post/tools.
+
 ## Keep when upgrading
 
 1. **Google Drive backup** (`server.mjs` OAuth + Neon, `utils/googleDrive.js`, admin-only UI)

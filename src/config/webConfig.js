@@ -36,9 +36,10 @@ export const CONFIG = {
     env: "production",
     camera: {
       limits: {
-        maxRecordTime: 10,
-        maxImageSizeMB: 10,
-        maxVideoSizeMB: 10,
+        maxRecordTime: 10, // Locket native ~10s
+        // Free-for-all — generous client limits (not paywall)
+        maxImageSizeMB: 25,
+        maxVideoSizeMB: 50,
       },
       resolutions: {
         imageSizePx: 1920,
