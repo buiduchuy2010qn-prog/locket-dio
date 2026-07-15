@@ -1128,6 +1128,14 @@ function mapDeezerTrack(t) {
 }
 
 function mapITunesTrack(t) {
+  const trackId = String(t.trackId || "").replace(/\D/g, "");
+  let apple = normalizeAppleMusicUrl(t.trackViewUrl) || null;
+  // Đảm bảo ?i=trackId cho iOS MusicKit (tìm web → gắn luôn, không dán link)
+  if (!isPlayableAppleMusicUrl(apple) && trackId.length >= 5) {
+    apple = `https://music.apple.com/vn/song/${trackId}?i=${trackId}`;
+  } else if (apple && trackId && !/[?&]i=\d{5,}/.test(apple)) {
+    apple = `${apple.split("?")[0]}?i=${trackId}`;
+  }
   return {
     id: String(t.trackId || t.collectionId || ""),
     song_name: t.trackName || "",
@@ -1139,10 +1147,10 @@ function mapITunesTrack(t) {
     preview_url: t.previewUrl || null,
     isrc: null,
     spotify_url: null,
-    apple_music_url: normalizeAppleMusicUrl(t.trackViewUrl) || null,
+    apple_music_url: apple,
     duration_ms: t.trackTimeMillis || 0,
     popularity: 50,
-    platform: "spotify",
+    platform: "apple",
     source: "itunes-search",
     title: [t.trackName, t.artistName].filter(Boolean).join(" - "),
   };
@@ -1542,26 +1550,29 @@ async function searchMusicByQuery(query, limit = 30) {
     (async () => {
       try {
         const terms = qVariants.slice(0, 2);
+        const countries = ["vn", "us"];
         const batches = await Promise.all(
-          terms.map(async (term) => {
-            try {
-              const s = await axios.get("https://itunes.apple.com/search", {
-                params: {
-                  term,
-                  media: "music",
-                  entity: "song",
-                  limit: fetchLim,
-                  country: "vn",
-                },
-                timeout: 10000,
-                headers: { "User-Agent": UA },
-                validateStatus: (st) => st >= 200 && st < 500,
-              });
-              return (s.data?.results || []).map(mapITunesTrack);
-            } catch {
-              return [];
-            }
-          }),
+          terms.flatMap((term) =>
+            countries.map(async (country) => {
+              try {
+                const s = await axios.get("https://itunes.apple.com/search", {
+                  params: {
+                    term,
+                    media: "music",
+                    entity: "song",
+                    limit: fetchLim,
+                    country,
+                  },
+                  timeout: 10000,
+                  headers: { "User-Agent": UA },
+                  validateStatus: (st) => st >= 200 && st < 500,
+                });
+                return (s.data?.results || []).map(mapITunesTrack);
+              } catch {
+                return [];
+              }
+            }),
+          ),
         );
         return batches.flat();
       } catch (e) {

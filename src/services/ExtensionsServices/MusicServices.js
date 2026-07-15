@@ -44,6 +44,137 @@ export function normalizeIsrc(raw) {
   return null;
 }
 
+/** iOS MusicKit — cần music.apple.com/...?...i=trackId */
+export function isPlayableAppleMusicUrl(url = "") {
+  const s = String(url || "").trim();
+  if (!s || !/music\.apple\.com|itunes\.apple\.com/i.test(s)) return false;
+  if (!/[?&]i=\d{5,}/.test(s)) return false;
+  if (/\/album\/_\//i.test(s)) return false;
+  return true;
+}
+
+/**
+ * Browser iTunes Search (CORS OK) — bù Apple ?i= khi search list thiếu.
+ * Không cần dán link: tìm tên bài trên web là đủ.
+ */
+export async function lookupItunesForLocket(song = "", artist = "") {
+  const title = String(song || "").trim();
+  if (!title) return null;
+  const artistL = String(artist || "").toLowerCase();
+  const nameL = title.toLowerCase();
+  const term = [title, artist].filter(Boolean).join(" ");
+
+  for (const country of ["vn", "us"]) {
+    try {
+      const url = new URL("https://itunes.apple.com/search");
+      url.searchParams.set("term", term);
+      url.searchParams.set("media", "music");
+      url.searchParams.set("entity", "song");
+      url.searchParams.set("limit", "8");
+      url.searchParams.set("country", country);
+      const res = await fetch(url.toString());
+      if (!res.ok) continue;
+      const data = await res.json();
+      const hits = data?.results || [];
+      if (!hits.length) continue;
+
+      const best =
+        hits.find(
+          (t) =>
+            t.trackName?.toLowerCase() === nameL ||
+            (t.trackName?.toLowerCase().includes(nameL.slice(0, 12)) &&
+              (!artistL ||
+                t.artistName?.toLowerCase().includes(artistL.slice(0, 8)))),
+        ) || hits[0];
+
+      let isrc = best.isrc || null;
+      if (best.trackId) {
+        try {
+          const lk = new URL("https://itunes.apple.com/lookup");
+          lk.searchParams.set("id", String(best.trackId));
+          lk.searchParams.set("country", country);
+          const lr = await fetch(lk.toString());
+          if (lr.ok) {
+            const ld = await lr.json();
+            isrc = ld?.results?.[0]?.isrc || isrc;
+          }
+        } catch {
+          /* optional */
+        }
+      }
+
+      const trackId = String(best.trackId || "").replace(/\D/g, "");
+      let apple =
+        best.trackViewUrl ||
+        (trackId
+          ? `https://music.apple.com/${country}/song/${trackId}?i=${trackId}`
+          : null);
+      // Chuẩn hoá path + ?i=
+      if (apple) {
+        try {
+          const u = new URL(apple);
+          const i =
+            u.searchParams.get("i") ||
+            trackId ||
+            "";
+          if (i) {
+            apple = `https://music.apple.com${u.pathname}?i=${i}`;
+          }
+        } catch {
+          /* keep */
+        }
+      }
+      if (!isPlayableAppleMusicUrl(apple) && trackId.length >= 5) {
+        apple = `https://music.apple.com/${country}/song/${trackId}?i=${trackId}`;
+      }
+      if (!isPlayableAppleMusicUrl(apple)) continue;
+
+      return {
+        song_title: best.trackName || title,
+        song_name: best.trackName || title,
+        name: best.trackName || title,
+        artist: best.artistName || artist,
+        isrc: normalizeIsrc(isrc),
+        preview_url: best.previewUrl || null,
+        image_url: (best.artworkUrl100 || "").replace("100x100", "600x600"),
+        apple_music_url: apple,
+        source: `itunes-browser-${country}`,
+      };
+    } catch (e) {
+      console.warn(`[lookupItunes] ${country}:`, e.message);
+    }
+  }
+  return null;
+}
+
+/**
+ * Sau search/pick: đảm bảo có Apple ?i= (iPhone) — không bắt user dán link.
+ */
+export async function ensureIosAppleOnTrack(track = {}) {
+  if (!track || typeof track !== "object") return track;
+  let out = { ...track };
+  if (isPlayableAppleMusicUrl(out.apple_music_url || out.appleMusicUrl)) {
+    out.apple_music_url = out.apple_music_url || out.appleMusicUrl;
+    return out;
+  }
+  const song =
+    out.song_title || out.song_name || out.title || out.name || "";
+  const artist = out.artist || "";
+  const it = await lookupItunesForLocket(song, artist);
+  if (it?.apple_music_url) {
+    out = {
+      ...out,
+      apple_music_url: it.apple_music_url,
+      preview_url: out.preview_url || it.preview_url || null,
+      image_url: out.image_url || it.image_url || "",
+      isrc: normalizeIsrc(out.isrc) || it.isrc || null,
+      song_title: out.song_title || it.song_title || song,
+      artist: out.artist || it.artist || artist,
+    };
+  }
+  return out;
+}
+
 /**
  * Resolve meta + ISRC cho Locket — nhiều bước, chấp nhận lâu.
  * Locket app cần isrc; Spotify Web API hay 403 → ưu tiên search (Deezer ISRC).
@@ -81,9 +212,9 @@ export const resolveMusicForLocket = async (track = {}) => {
     ...extra,
   });
 
-  // Đã có ISRC + platform URL — gắn ngay
+  // Đã có ISRC + platform URL — vẫn bù Apple ?i= nếu thiếu (iPhone)
   if (knownIsrc && (spotify_url || apple_music_url)) {
-    return baseShape({
+    let shaped = baseShape({
       isrc: knownIsrc,
       song_title:
         track.song_title || track.song_name || track.title || track.name || song,
@@ -98,6 +229,10 @@ export const resolveMusicForLocket = async (track = {}) => {
       spotify_url,
       apple_music_url,
     });
+    if (!isPlayableAppleMusicUrl(shaped.apple_music_url)) {
+      shaped = await ensureIosAppleOnTrack(shaped);
+    }
+    return shaped;
   }
 
   // 1) Theo link Spotify (oEmbed + Deezer ISRC trên server)
@@ -246,9 +381,27 @@ export const resolveMusicForLocket = async (track = {}) => {
     console.error("[resolveMusicForLocket] search:", e.message);
   }
 
-  // Còn ISRC sẵn nhưng thiếu platform URL — trả partial
+  // Còn ISRC sẵn nhưng thiếu platform URL — bù iTunes rồi trả
   if (knownIsrc) {
-    return baseShape({ isrc: knownIsrc });
+    let partial = baseShape({ isrc: knownIsrc });
+    if (!isPlayableAppleMusicUrl(partial.apple_music_url)) {
+      partial = await ensureIosAppleOnTrack(partial);
+    }
+    return partial;
+  }
+
+  // Last resort: chỉ có tên → iTunes browser
+  if (song) {
+    const it = await lookupItunesForLocket(song, artist);
+    if (it && (normalizeIsrc(it.isrc) || it.apple_music_url)) {
+      return {
+        ...baseShape(),
+        ...it,
+        isrc: normalizeIsrc(it.isrc),
+        spotify_url: spotify_url || null,
+        apple_music_url: it.apple_music_url,
+      };
+    }
   }
 
   return null;
