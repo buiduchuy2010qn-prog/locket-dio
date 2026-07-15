@@ -42,26 +42,28 @@ export const CONFIG = {
         maxVideoSizeMB: 50,
       },
       resolutions: {
+        // Capture targets (square side / video side) — adaptive caps in CameraButton
         imageSizePx: 1920,
         videoResolutionPx: 1080,
       },
       constraints: {
-        // Preview mặc định — Android override qua getCameraPreviewConstraints()
+        // ideal only — no hard max (hard max was capping sensors at 720p)
+        // Actual selection: getCameraPreviewConstraints() + upgradeStreamQuality()
         default: {
-          width: { ideal: 1280, max: 1280 },
-          height: { ideal: 720, max: 720 },
-          frameRate: { ideal: 30, max: 30 },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+          frameRate: { ideal: 60 },
         },
-        // Android/low-end preview
+        // Low-end / save-data fallback (still better than old 640)
         android: {
-          width: { ideal: 960, max: 1280 },
-          height: { ideal: 540, max: 720 },
-          frameRate: { ideal: 24, max: 30 },
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          frameRate: { ideal: 30 },
         },
         ultraHD: {
           width: { ideal: 1920 },
           height: { ideal: 1080 },
-          frameRate: { ideal: 30, max: 30 },
+          frameRate: { ideal: 60 },
         },
       },
     },

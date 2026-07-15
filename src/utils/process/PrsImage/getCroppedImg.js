@@ -56,7 +56,7 @@ export const getCroppedImg = async (file, crop, rotation = 0) => {
       canvas.toBlob(
         (b) => (b ? resolve(b) : reject(new Error("toBlob failed"))),
         "image/jpeg",
-        0.92,
+        0.94,
       );
     });
 

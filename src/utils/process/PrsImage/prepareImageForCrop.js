@@ -12,7 +12,7 @@ function loadImageFromUrl(url) {
   });
 }
 
-function canvasToJpegFile(canvas, name = "image.jpg", quality = 0.92) {
+function canvasToJpegFile(canvas, name = "image.jpg", quality = 0.94) {
   return new Promise((resolve, reject) => {
     canvas.toBlob(
       (blob) => {
@@ -111,7 +111,7 @@ export async function prepareImageForCrop(file, opts = {}) {
 
   const baseName =
     (file.name && String(file.name)) || `locket-${Date.now()}.jpg`;
-  return canvasToJpegFile(canvas, baseName, 0.92);
+  return canvasToJpegFile(canvas, baseName, 0.94);
 }
 
 /**

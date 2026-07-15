@@ -13,7 +13,10 @@
  * - Never hide a usable rear camera from candidate lists.
  */
 
-import { getCameraPreviewConstraints } from "./perfProfile";
+import {
+  getCameraPreviewConstraints,
+  upgradeStreamQuality,
+} from "./perfProfile";
 import { CONFIG } from "@/config";
 
 // ─── Label matchers ───────────────────────────────────────────────
@@ -831,22 +834,37 @@ export function stopCurrentCamera(stream, videoEl = null) {
   }
 }
 
+/** High-res open — Full HD @ 60 ideal (no hard max; browser negotiates) */
 function highResQuality(base = {}) {
-  const preview = getCameraPreviewConstraints(base);
   return {
-    ...preview,
-    width: { ideal: 1280, max: 1920 },
-    height: { ideal: 1280, max: 1920 },
+    ...getCameraPreviewConstraints(base),
+    width: { ideal: 1920 },
+    height: { ideal: 1080 },
+    frameRate: { ideal: 60 },
   };
 }
 
-/** Constraint siêu nhẹ khi flip cam — mở nhanh, preview đủ dùng */
+/** Flip cam — nhẹ hơn một chút để mở nhanh, vẫn ≥720p ideal */
 function flipFastQuality() {
   return {
-    width: { ideal: 640, max: 960 },
-    height: { ideal: 640, max: 960 },
-    frameRate: { ideal: 24, max: 30 },
+    width: { ideal: 1280 },
+    height: { ideal: 720 },
+    frameRate: { ideal: 30 },
   };
+}
+
+/** getUserMedia OK → bump quality if track allows (safe no-op on fail) */
+async function openAndUpgrade(videoConstraints) {
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video: videoConstraints,
+    audio: false,
+  });
+  try {
+    await upgradeStreamQuality(stream);
+  } catch {
+    /* keep stream */
+  }
+  return stream;
 }
 
 function readFacingMode(stream) {
@@ -868,8 +886,7 @@ export async function openCameraByFacing(facingMode, options = {}) {
     : getCameraPreviewConstraints(
         CONFIG?.app?.camera?.constraints?.default || {},
       );
-  const tryOpen = async (video) =>
-    navigator.mediaDevices.getUserMedia({ video, audio: false });
+  const tryOpen = (video) => openAndUpgrade(video);
 
   const attempts = [
     // exact facing — đúng cam nhất
@@ -915,6 +932,13 @@ export async function openCameraByFacing(facingMode, options = {}) {
     }
   }
 
+  // Last-chance: bare facingMode without quality (max compatibility)
+  try {
+    return await openAndUpgrade({ facingMode: want });
+  } catch (e) {
+    lastErr = e;
+  }
+
   throw lastErr || new Error(`Không mở được camera ${want}`);
 }
 
@@ -940,8 +964,7 @@ export async function startCameraByDeviceId(deviceId, options = {}) {
           CONFIG?.app?.camera?.constraints?.default || {},
         );
 
-  const tryOpen = async (video) =>
-    navigator.mediaDevices.getUserMedia({ video, audio: false });
+  const tryOpen = (video) => openAndUpgrade(video);
 
   const want = facingMode === "user" ? "user" : "environment";
 
@@ -1783,14 +1806,11 @@ export async function switchToUltraWide05(options = {}) {
       if (openedId && openedId !== id && candidates.length > 1) {
         // Thử lại exact-only
         try {
-          const stream2 = await navigator.mediaDevices.getUserMedia({
-            video: {
-              deviceId: { exact: id },
-              ...getCameraPreviewConstraints(
-                CONFIG?.app?.camera?.constraints?.default || {},
-              ),
-            },
-            audio: false,
+          const stream2 = await openAndUpgrade({
+            deviceId: { exact: id },
+            ...getCameraPreviewConstraints(
+              CONFIG?.app?.camera?.constraints?.default || {},
+            ),
           });
           stopCurrentCamera(stream);
           // Có stream mới → tắt cũ

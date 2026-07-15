@@ -12,7 +12,9 @@ import { getPerfProfile } from "@/utils/device/perfProfile";
 const HOLD_TO_RECORD_MS = 380;
 
 function pickMimeType() {
+  // Prefer higher-quality codecs first when available
   const candidates = [
+    "video/webm;codecs=vp9",
     "video/webm;codecs=vp8",
     "video/webm",
     "video/mp4",
@@ -29,34 +31,58 @@ function pickMimeType() {
   return "";
 }
 
+/**
+ * Encode / canvas targets — use full stream resolution when available.
+ * size/captureSize = max side (square crop); never upscale above native.
+ */
 function recordProfile() {
   const p = getPerfProfile();
-  // Máy yếu / Android: ưu tiên mượt
-  if (p.isAndroid || p.isLowEnd) {
+  const imgTarget = CAMERA_CONFIG.imageSizePx || 1920;
+  const vidTarget = CAMERA_CONFIG.videoResolutionPx || 1080;
+
+  // Low-end: still aim for 720p+/~90% JPEG — no more 640/0.86 blur
+  if (p.isLowEnd) {
     return {
-      size: Math.min(CAMERA_CONFIG.videoResolutionPx || 1080, 720),
-      fps: 24,
-      bitrate: 2_500_000,
-      jpegQ: 0.86,
-      captureSize: Math.min(CAMERA_CONFIG.imageSizePx || 1920, 1280),
-    };
-  }
-  if (p.isMobile || p.isIOS) {
-    return {
-      size: Math.min(CAMERA_CONFIG.videoResolutionPx || 1080, 900),
+      size: Math.min(vidTarget, 720),
+      maxSize: 1080,
       fps: 30,
-      bitrate: 4_000_000,
-      jpegQ: 0.88,
-      captureSize: Math.min(CAMERA_CONFIG.imageSizePx || 1920, 1440),
+      bitrate: 4_500_000,
+      jpegQ: 0.92,
+      captureSize: Math.min(imgTarget, 1440),
+      maxCapture: 1920,
     };
   }
+  // Mobile (Android + iOS): Full HD targets, 60 fps when stream allows
+  if (p.isAndroid || p.isMobile || p.isIOS) {
+    return {
+      size: Math.min(vidTarget, 1080),
+      maxSize: 1080,
+      fps: 60,
+      bitrate: 8_000_000,
+      jpegQ: 0.94,
+      captureSize: imgTarget,
+      maxCapture: 2560,
+    };
+  }
+  // Desktop
   return {
-    size: Math.min(CAMERA_CONFIG.videoResolutionPx || 1080, 1080),
-    fps: 30,
-    bitrate: 6_000_000,
-    jpegQ: 0.9,
-    captureSize: Math.min(CAMERA_CONFIG.imageSizePx || 1920, 1600),
+    size: Math.min(vidTarget, 1080),
+    maxSize: 1440,
+    fps: 60,
+    bitrate: 12_000_000,
+    jpegQ: 0.95,
+    captureSize: imgTarget,
+    maxCapture: 3840,
   };
+}
+
+/** Square export size from live video — prefer native, cap by profile */
+function squareOutputSize(video, maxSide) {
+  const vw = video?.videoWidth || 0;
+  const vh = video?.videoHeight || 0;
+  const native = Math.min(vw, vh);
+  if (native > 0) return Math.min(native, maxSide);
+  return maxSide;
 }
 
 const CameraButton = () => {
@@ -115,8 +141,9 @@ const CameraButton = () => {
     setIsHolding(true);
 
     const prof = recordProfile();
+    // Use native square crop size (up to profile max) — avoid forced downscale to 720
     const side = Math.min(video.videoWidth || 720, video.videoHeight || 720);
-    const outputSize = prof.size;
+    const outputSize = Math.min(side, prof.maxSize || prof.size || 1080);
 
     const canvas = document.createElement("canvas");
     canvas.width = outputSize;
@@ -131,8 +158,9 @@ const CameraButton = () => {
       return;
     }
     ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = "medium";
+    ctx.imageSmoothingQuality = "high";
 
+    // fps: request 60; browser/captureStream may deliver lower if needed
     const canvasStream = canvas.captureStream(prof.fps);
     const mimeType = pickMimeType();
     const recorderOptions = mimeType ? { mimeType } : {};
@@ -334,7 +362,11 @@ const CameraButton = () => {
 
     const paintAndShow = () => {
       const prof = recordProfile();
-      const outputSize = prof.captureSize;
+      // Prefer native sensor square size — no forced downscale to 1280/1440
+      const outputSize = squareOutputSize(
+        video,
+        prof.maxCapture || prof.captureSize || 1920,
+      );
 
       canvas.width = outputSize;
       canvas.height = outputSize;
@@ -349,8 +381,11 @@ const CameraButton = () => {
       }
 
       ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.imageSmoothingEnabled = true;
-      ctx.imageSmoothingQuality = "medium";
+      // Only smooth if we must scale; native 1:1 stays sharp
+      const nativeSide = Math.min(video.videoWidth || 0, video.videoHeight || 0);
+      const scaling = nativeSide > 0 && nativeSide !== outputSize;
+      ctx.imageSmoothingEnabled = scaling;
+      ctx.imageSmoothingQuality = scaling ? "high" : "low";
 
       let sx = 0;
       let sy = 0;
@@ -374,9 +409,12 @@ const CameraButton = () => {
 
       ctx.drawImage(video, sx, sy, sw, sh, 0, 0, outputSize, outputSize);
 
+      const jpegQ = Math.min(0.97, Math.max(0.9, prof.jpegQ || 0.94));
+
       let instantUrl = null;
       try {
-        instantUrl = canvas.toDataURL("image/jpeg", prof.jpegQ);
+        // Slightly lower Q for instant preview only (memory); final blob uses full Q
+        instantUrl = canvas.toDataURL("image/jpeg", Math.min(0.88, jpegQ));
       } catch {
         instantUrl = null;
       }
@@ -416,10 +454,10 @@ const CameraButton = () => {
         setCameraActive(false);
       };
 
-      // Encode blob trên idle nếu có — UI không đợi
+      // Final encode at high JPEG quality — no extra downscale
       const runBlob = () => {
         if (typeof canvas.toBlob === "function") {
-          canvas.toBlob(finishWithBlob, "image/jpeg", Math.min(0.92, prof.jpegQ + 0.04));
+          canvas.toBlob(finishWithBlob, "image/jpeg", jpegQ);
         } else {
           finishWithBlob(null);
         }

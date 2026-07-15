@@ -66,45 +66,98 @@ export function applyPerfClasses() {
 }
 
 /**
- * Constraint camera preview — ưu tiên mượt (thấp hơn chụp full-res).
- * Preview chỉ để ngắm; ảnh chụp vẫn vẽ từ track ở kích thước capture.
+ * Constraint camera stream — adaptive high quality.
+ *
+ * Ảnh/video chụp từ frame của <video>, nên độ phân giải stream ≈ chất lượng
+ * capture. Dùng `ideal` (không `exact` / hard `max` thấp) để:
+ *  - Máy mạnh: 1080p+ @ 60 FPS khi hỗ trợ
+ *  - Máy yếu: browser tự hạ xuống mức hỗ trợ — getUserMedia không fail
+ *
+ * Không set `max` thấp (trước đây 720/960) — đó là nguyên nhân blur chính.
  */
 export function getCameraPreviewConstraints(base = {}) {
   const p = getPerfProfile();
   // Không dùng advanced focusMode — chậm mở cam trên nhiều máy Android
-  // Máy yếu: 640–720 @ 24
+
+  // Máy yếu / save-data: 720p@30 ideal — vẫn nét hơn 640, không force
   if (p.isLowEnd) {
     return {
       ...base,
-      width: { ideal: 640, max: 720 },
-      height: { ideal: 640, max: 720 },
-      frameRate: { ideal: 24, max: 30 },
+      width: { ideal: 1280 },
+      height: { ideal: 720 },
+      frameRate: { ideal: 30 },
     };
   }
-  // Android thường: 720 @ 30 — mượt, mở nhanh
-  if (p.isAndroid) {
-    return {
-      ...base,
-      width: { ideal: 720, max: 960 },
-      height: { ideal: 720, max: 960 },
-      frameRate: { ideal: 30, max: 30 },
-    };
-  }
-  // iOS / mobile: 960 @ 30
-  if (p.isMobile) {
-    return {
-      ...base,
-      width: { ideal: 960, max: 1080 },
-      height: { ideal: 960, max: 1080 },
-      frameRate: { ideal: 30, max: 30 },
-    };
-  }
+
+  // Android / iOS / desktop: target Full HD @ 60 FPS (ideal only)
+  // Browser chọn highest available ≤ ideal khi sensor/driver không đủ.
   return {
     ...base,
-    width: { ideal: 1080, max: 1280 },
-    height: { ideal: 1080, max: 1280 },
-    frameRate: { ideal: 30, max: 30 },
+    width: { ideal: 1920 },
+    height: { ideal: 1080 },
+    frameRate: { ideal: 60 },
   };
+}
+
+/**
+ * Sau khi getUserMedia OK — nâng resolution/fps nếu track còn dư headroom.
+ * An toàn: try/catch, không throw; không đổi deviceId/facing.
+ * @param {MediaStream} stream
+ * @returns {Promise<MediaStream>}
+ */
+export async function upgradeStreamQuality(stream) {
+  const track = stream?.getVideoTracks?.()?.[0];
+  if (!track || typeof track.getCapabilities !== "function") return stream;
+  if (typeof track.applyConstraints !== "function") return stream;
+
+  try {
+    const caps = track.getCapabilities() || {};
+    const settings = track.getSettings?.() || {};
+    const p = getPerfProfile();
+
+    const maxW = caps.width?.max;
+    const maxH = caps.height?.max;
+    const maxFps = caps.frameRate?.max;
+
+    const targetW = p.isLowEnd ? 1280 : 1920;
+    const targetH = p.isLowEnd ? 720 : 1080;
+    const targetFps = p.isLowEnd ? 30 : 60;
+
+    const wantW =
+      typeof maxW === "number" && maxW > 0
+        ? Math.min(maxW, targetW)
+        : targetW;
+    const wantH =
+      typeof maxH === "number" && maxH > 0
+        ? Math.min(maxH, targetH)
+        : targetH;
+    const wantFps =
+      typeof maxFps === "number" && maxFps > 0
+        ? Math.min(maxFps, targetFps)
+        : targetFps;
+
+    const curW = settings.width || 0;
+    const curH = settings.height || 0;
+    const curFps = settings.frameRate || 0;
+
+    // Đã đủ gần target → bỏ qua
+    if (
+      curW >= wantW * 0.92 &&
+      curH >= wantH * 0.92 &&
+      curFps >= Math.min(wantFps, 30) * 0.9
+    ) {
+      return stream;
+    }
+
+    await track.applyConstraints({
+      width: { ideal: wantW },
+      height: { ideal: wantH },
+      frameRate: { ideal: wantFps },
+    });
+  } catch {
+    /* giữ stream hiện tại — không phá cam */
+  }
+  return stream;
 }
 
 /**
