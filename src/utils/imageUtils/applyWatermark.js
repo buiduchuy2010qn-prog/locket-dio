@@ -1,12 +1,38 @@
 /**
  * Locket-style watermark when saving images:
- * soft filled white heart + "Locket" at bottom-center (match official Locket export).
+ * soft filled vector heart + "Locket" at bottom-center (match official Locket export).
+ * Heart is drawn as a path (not emoji) so it stays clean across Android/iOS fonts.
  */
 
 import { useUserSetting } from "@/stores/SettingStores/useUserSetting";
 
 /** Official-style save watermark label (exact "Locket", not Huy Locket) */
 const DEFAULT_LABEL = "Locket";
+
+/**
+ * Draw a clean filled heart (classic card-suit shape) centered at (cx, cy).
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {number} cx
+ * @param {number} cy
+ * @param {number} size - heart height roughly
+ */
+function drawSoftHeart(ctx, cx, cy, size) {
+  // Normalized path around (0,0), scaled so height ≈ size
+  const s = size / 28;
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.scale(s, s);
+  ctx.beginPath();
+  // Classic heart path (smooth lobes + point)
+  ctx.moveTo(0, 6);
+  ctx.bezierCurveTo(-2, 2, -12, -2, -12, -10);
+  ctx.bezierCurveTo(-12, -16, -7, -20, 0, -14);
+  ctx.bezierCurveTo(7, -20, 12, -16, 12, -10);
+  ctx.bezierCurveTo(12, -2, 2, 2, 0, 6);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
 
 /**
  * User preference from SettingPoup (persisted).
@@ -95,39 +121,39 @@ export async function applyLocketStyleWatermark(blob, opts = {}) {
     // Scale watermark with image size (match official Locket soft white look)
     const base = Math.min(w, h);
     const fontSize = Math.max(18, Math.round(base * 0.04));
-    // Filled soft heart (♥ solid, not outline ♡)
-    const heartSize = Math.round(fontSize * 1.12);
-    const gap = Math.round(fontSize * 0.32);
-    const bottomPad = Math.round(base * 0.055);
+    // Vector heart size (slightly smaller than text for balance)
+    const heartH = Math.round(fontSize * 0.92);
+    const heartW = Math.round(heartH * 1.05);
+    const gap = Math.round(fontSize * 0.28);
+    // Higher than before (~7.5% from bottom) so watermark sits a bit higher
+    const bottomPad = Math.round(base * 0.078);
 
     ctx.save();
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
 
-    // Filled heart (not hollow outline)
-    const heart = "♥";
-    ctx.font = `600 ${heartSize}px system-ui, -apple-system, "Segoe UI", Roboto, "Apple Color Emoji", "Segoe UI Emoji", sans-serif`;
-    const heartW = ctx.measureText(heart).width;
-    ctx.font = `500 ${fontSize}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
+    ctx.font = `500 ${fontSize}px system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif`;
     const textW = ctx.measureText(label).width;
     const totalW = heartW + gap + textW;
     const startX = (w - totalW) / 2;
     const y = h - bottomPad;
 
-    // Soft shadow so pale white stays readable on light areas
-    ctx.shadowColor = "rgba(0,0,0,0.22)";
-    ctx.shadowBlur = Math.max(2, Math.round(fontSize * 0.18));
+    // Soft shadow — pale white readable on light areas
+    ctx.shadowColor = "rgba(0,0,0,0.2)";
+    ctx.shadowBlur = Math.max(2, Math.round(fontSize * 0.16));
     ctx.shadowOffsetX = 0;
     ctx.shadowOffsetY = Math.max(1, Math.round(fontSize * 0.03));
-    // Trắng nhạt / soft white (~70%)
-    ctx.fillStyle = "rgba(255,255,255,0.72)";
+    // Soft white (~74%)
+    ctx.fillStyle = "rgba(255,255,255,0.74)";
 
-    // Heart — solid fill, pale white
-    ctx.font = `600 ${heartSize}px system-ui, -apple-system, "Segoe UI", Roboto, "Apple Color Emoji", "Segoe UI Emoji", sans-serif`;
-    ctx.fillText(heart, startX, y);
+    // Clean vector heart (not emoji — emoji fonts look chunky / misaligned)
+    // Nudge heart up a hair so it optically centers with "Locket" text
+    const heartCx = startX + heartW / 2;
+    const heartCy = y - fontSize * 0.06;
+    drawSoftHeart(ctx, heartCx, heartCy, heartH);
 
-    // Label — exact "Locket", medium weight, same pale white
-    ctx.font = `500 ${fontSize}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
+    // Label — exact "Locket"
+    ctx.font = `500 ${fontSize}px system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif`;
     ctx.fillText(label, startX + heartW + gap, y);
 
     ctx.restore();
