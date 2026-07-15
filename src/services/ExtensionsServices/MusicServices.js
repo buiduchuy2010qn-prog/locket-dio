@@ -352,42 +352,117 @@ function rankTracksByQuery(query, tracks, limit = 40) {
     .slice(0, limit);
 }
 
-/** Tìm nhạc theo tên — full catalog qua API server (Deezer ISRC + iTunes + Spotify) */
+/**
+ * Fallback tìm iTunes trực tiếp từ browser (CORS mở).
+ * Khi API server (Railway) bị chặn Deezer → search rỗng.
+ */
+async function searchItunesBrowser(query, limit = 25) {
+  const q = String(query || "").trim();
+  if (!q) return [];
+  const out = [];
+  const seen = new Set();
+  for (const country of ["vn", "us"]) {
+    try {
+      const url = new URL("https://itunes.apple.com/search");
+      url.searchParams.set("term", q);
+      url.searchParams.set("media", "music");
+      url.searchParams.set("entity", "song");
+      url.searchParams.set("limit", String(Math.min(25, limit)));
+      url.searchParams.set("country", country);
+      const res = await fetch(url.toString());
+      if (!res.ok) continue;
+      const data = await res.json();
+      for (const r of data?.results || []) {
+        if (!r.trackName || !r.previewUrl) continue;
+        const id = String(r.trackId || "");
+        if (id && seen.has(id)) continue;
+        if (id) seen.add(id);
+        let apple = r.trackViewUrl || null;
+        try {
+          if (apple) {
+            const u = new URL(apple);
+            const i = u.searchParams.get("i") || id;
+            apple = `https://music.apple.com${u.pathname}${i ? `?i=${i}` : ""}`;
+          }
+        } catch {
+          /* keep */
+        }
+        out.push({
+          id: id || `it-${out.length}`,
+          song_title: r.trackName,
+          song_name: r.trackName,
+          name: r.trackName,
+          artist: r.artistName || "",
+          album: r.collectionName || "",
+          image_url: (r.artworkUrl100 || "").replace("100x100", "600x600") || "",
+          preview_url: r.previewUrl || null,
+          isrc: null,
+          spotify_url: null,
+          apple_music_url: apple,
+          platform: "apple",
+          source: "itunes-browser",
+          title: [r.trackName, r.artistName].filter(Boolean).join(" - "),
+        });
+      }
+    } catch (e) {
+      console.warn("[searchItunesBrowser]", country, e.message);
+    }
+  }
+  return out.slice(0, limit);
+}
+
+/** Tìm nhạc theo tên — API server (Deezer/iTunes/MB) + fallback browser iTunes */
 export const searchMusicByQuery = async (query, limit = 30) => {
   const q = String(query || "").trim();
   if (!q) return [];
+  const fetchLimit = Math.min(50, Math.max(Number(limit) || 30, 25));
+
+  let list = [];
   try {
-    const fetchLimit = Math.min(50, Math.max(Number(limit) || 30, 25));
     const res = await api.post(
       "/api/searchMusic",
       { query: q, limit: fetchLimit },
       { timeout: 45000, skipErrorToast: true },
     );
     if (res?.data?.status === "success" && Array.isArray(res.data.data)) {
-      const list = res.data.data;
-      // Soft re-rank — giữ list server nếu filter rỗng (tìm artist)
-      const ranked = rankTracksByQuery(q, list, fetchLimit);
-      const out = ranked.length ? ranked : list;
-      // Tie-break: isrc / spotify — không phá thứ tự khớp
-      out.sort((a, b) => {
-        const sa =
-          (a.isrc ? 2 : 0) +
-          (a.spotify_url || a.source === "spotify-search" ? 1 : 0);
-        const sb =
-          (b.isrc ? 2 : 0) +
-          (b.spotify_url || b.source === "spotify-search" ? 1 : 0);
-        // Chỉ swap khi điểm phụ chênh và cùng “nhóm” gần nhau
-        if (sa !== sb) return sb - sa;
-        return 0;
-      });
-      return out.slice(0, fetchLimit);
+      list = res.data.data;
+    } else if (Array.isArray(res?.data)) {
+      list = res.data;
+    } else if (Array.isArray(res?.data?.data)) {
+      list = res.data.data;
     }
-    // Một số proxy trả data thuần array
-    if (Array.isArray(res?.data)) return res.data.slice(0, fetchLimit);
-    if (Array.isArray(res?.data?.data)) return res.data.data.slice(0, fetchLimit);
-    return [];
   } catch (error) {
-    console.error("🚨 searchMusicByQuery:", error.message);
-    throw error;
+    console.error("🚨 searchMusicByQuery server:", error.message);
   }
+
+  // Server rỗng (Railway chặn Deezer) → iTunes browser
+  if (!list.length) {
+    try {
+      list = await searchItunesBrowser(q, fetchLimit);
+      console.info(
+        `[searchMusic] browser iTunes fallback: ${list.length} for "${q.slice(0, 40)}"`,
+      );
+    } catch (e) {
+      console.error("🚨 searchItunesBrowser:", e.message);
+    }
+  }
+
+  if (!list.length) return [];
+
+  // Soft re-rank
+  const ranked = rankTracksByQuery(q, list, fetchLimit);
+  const out = ranked.length ? ranked : list;
+  out.sort((a, b) => {
+    const sa =
+      (a.isrc ? 2 : 0) +
+      (a.spotify_url || a.source === "spotify-search" ? 1 : 0) +
+      (a.apple_music_url ? 1 : 0);
+    const sb =
+      (b.isrc ? 2 : 0) +
+      (b.spotify_url || b.source === "spotify-search" ? 1 : 0) +
+      (b.apple_music_url ? 1 : 0);
+    if (sa !== sb) return sb - sa;
+    return 0;
+  });
+  return out.slice(0, fetchLimit);
 };

@@ -457,7 +457,42 @@ export default function GeneralThemes({ title }) {
         }
       }
 
-      const isrc = normalizeIsrc(musicData?.isrc || raw.isrc);
+      let isrc = normalizeIsrc(musicData?.isrc || raw.isrc);
+      // iTunes browser hits often miss ISRC — force getInfo Apple / search 1 more time
+      if (!isrc) {
+        try {
+          const apple =
+            musicData?.apple_music_url ||
+            raw.apple_music_url ||
+            raw.appleMusicUrl ||
+            null;
+          if (apple) {
+            const info = await getInfoMusicByUrl(apple, "apple");
+            if (normalizeIsrc(info?.isrc)) {
+              isrc = normalizeIsrc(info.isrc);
+              musicData = {
+                ...(musicData || {}),
+                ...info,
+                isrc,
+                apple_music_url: info.apple_music_url || apple,
+              };
+            }
+          }
+          if (!isrc && songFromTrack) {
+            const hits = await searchMusicByQuery(
+              [songFromTrack, artistFromTrack].filter(Boolean).join(" "),
+              15,
+            );
+            const hit = (hits || []).find((h) => normalizeIsrc(h.isrc));
+            if (hit) {
+              isrc = normalizeIsrc(hit.isrc);
+              musicData = { ...(musicData || {}), ...hit, isrc };
+            }
+          }
+        } catch {
+          /* keep */
+        }
+      }
       if (!isrc) {
         SonnerError(
           "Bài này chưa có mã ISRC",
