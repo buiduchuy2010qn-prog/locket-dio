@@ -17,6 +17,7 @@ const {
   resolveIsrcAggressive,
   normalizeIsrc,
   normalizeAppleMusicUrl,
+  isPlayableAppleMusicUrl,
   isStablePreviewUrl,
   isStableCoverUrl,
   enrichFromItunes,
@@ -320,13 +321,55 @@ async function ensureMusicOptionsData(optionsData = {}) {
     );
   }
 
-  // Bỏ preview hết hạn — app Locket có thể reject overlay nếu preview hỏng
+  // Last resort for iOS: iTunes by title if Apple still not playable (?i= missing)
+  if (!isPlayableAppleMusicUrl(apple_music_url) && song_title) {
+    try {
+      const it = await enrichFromItunes(song_title, artist);
+      if (it?.apple_music_url && isPlayableAppleMusicUrl(it.apple_music_url)) {
+        apple_music_url = normalizeAppleMusicUrl(it.apple_music_url);
+        isrc = isrc || normalizeIsrc(it.isrc);
+        if (it.preview_url && (!preview || isSignedEphemeralPreview(preview))) {
+          preview = it.preview_url;
+        }
+        if (it.image_url && (!image_url || !isStableCoverUrl(image_url))) {
+          image_url = it.image_url;
+        }
+        console.log(
+          `[ensureMusicOptionsData] iTunes forced Apple for iOS "${song_title}" → ${apple_music_url}`,
+        );
+      }
+    } catch (e) {
+      console.warn("[ensureMusicOptionsData] final iTunes:", e.message);
+    }
+  }
+
+  // Reject unusable Apple URLs (no track id) — iOS would stay silent
+  if (apple_music_url && !isPlayableAppleMusicUrl(apple_music_url)) {
+    console.warn(
+      `[ensureMusicOptionsData] drop non-playable Apple URL: ${apple_music_url}`,
+    );
+    apple_music_url = null;
+  }
+
+  // Hard requirement: iOS MusicKit needs playable Apple URL
+  if (!isPlayableAppleMusicUrl(apple_music_url)) {
+    const err = new Error(
+      "Thiếu link Apple Music hợp lệ (cần ?i=trackId) — iPhone sẽ không phát nhạc. Thử bài khác hoặc dán link Apple Music.",
+    );
+    err.status = 400;
+    throw err;
+  }
+
+  // Bỏ preview hết hạn / signed — có thể làm app Locket bỏ overlay
+  // iOS phát qua MusicKit (apple_music_url), không cần preview_url
   if (preview && isSignedEphemeralPreview(preview)) {
     console.warn(
       `[ensureMusicOptionsData] drop ephemeral preview for "${song_title}"`,
     );
     preview = null;
   }
+  // Không gửi preview lên Locket — tránh iOS/Android reject overlay
+  preview = null;
 
   // Platform badge: ưu tiên Spotify (Android ổn); Apple vẫn giữ song song cho iOS
   let platformOut = "spotify";
@@ -342,16 +385,14 @@ async function ensureMusicOptionsData(optionsData = {}) {
     name: song_title || payload.name || "",
     artist,
     isrc: isrc || null,
-    preview_url: preview || null,
     image_url: image_url || null,
     platform: platformOut,
   };
-  // Dual platform when both available:
-  // - spotify_url → Android Spotify playback (unchanged)
-  // - apple_music_url → iOS Apple Music / MusicKit playback
-  // Do not drop Apple just because Spotify exists (old XOR broke iOS play).
-  if (spotify_url) nextPayload.spotify_url = spotify_url;
+  // Dual platform — order: Apple first for iOS resolvers that scan fields early
+  // - apple_music_url → iOS MusicKit (REQUIRED)
+  // - spotify_url → Android Spotify
   if (apple_music_url) nextPayload.apple_music_url = apple_music_url;
+  if (spotify_url) nextPayload.spotify_url = spotify_url;
 
   const nextIcon =
     image_url

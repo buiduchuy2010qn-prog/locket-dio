@@ -345,14 +345,19 @@ const videoPostPayloadMusic = ({ videoUrl, thumbnailUrl, optionsData }) => {
     artist,
   };
 
-  const preview =
-    payload?.preview_url || payload?.audio || payload?.previewUrl || null;
-  if (preview && !/dzcdn\.net|hdnea=/i.test(preview)) {
-    musicPayload.preview_url = preview;
+  // No preview_url to Locket app — iOS plays via MusicKit apple_music_url
+  if (apple_music_url && /[?&]i=\d{5,}/.test(String(apple_music_url))) {
+    musicPayload.apple_music_url = apple_music_url;
   }
-  // Dual platform: Spotify (Android) + Apple (iOS) when both available
   if (spotify_url) musicPayload.spotify_url = spotify_url;
-  if (apple_music_url) musicPayload.apple_music_url = apple_music_url;
+
+  if (!musicPayload.apple_music_url) {
+    const err = new Error(
+      "Thiếu Apple Music URL (?i=) — iPhone không phát được. Chọn lại bài hoặc dán link Apple Music.",
+    );
+    err.status = 400;
+    throw err;
+  }
 
   const cover =
     (icon && icon.data) ||

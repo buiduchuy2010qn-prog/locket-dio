@@ -365,45 +365,74 @@ async function enrichFromItunes(songName, artist) {
   return null;
 }
 
+/**
+ * True if Apple URL can drive Locket iOS MusicKit (needs track id ?i=).
+ */
+function isPlayableAppleMusicUrl(url = "") {
+  const s = String(url || "").trim();
+  if (!s || !/music\.apple\.com|itunes\.apple\.com/i.test(s)) return false;
+  // MusicKit / Locket iOS needs the song id query
+  if (!/[?&]i=\d{5,}/.test(s)) return false;
+  // Empty album slug from bad odesli maps often fails
+  if (/\/album\/_\//i.test(s)) return false;
+  return true;
+}
+
 async function fetchSongLink(url) {
+  const countries = ["VN", "US"];
   for (const base of [
     "https://api.song.link/v1-alpha.1/links",
     "https://api.odesli.co/v1-alpha.1/links",
   ]) {
-    try {
-      const r = await http.get(base, {
-        params: { url, userCountry: "US" },
-        timeout: 18000,
-      });
-      if (r.status !== 200 || !r.data?.entitiesByUniqueId) continue;
+    for (const userCountry of countries) {
+      try {
+        const r = await http.get(base, {
+          params: { url, userCountry },
+          timeout: 18000,
+        });
+        if (r.status !== 200 || !r.data?.entitiesByUniqueId) continue;
 
-      const entities = r.data.entitiesByUniqueId;
-      const byProvider = {};
-      for (const ent of Object.values(entities)) {
-        if (ent?.apiProvider) byProvider[ent.apiProvider] = ent;
+        const entities = r.data.entitiesByUniqueId;
+        const byProvider = {};
+        for (const ent of Object.values(entities)) {
+          if (ent?.apiProvider) byProvider[ent.apiProvider] = ent;
+        }
+
+        const spotify =
+          byProvider.spotify ||
+          Object.values(entities).find((e) =>
+            (e.platforms || []).includes("spotify"),
+          );
+        const deezer = byProvider.deezer;
+        const apple = byProvider.appleMusic || byProvider.itunes;
+        const primary = spotify || apple || deezer || Object.values(entities)[0];
+        if (!primary?.title) continue;
+
+        let appleUrl =
+          r.data.linksByPlatform?.appleMusic?.url ||
+          r.data.linksByPlatform?.itunes?.url ||
+          null;
+        // Build from entity id when platform link missing / weak
+        if (!isPlayableAppleMusicUrl(appleUrl) && apple?.id) {
+          const tid = String(apple.id).replace(/\D/g, "");
+          if (tid.length >= 5) {
+            appleUrl = `https://music.apple.com/us/song/${tid}?i=${tid}`;
+          }
+        }
+        appleUrl = normalizeAppleMusicUrl(appleUrl || "") || appleUrl;
+
+        return {
+          song_name: primary.title,
+          artist: primary.artistName || "",
+          image_url: primary.thumbnailUrl || "",
+          deezerId: deezer?.id || null,
+          apple_music_url: appleUrl,
+          spotify_url: r.data.linksByPlatform?.spotify?.url || null,
+          source: `songlink-${userCountry}`,
+        };
+      } catch (e) {
+        console.warn("fetchSongLink:", base, userCountry, e.message);
       }
-
-      const spotify =
-        byProvider.spotify ||
-        Object.values(entities).find((e) =>
-          (e.platforms || []).includes("spotify"),
-        );
-      const deezer = byProvider.deezer;
-      const apple = byProvider.appleMusic || byProvider.itunes;
-      const primary = spotify || apple || deezer || Object.values(entities)[0];
-      if (!primary?.title) continue;
-
-      return {
-        song_name: primary.title,
-        artist: primary.artistName || "",
-        image_url: primary.thumbnailUrl || "",
-        deezerId: deezer?.id || null,
-        apple_music_url: r.data.linksByPlatform?.appleMusic?.url || null,
-        spotify_url: r.data.linksByPlatform?.spotify?.url || null,
-        source: "songlink",
-      };
-    } catch (e) {
-      console.warn("fetchSongLink:", base, e.message);
     }
   }
   return null;
@@ -1733,6 +1762,7 @@ module.exports = {
   normalizeIsrc,
   isValidIsrc,
   normalizeAppleMusicUrl,
+  isPlayableAppleMusicUrl,
   isStablePreviewUrl,
   isStableCoverUrl,
   enrichFromItunes,

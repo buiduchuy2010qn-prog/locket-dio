@@ -336,26 +336,32 @@ const imagePostPayloadMusic = ({ imageUrl, optionsData }) => {
     throw err;
   }
 
-  // Payload tối giản như Locket Dio gốc (thứ tự field quen thuộc)
+  // Payload tối giản — iOS MusicKit cần apple_music_url với ?i=trackId
   const musicPayload = {
     isrc,
     song_title: songTitle,
     artist,
   };
 
-  const preview =
-    payload?.preview_url || payload?.audio || payload?.previewUrl || null;
-  // Không gửi preview signed (Deezer) — dễ làm app Locket bỏ overlay
-  if (
-    preview &&
-    !/dzcdn\.net|hdnea=/i.test(preview)
-  ) {
-    musicPayload.preview_url = preview;
-  }
+  // Không gửi preview_url lên Locket app (iOS/Android phát bằng platform URL).
+  // Preview signed/Deezer hay làm app bỏ overlay.
 
-  // Platform URLs — keep both when present (Android Spotify + iOS Apple Music)
+  // Apple first (iOS), then Spotify (Android) — both when present
+  if (apple_music_url) {
+    // Require track id for MusicKit; drop unusable links
+    if (/[?&]i=\d{5,}/.test(String(apple_music_url))) {
+      musicPayload.apple_music_url = apple_music_url;
+    }
+  }
   if (spotify_url) musicPayload.spotify_url = spotify_url;
-  if (apple_music_url) musicPayload.apple_music_url = apple_music_url;
+
+  if (!musicPayload.apple_music_url) {
+    const err = new Error(
+      "Thiếu Apple Music URL (?i=) — iPhone không phát được. Chọn lại bài hoặc dán link Apple Music.",
+    );
+    err.status = 400;
+    throw err;
+  }
 
   const cover =
     (icon && icon.data) ||

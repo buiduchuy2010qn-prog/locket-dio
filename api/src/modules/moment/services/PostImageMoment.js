@@ -37,9 +37,17 @@ const postImageToLocketV2 = async ({
       err.status = 400;
       throw err;
     }
+    // iOS MusicKit hard-requires apple_music_url with track id
+    if (!p.apple_music_url || !/[?&]i=\d{5,}/.test(String(p.apple_music_url))) {
+      const err = new Error(
+        "Thiếu Apple Music (?i=trackId) — iPhone sẽ im. Dán link Apple Music hoặc chọn bài khác.",
+      );
+      err.status = 400;
+      throw err;
+    }
     logInfo(
       "postImageToLocketV2",
-      `Music OK isrc=${p.isrc} title=${p.song_title || p.song_name || ""} platform=${p.spotify_url ? "spotify" : "apple"} url=${(p.spotify_url || p.apple_music_url || "").slice(0, 80)} cover=${(optionsData.icon?.data || p.image_url || "").slice(0, 50)}`,
+      `Music OK isrc=${p.isrc} title=${p.song_title || p.song_name || ""} spotify=${p.spotify_url ? "yes" : "no"} apple=${(p.apple_music_url || "").slice(0, 90)} cover=${(optionsData.icon?.data || p.image_url || "").slice(0, 50)}`,
     );
   }
   const { type } = optionsData;

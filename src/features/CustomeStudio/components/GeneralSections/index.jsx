@@ -210,6 +210,17 @@ export default function GeneralThemes({ title }) {
       );
       return false;
     }
+    // iOS MusicKit: bắt buộc apple_music_url có ?i=trackId
+    const appleOk =
+      musicPayload.apple_music_url &&
+      /[?&]i=\d{5,}/.test(String(musicPayload.apple_music_url));
+    if (!appleOk) {
+      SonnerError(
+        "Thiếu link Apple Music (iOS)",
+        "iPhone cần link Apple Music có mã bài (?i=). Thử dán link Apple Music hoặc chọn bản khác.",
+      );
+      return false;
+    }
     if (!musicPayload.image_url) {
       SonnerError(
         "Thiếu ảnh bìa album",
@@ -488,11 +499,38 @@ export default function GeneralThemes({ title }) {
         }
       }
 
-      // App Locket: bắt buộc ≥1 platform URL
+      // App Locket: Spotify (Android) + Apple ?i= (iOS MusicKit)
       if (!finalSpotify && !apple_music_url) {
         SonnerError(
           "Thiếu link Apple Music / Spotify",
           "Chọn bài khác có preview — app Locket mới hiện nhạc.",
+        );
+        return;
+      }
+      // Bù Apple từ search nếu thiếu / không có ?i=
+      if (!apple_music_url || !/[?&]i=\d{5,}/.test(String(apple_music_url))) {
+        try {
+          const hits = await searchMusicByQuery(
+            [song_title, artist].filter(Boolean).join(" "),
+            15,
+          );
+          const hit = (hits || []).find(
+            (h) =>
+              h.apple_music_url &&
+              /[?&]i=\d{5,}/.test(String(h.apple_music_url)),
+          );
+          if (hit) {
+            apple_music_url = hit.apple_music_url;
+            finalSpotify = finalSpotify || hit.spotify_url || null;
+          }
+        } catch {
+          /* keep */
+        }
+      }
+      if (!apple_music_url || !/[?&]i=\d{5,}/.test(String(apple_music_url))) {
+        SonnerError(
+          "Thiếu Apple Music cho iPhone",
+          "Không lấy được link Apple (?i=). Dán link Apple Music hoặc chọn bài khác — không đăng sẽ im trên iOS.",
         );
         return;
       }
