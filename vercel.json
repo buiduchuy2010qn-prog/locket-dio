@@ -20,15 +20,15 @@
     },
     {
       "source": "/dio-auth",
-      "destination": "https://auth.locket-dio.com/"
+      "destination": "https://huy-locket-api-production.up.railway.app/"
     },
     {
       "source": "/dio-auth/",
-      "destination": "https://auth.locket-dio.com/"
+      "destination": "https://huy-locket-api-production.up.railway.app/"
     },
     {
       "source": "/dio-auth/:path*",
-      "destination": "https://auth.locket-dio.com/:path*"
+      "destination": "https://huy-locket-api-production.up.railway.app/:path*"
     },
     {
       "source": "/dio-data",
