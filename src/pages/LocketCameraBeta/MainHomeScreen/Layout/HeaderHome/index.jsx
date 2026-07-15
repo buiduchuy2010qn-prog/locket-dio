@@ -52,11 +52,25 @@ const HeaderHome = ({
     if (!selectedFile) return;
 
     try {
-      const extension = selectedFile.type.split("/")[1] || "png";
       const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-      const fileName = `huylocket-${timestamp}.${extension}`;
+      let file = selectedFile;
+      let fileName = `huylocket-${timestamp}.jpg`;
 
-      await shareBlob(selectedFile, fileName);
+      // Ảnh: stamp watermark kiểu Locket (♡ Huy Locket) khi lưu
+      if (String(selectedFile.type || "").startsWith("image/")) {
+        const { applyLocketStyleWatermark, ensureJpegFileName } = await import(
+          "@/utils/imageUtils/applyWatermark"
+        );
+        file = await applyLocketStyleWatermark(selectedFile, {
+          forceImage: true,
+        });
+        fileName = ensureJpegFileName(`huylocket-${timestamp}.jpg`);
+      } else {
+        const extension = selectedFile.type?.split("/")[1] || "mp4";
+        fileName = `huylocket-${timestamp}.${extension}`;
+      }
+
+      await shareBlob(file, fileName);
     } catch (err) {
       console.error("❌ Share error:", err);
     }
