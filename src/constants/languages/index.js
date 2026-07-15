@@ -24,6 +24,12 @@ export const LANGUAGES = [
     native: "Korean",
   },
   {
+    code: "ja",
+    flag: "🇯🇵",
+    name: "日本語",
+    native: "Japanese",
+  },
+  {
     code: "de",
     flag: "🇩🇪",
     name: "Deutsch",

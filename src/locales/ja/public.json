@@ -1,0 +1,32 @@
+{
+  "server": {
+    "checking": "サーバーを確認中",
+    "online": "サーバーは稼働中です",
+    "offline": "サーバーに接続できません"
+  },
+  "time": {
+    "just_now": "たった今",
+    "minutes_ago": "{{count}}分前",
+    "hours_ago": "{{count}}時間前",
+    "days_ago": "{{count}}日前"
+  },
+  "error_boundary": {
+    "title": "エラーが発生しました。",
+    "description": "Huy Locketで予期しないエラーが発生しました。アプリを再起動するか、コミュニティでサポートを受けてください。",
+    "restart": "再起動",
+    "join_community": "コミュニティに参加"
+  },
+  "not_found": {
+    "title": "お探しのページは見つかりません。",
+    "description": "このページは存在しないか、移動した可能性があります。",
+    "go_home": "ホームへ"
+  },
+  "loading_page": {
+    "title": "Huy Locketを読み込み中です。",
+    "description": "思い出を準備しています…"
+  },
+  "rotating_circle": {
+    "outer": "Huy Locket • 瞬間をシェア •",
+    "inner": "Huy Locket • モダン • 便利 • クロスプラットフォーム • セキュリティ •"
+  }
+}

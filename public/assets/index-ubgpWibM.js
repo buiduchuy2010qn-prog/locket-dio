@@ -1,1 +1,0 @@
-const i=[{code:"vi",flag:"🇻🇳",name:"Tiếng Việt",native:"Vietnamese"},{code:"en",flag:"🇺🇸",name:"English",native:"English"},{code:"zh",flag:"🇨🇳",name:"中文（简体）",native:"Chinese"},{code:"ko",flag:"🇰🇷",name:"한국어",native:"Korean"},{code:"de",flag:"🇩🇪",name:"Deutsch",native:"German"}],t=Object.fromEntries(i.map(({code:e,name:a,flag:n})=>[e,{name:a,flag:n}]));export{t as L,i as a};
