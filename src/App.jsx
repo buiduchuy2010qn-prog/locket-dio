@@ -50,6 +50,12 @@ function AppContent() {
   const { loading, isAuth, user, hydrateAuth, initAuth } = useAuthStore();
   const syncStreak = useStreakStore((s) => s.syncStreak);
   const fetchCaptionOverlays = useOverlayDataStore((s) => s.fetchCaptionOverlays);
+  const startRealtimeRefresh = useOverlayDataStore(
+    (s) => s.startRealtimeRefresh,
+  );
+  const stopRealtimeRefresh = useOverlayDataStore(
+    (s) => s.stopRealtimeRefresh,
+  );
   const hydrateUploadQueue = useUploadQueueStore((s) => s.hydrateUploadQueue);
   const fetchAndSyncFriends = useFriendStoreV3((s) => s.fetchAndSyncFriends);
 
@@ -97,10 +103,22 @@ function AppContent() {
     hydrateAuth();
     initAuth();
     showDevWarning();
-    fetchCaptionOverlays();
+    // Caption Season / overlays: load + realtime refilter (start_at / daily hours)
+    fetchCaptionOverlays().finally(() => {
+      try {
+        startRealtimeRefresh();
+      } catch {
+        /* ignore */
+      }
+    });
     return () => {
       cancelled = true;
       clearInterval(keepAlive);
+      try {
+        stopRealtimeRefresh();
+      } catch {
+        /* ignore */
+      }
     };
   }, []);
 

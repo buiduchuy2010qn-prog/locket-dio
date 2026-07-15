@@ -25,6 +25,13 @@ const ScreenCustomeStudio = () => {
   const { isFilterOpen, setIsFilterOpen } = navigation;
   const { userCaptions } = useOverlayUserStore();
   const sectionOverlays = useOverlayDataStore((s) => s.sectionOverlays);
+  const refilterNow = useOverlayDataStore((s) => s.refilterNow);
+  const fetchCaptionOverlays = useOverlayDataStore(
+    (s) => s.fetchCaptionOverlays,
+  );
+  const startRealtimeRefresh = useOverlayDataStore(
+    (s) => s.startRealtimeRefresh,
+  );
 
   const updateOverlayEditor = useOverlayEditorStore(
     (s) => s.updateOverlayEditor,
@@ -48,6 +55,19 @@ const ScreenCustomeStudio = () => {
       document.body.style.overflow = "";
     };
   }, [isFilterOpen]);
+
+  // Caption Season realtime: khi mở studio → refilter ngay + soft fetch
+  useEffect(() => {
+    if (!isFilterOpen) return;
+    try {
+      startRealtimeRefresh();
+      refilterNow();
+      // Silent refresh so match pills stay current without blocking UI
+      fetchCaptionOverlays(true, { silent: true });
+    } catch {
+      /* ignore */
+    }
+  }, [isFilterOpen, refilterNow, fetchCaptionOverlays, startRealtimeRefresh]);
 
   const handleSelectCaption = (caption) => {
     resetOverlayEditor();
