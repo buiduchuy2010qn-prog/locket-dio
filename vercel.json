@@ -1,9 +1,9 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "framework": "vite",
-  "installCommand": "npm install --omit=dev --ignore-scripts || npm install --ignore-scripts",
-  "buildCommand": "npm run build",
-  "outputDirectory": "dist",
+  "framework": null,
+  "installCommand": "echo skip-install",
+  "buildCommand": "node scripts/vercel-prebuilt.mjs",
+  "outputDirectory": "vercel-static",
   "rewrites": [
     {
       "source": "/dio-api/:path*",

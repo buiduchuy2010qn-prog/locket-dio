@@ -10,6 +10,7 @@
     "dev": "vite",
     "build": "node scripts/vercel-prebuilt.mjs",
     "build:vite": "node scripts/write-version.mjs && vite build",
+    "build:vercel-static": "npm run build:vite && node -e \"const fs=require('fs');const p=require('path');const{cpSync,rmSync,existsSync}=fs;const d='vercel-static';if(existsSync(d))rmSync(d,{recursive:true});cpSync('dist',d,{recursive:true});console.log('synced dist -> vercel-static')\"",
     "build:static": "node scripts/write-version.mjs && node scripts/clean-public-build.mjs && vite build && node scripts/prepare-static.mjs",
 
     "lint": "eslint .",

@@ -1,0 +1,1 @@
+@keyframes slideUp{0%{transform:translateY(20px);opacity:0}to{transform:translateY(0);opacity:1}}.animate-slideUp{animation:slideUp .5s ease-out forwards}
