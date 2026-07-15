@@ -25,7 +25,8 @@ function listFriends({ token }, socket, res) {
     socket,
     res,
     databaseName: "(default)",
-    buildRequest: () => buildGetFriends({ userId }),
+    // Full friend list (no 100-cap paywall)
+    buildRequest: () => buildGetFriends({ userId, limit: 10000 }),
     simplifyData: (response, uid) => simplifyFriends(response, uid),
     socketEvent: SocketEvents.NEW_ON_FRIENDS,
   });

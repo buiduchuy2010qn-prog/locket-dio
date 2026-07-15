@@ -28,7 +28,8 @@ const FriendsContainer = () => {
   const friendList = useFriendList();
 
   const { isFriendsTabOpen, setFriendsTabOpen, isPWA } = navigation;
-  const [showAllFriends, setShowAllFriends] = useState(false);
+  // Free-for-all: luôn mở full danh sách bạn bè (không limit 100 / Premium)
+  const [showAllFriends, setShowAllFriends] = useState(true);
 
   const [showModal, setShowModal] = useState(false);
   const [animate, setAnimate] = useState(false);
@@ -46,7 +47,8 @@ const FriendsContainer = () => {
       refreshFriendsData().catch(() => {});
     } else {
       setAnimate(false);
-      setShowAllFriends(false);
+      // Giữ full list khi mở lại — không collapse về 3
+      setShowAllFriends(true);
       setTimeout(() => {
         setShowModal(false);
         setFriendsTabOpen(false);

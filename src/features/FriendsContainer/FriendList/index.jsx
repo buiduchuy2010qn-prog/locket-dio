@@ -127,9 +127,7 @@ const FriendList = ({
         <p>
           {t("friends.list.sync_tip")}
         </p>
-        <p>
-          {t("friends.list.premium_tip")}
-        </p>
+        {/* Free-for-all Premium: full friend list — no paywall tip */}
       </div>
 
       {/* Search + refresh */}
