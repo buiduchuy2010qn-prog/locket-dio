@@ -542,20 +542,26 @@ export default function GeneralThemes({ title }) {
       const caption =
         [song_title, artist].filter(Boolean).join(" · ") || song_title;
 
-      const clipStart = Math.max(0, Number(raw.startTime) || 0);
-      let clipEnd = Number(raw.endTime);
-      if (!Number.isFinite(clipEnd) || clipEnd <= clipStart) {
-        clipEnd = clipStart + 30;
-      }
-      clipEnd = Math.min(Math.max(clipEnd, clipStart + 1), clipStart + 60);
-      const clipDur = clipEnd - clipStart;
+      // Web: loop full preview — không cắt endTime=30 (hay = hết file → im sau 1 vòng)
+      const clipStart = 0;
+      const clipEnd = 0;
 
       const platform = finalSpotify ? "spotify" : "apple";
-      // Gửi cả 2 URL nếu có — Locket map track ổn định hơn
       const platformPayload = {
         ...(finalSpotify ? { spotify_url: finalSpotify } : {}),
         ...(apple_music_url ? { apple_music_url } : {}),
       };
+
+      // Ưu tiên preview iTunes (ổn định); Deezer signed hay chết giữa chừng
+      let webPreview = preview;
+      if (
+        webPreview &&
+        /dzcdn\.net|hdnea=|cdnt-preview/i.test(String(webPreview)) &&
+        musicData?.preview_url &&
+        /itunes\.apple\.com|mzstatic/i.test(String(musicData.preview_url))
+      ) {
+        webPreview = musicData.preview_url;
+      }
 
       applyOverlay({
         overlay_id: "caption:music",
@@ -568,18 +574,18 @@ export default function GeneralThemes({ title }) {
           song_name: song_title,
           name: song_title,
           artist,
-          isrc, // chuẩn 12 ký tự — Locket app
-          preview_url: preview,
-          audio: preview,
+          isrc,
+          preview_url: webPreview,
+          audio: webPreview,
           image_url,
           image: image_url,
           ...platformPayload,
           platform,
           startTime: clipStart,
           endTime: clipEnd,
-          volume: Number(raw.volume) || 1,
-          originalVideoVolume: Number(raw.originalVideoVolume) || 1,
-          duration: clipDur,
+          volume: 1,
+          originalVideoVolume: 1,
+          duration: 30,
         },
         platform,
       });
