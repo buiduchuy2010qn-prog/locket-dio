@@ -13,10 +13,24 @@ const StatusServer = ({ isStatusServer, setIsStatusServer }) => {
 
     const checkServer = async () => {
       try {
-        const response = await instanceAuth.get("/", {
-          timeout: 10000,
-        });
-        setIsStatusServer(response.status === 200);
+        // Prefer Railway API health (stable on Vercel rewrites).
+        // Fallback: auth root without trailing-slash issues.
+        let ok = false;
+        try {
+          const health = await fetch("/dio-api/health", {
+            method: "GET",
+            cache: "no-store",
+            signal: AbortSignal.timeout(10000),
+          });
+          ok = health.ok;
+        } catch {
+          /* try auth below */
+        }
+        if (!ok) {
+          const response = await instanceAuth.get("", { timeout: 10000 });
+          ok = response.status === 200;
+        }
+        setIsStatusServer(ok);
       } catch {
         setIsStatusServer(false);
       }
