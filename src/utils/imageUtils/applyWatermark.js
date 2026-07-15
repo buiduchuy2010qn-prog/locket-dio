@@ -1,13 +1,35 @@
 /**
- * Locket-style watermark when saving images:
- * soft filled vector heart + "Locket" at bottom-center (match official Locket export).
- * Heart is drawn as a path (not emoji) so it stays clean across Android/iOS fonts.
+ * Soft watermark when saving images:
+ * filled vector heart + brand text at bottom-center.
+ * Label syncs from CONFIG.app (Huy Locket branding) — not hard-coded "Locket".
  */
 
 import { useUserSetting } from "@/stores/SettingStores/useUserSetting";
+import { CONFIG } from "@/config";
 
-/** Official-style save watermark label (exact "Locket", not Huy Locket) */
-const DEFAULT_LABEL = "Locket";
+/**
+ * Brand watermark text from app config.
+ * Prefer short `author` (e.g. "Huy") so it matches official ♥ + short-word style.
+ */
+function getBrandWatermarkLabel() {
+  try {
+    const app = CONFIG?.app || {};
+    // Short label for bottom watermark (♥ Huy)
+    const short =
+      app.watermarkLabel ||
+      app.author ||
+      (typeof app.watermark === "string" && app.watermark.length <= 12
+        ? app.watermark
+            .replace(/[-_]/g, " ")
+            .replace(/\b\w/g, (c) => c.toUpperCase())
+        : null) ||
+      app.name ||
+      "Huy";
+    return String(short).trim() || "Huy";
+  } catch {
+    return "Huy";
+  }
+}
 
 /**
  * Draw a clean filled heart (classic card-suit shape) centered at (cx, cy).
@@ -91,7 +113,7 @@ export async function applyLocketStyleWatermark(blob, opts = {}) {
     if (!opts.forceImage) return blob;
   }
 
-  const label = opts.text || DEFAULT_LABEL;
+  const label = opts.text || getBrandWatermarkLabel();
   const quality =
     typeof opts.quality === "number" && opts.quality > 0 && opts.quality <= 1
       ? opts.quality
@@ -152,7 +174,7 @@ export async function applyLocketStyleWatermark(blob, opts = {}) {
     const heartCy = y - fontSize * 0.06;
     drawSoftHeart(ctx, heartCx, heartCy, heartH);
 
-    // Label — exact "Locket"
+    // Brand label (synced from CONFIG.app)
     ctx.font = `500 ${fontSize}px system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif`;
     ctx.fillText(label, startX + heartW + gap, y);
 
