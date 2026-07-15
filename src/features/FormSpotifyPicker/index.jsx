@@ -170,7 +170,6 @@ export default function FormSpotifyPicker({
   const [query, setQuery] = useState("");
   const [searching, setSearching] = useState(false);
   const [results, setResults] = useState([]);
-  const [searchError, setSearchError] = useState("");
   const [uploading, setUploading] = useState(false);
   const [library, setLibrary] = useState([]);
   const [pickingId, setPickingId] = useState(null);
@@ -229,38 +228,34 @@ export default function FormSpotifyPicker({
       setTimeout(() => setShowModal(false), 280);
       setQuery("");
       setResults([]);
-      setSearchError("");
       setPickingId(null);
       setSelected(null);
       stopAudio();
     }
   }, [open, stopAudio]);
 
-  // Search — server + client fallback (iTunes/Deezer) + Spotify user
+  // Search — /api/searchMusic (rank server) + filter client cứng
   useEffect(() => {
     if (!open || selected) return;
     if (searchTimer.current) clearTimeout(searchTimer.current);
     const q = query.trim();
     if (q.length < 2) {
       setResults([]);
-      setSearchError("");
       setSearching(false);
       return;
     }
     setSearching(true);
-    setSearchError("");
-    let cancelled = false;
     searchTimer.current = setTimeout(async () => {
       try {
+        // Server đã rank theo title + artist — tin API
         let list = await searchMusicByQuery(q, 40);
         // Fallback không dấu nếu rỗng
         if (!list?.length) {
           const bare = normalizeQ(q);
-          if (bare && bare !== q.toLowerCase() && bare.length >= 2) {
+          if (bare && bare !== q.toLowerCase()) {
             list = await searchMusicByQuery(bare, 40);
           }
         }
-        if (cancelled) return;
 
         const normalized = (Array.isArray(list) ? list : []).map((t) => {
           if (t._raw) {
@@ -283,8 +278,6 @@ export default function FormSpotifyPicker({
               image_url: t._raw.image_url || t.coverUrl || t.image_url || "",
               isrc: t._raw.isrc || t.isrc || null,
               spotify_url: t._raw.spotify_url || t.spotify_url || null,
-              apple_music_url:
-                t._raw.apple_music_url || t.apple_music_url || null,
               platform: t._raw.platform || t.platform || "spotify",
               source: t._raw.source || t.source || "spotify",
             };
@@ -296,53 +289,35 @@ export default function FormSpotifyPicker({
             artist: t.artist || "",
             image_url: t.image_url || t.coverUrl || "",
             preview_url: t.preview_url || t.audioUrl || "",
-            apple_music_url: t.apple_music_url || null,
           };
         });
 
-        // Soft re-rank: title/artist + ISRC + Apple (?i= iOS) + Spotify
+        // Soft re-rank: khớp title + ưu tiên bài có ISRC (đăng Locket được)
         const scored = normalized
           .map((t) => {
             let s = scoreTitleMatch(q, t);
             if (t.isrc) s += 500;
-            const appleOk =
-              t.apple_music_url &&
-              /[?&]i=\d{5,}/.test(String(t.apple_music_url));
-            if (appleOk) s += 400; // iOS playable — ưu tiên cao
-            if (t.spotify_url) s += 100;
-            if (t.preview_url) s += 20;
+            if (t.spotify_url || t.apple_music_url) s += 80;
             return { t, s };
           })
           .sort((a, b) => b.s - a.s)
           .map((x) => x.t);
 
         setResults(scored);
-        if (!scored.length) {
-          setSearchError(
-            "Không có kết quả. Thử tên bài ngắn hơn hoặc tên ca sĩ.",
-          );
-        }
       } catch (e) {
-        if (cancelled) return;
         console.error("[search music]", e);
-        const msg =
-          e?.response?.data?.message ||
-          e?.message ||
-          "Lỗi mạng / API — thử lại";
-        setSearchError(msg);
+        SonnerError("Tìm nhạc lỗi", e?.message || "Thử lại sau");
         setResults([]);
-        SonnerError("Tìm nhạc lỗi", msg);
       } finally {
-        if (!cancelled) setSearching(false);
+        setSearching(false);
       }
     }, 280);
     return () => {
-      cancelled = true;
       if (searchTimer.current) clearTimeout(searchTimer.current);
     };
   }, [query, open, selected]);
 
-  /** Chọn bài → vào màn cắt đoạn (vẫn cho gắn khi không có preview) */
+  /** Chọn bài → vào màn cắt đoạn */
   const openClipEditor = async (track) => {
     if (!track || loading || pickingId) return;
     stopAudio();
@@ -358,15 +333,9 @@ export default function FormSpotifyPicker({
     else if (Number(track.duration) > 0) metaDur = Number(track.duration);
     // Preview web thường ~30s
     if (src && !track.musicTrackId && metaDur > 35) metaDur = 30;
-    if (!src) metaDur = 30;
 
-    const playable = src
-      ? await loadPlayableDuration(src, Math.min(30, metaDur))
-      : Math.min(30, metaDur);
-    const dur = Math.max(
-      1,
-      Math.min(playable || 30, track.musicTrackId ? playable || 30 : 30),
-    );
+    const playable = await loadPlayableDuration(src, Math.min(30, metaDur));
+    const dur = Math.max(1, Math.min(playable, track.musicTrackId ? playable : 30));
     setPlayableDur(dur);
     playableRef.current = dur;
 
@@ -478,50 +447,29 @@ export default function FormSpotifyPicker({
     }
   };
 
-  /** Xác nhận gắn + clip (cho phép gắn cả khi không có preview — app Locket dùng platform URL) */
+  /** Xác nhận gắn + clip */
   const confirmClip = async () => {
     if (!selected || loading) return;
-    const id =
-      selected.id ||
-      selected.spotify_url ||
-      selected.apple_music_url ||
-      selected.song_title ||
-      "pick";
+    const id = selected.id || selected.spotify_url || selected.song_title || "pick";
     setPickingId(id);
     stopAudio();
 
     const src = trackSrc(selected);
-    const len = Math.min(clipLen, playableDur || 30);
-    const baseDur = playableDur > 0 ? playableDur : 30;
-    const s = Math.max(0, Math.min(startTime, Math.max(0, baseDur - len)));
-    const e = Math.min(baseDur, s + (len || 30));
+    const len = Math.min(clipLen, playableDur);
+    const s = Math.max(0, Math.min(startTime, Math.max(0, playableDur - len)));
+    const e = Math.min(playableDur, s + len);
 
     try {
       await onPick?.({
         ...selected,
-        song_title:
-          selected.song_title ||
-          selected.song_name ||
-          selected.name ||
-          selected.title,
-        song_name:
-          selected.song_name ||
-          selected.song_title ||
-          selected.name ||
-          selected.title,
-        artist: selected.artist || "",
         preview_url: src || selected.preview_url || null,
         audioUrl: src || selected.audioUrl || null,
-        apple_music_url: selected.apple_music_url || null,
-        spotify_url: selected.spotify_url || null,
-        isrc: selected.isrc || null,
-        image_url: selected.image_url || selected.coverUrl || "",
         startTime: s,
         endTime: e,
         volume: 1,
         originalVideoVolume: 1,
         duration: e - s,
-        duration_ms: selected.duration_ms || baseDur * 1000,
+        duration_ms: selected.duration_ms || playableDur * 1000,
       });
     } catch (err) {
       SonnerError("Gắn nhạc thất bại", err?.message || "");
@@ -618,28 +566,23 @@ export default function FormSpotifyPicker({
   return ReactDOM.createPortal(
     <div
       className={clsx(
-        // z trên Customize studio (62/63) + camera chrome — mobile Android/iOS
-        "fixed inset-0 bg-base-100/50 backdrop-blur-[6px] transition-opacity duration-300 z-[9998] text-base-content touch-manipulation",
+        "fixed inset-0 bg-base-100/40 backdrop-blur-[6px] transition-opacity duration-300 z-[99] text-base-content",
         {
           "opacity-100": animate,
           "opacity-0 pointer-events-none": !animate,
         },
       )}
       onClick={!busy ? onClose : undefined}
-      role="dialog"
-      aria-modal="true"
-      aria-label="Tìm nhạc"
     >
       <div
         className={clsx(
-          "fixed border-t border-base-300 bottom-0 left-0 w-full max-h-[92dvh] bg-base-100 rounded-t-4xl shadow-2xl transition-all duration-300 ease-out z-[9999] flex flex-col pb-[env(safe-area-inset-bottom)]",
+          "fixed border-t border-base-300 bottom-0 left-0 w-full max-h-[90vh] bg-base-100 rounded-t-4xl shadow-2xl transition-all duration-300 ease-out z-[100] flex flex-col",
           {
             "translate-y-0": animate,
             "translate-y-full": !animate,
           },
         )}
         onClick={(e) => e.stopPropagation()}
-        onTouchStart={(e) => e.stopPropagation()}
       >
         <div className="flex justify-center pt-3 pb-1">
           <div className="w-10 h-1 rounded-full bg-base-300" />
@@ -807,7 +750,7 @@ export default function FormSpotifyPicker({
               <div className="flex-1 min-w-0">
                 <h3 className="text-lg font-bold leading-tight">Tìm nhạc</h3>
                 <p className="text-xs text-base-content/60 truncate">
-                  Ưu tiên ✓ ISRC + Apple — iPhone mới phát được
+                  Ưu tiên bản có ✓ (ISRC) — đăng app Locket mới hiện nhạc
                 </p>
               </div>
               <button
@@ -826,22 +769,11 @@ export default function FormSpotifyPicker({
                 <Search className="w-4 h-4 opacity-50 shrink-0" />
                 <input
                   ref={inputRef}
-                  type="text"
-                  inputMode="search"
-                  enterKeyHint="search"
-                  autoComplete="off"
-                  autoCorrect="off"
-                  autoCapitalize="off"
-                  spellCheck={false}
+                  type="search"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  onKeyDown={(e) => {
-                    // Tránh iOS submit / reload
-                    if (e.key === "Enter") e.preventDefault();
-                  }}
                   placeholder="Tên bài hoặc ca sĩ (Sơn Tùng, Tìm Em...)"
-                  className="bg-transparent outline-none w-full text-base font-medium placeholder:text-base-content/40 min-h-[28px]"
-                  // text-base (≥16px) tránh iOS auto-zoom
+                  className="bg-transparent outline-none w-full text-sm font-medium placeholder:text-base-content/40"
                   autoFocus
                   disabled={busy}
                 />
@@ -921,53 +853,35 @@ export default function FormSpotifyPicker({
                 </div>
               ) : !results.length ? (
                 <p className="text-center text-sm text-base-content/50 py-12 px-4">
-                  {searchError ||
-                    "Không thấy — thử tên bài (Tìm Em) hoặc ca sĩ (Sơn Tùng)"}
+                  Không thấy — thử tên bài (Tìm Em) hoặc ca sĩ (Sơn Tùng)
                 </p>
               ) : (
-                <>
-                  {searchError ? (
-                    <p className="text-xs text-warning px-3 py-1">{searchError}</p>
-                  ) : null}
-                  {results.map((track, idx) => {
-                    const key =
-                      track.id ||
-                      track.spotify_url ||
-                      track.apple_music_url ||
-                      `${titleOf(track)}-${track.artist}-${idx}`;
-                    const hasIsrc = Boolean(track.isrc);
-                    const appleOk =
-                      track.apple_music_url &&
-                      /[?&]i=\d{5,}/.test(String(track.apple_music_url));
-                    const dur = track.duration_ms
-                      ? formatMs(track.duration_ms)
-                      : "";
-                    const badges = [
-                      hasIsrc ? "✓ ISRC" : null,
-                      appleOk ? "Apple" : null,
-                      track.spotify_url ? "Spotify" : null,
-                      !appleOk && hasIsrc ? "⚠️ thiếu Apple" : null,
-                      dur || null,
-                    ].filter(Boolean);
-                    return (
-                      <TrackRow
-                        key={key}
-                        title={titleOf(track)}
-                        artist={track.artist}
-                        image={track.image_url}
-                        meta={badges.join(" · ") || undefined}
-                        busy={busy}
-                        picking={pickingId === key || pickingId === track.id}
-                        onPick={() => openClipEditor(track)}
-                        onPreview={
-                          trackSrc(track)
-                            ? (e) => previewPlay(track, e)
-                            : null
-                        }
-                      />
-                    );
-                  })}
-                </>
+                results.map((track) => {
+                  const key = track.id || track.spotify_url || track.song_title;
+                  const hasIsrc = Boolean(track.isrc);
+                  const dur = track.duration_ms
+                    ? formatMs(track.duration_ms)
+                    : "";
+                  return (
+                    <TrackRow
+                      key={key}
+                      title={titleOf(track)}
+                      artist={track.artist}
+                      image={track.image_url}
+                      meta={[hasIsrc ? "✓ ISRC" : null, dur]
+                        .filter(Boolean)
+                        .join(" · ") || undefined}
+                      busy={busy}
+                      picking={pickingId === key || pickingId === track.id}
+                      onPick={() => openClipEditor(track)}
+                      onPreview={
+                        trackSrc(track)
+                          ? (e) => previewPlay(track, e)
+                          : null
+                      }
+                    />
+                  );
+                })
               )}
             </div>
 

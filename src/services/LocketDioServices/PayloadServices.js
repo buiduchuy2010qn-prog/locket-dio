@@ -62,13 +62,12 @@ export const createRequestPayloadV6 = async () => {
       optionsDataObj.music = { ...overlayData.payload };
       optionsDataObj.overlay_id =
         overlayData.overlay_id || "caption:music";
-      // caption/text = TÊN BÀI thuần — app Locket tự ghép · artist
-      const p = overlayData.payload;
-      const songOnly =
-        p.song_title || p.song_name || p.name || optionsDataObj.caption || "";
-      if (songOnly) {
-        optionsDataObj.caption = songOnly;
-        optionsDataObj.text = songOnly;
+      if (!optionsDataObj.caption && !optionsDataObj.text) {
+        const p = overlayData.payload;
+        optionsDataObj.caption = [p.song_title || p.song_name, p.artist]
+          .filter(Boolean)
+          .join(" - ");
+        optionsDataObj.text = optionsDataObj.caption;
       }
     }
 

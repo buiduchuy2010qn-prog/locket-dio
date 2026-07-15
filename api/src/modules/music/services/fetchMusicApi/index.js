@@ -84,23 +84,15 @@ let spotifyApiBlockedUntil = 0;
 function markSpotifyApiBlocked(err) {
   const msg = String(err?.response?.data?.error?.message || err?.message || "");
   const status = err?.response?.status;
-  // Chỉ block khi token/app bị cấm hẳn — KHÔNG block vì market VN 403 (vẫn thử US)
   if (
-    /premium subscription required|insufficient client scope|invalid_client/i.test(
-      msg,
-    )
+    status === 403 ||
+    /premium subscription required|insufficient client scope/i.test(msg)
   ) {
-    spotifyApiBlockedUntil = Date.now() + 15 * 60 * 1000;
+    spotifyApiBlockedUntil = Date.now() + 6 * 60 * 60 * 1000; // 6h
     console.warn(
-      "getSpotifyAppToken: Spotify app blocked — cool-down 15m:",
-      msg.slice(0, 80),
+      "getSpotifyAppToken: Spotify Web API blocked (Premium required) — using Deezer/iTunes",
     );
     return true;
-  }
-  // 401 token hết hạn → xóa cache token, không cool-down dài
-  if (status === 401) {
-    spotifyAppToken = null;
-    spotifyAppTokenExp = 0;
   }
   return false;
 }
@@ -274,11 +266,6 @@ async function enrichFromDeezer(deezerId, songName, artist) {
  * Bỏ query rác (uo, ls, at, ct…) — chỉ giữ path + ?i=trackId.
  * geo.music.apple.com → music.apple.com
  */
-/**
- * Chuẩn hoá Apple Music URL cho Locket MusicKit.
- * Giữ path album/song gốc + ?i=trackId (bỏ uo=/geo./tracking).
- * Không ép /song/{id} — format album+?i= từ iTunes ổn định hơn trên app Locket.
- */
 function normalizeAppleMusicUrl(url = "") {
   const s = String(url || "").trim();
   if (!s) return null;
@@ -286,19 +273,10 @@ function normalizeAppleMusicUrl(url = "") {
     const u = new URL(s);
     const host = u.hostname.replace(/^geo\./i, "").toLowerCase();
     if (!/^(music|itunes)\.apple\.com$/i.test(host)) return s.split("?")[0] || s;
-
-    let trackId = u.searchParams.get("i");
-    if (!trackId) {
-      const songPath = u.pathname.match(/\/song\/(?:[^/]+\/)?(\d{5,})/i);
-      if (songPath) trackId = songPath[1];
-    }
-
-    // Decode path để tránh %C3%ACm... (Locket đôi khi fail slug encode)
-    let path = decodeURIComponent(u.pathname || "");
+    const trackId = u.searchParams.get("i");
+    // pathname: /vn/album/name/albumId
+    let path = u.pathname || "";
     if (!path.startsWith("/")) path = `/${path}`;
-    // Bỏ slug rỗng /album/_/
-    path = path.replace(/\/album\/_\//i, "/album/track/");
-
     let out = `https://music.apple.com${path}`;
     if (trackId) out += `?i=${trackId}`;
     return out;
@@ -1171,192 +1149,8 @@ function mapITunesTrack(t) {
 }
 
 /**
- * Spotify search by ISRC — best way to get open.spotify.com/track for Android.
- */
-async function searchSpotifyByIsrc(isrc) {
-  const code = normalizeIsrc(isrc);
-  if (!code) return null;
-  if (Date.now() < spotifyApiBlockedUntil) return null;
-  try {
-    const token = await getSpotifyAppToken();
-    if (!token) return null;
-    const r = await axios.get("https://api.spotify.com/v1/search", {
-      params: {
-        q: `isrc:${code}`,
-        type: "track",
-        limit: 1,
-        market: "US",
-      },
-      headers: { Authorization: `Bearer ${token}` },
-      timeout: 8000,
-    });
-    const item = r.data?.tracks?.items?.[0];
-    if (!item?.id) return null;
-    return mapSpotifyTrack(item);
-  } catch (e) {
-    markSpotifyApiBlocked(e);
-    console.warn("searchSpotifyByIsrc:", e.message);
-    return null;
-  }
-}
-
-/**
- * Bù platform cho 1 track.
- * @param {object} track
- * @param {{ full?: boolean }} opts - full=true: song.link + Spotify name (chậm, dùng lúc gắn/đăng)
- */
-async function enrichTrackPlatforms(track = {}, opts = {}) {
-  if (!track || typeof track !== "object") return track;
-  const full = Boolean(opts.full);
-  let out = { ...track };
-  const song =
-    out.song_title || out.song_name || out.name || out.title || "";
-  const artist = out.artist || "";
-
-  // 1) iTunes: Apple URL playable + preview/cover ổn định (nhanh)
-  if (
-    song &&
-    (!isPlayableAppleMusicUrl(out.apple_music_url) ||
-      !out.preview_url ||
-      isEphemeralPreview(out.preview_url))
-  ) {
-    try {
-      const it = await enrichFromItunes(song, artist);
-      if (it) {
-        out = {
-          ...out,
-          isrc: normalizeIsrc(out.isrc) || normalizeIsrc(it.isrc) || null,
-          apple_music_url: isPlayableAppleMusicUrl(it.apple_music_url)
-            ? it.apple_music_url
-            : out.apple_music_url || it.apple_music_url || null,
-          preview_url:
-            it.preview_url && !isEphemeralPreview(it.preview_url)
-              ? it.preview_url
-              : out.preview_url || it.preview_url || null,
-          image_url: out.image_url || it.image_url || "",
-          source: `${out.source || "search"}+itunes`,
-        };
-      }
-    } catch {
-      /* keep */
-    }
-  }
-
-  // 2) Spotify by ISRC (client credentials) — nhanh nếu có token
-  if (!out.spotify_url && normalizeIsrc(out.isrc)) {
-    try {
-      const sp = await searchSpotifyByIsrc(out.isrc);
-      if (sp?.spotify_url) {
-        out = {
-          ...out,
-          spotify_url: sp.spotify_url,
-          preview_url: out.preview_url || sp.preview_url || null,
-          image_url: out.image_url || sp.image_url || "",
-          isrc: normalizeIsrc(out.isrc) || normalizeIsrc(sp.isrc) || null,
-          source: `${out.source || "search"}+sp-isrc`,
-        };
-      }
-    } catch {
-      /* keep */
-    }
-  }
-
-  // Full path only (attach/post) — song.link + Spotify name search
-  if (full) {
-    if (!out.spotify_url || !isPlayableAppleMusicUrl(out.apple_music_url)) {
-      const seed =
-        out.spotify_url ||
-        out.apple_music_url ||
-        out.deezer_url ||
-        (out.deezerId ? `https://www.deezer.com/track/${out.deezerId}` : null);
-      if (seed) {
-        try {
-          const sl = await Promise.race([
-            fetchSongLink(seed),
-            new Promise((r) => setTimeout(() => r(null), 5000)),
-          ]);
-          if (sl) {
-            out = {
-              ...out,
-              spotify_url:
-                out.spotify_url || cleanSpotifyFromAny(sl.spotify_url),
-              apple_music_url: isPlayableAppleMusicUrl(out.apple_music_url)
-                ? out.apple_music_url
-                : isPlayableAppleMusicUrl(sl.apple_music_url)
-                  ? sl.apple_music_url
-                  : out.apple_music_url || sl.apple_music_url || null,
-              image_url: out.image_url || sl.image_url || "",
-              source: `${out.source || "search"}+songlink`,
-            };
-          }
-        } catch {
-          /* keep */
-        }
-      }
-    }
-
-    if (!out.spotify_url && song) {
-      try {
-        const q = [song, artist].filter(Boolean).join(" ");
-        const hits = await fetchSpotifySearchFull(q, 5);
-        const match =
-          (hits || []).find(
-            (h) =>
-              normalizeIsrc(h.isrc) &&
-              normalizeIsrc(h.isrc) === normalizeIsrc(out.isrc),
-          ) ||
-          (hits || []).find((h) => {
-            const ht = normalizeSearchText(h.song_title || h.name || "");
-            const st = normalizeSearchText(song);
-            return (
-              ht && st && (ht === st || ht.includes(st) || st.includes(ht))
-            );
-          }) ||
-          (hits || [])[0];
-        if (match?.spotify_url) {
-          out = {
-            ...out,
-            spotify_url: match.spotify_url,
-            isrc: normalizeIsrc(out.isrc) || normalizeIsrc(match.isrc) || null,
-            preview_url: out.preview_url || match.preview_url || null,
-            image_url: out.image_url || match.image_url || "",
-            source: `${out.source || "search"}+sp-name`,
-          };
-        }
-      } catch {
-        /* keep */
-      }
-    }
-  }
-
-  out.isrc = normalizeIsrc(out.isrc) || null;
-  out.spotify_url = cleanSpotifyFromAny(out.spotify_url);
-  out.apple_music_url =
-    normalizeAppleMusicUrl(out.apple_music_url || "") ||
-    out.apple_music_url ||
-    null;
-  out.platform = out.spotify_url
-    ? "spotify"
-    : out.apple_music_url
-      ? "apple"
-      : out.platform || "spotify";
-  return out;
-}
-
-function cleanSpotifyFromAny(url = "") {
-  const s = String(url || "").trim();
-  if (!s) return null;
-  const m = s.match(
-    /(?:open\.spotify\.com\/(?:intl-[a-z]{2}\/)?(?:embed\/)?track\/|spotify:track:)([a-zA-Z0-9]{10,})/i,
-  );
-  if (m) return `https://open.spotify.com/track/${m[1]}`;
-  return s.split("?")[0] || s;
-}
-
-/**
- * Spotify Web API search — full catalog (server Client Credentials).
- * User KHÔNG cần liên kết Spotify trên web.
- * Market: US trước (ổn định), rồi no-market, rồi VN — market fail không block API.
+ * Spotify Web API search — full catalog (primary).
+ * Up to 50 tracks / market; merge VN + US for broader hits.
  */
 async function fetchSpotifySearchFull(q, limit = 50) {
   try {
@@ -1373,38 +1167,26 @@ async function fetchSpotifySearchFull(q, limit = 50) {
     const lim = Math.min(50, Math.max(Number(limit) || 50, 20));
     const headers = { Authorization: `Bearer ${token}` };
 
-    // US first — VN market hay 403 với app credentials
-    const marketAttempts = ["US", null, "VN"];
+    // Parallel markets — VN (local) + US (global catalog)
+    const markets = ["VN", "US"];
     const results = await Promise.all(
-      marketAttempts.map(async (market) => {
+      markets.map(async (market) => {
         try {
-          const params = {
-            q,
-            type: "track",
-            limit: lim,
-            include_external: "audio",
-          };
-          if (market) params.market = market;
           const r = await axios.get("https://api.spotify.com/v1/search", {
-            params,
+            params: {
+              q,
+              type: "track",
+              limit: lim,
+              market,
+              include_external: "audio",
+            },
             headers,
             timeout: 10000,
-            validateStatus: (st) => st >= 200 && st < 500,
           });
-          if (r.status === 403 || r.status === 401) {
-            markSpotifyApiBlocked(r);
-            console.warn(
-              `searchMusic spotify market=${market || "global"}: HTTP ${r.status}`,
-            );
-            return [];
-          }
           return (r.data?.tracks?.items || []).filter(Boolean);
         } catch (e) {
-          // Không cool-down toàn bộ API vì 1 market fail
-          console.warn(
-            `searchMusic spotify market=${market || "global"}:`,
-            e.message,
-          );
+          markSpotifyApiBlocked(e);
+          console.warn(`searchMusic spotify market=${market}:`, e.message);
           return [];
         }
       }),
@@ -1422,6 +1204,7 @@ async function fetchSpotifySearchFull(q, limit = 50) {
       }
     }
 
+    // Sort by popularity (Spotify relevance already applied per market)
     return [...byId.values()]
       .sort((a, b) => (b.popularity || 0) - (a.popularity || 0))
       .map(mapSpotifyTrack);
@@ -1963,58 +1746,6 @@ async function searchMusicByQuery(query, limit = 30) {
   const ordered =
     withIsrc.length >= 3 ? [...withIsrc, ...withoutIsrc] : deduped;
 
-  // Fast enrich top 6: iTunes Apple + Spotify ISRC only (không song.link — chậm)
-  // Full dual-platform resolve chạy lúc gắn/đăng (ensureMusic / client resolve).
-  const head = ordered.slice(0, Math.min(lim, 6));
-  const tail = ordered.slice(head.length);
-  const needPlatform = head.filter(
-    (t) =>
-      !t.spotify_url ||
-      !isPlayableAppleMusicUrl(t.apple_music_url) ||
-      isEphemeralPreview(t.preview_url || ""),
-  );
-  if (needPlatform.length) {
-    const enrichedMap = new Map();
-    const part = await Promise.all(
-      needPlatform.map(async (t) => {
-        try {
-          const e = await Promise.race([
-            enrichTrackPlatforms(t, { full: false }),
-            new Promise((r) => setTimeout(() => r(t), 4500)),
-          ]);
-          return e || t;
-        } catch {
-          return t;
-        }
-      }),
-    );
-    for (const t of part) {
-      const key =
-        t.isrc ||
-        t.id ||
-        t.spotify_url ||
-        `${normalizeSearchText(t.song_title || t.name)}|${normalizeSearchText(t.artist)}`;
-      enrichedMap.set(key, t);
-    }
-    const headOut = head.map((t) => {
-      const key =
-        t.isrc ||
-        t.id ||
-        t.spotify_url ||
-        `${normalizeSearchText(t.song_title || t.name)}|${normalizeSearchText(t.artist)}`;
-      return enrichedMap.get(key) || t;
-    });
-    headOut.sort((a, b) => {
-      const score = (x) =>
-        (normalizeIsrc(x.isrc) ? 100 : 0) +
-        (x.spotify_url ? 40 : 0) +
-        (isPlayableAppleMusicUrl(x.apple_music_url) ? 40 : 0) +
-        (x.preview_url ? 10 : 0);
-      return score(b) - score(a);
-    });
-    return [...headOut, ...tail].slice(0, lim);
-  }
-
   return ordered.slice(0, lim);
 }
 
@@ -2036,6 +1767,4 @@ module.exports = {
   isStableCoverUrl,
   enrichFromItunes,
   fetchSongLink,
-  enrichTrackPlatforms,
-  searchSpotifyByIsrc,
 };
