@@ -1523,6 +1523,7 @@ export function removeCaptionZoomControls(root = document) {
 export function computeAvailableZoomModes(detected, stream) {
   const range = readZoomRange(stream);
   const multiRear = (detected?.rear?.length || 0) >= 2;
+  const phoneEnv = isPhoneLikeCameraEnv();
   // Display factor ONLY from live stream — never a fixed 0.5 assumption
   const ultraFactor = resolveUltraWideFactor(stream, detected, null);
   const ultraCandidates = listUltraWideCandidates(
@@ -1534,21 +1535,29 @@ export function computeAvailableZoomModes(detected, stream) {
   const hasUltraCandidates = ultraCandidates.length > 0;
   const conf = detected?.ultraConfidence || null;
 
-  // Digital wide on the *current* track (logical multi-cam) is a zoom FEATURE,
-  // not classification of a separate ultra deviceId. Safe to enable the pill
-  // when the live track exposes minZoom in the wide band — still never used
-  // alone to assign `detected.ultrawide`.
+  // Digital wide on the *current* track (logical multi-cam / Dual Wide)
   const digitalWideRange =
     range.supported && isUltraZoomValue(range.minZoom);
+  // Track supports continuous zoom at all (park min for "widest")
+  const hasAnyZoom =
+    range.supported &&
+    Number.isFinite(range.minZoom) &&
+    Number.isFinite(range.maxZoom) &&
+    range.maxZoom > range.minZoom + 0.05;
 
-  // Enable UW pill: classified lens · multi-rear candidates · live digital range
-  // (display number still comes from live factor / "UW", never hard-coded 0.5)
+  // Enable UW pill aggressively on phones:
+  // - physical ultra · multi-rear · digital min<1 · any zoomable rear
+  // User can always tap; switchToWidestLens tries every candidate.
   const canWide =
+    phoneEnv ||
     hasClassifiedUltra ||
-    (hasUltraCandidates && multiRear) ||
+    multiRear ||
+    hasUltraCandidates ||
     digitalWideRange ||
+    hasAnyZoom ||
     conf === "high" ||
-    conf === "medium";
+    conf === "medium" ||
+    conf === "low";
 
   // Internal mode key stays "0.5x"; UI label uses live ultraFactor or "UW"
   const modes = {
@@ -2151,6 +2160,10 @@ export async function switchToWidestLens(options = {}) {
 
   const mainId = detected.main?.deviceId || detected.rear?.[0]?.deviceId || null;
   const ultraId = detected.ultrawide?.deviceId || null;
+  // Every non-main rear is a candidate (empty labels on many Android/iOS browsers)
+  const allRearIds = (detected.rear || [])
+    .map((d) => d?.deviceId)
+    .filter((id) => id && id !== mainId && id !== detected.telephoto?.deviceId);
   const candidates = [
     ultraId,
     ...listUltraWideCandidates(
@@ -2158,14 +2171,15 @@ export async function switchToWidestLens(options = {}) {
       detected.main || null,
       detected.telephoto || null,
     ),
+    ...allRearIds,
   ].filter((id, i, arr) => id && arr.indexOf(id) === i && id !== mainId);
 
   /** @type {{ stream: MediaStream, score: number, deviceId: string, factor: number|null, applied: number|null }|null} */
   let best = null;
   let liveStream = oldStream;
 
-  // Cap attempts — each open is expensive and may free the previous camera
-  const MAX_TRY = Math.min(3, candidates.length);
+  // Try more physical lenses — critical for "0.5x on all multi-cam phones"
+  const MAX_TRY = Math.min(5, Math.max(candidates.length, 0));
 
   // 1) Physical multi-rear: open candidates, park at live min, keep widest
   for (let i = 0; i < MAX_TRY; i++) {
@@ -2298,22 +2312,29 @@ export async function switchToWidestLens(options = {}) {
   const digitalRetry = await tryDigitalUltraWide(stream, detected, mainId);
   if (digitalRetry) return digitalRetry;
 
-  // 4) Last resort: park any live track at its min if wide
+  // 4) Last resort: park any live track at its min (widest FOV this sensor allows)
   if (stream && supportsHardwareZoom(stream)) {
     const applied = await parkAtWidestTrackZoom(stream);
-    if (applied != null && isUltraZoomValue(applied)) {
+    if (applied != null) {
       const factor = resolveUltraWideFactor(stream, detected, applied);
-      return {
-        stream,
-        detected,
-        deviceId: getCurrentTrackSettings(stream).deviceId || mainId,
-        lensType: "main",
-        zoomMode: WIDE_ZOOM_MODE,
-        currentZoom: factor || roundZoomFactor(applied),
-        digitalZoom: applied,
-        ultraFactor: factor || roundZoomFactor(applied),
-        switchedDevice: false,
-      };
+      const z =
+        typeof applied === "number"
+          ? applied
+          : getCurrentTrackSettings(stream)?.zoom;
+      // Accept any successful park — even if min is ~1 (single lens)
+      if (typeof z === "number" && Number.isFinite(z)) {
+        return {
+          stream,
+          detected,
+          deviceId: getCurrentTrackSettings(stream).deviceId || mainId,
+          lensType: isUltraZoomValue(z) ? "ultrawide" : "main",
+          zoomMode: WIDE_ZOOM_MODE,
+          currentZoom: factor || roundZoomFactor(z) || z,
+          digitalZoom: z,
+          ultraFactor: factor || (isUltraZoomValue(z) ? roundZoomFactor(z) : null),
+          switchedDevice: false,
+        };
+      }
     }
   }
 

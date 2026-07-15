@@ -203,15 +203,12 @@ const MediaPreviewAndroid = () => {
 
       const modes = computeAvailableZoomModes(shape, stream);
       modes["1x"] = true;
-      // Multi-lens rear → luôn bật 0.5x (ép thử ultra / digital)
-      if ((shape.rear?.length || 0) >= 2 || shape.ultrawide?.deviceId) {
-        modes["0.5x"] = true;
-        // Factor theo máy: 0.5 iPhone / 0.6 Samsung / caps thật
-        modes.ultraFactor =
-          modes.ultraFactor ||
-          getUltraWideFactor(stream, shape) ||
-          null;
-      }
+      // Cam sau: luôn bật nút góc rộng — thử physical ultra + digital min
+      modes["0.5x"] = true;
+      modes.ultraFactor =
+        modes.ultraFactor ||
+        getUltraWideFactor(stream, shape) ||
+        null;
       setAvailableZoomModes(modes);
 
       const settings = getCurrentTrackSettings(stream);
@@ -504,23 +501,6 @@ const MediaPreviewAndroid = () => {
 
     // ── Siêu rộng = lens rộng nhất (live zoom.min), không hardcode 0.5 ──
     if (isWideZoomMode(mode)) {
-      const preModes =
-        availableZoomModes ||
-        computeAvailableZoomModes(shape, streamRef.current);
-      const canTryUltra =
-        preModes["0.5x"] !== false ||
-        Boolean(shape.ultrawide?.deviceId) ||
-        (shape.rear?.length || 0) >= 2 ||
-        (supportsHardwareZoom(streamRef.current) &&
-          isUltraZoomValue(readZoomRange(streamRef.current)?.minZoom));
-      if (!canTryUltra) {
-        SonnerInfo(
-          t("home.zoom_05_unsupported", {
-            defaultValue: "Máy không hỗ trợ góc siêu rộng",
-          }),
-        );
-        return;
-      }
       setIsSwitchingCamera(true);
       try {
         let detShape = shape;

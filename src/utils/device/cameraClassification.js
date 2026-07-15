@@ -632,7 +632,8 @@ export function classifyCameras(videoDevices = [], probeMap = null) {
   });
   ranked.sort((a, b) => b.score - a.score);
 
-  // Auto ultra only high/medium + non-zoom signal
+  // Auto ultra: high/medium first, then aggressive multi-rear fallback
+  // so 0.5x works on every multi-lens phone (labels often empty in Chrome).
   let ultrawide = null;
   const confidentLabel = rear.find((d) =>
     isConfidentUltraLabel(d.label || ""),
@@ -661,6 +662,18 @@ export function classifyCameras(videoDevices = [], probeMap = null) {
     if (byIdx) ultrawide = byIdx;
   }
 
+  // Aggressive: multi-rear without confident label → still assign best non-main
+  if (!ultrawide && rear.length >= 2) {
+    const bestLow = ranked.find(
+      (r) =>
+        r.deviceId !== main?.deviceId &&
+        r.deviceId !== telephoto?.deviceId &&
+        r.lensGuess !== "telephoto" &&
+        r.score > -50,
+    );
+    if (bestLow?.device) ultrawide = bestLow.device;
+  }
+
   const bestRanked = ranked.find((r) => r.deviceId === ultrawide?.deviceId);
   const ultraConfidence = ultrawide
     ? bestRanked?.confidence ||
@@ -669,13 +682,10 @@ export function classifyCameras(videoDevices = [], probeMap = null) {
       ? "low"
       : "none";
 
-  // Manual pick ONLY on real phones with multi-rear and low confidence.
-  // Never on desktop Integrated Webcam + OBS (was blocking the zoom UI).
+  // Manual pick optional — never block auto 0.5x trial
   const phoneEnv = isPhoneLikeCameraEnv();
   const needsManualLensPick =
-    phoneEnv &&
-    rear.length >= 2 &&
-    (!ultrawide || ultraConfidence === "low");
+    phoneEnv && rear.length >= 2 && ultraConfidence === "low" && !ultrawide;
 
   return {
     all: videoDevices,
