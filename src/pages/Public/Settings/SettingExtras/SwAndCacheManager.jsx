@@ -7,7 +7,7 @@ import {
   getCurrentBuildMeta,
   subscribeAppUpdate,
 } from "@/utils/pwaUtils/updateWatcher";
-import { SonnerInfo, SonnerSuccess } from "@/components/ui/SonnerToast";
+import { SonnerInfo, SonnerSuccess } from "@/components/uikit/SonnerToast";
 
 export default function SwManager() {
   const [usage, setUsage] = useState(0);

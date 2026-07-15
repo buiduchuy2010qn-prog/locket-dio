@@ -1,5 +1,5 @@
-import FeatureList from "@/components/ui/FeatureList";
-import MockupiPhone from "@/components/ui/MockupiPhone";
+import FeatureList from "@/components/uikit/FeatureList";
+import MockupiPhone from "@/components/uikit/MockupiPhone";
 import React from "react";
 import Marquee from "react-fast-marquee";
 import RotatingCircleText from "./RotatingCircleText";

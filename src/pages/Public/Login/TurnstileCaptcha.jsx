@@ -1,6 +1,6 @@
 import { useState } from "react";
 import Turnstile from "react-turnstile";
-import { SonnerInfo } from "@/components/ui/SonnerToast";
+import { SonnerInfo } from "@/components/uikit/SonnerToast";
 import { CONFIG } from "@/config";
 
 const TurnstileCaptcha = ({ onVerify }) => {

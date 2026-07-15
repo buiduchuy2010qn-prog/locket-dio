@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import clsx from "clsx";
-import LoadingRing from "@/components/ui/Loading/ring";
+import LoadingRing from "@/components/uikit/Loading/ring";
 import { getAvatarOrFallback, imageFallback } from "@/utils";
 
 export default function Avatar({ src, alt, className }) {

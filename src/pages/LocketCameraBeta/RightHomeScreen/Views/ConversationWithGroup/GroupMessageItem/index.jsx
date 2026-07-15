@@ -16,7 +16,7 @@ import { ReactionViewerDrawer } from "./ReactionViewerDrawer";
 import { MomentContent } from "./MomentContent";
 import { SystemMessage } from "./SystemMessage";
 import clsx from "clsx";
-import { SonnerInfo } from "@/components/ui/SonnerToast";
+import { SonnerInfo } from "@/components/uikit/SonnerToast";
 import { MessageContextMenu } from "../../../Layout/MessageContextMenu";
 import { imageFallback } from "@/utils";
 import { useTranslation } from "react-i18next";

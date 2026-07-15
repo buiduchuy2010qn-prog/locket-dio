@@ -8,7 +8,7 @@ import {
 } from "@/services";
 import { useApp } from "@/context/AppContext";
 import { Check } from "lucide-react";
-import { SonnerError, SonnerInfo, SonnerSuccess } from "@/components/ui/SonnerToast";
+import { SonnerError, SonnerInfo, SonnerSuccess } from "@/components/uikit/SonnerToast";
 import { useAuthStore, useFriendStoreV3, useShareHistory } from "@/stores";
 import { useTranslation } from "react-i18next";
 

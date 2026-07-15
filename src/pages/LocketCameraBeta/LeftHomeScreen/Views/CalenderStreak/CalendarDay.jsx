@@ -1,6 +1,6 @@
 import React from "react";
 import { Plus } from "lucide-react";
-import { SonnerInfo } from "@/components/ui/SonnerToast";
+import { SonnerInfo } from "@/components/uikit/SonnerToast";
 import { usePostStore } from "@/stores";
 import clsx from "clsx";
 import { dateToYYYYMMDD } from "./streakUtils";

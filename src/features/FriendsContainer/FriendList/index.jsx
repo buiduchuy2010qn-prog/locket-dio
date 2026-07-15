@@ -1,6 +1,6 @@
-import SearchInput from "@/components/ui/Input/SearchInput";
-import LoadingRing from "@/components/ui/Loading/ring";
-import { SonnerPromiseV2 } from "@/components/ui/SonnerToast";
+import SearchInput from "@/components/uikit/Input/SearchInput";
+import LoadingRing from "@/components/uikit/Loading/ring";
+import { SonnerPromiseV2 } from "@/components/uikit/SonnerToast";
 import { removeFriend, toggleHiddenFriend } from "@/services";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { RefreshCcw } from "lucide-react";

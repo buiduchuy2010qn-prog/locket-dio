@@ -3,7 +3,7 @@ import { useLocation } from "react-router-dom";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 
-const FloatingActions = lazy(() => import("@/components/ui/FloatingWidget"));
+const FloatingActions = lazy(() => import("@/components/uikit/FloatingWidget"));
 const CropImageStudio = lazy(() => import("@/features/EditorStudio/CropImageStudio"));
 const CropVideoStudio = lazy(() => import("@/features/EditorStudio/CropVideoStudio"));
 

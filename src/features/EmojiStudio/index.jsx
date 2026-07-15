@@ -4,8 +4,8 @@ import ReactDOM from "react-dom";
 import { Laugh, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { SendReactMoment } from "@/services";
-import PlanBadge from "@/components/ui/PlanBadge/PlanBadge";
-import { SonnerError, SonnerSuccess } from "@/components/ui/SonnerToast";
+import PlanBadge from "@/components/uikit/PlanBadge/PlanBadge";
+import { SonnerError, SonnerSuccess } from "@/components/uikit/SonnerToast";
 import { useReactionStore, useSelectedStore } from "@/stores";
 import { EMOJI_GRID, POPULAR_EMOJIS } from "@/constants";
 

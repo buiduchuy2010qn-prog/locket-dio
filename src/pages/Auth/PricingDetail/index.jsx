@@ -5,7 +5,7 @@ import LoadingPageMain from "@/components/pages/LoadPageMain";
 import * as services from "@/services";
 import NoticePricing from "./NoticePricing";
 import PlanDetailCard from "./PlanDetail";
-import { SonnerInfo, SonnerWarning } from "@/components/ui/SonnerToast";
+import { SonnerInfo, SonnerWarning } from "@/components/uikit/SonnerToast";
 import { useAuthStore } from "@/stores";
 
 export default function PlanDetailPage() {

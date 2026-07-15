@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { SonnerError, SonnerSuccess } from "@/components/ui/SonnerToast";
+import { SonnerError, SonnerSuccess } from "@/components/uikit/SonnerToast";
 import { getCaptionStyle } from "@/helpers/styleHelpers";
 import { SendReactMoment } from "@/services";
 import { useReactionStore } from "@/stores";

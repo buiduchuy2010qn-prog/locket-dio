@@ -1,6 +1,6 @@
 import React, { useEffect } from "react";
 import { useTranslation } from "react-i18next";
-import BouncyLoader from "@/components/ui/Loading/Bouncy";
+import BouncyLoader from "@/components/uikit/Loading/Bouncy";
 import { RiEmotionHappyLine } from "react-icons/ri";
 import { TbMoodCrazyHappy } from "react-icons/tb";
 import { instanceAuth } from "@/libs/instanceAuth";

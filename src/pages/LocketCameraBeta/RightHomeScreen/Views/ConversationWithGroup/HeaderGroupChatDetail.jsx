@@ -1,4 +1,4 @@
-import { GroupAvatarStack } from "@/components/ui/ConversationItem/GroupAvatarStack";
+import { GroupAvatarStack } from "@/components/uikit/ConversationItem/GroupAvatarStack";
 import { imageFallback } from "@/utils";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useTranslation } from "react-i18next";

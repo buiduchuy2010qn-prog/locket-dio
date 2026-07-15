@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { SonnerInfo, SonnerSuccess } from "@/components/ui/SonnerToast";
+import { SonnerInfo, SonnerSuccess } from "@/components/uikit/SonnerToast";
 import { Bell, Camera, MapPin } from "lucide-react";
 import { subscribePush } from "@/services";
 import { useTranslation } from "react-i18next";

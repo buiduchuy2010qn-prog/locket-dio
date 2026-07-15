@@ -15,7 +15,7 @@ import {
   listMusicTracks,
   uploadMusicTrack,
 } from "@/services/ExtensionsServices/MusicLibraryServices";
-import { SonnerError, SonnerInfo, SonnerSuccess } from "@/components/ui/SonnerToast";
+import { SonnerError, SonnerInfo, SonnerSuccess } from "@/components/uikit/SonnerToast";
 
 /** Độ dài clip gợi ý — preview web Spotify ~30s */
 const CLIP_OPTIONS = [15, 30];

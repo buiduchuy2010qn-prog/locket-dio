@@ -10,7 +10,7 @@ import { usePostStore } from "@/stores";
 import { convertImageToBlob } from "@/services";
 import CropCanvas from "./CropCanvas";
 import CropFooter from "./CropFooter";
-import { SonnerError, SonnerInfo } from "@/components/ui/SonnerToast";
+import { SonnerError, SonnerInfo } from "@/components/uikit/SonnerToast";
 
 /**
  * Crop Image Studio — luôn chuẩn hóa ảnh client-side trước khi crop

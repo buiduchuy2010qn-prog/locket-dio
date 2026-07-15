@@ -7,7 +7,7 @@ import {
   SonnerInfo,
   SonnerSuccess,
   SonnerWarning,
-} from "@/components/ui/SonnerToast";
+} from "@/components/uikit/SonnerToast";
 import QrCodeNew from "./QrCodeNew";
 import ConfirmPoup from "@/features/PoupScreen/ConfirmPoup";
 

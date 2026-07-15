@@ -1,6 +1,6 @@
 import React from "react";
 import { Code2, Mail, Globe } from "lucide-react";
-import ImageMarquee from "@/components/ui/Marquee/LanguageMarquee";
+import ImageMarquee from "@/components/uikit/Marquee/LanguageMarquee";
 import {
   FaReact,
   FaGithub,

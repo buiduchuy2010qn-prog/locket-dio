@@ -7,7 +7,7 @@ import {
   SonnerPromise,
   SonnerSuccess,
   SonnerWarning,
-} from "@/components/ui/SonnerToast";
+} from "@/components/uikit/SonnerToast";
 import { getAvatarOrFallback, imageFallback } from "@/utils";
 import { useUserMessagesStore } from "@/stores";
 import {

@@ -4,7 +4,7 @@ import { useApp } from "@/context/AppContext";
 import { X } from "lucide-react";
 import { AcceptRequestToFriend } from "@/services";
 import IncomingFriendRequests from "./IncomingRequests";
-import { SonnerPromiseV2 } from "@/components/ui/SonnerToast";
+import { SonnerPromiseV2 } from "@/components/uikit/SonnerToast";
 import OutgoingRequest from "./OutgoingRequest";
 import { useFriendList, useFriendStoreV3 } from "@/stores";
 import FindFriend from "./FindFriend";

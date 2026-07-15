@@ -1,10 +1,10 @@
 import React, { useEffect, useState, useMemo } from "react";
 import ReactDOM from "react-dom";
 import { X, Check } from "lucide-react";
-import SearchInput from "@/components/ui/Input/SearchInput";
+import SearchInput from "@/components/uikit/Input/SearchInput";
 import { useFriendStoreV3 } from "@/stores";
 import { createGroup } from "@/services";
-import { SonnerPromiseV2 } from "@/components/ui/SonnerToast";
+import { SonnerPromiseV2 } from "@/components/uikit/SonnerToast";
 import { useTranslation } from "react-i18next";
 
 const CreateGroupModal = ({ open, onClose, onCreated }) => {

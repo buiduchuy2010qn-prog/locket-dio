@@ -3,7 +3,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useApp } from "@/context/AppContext";
 import GeneralThemes from "./components/GeneralSections";
-import PlanBadge from "@/components/ui/PlanBadge/PlanBadge";
+import PlanBadge from "@/components/uikit/PlanBadge/PlanBadge";
 import Footer from "@/components/Footer";
 import { useFeatureVisible } from "@/hooks/useFeature";
 import SavedCaptions from "./components/SavedSections";
@@ -13,7 +13,7 @@ import {
 } from "@/stores/OverlayStores";
 import CaptionSections from "./components/OverlaySections";
 import { useOverlayEditorStore } from "@/stores";
-import { SonnerInfo } from "@/components/ui/SonnerToast";
+import { SonnerInfo } from "@/components/uikit/SonnerToast";
 import NotesSection from "./components/NotesSection";
 import clsx from "clsx";
 

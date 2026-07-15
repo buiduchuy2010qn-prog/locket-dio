@@ -1,7 +1,7 @@
 import clsx from "clsx";
 import { useGroupMembers } from "@/hooks";
-import { GroupAvatarStack } from "@/components/ui/ConversationItem/GroupAvatarStack";
-import { GroupMembersLabel } from "@/components/ui/ConversationItem/GroupMembersLabel";
+import { GroupAvatarStack } from "@/components/uikit/ConversationItem/GroupAvatarStack";
+import { GroupMembersLabel } from "@/components/uikit/ConversationItem/GroupMembersLabel";
 
 const GroupSelectItem = ({ group, isSelected, onToggle }) => {
   const members = useGroupMembers(group.id);

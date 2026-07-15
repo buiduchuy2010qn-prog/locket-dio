@@ -7,7 +7,7 @@ import {
   SonnerError,
   SonnerPromiseV2,
   SonnerSuccess,
-} from "@/components/ui/SonnerToast";
+} from "@/components/uikit/SonnerToast";
 import { markMomentViewedOnce } from "@/cache/viewedMomentDB";
 import {
   useAuthStore,

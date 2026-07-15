@@ -1,7 +1,7 @@
 import { clearLocalData, getToken, removeToken, removeUser } from "../utils";
 import { CONFIG } from "@/config";
 import { parseJwt } from "@/utils/auth";
-import { SonnerInfo } from "@/components/ui/SonnerToast";
+import { SonnerInfo } from "@/components/uikit/SonnerToast";
 import { instanceAuth } from "./instanceAuth";
 import { createUploadClient } from "./createBase";
 

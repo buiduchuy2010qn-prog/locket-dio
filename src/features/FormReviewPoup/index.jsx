@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import ReactDOM from "react-dom";
 import { RiDoubleQuotesL, RiDoubleQuotesR } from "react-icons/ri";
-import { StarProgress } from "@/components/ui/StarRating/StarProgress";
+import { StarProgress } from "@/components/uikit/StarRating/StarProgress";
 import { useTranslation } from "react-i18next";
 import clsx from "clsx";
 

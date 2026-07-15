@@ -1,6 +1,6 @@
 import React from "react";
 import { Link } from "lucide-react";
-import Avatar from "@/components/ui/Avatar";
+import Avatar from "@/components/uikit/Avatar";
 
 function InfoUser({ user }) {
   return (

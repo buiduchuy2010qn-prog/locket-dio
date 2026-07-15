@@ -5,7 +5,7 @@ import { Link } from "react-router-dom";
 import { COMMUNITY_CONFIG } from "@/config";
 const StatsSection = lazy(() => import("./StatsSection"));
 const NotificationPrompt = lazy(() =>
-  import("@/components/ui/NotificationPrompt")
+  import("@/components/uikit/NotificationPrompt")
 );
 const FeatureCardMarquee = lazy(() => import("./FeatureCardMarquee"));
 const StepsSection = lazy(() => import("./StepsSection"));

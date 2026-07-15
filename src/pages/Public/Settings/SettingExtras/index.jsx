@@ -1,4 +1,4 @@
-import { SonnerInfo } from "@/components/ui/SonnerToast";
+import { SonnerInfo } from "@/components/uikit/SonnerToast";
 import { Wrench } from "lucide-react";
 import SwManager from "./SwAndCacheManager";
 import PermissionsManager from "./PermissionsManager";

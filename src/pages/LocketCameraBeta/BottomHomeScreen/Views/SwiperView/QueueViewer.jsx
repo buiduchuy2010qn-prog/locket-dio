@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { Check, RotateCcw, TriangleAlert, X } from "lucide-react";
-import LoadingOverlay from "@/components/ui/Loading/LineSpinner";
+import LoadingOverlay from "@/components/uikit/Loading/LineSpinner";
 import { useSelectedStore, useUploadQueueStore } from "@/stores";
-import { SonnerWarning } from "@/components/ui/SonnerToast";
+import { SonnerWarning } from "@/components/uikit/SonnerToast";
 import { OverlayRenderer } from "@/components/Overlay";
 import { useTranslation } from "react-i18next";
 

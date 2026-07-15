@@ -1,5 +1,5 @@
 import { useState } from "react";
-import LoadingRing from "@/components/ui/Loading/ring";
+import LoadingRing from "@/components/uikit/Loading/ring";
 import { useAuthStore } from "@/stores";
 
 export default function Profile() {

@@ -1,5 +1,5 @@
 import React from "react";
-import { StarRating } from "@/components/ui/StarRating/StarRating";
+import { StarRating } from "@/components/uikit/StarRating/StarRating";
 import { RiDoubleQuotesL, RiDoubleQuotesR } from "react-icons/ri";
 
 function ReviewOverlay({ payload }) {

@@ -8,7 +8,7 @@ import {
   SonnerInfo,
   SonnerSuccess,
   SonnerWarning,
-} from "@/components/ui/SonnerToast";
+} from "@/components/uikit/SonnerToast";
 import { useAuthStore, usePostStore, useUploadQueueStore } from "@/stores";
 import { useNavigate } from "react-router-dom";
 import { resetAllPostData } from "@/utils";

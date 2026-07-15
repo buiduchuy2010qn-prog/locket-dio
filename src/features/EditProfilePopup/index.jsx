@@ -1,4 +1,4 @@
-import { SonnerInfo } from "@/components/ui/SonnerToast";
+import { SonnerInfo } from "@/components/uikit/SonnerToast";
 import { useAuthStore } from "@/stores";
 import { getAvatarOrFallback } from "@/utils";
 import clsx from "clsx";

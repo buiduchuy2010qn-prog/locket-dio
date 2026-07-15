@@ -6,7 +6,7 @@ import { downloadBlob } from "@/services";
 import { useTranslation } from "react-i18next";
 import { useAutoDriveBackup } from "@/hooks/useAutoDriveBackup";
 import AppUpdateButton from "@/components/AppUpdateButton";
-import { SonnerInfo, SonnerWarning } from "@/components/ui/SonnerToast";
+import { SonnerInfo, SonnerWarning } from "@/components/uikit/SonnerToast";
 
 const HeaderHome = ({
   setIsHomeOpen,

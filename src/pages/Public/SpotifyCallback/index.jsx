@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { completeSpotifyUserLogin } from "@/utils/spotifyUserAuth";
-import { SonnerError, SonnerSuccess } from "@/components/ui/SonnerToast";
+import { SonnerError, SonnerSuccess } from "@/components/uikit/SonnerToast";
 
 /**
  * OAuth callback Spotify — /spotify/callback

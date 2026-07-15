@@ -9,19 +9,19 @@ import {
 } from "lucide-react";
 import * as utils from "@/utils";
 import * as services from "@/services";
-import LoadingRing from "@/components/ui/Loading/ring.jsx";
+import LoadingRing from "@/components/uikit/Loading/ring.jsx";
 import { useApp } from "@/context/AppContext.jsx";
 import { Link, useNavigate } from "react-router-dom";
-import Hourglass from "@/components/ui/Loading/hourglass.jsx";
-import MediaSizeInfo from "@/components/ui/MediaSizeInfo";
+import Hourglass from "@/components/uikit/Loading/hourglass.jsx";
+import MediaSizeInfo from "@/components/uikit/MediaSizeInfo";
 import { getMaxUploads } from "@/hooks/useFeature.js";
-import PlanBadge from "@/components/ui/PlanBadge/PlanBadge.jsx";
+import PlanBadge from "@/components/uikit/PlanBadge/PlanBadge.jsx";
 import {
   SonnerError,
   SonnerInfo,
   SonnerSuccess,
   SonnerWarning,
-} from "@/components/ui/SonnerToast";
+} from "@/components/uikit/SonnerToast";
 import {
   useAuthStore,
   useOverlayEditorStore,

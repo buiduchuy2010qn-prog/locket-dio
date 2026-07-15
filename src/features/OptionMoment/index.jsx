@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from "react";
 import { Download, Repeat, Share, Trash2, X } from "lucide-react";
-import PlanBadge from "@/components/ui/PlanBadge/PlanBadge";
+import PlanBadge from "@/components/uikit/PlanBadge/PlanBadge";
 import {
   SonnerSuccess,
   SonnerWarning,
   SonnerInfo,
-} from "@/components/ui/SonnerToast";
-import Modal from "@/components/ui/Modal";
+} from "@/components/uikit/SonnerToast";
+import Modal from "@/components/uikit/Modal";
 import {
   DeleteMoment,
   downloadFileToDevice,

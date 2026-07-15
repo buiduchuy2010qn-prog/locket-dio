@@ -1,4 +1,4 @@
-import FeatureMarquee from "@/components/ui/Marquee/FeatureMarquee";
+import FeatureMarquee from "@/components/uikit/Marquee/FeatureMarquee";
 import { Check } from "lucide-react";
 import React from "react";
 

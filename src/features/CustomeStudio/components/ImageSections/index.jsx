@@ -2,9 +2,9 @@ import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useApp } from "@/context/AppContext";
 import { PlusIcon, Trash2, X } from "lucide-react";
-import LoadingRing from "@/components/ui/Loading/ring";
+import LoadingRing from "@/components/uikit/Loading/ring";
 import { useAuthStore } from "@/stores";
-import { SonnerSuccess, SonnerWarning } from "@/components/ui/SonnerToast";
+import { SonnerSuccess, SonnerWarning } from "@/components/uikit/SonnerToast";
 
 export default function ImageCaptionSelector({ title }) {
   const navigate = useNavigate();

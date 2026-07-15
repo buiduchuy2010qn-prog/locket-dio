@@ -1,4 +1,4 @@
-// src/components/UI/NotificationPrompt.js
+// src/components/uikit/NotificationPrompt.js
 import React, { useEffect, useState } from "react";
 import { SonnerSuccess } from "../SonnerToast";
 import { subscribePush } from "@/services";

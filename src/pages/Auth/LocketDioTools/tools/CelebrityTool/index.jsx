@@ -14,7 +14,7 @@ import {
   SonnerPromise,
   SonnerSuccess,
   SonnerWarning,
-} from "@/components/ui/SonnerToast";
+} from "@/components/uikit/SonnerToast";
 import { Copy, RefreshCcw } from "lucide-react";
 import { useFeatureVisible, useGetCode } from "@/hooks/useFeature";
 import { PiExport } from "react-icons/pi";

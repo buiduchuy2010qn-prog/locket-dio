@@ -1,7 +1,7 @@
 import React, { useState, useRef } from "react";
 import { ArrowUp } from "lucide-react";
 import { sendMessage } from "@/services";
-import { SonnerSuccess } from "@/components/ui/SonnerToast";
+import { SonnerSuccess } from "@/components/uikit/SonnerToast";
 import { useTranslation } from "react-i18next";
 
 const InputChatDetail = ({ selectedChat }) => {

@@ -12,7 +12,7 @@ import {
   SonnerError,
   SonnerInfo,
   SonnerSuccess,
-} from "@/components/ui/SonnerToast";
+} from "@/components/uikit/SonnerToast";
 import { useTranslation } from "react-i18next";
 import FormMusicPoup from "@/features/FormMusicPoup";
 import FormSpotifyPicker from "@/features/FormSpotifyPicker";

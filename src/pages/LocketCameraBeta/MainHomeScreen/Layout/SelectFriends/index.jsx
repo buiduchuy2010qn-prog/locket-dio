@@ -3,7 +3,7 @@ import { FaUserFriends, FaLock } from "react-icons/fa";
 import clsx from "clsx";
 import { getToken } from "@/utils";
 import FriendSelectItems from "./FriendSelectItems";
-import { SonnerInfo } from "@/components/ui/SonnerToast";
+import { SonnerInfo } from "@/components/uikit/SonnerToast";
 import { useNormalFriendIds, usePostStore, useGroupChatStore } from "@/stores";
 import GroupSelectItem from "./GroupSelectItem";
 import { useTranslation } from "react-i18next";

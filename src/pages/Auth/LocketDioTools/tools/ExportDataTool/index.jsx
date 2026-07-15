@@ -1,7 +1,7 @@
 import React, { useState } from "react";
-import LoadingRing from "@/components/ui/Loading/ring";
+import LoadingRing from "@/components/uikit/Loading/ring";
 import { getAllFriendDetails } from "@/cache/friendsDB";
-import { SonnerWarning } from "@/components/ui/SonnerToast";
+import { SonnerWarning } from "@/components/uikit/SonnerToast";
 
 export default function ExportDataTool() {
   const [exporting, setExporting] = useState(false);

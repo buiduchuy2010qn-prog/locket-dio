@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Check, RotateCcw, X } from "lucide-react";
-import LoadingOverlay from "@/components/ui/Loading/LineSpinner";
+import LoadingOverlay from "@/components/uikit/Loading/LineSpinner";
 import { useSelectedStore, useUploadQueueStore } from "@/stores";
 
 /**

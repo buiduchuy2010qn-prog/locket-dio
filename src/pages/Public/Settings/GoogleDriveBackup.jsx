@@ -13,7 +13,7 @@ import {
   isAdminUser,
 } from "@/utils/googleDrive";
 import { getMyLocalId } from "@/utils/auth/getMyLocalId";
-import { SonnerError, SonnerSuccess } from "@/components/ui/SonnerToast";
+import { SonnerError, SonnerSuccess } from "@/components/uikit/SonnerToast";
 import { useAuthStore } from "@/stores";
 
 function pickUserEmail(user) {

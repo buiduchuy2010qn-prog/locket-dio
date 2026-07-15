@@ -1,8 +1,8 @@
 import clsx from "clsx";
 import { ChevronRight } from "lucide-react";
 import { formatTimeAgoV2, imageFallback } from "@/utils";
-import { GroupAvatarStack } from "@/components/ui/ConversationItem/GroupAvatarStack";
-import { GroupMembersLabel } from "@/components/ui/ConversationItem/GroupMembersLabel";
+import { GroupAvatarStack } from "@/components/uikit/ConversationItem/GroupAvatarStack";
+import { GroupMembersLabel } from "@/components/uikit/ConversationItem/GroupMembersLabel";
 
 export function GroupConversationItem({
   conversation,

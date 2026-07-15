@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
-import LoadingRing from "@/components/ui/Loading/ring";
+import LoadingRing from "@/components/uikit/Loading/ring";
 import { Link } from "react-router-dom";
-import { SonnerError, SonnerPromise } from "@/components/ui/SonnerToast";
+import { SonnerError, SonnerPromise } from "@/components/uikit/SonnerToast";
 import { CONFIG } from "@/config";
 import RotatingCircleText from "./RotatingCircleText";
 import { ensureDBOwner } from "@/cache/configDB";

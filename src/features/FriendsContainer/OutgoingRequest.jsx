@@ -7,7 +7,7 @@ import {
 import { useApp } from "@/context/AppContext";
 import { X } from "lucide-react";
 import { BsCheckCircleFill } from "react-icons/bs";
-import { SonnerError, SonnerSuccess } from "@/components/ui/SonnerToast";
+import { SonnerError, SonnerSuccess } from "@/components/uikit/SonnerToast";
 import { useAuthStore } from "@/stores";
 import { useTranslation } from "react-i18next";
 

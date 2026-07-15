@@ -2,7 +2,7 @@ import {
   SonnerError,
   SonnerSuccess,
   SonnerWarning,
-} from "@/components/ui/SonnerToast";
+} from "@/components/uikit/SonnerToast";
 import { getCaptionStyle } from "@/helpers/styleHelpers";
 import { useOverlayUserStore } from "@/stores";
 import { useState } from "react";

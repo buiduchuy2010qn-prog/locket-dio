@@ -16,7 +16,7 @@ import {
   X,
 } from "lucide-react";
 import { subscribePush } from "@/services";
-import { SonnerInfo, SonnerSuccess } from "@/components/ui/SonnerToast";
+import { SonnerInfo, SonnerSuccess } from "@/components/uikit/SonnerToast";
 import clsx from "clsx";
 import { useTranslation } from "react-i18next";
 

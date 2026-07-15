@@ -2,7 +2,7 @@ import React, { useState, useRef } from "react";
 import { ArrowUp } from "lucide-react";
 import { sendGroupMessage } from "@/services";
 import { useAuthStore, useGroupChatStore } from "@/stores";
-import { SonnerInfo } from "@/components/ui/SonnerToast";
+import { SonnerInfo } from "@/components/uikit/SonnerToast";
 import { useTranslation } from "react-i18next";
 // import GroupCameraDrawer from "./GroupCameraDrawer";
 

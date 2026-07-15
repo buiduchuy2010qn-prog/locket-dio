@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import ReactDOM from "react-dom";
 import { Check, Users, X } from "lucide-react";
-import SearchInput from "@/components/ui/Input/SearchInput";
+import SearchInput from "@/components/uikit/Input/SearchInput";
 import clsx from "clsx";
 import { useTranslation } from "react-i18next";
 

@@ -1,13 +1,13 @@
 import { useState } from "react";
 import NormalItemFriend from "./NormalItemFriend";
 import { FaSearchPlus } from "react-icons/fa";
-import SearchInput from "@/components/ui/Input/SearchInput";
+import SearchInput from "@/components/uikit/Input/SearchInput";
 import CelebItemFriend from "./CelebItemFriend";
 import {
   SonnerInfo,
   SonnerPromiseV2,
   SonnerWarning,
-} from "@/components/ui/SonnerToast";
+} from "@/components/uikit/SonnerToast";
 import {
   FindFriendByUserName,
   getFriendshipStatus,
@@ -15,7 +15,7 @@ import {
   SendRequestToFriend,
   shareHistoryWithFriend,
 } from "@/services";
-import BouncyLoader from "@/components/ui/Loading/Bouncy";
+import BouncyLoader from "@/components/uikit/Loading/Bouncy";
 import { useFeatureVisible } from "@/hooks/useFeature";
 import { useNavigate } from "react-router-dom";
 import { useShareHistory } from "@/stores";

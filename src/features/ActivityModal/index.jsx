@@ -10,7 +10,7 @@ import {
   imageFallback,
 } from "@/utils";
 import ReactDOM from "react-dom";
-import SearchInput from "@/components/ui/Input/SearchInput";
+import SearchInput from "@/components/uikit/Input/SearchInput";
 
 export const ActivityModal = ({
   show,

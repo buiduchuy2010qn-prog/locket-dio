@@ -26,12 +26,12 @@ import {
   SonnerInfo,
   SonnerPromise,
   SonnerPromiseV2,
-} from "@/components/ui/SonnerToast";
+} from "@/components/uikit/SonnerToast";
 import AddMemberModal from "./AddMemberModal";
-import SearchInput from "@/components/ui/Input/SearchInput";
+import SearchInput from "@/components/uikit/Input/SearchInput";
 import EditGroupPoup from "./EditGroupModal";
 import ConfirmPoup from "@/features/PoupScreen/ConfirmPoup";
-import { GroupAvatarStack } from "@/components/ui/ConversationItem/GroupAvatarStack";
+import { GroupAvatarStack } from "@/components/uikit/ConversationItem/GroupAvatarStack";
 import { useAvailableFriends } from "@/hooks";
 import { getAvatarOrFallback, imageFallback } from "@/utils";
 import { useTranslation } from "react-i18next";

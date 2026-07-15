@@ -3,7 +3,7 @@ import React, { useEffect, useRef } from "react";
 import { useApp } from "@/context/AppContext";
 import { getVideoRecordLimit } from "@/hooks/useFeature";
 import { CAMERA_CONFIG } from "@/config/configAlias";
-import { SonnerInfo } from "@/components/ui/SonnerToast";
+import { SonnerInfo } from "@/components/uikit/SonnerToast";
 import { usePostStore } from "@/stores";
 import { useTranslation } from "react-i18next";
 import { getPerfProfile } from "@/utils/device/perfProfile";

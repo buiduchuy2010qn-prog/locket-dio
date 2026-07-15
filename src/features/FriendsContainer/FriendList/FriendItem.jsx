@@ -8,7 +8,7 @@ import {
   Eye,
   CircleEllipsis,
 } from "lucide-react";
-import { SonnerInfo } from "@/components/ui/SonnerToast";
+import { SonnerInfo } from "@/components/uikit/SonnerToast";
 import ConfirmPoup from "@/features/PoupScreen/ConfirmPoup";
 import { useTranslation } from "react-i18next";
 

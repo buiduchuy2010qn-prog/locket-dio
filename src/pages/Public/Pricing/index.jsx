@@ -11,7 +11,7 @@ import MemberPlanIntro from "./MemberPlanIntro";
 import PlanEmptyNotice from "./PlanEmptyNotice";
 import { useAuthStore } from "@/stores";
 import { FREE_FOR_ALL } from "@/hooks/useFeature";
-import { SonnerInfo, SonnerSuccess } from "@/components/ui/SonnerToast";
+import { SonnerInfo, SonnerSuccess } from "@/components/uikit/SonnerToast";
 
 export default function PricingPage() {
   const { loading, user, userPlan, uploadStats, fetchUserData } = useAuthStore();

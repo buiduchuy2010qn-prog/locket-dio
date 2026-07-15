@@ -21,7 +21,7 @@ import {
   useConversationSocket,
   useHasGroup,
 } from "@/hooks";
-import { SonnerInfo } from "@/components/ui/SonnerToast";
+import { SonnerInfo } from "@/components/uikit/SonnerToast";
 import ConversationWithGroup from "./Views/ConversationWithGroup";
 import ButtonCreateGroup from "./Layout/ButtonCreateGroup";
 import CreateGroupModal from "./Modal/CreateGroupModal";

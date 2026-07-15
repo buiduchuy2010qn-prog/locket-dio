@@ -1,4 +1,4 @@
-import SearchInput from "@/components/ui/Input/SearchInput";
+import SearchInput from "@/components/uikit/Input/SearchInput";
 import { useApp } from "@/context/AppContext";
 import { useAuthStore, useFriendObjects, useSelectedStore } from "@/stores";
 import { getAvatarOrFallback, imageFallback } from "@/utils";

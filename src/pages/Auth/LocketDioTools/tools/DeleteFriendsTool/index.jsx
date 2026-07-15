@@ -4,8 +4,8 @@ import {
   rejectMultipleFriendRequests,
 } from "@/services";
 import { formatDateTime } from "@/utils/Formats";
-import LoadingRing from "@/components/ui/Loading/ring";
-import { SonnerError, SonnerInfo, SonnerSuccess } from "@/components/ui/SonnerToast";
+import LoadingRing from "@/components/uikit/Loading/ring";
+import { SonnerError, SonnerInfo, SonnerSuccess } from "@/components/uikit/SonnerToast";
 
 export default function DeleteFriendsTool() {
 

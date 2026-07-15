@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import clsx from "clsx";
 import ReactDOM from "react-dom";
 import { Users, X } from "lucide-react";
-import { SonnerPromise, SonnerInfo } from "@/components/ui/SonnerToast";
+import { SonnerPromise, SonnerInfo } from "@/components/uikit/SonnerToast";
 import { updateGroupName } from "@/services";
 import { useTranslation } from "react-i18next";
 

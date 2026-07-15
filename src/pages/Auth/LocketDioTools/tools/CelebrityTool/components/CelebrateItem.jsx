@@ -1,6 +1,6 @@
 import React from "react";
 import { Link, Plus, UserRoundCheck } from "lucide-react";
-import { SonnerSuccess } from "@/components/ui/SonnerToast";
+import { SonnerSuccess } from "@/components/uikit/SonnerToast";
 
 export default function CelebrateItem({ user, slotdata, onAdd, loadingUid }) {
   // Tính % bạn bè (nếu có dữ liệu)

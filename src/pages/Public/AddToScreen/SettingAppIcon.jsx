@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { SonnerSuccess } from "@/components/ui/SonnerToast";
+import { SonnerSuccess } from "@/components/uikit/SonnerToast";
 import { Wrench, Loader2 } from "lucide-react";
 import { isRunningPWA, setPWAIcon, updateFavicons } from "@/utils";
 

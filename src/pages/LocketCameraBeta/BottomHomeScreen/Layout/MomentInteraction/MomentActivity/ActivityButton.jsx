@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import LoadingRing from "@/components/ui/Loading/ring";
+import LoadingRing from "@/components/uikit/Loading/ring";
 import { MoonStar } from "lucide-react";
 import { getAvatarOrFallback, imageFallback } from "@/utils";
 import { useReactionStore } from "@/stores";

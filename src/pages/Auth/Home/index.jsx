@@ -1,7 +1,7 @@
 import React from "react";
 import { Link } from "react-router-dom";
 import ThemeSelector from "@/components/Theme/ThemeSelector";
-import MockupiPhone from "@/components/ui/MockupiPhone";
+import MockupiPhone from "@/components/uikit/MockupiPhone";
 
 const AuthHome = () => {
 

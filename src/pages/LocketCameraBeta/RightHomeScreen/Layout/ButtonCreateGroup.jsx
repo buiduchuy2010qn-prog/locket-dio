@@ -1,4 +1,4 @@
-import { SonnerInfo } from "@/components/ui/SonnerToast";
+import { SonnerInfo } from "@/components/uikit/SonnerToast";
 import { useTranslation } from "react-i18next";
 
 const ButtonCreateGroup = ({ onClick, hasUserGroup }) => {
