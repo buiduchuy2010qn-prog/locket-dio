@@ -44,6 +44,20 @@ export const GetUserDataV2 = async () => {
   }
 };
 
+/** Persist client-computed upload stats (from published posts) to API */
+export const syncUploadStatsToServer = async (stats) => {
+  try {
+    const res = await api.post("/api/upload-stats/sync", stats || {});
+    return res.data?.data || stats;
+  } catch (error) {
+    console.warn(
+      "[upload-stats] sync to server failed:",
+      error?.response?.data || error?.message,
+    );
+    return stats;
+  }
+};
+
 export const GetInfoFamily = async () => {
   try {
     const res = await api.get("/api/getInfoFamily");

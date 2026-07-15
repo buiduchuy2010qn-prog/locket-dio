@@ -24,19 +24,18 @@ export default function PricingPage() {
     ? { ...(userPlan?.plan || {}), id: "premium", name: "Premium", badge: "premium" }
     : userPlan?.plan;
 
-  // Memoize the refresh handler with debouncing
+  // Refresh gói + đồng bộ thống kê từ bài đã đăng
   const handleRefreshPlan = useCallback(async () => {
     const now = Date.now();
-
     setLastRefreshTime(now);
     try {
-      fetchUserData();
-      SonnerSuccess("Làm mới thông tin thành công!");
+      await fetchUserData();
+      SonnerSuccess("Đã đồng bộ gói & thống kê bài đăng!");
     } catch (err) {
       console.error("❌ Lỗi khi cập nhật gói hoặc thống kê:", err);
       SonnerInfo("⚠️ Đã xảy ra lỗi khi cập nhật thông tin người dùng.");
     }
-  }, [user, lastRefreshTime]);
+  }, [fetchUserData]);
 
   // Check if user has a valid plan (prevent duplicate rendering)
   const hasValidPlan = useMemo(() => {

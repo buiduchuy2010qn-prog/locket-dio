@@ -138,9 +138,63 @@ const getMemberFamily = async (req, res, next) => {
   }
 };
 
+/**
+ * Client syncs upload stats computed from published Locket moments.
+ * Body: { image_uploaded, video_uploaded, total_storage_used_mb, error_count? }
+ */
+const syncUploadStatsController = async (req, res, next) => {
+  try {
+    const uid = req.user?.uid || req.user?.localId;
+    if (!uid) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+    }
+    const body = req.body || {};
+    const {
+      setUserStats,
+      getUserStats,
+    } = require("../../../utils/cache/localUploadStats");
+
+    const images = Math.max(
+      0,
+      Number(body.image_uploaded ?? body.image_uploads ?? 0) || 0,
+    );
+    const videos = Math.max(
+      0,
+      Number(body.video_uploaded ?? body.video_uploads ?? 0) || 0,
+    );
+    const mb = Math.max(
+      0,
+      Number(body.total_storage_used_mb ?? body.storage_used_mb ?? 0) || 0,
+    );
+    const errors = Math.max(0, Number(body.error_count ?? 0) || 0);
+
+    const saved = setUserStats(uid, {
+      image_uploaded: images,
+      video_uploaded: videos,
+      image_uploads: images,
+      video_uploads: videos,
+      total_uploads: images + videos,
+      total_storage_used_mb: mb,
+      total_storage_used_bytes: Math.round(mb * 1024 * 1024),
+      error_count: errors,
+    });
+
+    logSuccess("syncUploadStats", `✅ Synced stats for ${uid}`);
+    return res.status(200).json({
+      success: true,
+      message: "ok",
+      data: saved || getUserStats(uid),
+    });
+  } catch (error) {
+    logError("syncUploadStats", error.message);
+    next(error);
+  }
+};
+
 module.exports = {
   planControllerV2,
   UpdateplanController,
   validateCouponServer,
   getMemberFamily,
+  syncUploadStatsController,
 };

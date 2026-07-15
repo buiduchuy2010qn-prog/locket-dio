@@ -157,9 +157,50 @@ export const useAuthStore = create(
 
           saveMemberToken(planRes?.session);
 
+          // Đồng bộ thống kê từ bài đã đăng (moments của user)
+          let uploadStats = planRes?.upload_stats || null;
+          try {
+            const {
+              syncUploadStatsFromPosts,
+              loadCachedUploadStats,
+            } = await import("@/utils/syncUploadStatsFromPosts");
+            const { syncUploadStatsToServer } = await import(
+              "@/services/LocketDioServices/MemberPlans"
+            );
+            // Show cache immediately if plan stats are empty
+            const cached = loadCachedUploadStats();
+            if (
+              cached &&
+              (!uploadStats ||
+                !(
+                  Number(uploadStats.image_uploaded || uploadStats.image_uploads) ||
+                  Number(uploadStats.video_uploaded || uploadStats.video_uploads)
+                ))
+            ) {
+              uploadStats = cached;
+            }
+            const synced = await syncUploadStatsFromPosts();
+            if (synced) {
+              uploadStats = synced;
+              // Best-effort persist on API so next /api/cn returns real numbers
+              await syncUploadStatsToServer(synced);
+              // Re-fetch plan to merge server copy (optional soft)
+              if (planRes) {
+                planRes.upload_stats = synced;
+              }
+            }
+          } catch (syncErr) {
+            console.warn(
+              "upload stats sync skipped:",
+              syncErr?.message || syncErr,
+            );
+          }
+
           set({
-            userPlan: planRes,
-            uploadStats: planRes?.upload_stats,
+            userPlan: planRes
+              ? { ...planRes, upload_stats: uploadStats || planRes.upload_stats }
+              : planRes,
+            uploadStats,
             lastFetchPlanAt: Date.now(),
             loading: false,
           });

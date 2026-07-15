@@ -91,6 +91,20 @@ function getUserStats(uid) {
   return normalize(all[String(uid)] || {});
 }
 
+/** Overwrite stats (e.g. after client sync from published posts). */
+function setUserStats(uid, stats = {}) {
+  if (!uid) return emptyStats();
+  const all = readAll();
+  const next = normalize({
+    ...emptyStats(),
+    ...stats,
+    updated_at: new Date().toISOString(),
+  });
+  all[String(uid)] = next;
+  writeAll(all);
+  return next;
+}
+
 /**
  * @param {{ uid: string, mediaType?: 'image'|'video'|null, sizeInBytes?: number, isError?: boolean }} opts
  */
@@ -134,6 +148,7 @@ function incrementUserStats({
 
 module.exports = {
   getUserStats,
+  setUserStats,
   incrementUserStats,
   normalize,
   emptyStats,

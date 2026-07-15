@@ -9,6 +9,11 @@ const { planController } = require("../controllers");
 planRoutes.get("/getInfoFamily", verifyIdToken, planController.getMemberFamily);
 planRoutes.get("/cn", verifyIdToken, planController.planControllerV2);
 planRoutes.post("/u", verifyIdToken, planController.UpdateplanController);
+planRoutes.post(
+  "/upload-stats/sync",
+  verifyIdToken,
+  planController.syncUploadStatsController,
+);
 planRoutes.post("/coupon/validate", verifyPlanAuthOrGuest, planController.validateCouponServer);
 
 module.exports = { planRoutes };
