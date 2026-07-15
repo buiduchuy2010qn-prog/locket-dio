@@ -343,12 +343,16 @@ const imagePostPayloadMusic = ({ imageUrl, optionsData }) => {
     artist,
   };
 
-  // Preview ổn định (iTunes) — web nghe; app Locket bỏ qua / không crash
+  // Preview ổn định (iTunes / m4a) — web nghe; app Locket bỏ qua field này
   const preview =
     payload?.preview_url || payload?.audio || payload?.previewUrl || null;
   if (
     preview &&
-    /audio-ssl\.itunes\.apple\.com|mzstatic\.com/i.test(String(preview))
+    (/audio-ssl\.itunes\.apple\.com|mzstatic\.com|\.m4a(\?|$)/i.test(
+      String(preview),
+    ) ||
+      (!/dzcdn\.net|hdnea=|p\.scdn\.co/i.test(String(preview)) &&
+        /^https?:\/\//i.test(String(preview))))
   ) {
     musicPayload.preview_url = preview;
   }

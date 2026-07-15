@@ -59,13 +59,23 @@ export function OverlayRenderer({
   const overlay_id =
     data?.id || data?.overlay_id || "caption:standard";
 
+  // Music: type / overlay_id / payload ISRC hoặc song_title
+  const isMusic =
+    type === "music" ||
+    overlay_id === "caption:music" ||
+    overlay_id === "music" ||
+    Boolean(data?.payload?.isrc) ||
+    Boolean(data?.payload?.song_title) ||
+    Boolean(data?.payload?.spotify_url) ||
+    Boolean(data?.payload?.apple_music_url);
+
   if (overlay_id === "caption:review" || type === "review")
     return <ReviewOverlay overlayData={data} />;
 
   if (overlay_id === "caption:color_palette" || type === "color_palette")
     return <ColorPaletteOverlay overlayData={data} />;
 
-  if (type === "music" || overlay_id === "caption:music" || overlay_id === "music")
+  if (isMusic)
     return <MusicOverlay overlayData={data} momentId={momentId} />;
 
   if (!Component) return <BaseOverlay overlayData={data} />;

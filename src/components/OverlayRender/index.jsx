@@ -35,6 +35,15 @@ export function OverlayRendererV2({
   const overlay_id =
     data?.overlay_id || overlay?.overlay_id || "caption:standard";
 
+  const isMusic =
+    type === "music" ||
+    overlay_id === "caption:music" ||
+    overlay_id === "music" ||
+    Boolean(data?.payload?.isrc) ||
+    Boolean(data?.payload?.song_title) ||
+    Boolean(data?.payload?.spotify_url) ||
+    Boolean(data?.payload?.apple_music_url);
+
   // special override cases
   if (overlay_id === "caption:review") {
     return <ReviewOverlay overlayData={data} />;
@@ -42,6 +51,10 @@ export function OverlayRendererV2({
 
   if (overlay_id === "caption:color_palette") {
     return <ColorPaletteOverlay overlayData={data} />;
+  }
+
+  if (isMusic) {
+    return <MusicOverlay overlayData={data} momentId={momentId} />;
   }
 
   return (
