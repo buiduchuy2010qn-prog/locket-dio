@@ -276,6 +276,13 @@
       "section": "🌐 Ngôn ngữ",
       "title": "Ngôn ngữ"
     },
+    "media": {
+      "section": "📷 Ảnh & lưu trữ",
+      "watermark": {
+        "title": "Watermark khi lưu ảnh",
+        "description": "Thêm ♥ Locket ở dưới ảnh khi tải / chia sẻ. Tắt để lưu ảnh gốc."
+      }
+    },
     "privacy": {
       "section": "👁 Quyền riêng tư",
       "seen_moments": {

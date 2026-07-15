@@ -13,6 +13,7 @@ import {
   X,
   ChevronRight,
   Languages,
+  Heart,
 } from "lucide-react";
 import React, { useEffect, useState } from "react";
 import ReactDOM from "react-dom";
@@ -49,6 +50,9 @@ const SettingPoup = ({ open, onClose }) => {
   const allowSearch = useUserSetting((s) => s.allowSearch);
   const toggleAllowSearch = useUserSetting((s) => s.toggleAllowSearch);
 
+  const saveWatermark = useUserSetting((s) => s.saveWatermark !== false);
+  const toggleSaveWatermark = useUserSetting((s) => s.toggleSaveWatermark);
+
   const { sendReadReceipts, toggleReadReceipts } = useReadReceipts();
   const { shareHistoryOn, toggleShareHistoryOn } = useShareHistory();
 
@@ -62,6 +66,17 @@ const SettingPoup = ({ open, onClose }) => {
       value: LANGUAGE_NAMES[language]?.name ?? "Tiếng Việt",
       onClick: () => setOpenLanguage(true),
       right: <ChevronRight className="w-5 h-5 text-base-content/40" />,
+    },
+  ];
+
+  const mediaItems = [
+    {
+      key: "watermark",
+      icon: Heart,
+      title: t("setting_poup.media.watermark.title"),
+      description: t("setting_poup.media.watermark.description"),
+      checked: saveWatermark,
+      onChange: toggleSaveWatermark,
     },
   ];
 
@@ -169,6 +184,46 @@ const SettingPoup = ({ open, onClose }) => {
                     </div>
 
                     {item.right}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div>
+            <p className="text-sm text-base-content/60 mb-2">
+              {t("setting_poup.media.section")}
+            </p>
+
+            <div className="bg-base-200 rounded-2xl divide-y divide-base-300">
+              {mediaItems.map((item) => {
+                const Icon = item.icon;
+
+                return (
+                  <div
+                    key={item.key}
+                    className="flex items-center justify-between px-4 py-3"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-10 h-10 flex items-center justify-center rounded-xl bg-base-300 flex-shrink-0">
+                        <Icon className="w-5 h-5" />
+                      </div>
+
+                      <div className="min-w-0">
+                        <p className="font-medium">{item.title}</p>
+                        <p className="text-xs text-base-content/60">
+                          {item.description}
+                        </p>
+                      </div>
+                    </div>
+
+                    <input
+                      type="checkbox"
+                      checked={item.checked}
+                      onChange={item.onChange}
+                      className="toggle toggle-secondary flex-shrink-0"
+                      aria-label={item.title}
+                    />
                   </div>
                 );
               })}

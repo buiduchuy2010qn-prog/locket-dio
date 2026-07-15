@@ -3,8 +3,31 @@
  * bold white heart + "Locket" at bottom-center (match official Locket export).
  */
 
+import { useUserSetting } from "@/stores/SettingStores/useUserSetting";
+
 /** Official-style save watermark label (exact "Locket", not Huy Locket) */
 const DEFAULT_LABEL = "Locket";
+
+/**
+ * User preference from SettingPoup (persisted).
+ * Default true when store not ready.
+ * @returns {boolean}
+ */
+export function isSaveWatermarkEnabled() {
+  try {
+    return useUserSetting.getState?.()?.saveWatermark !== false;
+  } catch {
+    try {
+      const raw = localStorage.getItem("user-settings");
+      if (!raw) return true;
+      const parsed = JSON.parse(raw);
+      const state = parsed?.state ?? parsed;
+      return state?.saveWatermark !== false;
+    } catch {
+      return true;
+    }
+  }
+}
 
 /**
  * @param {Blob|File} blob

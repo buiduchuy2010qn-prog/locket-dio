@@ -11,6 +11,8 @@ export const useUserSetting = create(
       allowSearch: true,
       shareHistoryOn: false,
       autoUpdateStreak: true,
+      /** Watermark ♥ Locket khi lưu / share ảnh — mặc định bật */
+      saveWatermark: true,
 
       // ===== ACTIONS =====
       toggleSeenMoments: () =>
@@ -27,6 +29,14 @@ export const useUserSetting = create(
         set((state) => ({
           shareHistoryOn: !state.shareHistoryOn,
         })),
+
+      toggleSaveWatermark: () =>
+        set((state) => ({
+          saveWatermark: !state.saveWatermark,
+        })),
+
+      setSaveWatermark: (on) =>
+        set({ saveWatermark: Boolean(on) }),
 
       toggleAllowSearch: async () => {
         const prev = get().allowSearch;
@@ -52,11 +62,12 @@ export const useUserSetting = create(
           allowSearch: true,
           shareHistoryOn: false,
           autoUpdateStreak: true,
+          saveWatermark: true,
         }),
     }),
     {
       name: "user-settings",
-      version: 1,
+      version: 2,
 
       migrate: (persistedState) => {
         return persistedState;

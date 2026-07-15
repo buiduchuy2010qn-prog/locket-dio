@@ -276,6 +276,13 @@
       "section": "🌐 Language",
       "title": "Language"
     },
+    "media": {
+      "section": "📷 Media & saves",
+      "watermark": {
+        "title": "Watermark on save",
+        "description": "Add ♥ Locket at the bottom when downloading / sharing. Turn off to save the original."
+      }
+    },
     "privacy": {
       "section": "👁 Privacy",
       "seen_moments": {

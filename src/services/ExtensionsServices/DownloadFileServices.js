@@ -4,6 +4,7 @@ import {
   ensureJpegFileName,
   isImageBlob,
   isImageFileName,
+  isSaveWatermarkEnabled,
 } from "@/utils/imageUtils/applyWatermark";
 
 export async function fetchFileBlob(fileUrl) {
@@ -51,7 +52,11 @@ export async function downloadAndShareFile(
     let blob = await fetchFileBlob(fileUrl);
     let outName = fileName;
 
-    const wantWm = opts.watermark !== false;
+    // opts.watermark overrides menu setting; default = user menu on/off
+    const wantWm =
+      opts.watermark !== undefined
+        ? Boolean(opts.watermark)
+        : isSaveWatermarkEnabled();
     const asImage =
       isImageBlob(blob) ||
       isImageFileName(fileName) ||

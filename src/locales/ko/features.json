@@ -1,4 +1,4 @@
-{
+﻿{
   "activity": {
     "title": "Hoạt động",
     "search_placeholder": "Tìm theo tên, username hoặc UID...",
@@ -276,6 +276,14 @@
       "section": "🌐 언어",
       "title": "언어"
     },
+    "media": {
+      "section": "📷 Media",
+      "watermark": {
+        "title": "Watermark on save",
+        "description": "Add Locket watermark when saving images."
+      }
+    },
+    
     "privacy": {
       "section": "👁 개인정보",
       "seen_moments": {

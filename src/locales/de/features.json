@@ -1,4 +1,4 @@
-{
+﻿{
   "activity": {
     "title": "Aktivität",
     "search_placeholder": "Nach Name, Benutzername oder UID suchen...",
@@ -276,6 +276,14 @@
       "section": "🌐 Sprache",
       "title": "Sprache"
     },
+    "media": {
+      "section": "📷 Media",
+      "watermark": {
+        "title": "Watermark on save",
+        "description": "Add Locket watermark when saving images."
+      }
+    },
+    
     "privacy": {
       "section": "👁 Datenschutz",
       "seen_moments": {

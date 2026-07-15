@@ -1,4 +1,4 @@
-{
+﻿{
   "activity": {
     "title": "活动",
     "search_placeholder": "按姓名、用户名或 UID 搜索...",
@@ -276,6 +276,14 @@
       "section": "语言",
       "title": "应用语言"
     },
+    "media": {
+      "section": "📷 Media",
+      "watermark": {
+        "title": "Watermark on save",
+        "description": "Add Locket watermark when saving images."
+      }
+    },
+    
     "privacy": {
       "section": "隐私",
       "seen_moments": {

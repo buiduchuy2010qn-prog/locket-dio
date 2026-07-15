@@ -56,14 +56,18 @@ const HeaderHome = ({
       let file = selectedFile;
       let fileName = `huylocket-${timestamp}.jpg`;
 
-      // Ảnh: stamp watermark kiểu Locket (♡ Huy Locket) khi lưu
+      // Ảnh: watermark ♥ Locket nếu bật trong Cài đặt (menu)
       if (String(selectedFile.type || "").startsWith("image/")) {
-        const { applyLocketStyleWatermark, ensureJpegFileName } = await import(
-          "@/utils/imageUtils/applyWatermark"
-        );
-        file = await applyLocketStyleWatermark(selectedFile, {
-          forceImage: true,
-        });
+        const {
+          applyLocketStyleWatermark,
+          ensureJpegFileName,
+          isSaveWatermarkEnabled,
+        } = await import("@/utils/imageUtils/applyWatermark");
+        if (isSaveWatermarkEnabled()) {
+          file = await applyLocketStyleWatermark(selectedFile, {
+            forceImage: true,
+          });
+        }
         fileName = ensureJpegFileName(`huylocket-${timestamp}.jpg`);
       } else {
         const extension = selectedFile.type?.split("/")[1] || "mp4";
