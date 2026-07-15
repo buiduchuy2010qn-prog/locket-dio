@@ -1229,4 +1229,12 @@ const MediaPreviewIOS = () => {
           </Suspense>
         </div>
 
-        <div className="absolute inset-0 z-50 pointer-
+        <div className="absolute inset-0 z-50 pointer-events-none">
+          <BorderProgress />
+        </div>
+      </div>
+    </>
+  );
+};
+
+export default MediaPreviewIOS;
