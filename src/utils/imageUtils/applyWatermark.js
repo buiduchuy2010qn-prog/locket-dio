@@ -92,40 +92,42 @@ export async function applyLocketStyleWatermark(blob, opts = {}) {
       }
     }
 
-    // Scale watermark with image size (match Locket look on ~1080–1800px)
+    // Scale watermark with image size (match official Locket soft white look)
     const base = Math.min(w, h);
-    const fontSize = Math.max(20, Math.round(base * 0.042));
-    // Filled heart (♥) — đậm hơn outline ♡
-    const heartSize = Math.round(fontSize * 1.2);
-    const gap = Math.round(fontSize * 0.4);
+    const fontSize = Math.max(18, Math.round(base * 0.04));
+    // Soft heart (not bold black-fill) — lighter like app export
+    const heartSize = Math.round(fontSize * 1.12);
+    const gap = Math.round(fontSize * 0.32);
     const bottomPad = Math.round(base * 0.055);
 
     ctx.save();
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
 
-    const heart = "♥";
-    ctx.font = `700 ${heartSize}px system-ui, -apple-system, "Segoe UI", Roboto, "Apple Color Emoji", "Segoe UI Emoji", sans-serif`;
+    // White heart outline/soft style (♡ reads lighter than bold ♥)
+    const heart = "♡";
+    ctx.font = `400 ${heartSize}px system-ui, -apple-system, "Segoe UI", Roboto, "Apple Color Emoji", "Segoe UI Emoji", sans-serif`;
     const heartW = ctx.measureText(heart).width;
-    ctx.font = `600 ${fontSize}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
+    ctx.font = `500 ${fontSize}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
     const textW = ctx.measureText(label).width;
     const totalW = heartW + gap + textW;
     const startX = (w - totalW) / 2;
     const y = h - bottomPad;
 
-    // Soft dark shadow so white watermark reads on light areas
-    ctx.shadowColor = "rgba(0,0,0,0.5)";
-    ctx.shadowBlur = Math.max(5, Math.round(fontSize * 0.4));
+    // Very light shadow — soft white watermark (ref: official Locket export)
+    ctx.shadowColor = "rgba(0,0,0,0.28)";
+    ctx.shadowBlur = Math.max(3, Math.round(fontSize * 0.22));
     ctx.shadowOffsetX = 0;
-    ctx.shadowOffsetY = Math.max(1, Math.round(fontSize * 0.08));
-    ctx.fillStyle = "rgba(255,255,255,0.98)";
+    ctx.shadowOffsetY = Math.max(1, Math.round(fontSize * 0.04));
+    // Soft white ~85% (đậm vừa, không trắng “cứng”)
+    ctx.fillStyle = "rgba(255,255,255,0.88)";
 
-    // Heart — filled / bold
-    ctx.font = `700 ${heartSize}px system-ui, -apple-system, "Segoe UI", Roboto, "Apple Color Emoji", "Segoe UI Emoji", sans-serif`;
+    // Heart — soft / light
+    ctx.font = `400 ${heartSize}px system-ui, -apple-system, "Segoe UI", Roboto, "Apple Color Emoji", "Segoe UI Emoji", sans-serif`;
     ctx.fillText(heart, startX, y);
 
-    // Label — exact "Locket"
-    ctx.font = `600 ${fontSize}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
+    // Label — exact "Locket", medium weight
+    ctx.font = `500 ${fontSize}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
     ctx.fillText(label, startX + heartW + gap, y);
 
     ctx.restore();
