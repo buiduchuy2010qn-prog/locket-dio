@@ -10,14 +10,21 @@ import {
   HeartHandshake,
   TrendingUp,
 } from "lucide-react";
+import { FREE_FOR_ALL } from "@/hooks/useFeature";
 
 export default function MemberPlanIntro() {
 
-  const benefits = [
-    "Giá cả hợp lý tương xứng với giá trị sử dụng",
-    "100% doanh thu dùng để phát triển nền tảng",
-    "Cam kết cải thiện trải nghiệm người dùng liên tục",
-  ];
+  const benefits = FREE_FOR_ALL
+    ? [
+        "Mọi người dùng đều được Premium vĩnh viễn — miễn phí",
+        "Không giới hạn ảnh/video, HD/Full HD, theme đầy đủ",
+        "Không cần đăng ký hay gia hạn gói",
+      ]
+    : [
+        "Giá cả hợp lý tương xứng với giá trị sử dụng",
+        "100% doanh thu dùng để phát triển nền tảng",
+        "Cam kết cải thiện trải nghiệm người dùng liên tục",
+      ];
 
   return (
     <div className="bg-white/80 h-full backdrop-blur-md border border-gray-200 rounded-2xl p-4 shadow-xl">
@@ -28,10 +35,12 @@ export default function MemberPlanIntro() {
         </div>
         <div>
           <h2 className="text-xl font-semibold text-gray-800 font-lovehouse -mb-1">
-            Huy Locket Member
+            {FREE_FOR_ALL ? "Premium vĩnh viễn" : "Huy Locket Member"}
           </h2>
           <p className="text-sm text-gray-500">
-            Trải nghiệm tốt hơn, quyền lợi nhiều hơn
+            {FREE_FOR_ALL
+              ? "Full quyền lợi Premium — miễn phí cho mọi người"
+              : "Trải nghiệm tốt hơn, quyền lợi nhiều hơn"}
           </p>
         </div>
       </div>

@@ -86,10 +86,14 @@ export default function PricingPage() {
       <div className="py-6 px-4 sm:px-6 lg:px-8">
         <div className="max-w-7xl mx-auto text-center">
           <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-600 to-pink-600 mb-4">
-            Đăng ký thành viên Huy Locket
+            {FREE_FOR_ALL
+              ? "Premium vĩnh viễn — Huy Locket"
+              : "Đăng ký thành viên Huy Locket"}
           </h1>
           <p className="text-gray-600 text-lg max-w-2xl mx-auto">
-            Trải nghiệm đầy đủ với nhiều tính năng độc quyền
+            {FREE_FOR_ALL
+              ? "Mọi tài khoản đều được full Premium miễn phí, không hết hạn"
+              : "Trải nghiệm đầy đủ với nhiều tính năng độc quyền"}
           </p>
         </div>
       </div>

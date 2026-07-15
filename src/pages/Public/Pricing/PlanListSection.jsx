@@ -1,6 +1,7 @@
 import { ArrowUpRight } from "lucide-react";
 import React from "react";
 import { useNavigate } from "react-router-dom";
+import { FREE_FOR_ALL } from "@/hooks/useFeature";
 
 export default function PlanListSection({
   tab,
@@ -77,7 +78,16 @@ export default function PlanListSection({
               );
 
               const hasDiscount = discountPercent > 0;
-              const activeNow = planCurrent === plan.id && isActive;
+              // Free-for-all: mọi gói paid đều đã mở — highlight Premium, disable mua
+              const isPremiumCard =
+                String(plan.id || "").toLowerCase().includes("premium") ||
+                String(plan.name || "").toLowerCase().includes("premium");
+              const activeNow = FREE_FOR_ALL
+                ? isPremiumCard &&
+                  !String(plan.id || "").toLowerCase().includes("six") &&
+                  !String(plan.name || "").toLowerCase().includes("six")
+                : planCurrent === plan.id && isActive;
+              const unlocked = FREE_FOR_ALL || activeNow;
               return (
                 <div
                   key={plan.id}
@@ -158,22 +168,29 @@ export default function PlanListSection({
                     </div>
                     <button
                       className={`w-full flex flex-row justify-center items-center py-3 rounded-2xl font-semibold text-sm sm:text-base transition-all duration-200 ${
-                        activeNow
-                          ? "bg-gray-200 text-gray-500 cursor-not-allowed"
+                        unlocked
+                          ? "bg-gray-200 text-gray-600 cursor-default"
                           : plan.price === 0
                             ? "bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 text-white shadow-lg hover:shadow-xl"
                             : "bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white shadow-lg hover:shadow-xl"
                       }`}
-                      onClick={() => navigate(`/pricing/${plan.id}`)}
-                      disabled={activeNow}
+                      onClick={() => {
+                        if (unlocked) return;
+                        navigate(`/pricing/${plan.id}`);
+                      }}
+                      disabled={unlocked}
                     >
-                      {activeNow
-                        ? "✓ Đang sử dụng"
-                        : plan.price === 0
-                          ? "🚀 Bắt đầu miễn phí"
-                          : "💎 Chọn gói này"}
+                      {FREE_FOR_ALL
+                        ? activeNow
+                          ? "✓ Premium vĩnh viễn"
+                          : "✓ Đã mở full Premium"
+                        : activeNow
+                          ? "✓ Đang sử dụng"
+                          : plan.price === 0
+                            ? "🚀 Bắt đầu miễn phí"
+                            : "💎 Chọn gói này"}
 
-                      {!activeNow && <ArrowUpRight />}
+                      {!unlocked && <ArrowUpRight />}
                     </button>
                   </div>
                 </div>

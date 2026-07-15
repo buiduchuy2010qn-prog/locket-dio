@@ -23,7 +23,11 @@ function buildLocalFreePlan(uid, email, phone, name, picture) {
     plan: {
       id: "premium",
       name: "Premium",
-      badge: "premium",
+      badge: {
+        text: "Premium",
+        gradient: "linear-gradient(135deg, #a855f7, #ec4899)",
+        highlight_color: "#ffffff",
+      },
     },
     subscription: {
       is_active: true,

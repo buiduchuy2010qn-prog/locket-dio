@@ -80,10 +80,21 @@ export const UserPlanCard = React.memo(({ userPlan, onRefresh, loading }) => {
   // ACTION BUTTON CONFIG
   // ===============================
   const actionConfig = useMemo(() => {
+    // Free-for-all: Premium vĩnh viễn — không gia hạn / mua
+    if (FREE_FOR_ALL) {
+      return {
+        text: "✓ Premium vĩnh viễn — miễn phí",
+        className:
+          "bg-gradient-to-r from-purple-500 to-pink-500 cursor-default opacity-95",
+        disabled: true,
+      };
+    }
+
     if (isFree) {
       return {
         text: "🚀 Nâng cấp ngay",
         className: "bg-purple-600 hover:bg-purple-700",
+        disabled: false,
       };
     }
 
@@ -91,12 +102,14 @@ export const UserPlanCard = React.memo(({ userPlan, onRefresh, loading }) => {
       return {
         text: "🔄 Gia hạn ngay",
         className: "bg-red-500 hover:bg-red-600",
+        disabled: false,
       };
     }
 
     return {
       text: "⏳ Gia hạn thêm",
       className: "bg-blue-500 hover:bg-blue-600",
+      disabled: false,
     };
   }, [isFree, isExpired]);
 
@@ -160,10 +173,10 @@ export const UserPlanCard = React.memo(({ userPlan, onRefresh, loading }) => {
             <>
               <div className="flex items-center justify-between">
                 <span className="font-semibold text-amber-600">
-                  🌟 Huy Locket Membership
+                  💎 Premium vĩnh viễn
                 </span>
-                <span className="text-sm font-medium text-gray-700">
-                  {timeLeft}
+                <span className="text-sm font-medium text-purple-600">
+                  {FREE_FOR_ALL ? "Vĩnh viễn" : timeLeft}
                 </span>
               </div>
 
@@ -175,7 +188,11 @@ export const UserPlanCard = React.memo(({ userPlan, onRefresh, loading }) => {
 
                 <span>
                   Hết hạn:
-                  <b className="ml-1">{formatDate(subscription?.expires_at)}</b>
+                  <b className="ml-1">
+                    {FREE_FOR_ALL || !subscription?.expires_at
+                      ? "∞ Vĩnh viễn"
+                      : formatDate(subscription?.expires_at)}
+                  </b>
                 </span>
               </div>
             </>
@@ -295,23 +312,32 @@ export const UserPlanCard = React.memo(({ userPlan, onRefresh, loading }) => {
             <div className="flex items-center gap-2">
               <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
               <span className="text-green-700 font-medium text-xs lg:text-sm">
-                {isFree
-                  ? "Gói miễn phí"
-                  : isActive
-                    ? "Đang hoạt động"
-                    : "Đã hết hạn"}
+                {FREE_FOR_ALL
+                  ? "Premium đang hoạt động"
+                  : isFree
+                    ? "Gói miễn phí"
+                    : isActive
+                      ? "Đang hoạt động"
+                      : "Đã hết hạn"}
               </span>
             </div>
             <span className="text-green-600 text-xs lg:text-sm font-medium">
-              {isFree ? "Vĩnh viễn" : timeLeft}
+              {FREE_FOR_ALL || isFree ? "Vĩnh viễn" : timeLeft}
             </span>
           </div>
         </div>
 
         {/* ACTION BUTTON */}
         <button
-          onClick={() => SonnerInfo("Sắp ra mắt!")}
-          className={`w-full text-white font-semibold py-2 rounded-xl transition ${actionConfig.className}`}
+          type="button"
+          disabled={actionConfig.disabled}
+          onClick={() => {
+            if (actionConfig.disabled) return;
+            SonnerInfo("Sắp ra mắt!");
+          }}
+          className={`w-full text-white font-semibold py-2 rounded-xl transition ${actionConfig.className} ${
+            actionConfig.disabled ? "cursor-default" : ""
+          }`}
         >
           {actionConfig.text}
         </button>
