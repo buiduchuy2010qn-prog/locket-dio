@@ -288,7 +288,7 @@ const Sidebar = () => {
           <p className="text-center text-xs pb-2 text-base-content/70">
             © {startYear}
             {currentYear > startYear && `–${currentYear}`}{" "}
-            <span className="font-semibold font-lovehouse">Dio</span>.{" "}
+            <span className="font-semibold font-lovehouse">Huy</span>.{" "}
             {t("sidebar.copyright")}
           </p>
         </div>

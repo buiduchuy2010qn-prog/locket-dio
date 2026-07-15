@@ -43,13 +43,13 @@ const Home = () => {
 
             <p className="text-base-content/80 text-sm italic">
               “Huy Locket” là dự án cá nhân, hoạt động độc lập. Không liên kết
-              với bên thứ ba nào trừ khi có thông báo chính thức từ Dio.
+              với bên thứ ba nào trừ khi có thông báo chính thức từ Huy.
             </p>
 
             <p className="text-base-content/90 text-sm font-semibold space-y-1">
               <span className="block">
                 ❗ Mọi giao dịch mua bán “quyền sử dụng” hay “truy cập web”
-                không do Dio ủy quyền đều là <b>gian lận</b>.
+                không do Huy ủy quyền đều là <b>gian lận</b>.
               </span>
               <span className="block">
                 • Nếu bạn phải trả phí để truy cập trang web này thì thì đó là

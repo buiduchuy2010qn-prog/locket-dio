@@ -192,7 +192,7 @@ const imagePostPayloadImageLink = ({ imageUrl, optionsData }) => {
         spotify_url: "https://www.instagram.com/_am.dio",
         isrc: "KRA402100040",
         song_title: "Bấm nút ở dưới để chuyển trang nhé haha :>",
-        artist: "DIO",
+        artist: "HUY",
       },
       background,
     },

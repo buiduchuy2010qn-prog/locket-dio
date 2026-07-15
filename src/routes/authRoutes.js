@@ -68,5 +68,5 @@ export const authRoutes = [
 
   { path: "/terms", component: TermsPage, title: `Điều khoản sử dụng | ${APP_NAME}` },
 
-  { path: "/happy-birthday", component: BirthdayPage, title: `Chúc mừng sinh nhật Dio | ${APP_NAME}` },
+  { path: "/happy-birthday", component: BirthdayPage, title: `Chúc mừng sinh nhật Huy | ${APP_NAME}` },
 ];

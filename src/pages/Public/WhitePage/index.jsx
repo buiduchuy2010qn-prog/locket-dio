@@ -8,7 +8,7 @@ export default function WhitePage() {
 
       {/* Dòng chữ nhỏ ở góc dưới phải */}
       <span className="absolute bottom-3 right-4 text-xs text-gray-400 select-none">
-        © Dio
+        © Huy
       </span>
     </div>
   );

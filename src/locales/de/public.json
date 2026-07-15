@@ -12,7 +12,7 @@
   },
   "error_boundary": {
     "title": "Ups! Etwas ist schiefgelaufen.",
-    "description": "Die Locket-Dio-Webanwendung ist auf einen unerwarteten Fehler gestoßen. Du kannst versuchen, sie neu zu starten oder die Community um Hilfe bitten.",
+    "description": "Die Huy-Locket-Webanwendung ist auf einen unerwarteten Fehler gestoßen. Du kannst versuchen, sie neu zu starten oder die Community um Hilfe bitten.",
     "restart": "Neu starten",
     "join_community": "Community beitreten"
   },

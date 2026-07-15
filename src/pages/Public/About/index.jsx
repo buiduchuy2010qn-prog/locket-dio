@@ -38,7 +38,7 @@ export default function AboutHuyLocket() {
             ứng dụng Locket Widget. Với Huy Locket, bạn có thể dễ dàng tải lên
             và chia sẻ ảnh, video từ máy tính hoặc bất kỳ thiết bị nào có trình
             duyệt web. <br />- Là một dự án cá nhân, hoạt động độc lập. Không
-            liên kết với bên thứ ba nào khác ngoài Dio.
+            liên kết với bên thứ ba nào khác ngoài Huy.
           </p>
           <p className="text-base-content/80 leading-relaxed text-sm">
             *Không cần cài đặt ứng dụng, không cần chuyển file phức tạp — chỉ
@@ -160,7 +160,7 @@ export default function AboutHuyLocket() {
               👥 Cộng đồng & Cảm ơn
             </h3>
             <p className="text-gray-600 text-sm leading-relaxed mb-2">
-              Huy Locket được phát triển bởi Dio — người yêu công nghệ và đam mê
+              Huy Locket được phát triển bởi Huy — người yêu công nghệ và đam mê
               sáng tạo. Tôi luôn lắng nghe phản hồi từ cộng đồng để không ngừng
               hoàn thiện sản phẩm.
             </p>

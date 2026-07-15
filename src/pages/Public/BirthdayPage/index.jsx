@@ -49,7 +49,7 @@ export default function BirthdayPage() {
         {/* Top Banner */}
         <div className="flex items-center justify-center bg-gradient-to-r from-pink-500 to-red-400 py-6 text-white">
           <Cake size={36} className="mr-3" />
-          <h1 className="text-2xl font-extrabold">Sinh Nhật Dio 🎂</h1>
+          <h1 className="text-2xl font-extrabold">Sinh Nhật Huy 🎂</h1>
         </div>
 
         {/* Content */}

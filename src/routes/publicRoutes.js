@@ -72,7 +72,7 @@ export const publicRoutes = [
 
   { path: "/collab/caption-kanade", component: ManageCaption, title: `Web hợp tác Caption Kanade | ${APP_NAME}` },
   { path: "/collab/locket-upload", component: LocketUpload, title: `Web hợp tác Locket Upload | ${APP_NAME}` },
-  { path: "/happy-birthday", component: BirthdayPage, title: `Chúc mừng sinh nhật Dio | ${APP_NAME}` },
+  { path: "/happy-birthday", component: BirthdayPage, title: `Chúc mừng sinh nhật Huy | ${APP_NAME}` },
 
   { path: "/terms", component: TermsPage, title: `Điều khoản sử dụng | ${APP_NAME}` },
   // { path: "/locket", component: LocketCameraBeta, title: `White Page for Development | ${APP_NAME}` },

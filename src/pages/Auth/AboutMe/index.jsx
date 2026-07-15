@@ -23,7 +23,7 @@ const AboutMe = () => {
         <div className="flex flex-col items-center mb-10 px-4">
           <img
             src={avatarUrl}
-            alt="Dio Avatar"
+            alt="Huy Avatar"
             className="w-32 h-32 md:w-40 md:h-40 rounded-full border-4 border-white shadow-lg mb-4"
             loading="lazy"
           />

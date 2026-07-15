@@ -11,7 +11,7 @@ const Footer = () => {
         <p className="text-center md:text-left">
           © {startYear}
           {currentYear > startYear && `–${currentYear}`}{" "}
-          <span className="font-semibold font-lovehouse">Dio</span>. All rights reserved.
+          <span className="font-semibold font-lovehouse">Huy</span>. All rights reserved.
         </p>
 
         <p className="text-center md:text-right text-xs">

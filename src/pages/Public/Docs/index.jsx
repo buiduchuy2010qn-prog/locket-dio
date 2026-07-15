@@ -4,7 +4,7 @@ const Docs = () => {
   return (
     <div className="min-h-screen px-4 flex flex-col items-center py-5">
       <h1 className="text-3xl font-semibold mb-5">
-        Hướng Dẫn Sử Dụng Trang Web Huy Locket by Dio
+        Hướng Dẫn Sử Dụng Trang Web Huy Locket by Huy
       </h1>
 
       <div className="max-w-3xl text-left mb-12">

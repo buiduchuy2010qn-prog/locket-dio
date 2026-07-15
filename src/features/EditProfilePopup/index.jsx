@@ -31,7 +31,7 @@ const EditProfilePopup = ({ open, onClose }) => {
   const user = useAuthStore((s) => s.user);
   const [editingName, setEditingName] = useState(false);
 
-  const [firstName, setFirstName] = useState("Dio");
+  const [firstName, setFirstName] = useState("Huy");
   const [lastName, setLastName] = useState("Nguyen");
 
   useEffect(() => {
