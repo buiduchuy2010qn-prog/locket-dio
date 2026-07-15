@@ -3,8 +3,9 @@ import { ZOOM_PRESETS, formatZoomModeLabel } from "@/utils";
 
 /**
  * Hàng nút zoom ấn (không kéo).
- * - Cam sau: 0.5/0.6 · 1x · 2x · 3x (chỉ hiện mode máy hỗ trợ)
+ * - Cam sau: UW (label = live ultraFactor 0.5/0.6/0.7…) · 1x · 2x · 3x
  * - Cam trước: 1x · 2x
+ * Mode key "0.5x" = "widest FOV", không phải số zoom cứng.
  */
 const ZoomPresets = ({
   activeMode = "1x",

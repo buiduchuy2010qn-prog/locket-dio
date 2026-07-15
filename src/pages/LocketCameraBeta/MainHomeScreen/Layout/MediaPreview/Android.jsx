@@ -41,10 +41,17 @@ import {
   captureVideoFreezeFrame,
   openCameraByFacing,
   switchToUltraWide05,
+  switchToWidestLens,
   updateZoomBadge,
   getUltraWideFactor,
   resolveUltraWideFactor,
   readLiveZoomFromCamera,
+  wideBandThreshold,
+  applyLiveZoom,
+  isWideZoomMode,
+  WIDE_ZOOM_MODE,
+  parkAtWidestTrackZoom,
+  isUltraZoomValue,
 } from "@/utils";
 const EditorCaption = lazy(() => import("@/features/EditorCaption"));
 import { useApp } from "@/context/AppContext";
@@ -266,7 +273,12 @@ const MediaPreviewAndroid = () => {
   );
 
   /**
-   * Apply zoom. allowLensSwitch=false khi đang pinch → không restart stream giữa chừng.
+   * Apply zoom on the CURRENT track.
+   * allowLensSwitch=false khi đang pinch / đã ở ultra → không restart stream.
+   *
+   * Sticky ultra-wide: once actualId === ultraId, NEVER setDeviceId(main)
+   * just because zoom crossed 0.92. Leaving UW is only via preset 1x
+   * (handleSelectZoomMode). Continuous zoom = applyCameraZoom only.
    */
   const applyDisplayZoom = useCallback(
     async (displayZoom, { force = false, allowLensSwitch = true } = {}) => {
@@ -314,30 +326,52 @@ const MediaPreviewAndroid = () => {
 
       const cameras = detectedRef.current;
       const shape = toDetectedShape(cameras);
+      // Prefer live track range (UW often has lower min than main)
+      const liveRange = supportsHardwareZoom(stream)
+        ? readZoomRange(stream)
+        : null;
       const bounds = boundsRef.current;
-      const minZ = bounds.minZoom ?? 1;
-      const maxZ = bounds.maxZoom ?? 1;
-      const clamped = Math.max(minZ, Math.min(displayZoom, maxZ));
+      const minZ =
+        liveRange?.supported && Number.isFinite(liveRange.minZoom)
+          ? liveRange.minZoom
+          : (bounds.minZoom ?? 1);
+      const maxZ =
+        liveRange?.supported && Number.isFinite(liveRange.maxZoom)
+          ? liveRange.maxZoom
+          : (bounds.maxZoom ?? 1);
+      // Keep boundsRef in sync with active lens so pinch uses UW range
+      boundsRef.current = { minZoom: minZ, maxZoom: maxZ };
+      const clamped = Math.max(
+        minZ,
+        Math.min(Number(displayZoom) || minZ, maxZ),
+      );
 
+      const thr = wideBandThreshold(
+        stream,
+        availableZoomModes?.ultraFactor ??
+          resolveUltraWideFactor(stream, shape, null),
+      );
       currentZoomValue.current = clamped;
       let mode = "custom";
-      if (clamped < 0.75) mode = "0.5x";
+      if (clamped < thr) mode = WIDE_ZOOM_MODE;
       else if (Math.abs(clamped - 1) < 0.15) mode = "1x";
       else if (clamped >= 1.7) mode = "2x";
       scheduleBadge(clamped, mode);
-      if (mode === "0.5x" || mode === "1x") lastZoomLevel.current = mode;
+      if (mode === WIDE_ZOOM_MODE || mode === "1x") lastZoomLevel.current = mode;
 
       const mapped = mapDisplayZoomToLens(clamped, shape, stream);
       const settings = getCurrentTrackSettings(stream);
       const actualId =
         settings.deviceId || lastDeviceId.current || deviceId || null;
       const ultraId = shape.ultrawide?.deviceId || null;
-      const mainId = shape.main?.deviceId || null;
+      const onPhysicalUltra = Boolean(
+        ultraId && actualId && actualId === ultraId,
+      );
 
-      // Lens switch — CHỈ khi không pinch (tránh lag restart)
-      if (canSwitchLens || force) {
+      // Lens switch — only hop ONTO ultra/tele, never auto-leave ultra on zoom
+      if (canSwitchLens && !onPhysicalUltra) {
         if (
-          clamped < 0.92 &&
+          clamped < thr &&
           ultraId &&
           actualId !== ultraId &&
           mapped.lensType === "ultrawide"
@@ -347,32 +381,14 @@ const MediaPreviewAndroid = () => {
             availableZoomModes?.ultraFactor ??
             getUltraWideFactor(stream, shape) ??
             null;
-          setZoomLevel("0.5x");
-          lastZoomLevel.current = "0.5x";
-          setActiveZoomMode("0.5x");
-          // Badge: live factor or keep current — never invent 0.5/0.6
+          setZoomLevel(WIDE_ZOOM_MODE);
+          lastZoomLevel.current = WIDE_ZOOM_MODE;
+          setActiveZoomMode(WIDE_ZOOM_MODE);
           currentZoomValue.current =
             factor != null ? factor : currentZoomValue.current || 1;
           setCurrentZoom(currentZoomValue.current);
           setIsSwitchingCamera(true);
           setDeviceId(ultraId);
-          return true;
-        }
-
-        if (
-          clamped >= 0.92 &&
-          ultraId &&
-          actualId === ultraId &&
-          mainId &&
-          mainId !== ultraId
-        ) {
-          setZoomLevel("1x");
-          lastZoomLevel.current = "1x";
-          setActiveZoomMode("1x");
-          currentZoomValue.current = Math.max(1, clamped);
-          setCurrentZoom(Math.max(1, clamped));
-          setIsSwitchingCamera(true);
-          setDeviceId(mainId);
           return true;
         }
 
@@ -388,11 +404,11 @@ const MediaPreviewAndroid = () => {
         }
       }
 
-      // HW zoom trên lens hiện tại — coalesce, không block
+      // HW zoom on CURRENT lens — clamp via live getCapabilities only
       const digi =
         mapped.digitalZoom != null
           ? mapped.digitalZoom
-          : Math.max(1, clamped);
+          : Math.max(minZ, Math.min(clamped, maxZ));
       if (supportsHardwareZoom(stream)) {
         if (applyInFlight.current && !force) {
           pendingZoom.current = digi;
@@ -400,14 +416,19 @@ const MediaPreviewAndroid = () => {
         }
         applyInFlight.current = true;
         try {
-          const applied = await applyCameraZoom(stream, digi);
-          if (applied !== false) return true;
+          const applied = await applyLiveZoom(stream, digi);
+          if (applied !== false) {
+            if (onPhysicalUltra || mapped.lensType === "ultrawide") {
+              setCurrentLensType("ultrawide");
+            }
+            return true;
+          }
         } finally {
           applyInFlight.current = false;
           if (pendingZoom.current != null) {
             const p = pendingZoom.current;
             pendingZoom.current = null;
-            applyCameraZoom(stream, p).catch(() => {});
+            applyLiveZoom(stream, p).catch(() => {});
           }
         }
       }
@@ -420,10 +441,12 @@ const MediaPreviewAndroid = () => {
       isSwitchingCamera,
       scheduleBadge,
       setActiveZoomMode,
+      setCurrentLensType,
       setCurrentZoom,
       setDeviceId,
       setIsSwitchingCamera,
       setZoomLevel,
+      availableZoomModes?.ultraFactor,
     ],
   );
 
@@ -479,26 +502,27 @@ const MediaPreviewAndroid = () => {
     setDetectedCameras(cameras);
     const shape = toDetectedShape(cameras);
 
-    // ── Góc siêu rộng 0.5/0.6/0.7 — multi-cam / digital min / lens ultra ──
-    if (mode === "0.5x") {
+    // ── Siêu rộng = lens rộng nhất (live zoom.min), không hardcode 0.5 ──
+    if (isWideZoomMode(mode)) {
       const preModes =
         availableZoomModes ||
         computeAvailableZoomModes(shape, streamRef.current);
       const canTryUltra =
         preModes["0.5x"] !== false ||
         Boolean(shape.ultrawide?.deviceId) ||
-        (shape.rear?.length || 0) >= 2;
+        (shape.rear?.length || 0) >= 2 ||
+        (supportsHardwareZoom(streamRef.current) &&
+          isUltraZoomValue(readZoomRange(streamRef.current)?.minZoom));
       if (!canTryUltra) {
         SonnerInfo(
           t("home.zoom_05_unsupported", {
-            defaultValue: "Thiết bị này không có góc siêu rộng",
+            defaultValue: "Máy không hỗ trợ góc siêu rộng",
           }),
         );
         return;
       }
       setIsSwitchingCamera(true);
       try {
-        // Force re-detect khi user bấm ultra (cache có thể thiếu label)
         let detShape = shape;
         try {
           const fresh = await getAvailableCameras({ force: true });
@@ -508,7 +532,8 @@ const MediaPreviewAndroid = () => {
         } catch {
           /* keep shape */
         }
-        const result = await switchToUltraWide05({
+        // Pick widest FOV (physical ultra or digital min from capabilities)
+        const result = await switchToWidestLens({
           oldStream: streamRef.current,
           videoEl: videoRef.current,
           detected: detShape,
@@ -516,7 +541,7 @@ const MediaPreviewAndroid = () => {
         if (result?.unavailable || !result?.stream) {
           SonnerInfo(
             t("home.zoom_05_unsupported", {
-              defaultValue: "Thiết bị này không có góc siêu rộng",
+              defaultValue: "Máy không hỗ trợ góc siêu rộng",
             }),
           );
           return;
@@ -526,7 +551,12 @@ const MediaPreviewAndroid = () => {
           lastDeviceId.current = result.deviceId;
           setDeviceId(result.deviceId);
         }
-        // Đọc lại từ cam sau khi mở (capabilities/settings) — không đoán hãng
+        // Re-park at live min in case open path skipped apply
+        try {
+          await parkAtWidestTrackZoom(result.stream);
+        } catch {
+          /* ignore */
+        }
         const live = readLiveZoomFromCamera(result.stream);
         const factor = resolveUltraWideFactor(
           result.stream,
@@ -536,15 +566,13 @@ const MediaPreviewAndroid = () => {
             live.current ??
             live.min,
         );
-        setZoomLevel("0.5x");
-        lastZoomLevel.current = "0.5x";
-        setActiveZoomMode("0.5x");
-        // Badge: số thật hoặc 1 (lens UW vật lý chưa expose min)
+        setZoomLevel(WIDE_ZOOM_MODE);
+        lastZoomLevel.current = WIDE_ZOOM_MODE;
+        setActiveZoomMode(WIDE_ZOOM_MODE);
         currentZoomValue.current =
-          factor != null ? factor : live.current ?? 1;
+          factor != null ? factor : live.current ?? live.min ?? 1;
         setCurrentZoom(currentZoomValue.current);
         setCurrentLensType(result.lensType || "ultrawide");
-        // Nhãn nút = số cam báo; null → "UW"
         setAvailableZoomModes((prev) => ({
           ...(prev || {}),
           "0.5x": true,
@@ -557,7 +585,7 @@ const MediaPreviewAndroid = () => {
           "environment",
         );
       } catch (e) {
-        console.error("[0.5x]", e);
+        console.error("[widest]", e);
         SonnerInfo(
           t("home.zoom_05_unsupported", {
             defaultValue: "Không mở được góc siêu rộng",
@@ -695,16 +723,18 @@ const MediaPreviewAndroid = () => {
 
     let nextZoom = startZoom * totalScale;
     nextZoom = Math.max(mn, Math.min(nextZoom, mx));
-    // Snap về ultra factor thật (0.5/0.6/0.7), không ép 0.5
+    // Snap to live ultra factor (min from capabilities), never hard-code 0.5
     const uf =
       availableZoomModes?.ultraFactor ??
-      (mn < 0.95 ? Math.round(mn * 10) / 10 : null);
-    if (!isFront && uf && nextZoom < 0.7 && mn <= uf + 0.05) nextZoom = uf;
+      (mn < 0.98 ? Math.round(mn * 10) / 10 : null);
+    if (!isFront && uf && nextZoom < uf + 0.12 && mn <= uf + 0.05) {
+      nextZoom = uf;
+    }
     if (isFront && nextZoom < 1) nextZoom = 1;
 
     currentZoomValue.current = nextZoom;
-    // Badge throttle — không setState mỗi frame
-    const wideSnap = uf ? (uf + 1) / 2 : 0.75;
+    // Badge throttle — threshold from live factor / caps
+    const wideSnap = wideBandThreshold(streamRef.current, uf);
     scheduleBadge(
       nextZoom,
       isFront
@@ -712,7 +742,7 @@ const MediaPreviewAndroid = () => {
           ? "1x"
           : "custom"
         : nextZoom < wideSnap
-          ? "0.5x"
+          ? WIDE_ZOOM_MODE
           : "custom",
     );
 
@@ -731,10 +761,25 @@ const MediaPreviewAndroid = () => {
     setIsPinching(false);
 
     const z = currentZoomValue.current;
-    // Sau pinch: mới cho phép đổi lens (0.5 ultra) nếu cần
-    applyDisplayZoom(z, { force: true, allowLensSwitch: true }).catch(
-      () => {},
+    // After pinch: stay on current lens (esp. physical ultra).
+    // Auto leave-UW on zoom≥0.92 was restarting stream → broken UW zoom.
+    // Hop onto ultra only if still on main and user pinched into wide band.
+    const liveId =
+      getCurrentTrackSettings(streamRef.current)?.deviceId ||
+      lastDeviceId.current ||
+      deviceId;
+    const ultraId = toDetectedShape(detectedRef.current)?.ultrawide?.deviceId;
+    const onUltra = Boolean(ultraId && liveId && liveId === ultraId);
+    const thr = wideBandThreshold(
+      streamRef.current,
+      availableZoomModes?.ultraFactor,
     );
+    const wantHopToUltra =
+      !onUltra && z < thr && Boolean(ultraId) && liveId !== ultraId;
+    applyDisplayZoom(z, {
+      force: true,
+      allowLensSwitch: wantHopToUltra,
+    }).catch(() => {});
 
     if (isFront) {
       if (Math.abs(z - 1) < 0.15) {
@@ -747,10 +792,10 @@ const MediaPreviewAndroid = () => {
     }
     const uf =
       availableZoomModes?.ultraFactor ??
-      (Number.isFinite(z) && z < 0.95 ? Math.round(z * 10) / 10 : null);
+      (Number.isFinite(z) && z < thr ? Math.round(z * 10) / 10 : null);
     if (uf && Math.abs(z - uf) < 0.12) {
-      setActiveZoomMode("0.5x");
-      setZoomLevel("0.5x");
+      setActiveZoomMode(WIDE_ZOOM_MODE);
+      setZoomLevel(WIDE_ZOOM_MODE);
     } else if (Math.abs(z - 1) < 0.15) {
       setActiveZoomMode("1x");
       setZoomLevel("1x");

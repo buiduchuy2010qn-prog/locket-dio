@@ -254,10 +254,11 @@ const imagePostPayloadMusic = ({ imageUrl, optionsData }) => {
     artist: music?.artist,
   };
 
-  // 🎧 Chỉ thêm khi có giá trị
+  // 🎧 Android = Spotify, iOS = Apple Music — gửi CẢ HAI khi có (không XOR)
   if (music?.spotify_url) {
     payload.spotify_url = music.spotify_url;
-  } else if (music?.apple_music_url || music?.appleMusicUrl) {
+  }
+  if (music?.apple_music_url || music?.appleMusicUrl) {
     payload.apple_music_url = music.apple_music_url || music.appleMusicUrl;
   }
 

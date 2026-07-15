@@ -232,17 +232,28 @@ export default function GeneralThemes({ title }) {
       platform: musicPayload.platform,
     });
 
-    const label =
-      musicPayload.platform === "apple" || musicPayload.apple_music_url
-        ? "Apple Music"
-        : platformHint === "apple"
+    const dual =
+      musicPayload.spotify_url && musicPayload.apple_music_url
+        ? "Spotify + Apple Music"
+        : musicPayload.apple_music_url ||
+            musicPayload.platform === "apple" ||
+            platformHint === "apple"
           ? "Apple Music"
           : "Spotify";
+    const dualHint =
+      musicPayload.spotify_url && musicPayload.apple_music_url
+        ? "Android + iOS đều nghe được"
+        : musicPayload.apple_music_url
+          ? "iOS OK — thiếu Spotify (Android có thể không phát)"
+          : musicPayload.spotify_url
+            ? "Android OK — thiếu Apple (iOS có thể không phát)"
+            : "";
     SonnerSuccess(
-      label,
-      musicPayload.preview_url
-        ? t("custom_studio.music_success")
-        : "Đã gắn nhạc (ISRC OK) — hiện trên web + app Locket.",
+      dual,
+      dualHint ||
+        (musicPayload.preview_url
+          ? t("custom_studio.music_success")
+          : "Đã gắn nhạc (ISRC OK) — hiện trên web + app Locket."),
     );
     return true;
   };

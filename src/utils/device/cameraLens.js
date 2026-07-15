@@ -410,6 +410,115 @@ export function readLiveZoomFromCamera(stream) {
   };
 }
 
+// ─── Live zoom API (no hard-coded 0.5 / 0.6 factors) ─────────────
+//
+// Reality: OEMs expose ultra-wide as different native zooms (0.5 / 0.6 / 0.7…).
+// The ONLY source of truth for continuous zoom is:
+//   track.getCapabilities().zoom  →  clamp  →  track.applyConstraints
+//
+// Internal UI mode key "0.5x" is a legacy *label slot* for "widest FOV",
+// NOT a numeric zoom target. Display text comes from live min / settings.
+
+/** Legacy preset key = "go widest" (UI / state). Not a zoom number. */
+export const WIDE_ZOOM_MODE = "0.5x";
+
+const WIDE_MODE_ALIASES = new Set([
+  "0.5x",
+  "0.5",
+  "0.6x",
+  "0.6",
+  "0.7x",
+  "0.7",
+  "0.8x",
+  "0.8",
+  "0.9x",
+  "0.9",
+  "uw",
+  "wide",
+  "ultrawide",
+  "siêu rộng",
+  "sieu rong",
+]);
+
+/** True if mode means "use widest FOV / ultra lens", not a fixed 0.5 factor. */
+export function isWideZoomMode(mode) {
+  return WIDE_MODE_ALIASES.has(String(mode || "").toLowerCase().trim());
+}
+
+/**
+ * Pinch / badge threshold between "wide" and "main" display bands.
+ * Derived from live ultra factor or capabilities.zoom.min — never hard-coded 0.5.
+ *
+ * @param {MediaStream|null} stream
+ * @param {number|null} [ultraFactor]
+ * @returns {number}
+ */
+export function wideBandThreshold(stream = null, ultraFactor = null) {
+  const uf = Number(ultraFactor);
+  if (Number.isFinite(uf) && uf > 0.15 && uf < 0.98) {
+    return Math.min(0.98, (uf + 1) / 2);
+  }
+  const live = readLiveZoomFromCamera(stream);
+  if (live.supported && live.min != null && live.min < 0.98) {
+    return Math.min(0.98, (Number(live.min) + 1) / 2);
+  }
+  // Soft fallback when caps unknown (structural multi-lens only)
+  return 0.92;
+}
+
+/**
+ * Clamp desired zoom to **this track's** getCapabilities().zoom and apply.
+ * Never restarts stream / never changes deviceId.
+ *
+ * @param {MediaStream|null} stream
+ * @param {number} desiredZoom
+ * @returns {Promise<number|false>}
+ */
+export async function applyLiveZoom(stream, desiredZoom) {
+  if (!stream || !supportsHardwareZoom(stream)) return false;
+  // Always re-read caps (don't trust stale UI numbers)
+  clearTrackZoomCache(stream);
+  const range = readZoomRange(stream);
+  if (!range.supported) return false;
+  const target = clampZoom(desiredZoom, range.minZoom, range.maxZoom);
+  return setCameraZoom(stream, target);
+}
+
+/**
+ * Park current track at its **widest** FOV = capabilities.zoom.min.
+ * This is how 0.5 / 0.6 / 0.7 devices all "go ultra" without hardcoding.
+ *
+ * @param {MediaStream|null} stream
+ * @returns {Promise<number|null>} applied zoom or null
+ */
+export async function parkAtWidestTrackZoom(stream) {
+  if (!stream || !supportsHardwareZoom(stream)) return null;
+  clearTrackZoomCache(stream);
+  const range = readZoomRange(stream);
+  if (!range.supported) return null;
+  // Native widest on this sensor/logical cam — whatever OEM reports
+  const target = range.minZoom;
+  const applied = await setCameraZoom(stream, target);
+  if (applied === false) return null;
+  return typeof applied === "number" ? applied : target;
+}
+
+/**
+ * Score how "wide" a live stream is (lower = wider FOV).
+ * Uses capabilities.zoom.min, then settings.zoom.
+ * @param {MediaStream|null} stream
+ * @returns {number} score (Infinity if unknown)
+ */
+export function widestScoreFromStream(stream) {
+  const range = readZoomRange(stream);
+  if (range.supported && Number.isFinite(range.minZoom)) {
+    return range.minZoom;
+  }
+  const z = getCurrentTrackSettings(stream)?.zoom;
+  if (typeof z === "number" && Number.isFinite(z)) return z;
+  return Number.POSITIVE_INFINITY;
+}
+
 const MAIN_HINT_RE =
   /\b1x\b|main|primary|standard|bình\s*thường|camera\s*kép|\bwide\b(?!\s*angle)|default|rear\s*camera|back\s*camera/;
 
@@ -1187,26 +1296,39 @@ export async function applyCameraZoom(stream, zoomValue) {
   return setCameraZoom(stream, zoomValue);
 }
 
+/**
+ * Continuous zoom on the CURRENT track only.
+ * Always clamps against **live** getCapabilities().zoom (OEM 0.5/0.6/0.7…).
+ * Never getUserMedia / never change deviceId — safe while on ultra-wide.
+ * (Lens hops belong in switchToWidestLens / startCameraByDeviceId / UI presets.)
+ */
 export async function setCameraZoom(stream, value) {
   const track = getActiveVideoTrack(stream);
   if (!track || track.readyState === "ended") return false;
 
+  // Fresh capabilities every apply — range can differ per lens after switch
+  const caps = getCurrentTrackCapabilities(stream);
+  if (!caps?.zoom) return false;
+  const min = Number(caps.zoom.min);
+  const max = Number(caps.zoom.max);
+  if (!Number.isFinite(min) || !Number.isFinite(max) || !(max >= min)) {
+    return false;
+  }
+  const stepRaw = Number(caps.zoom.step);
+  const step = Number.isFinite(stepRaw) && stepRaw > 0 ? stepRaw : 0.1;
+
   let cached = trackZoomCache.get(track);
   if (!cached) {
-    const caps = getCurrentTrackCapabilities(stream);
-    if (!caps?.zoom) return false;
-    cached = {
-      min: caps.zoom.min ?? 1,
-      max: caps.zoom.max ?? 1,
-      step: caps.zoom.step ?? 0.1,
-      last: null,
-    };
+    cached = { min, max, step, last: null };
     trackZoomCache.set(track, cached);
+  } else {
+    cached.min = min;
+    cached.max = max;
+    cached.step = step;
   }
 
   let next = clampZoom(value, cached.min, cached.max);
-  // Snap theo step (Samsung hay báo step 0.1 — 0.6 phải khớp)
-  const step = Number(cached.step);
+  // Snap theo step (Samsung hay báo step 0.1 — khớp 0.6/0.7… OEM)
   if (Number.isFinite(step) && step > 0 && step < 1) {
     const snapped =
       Math.round((next - cached.min) / step) * step + cached.min;
@@ -1276,20 +1398,13 @@ export function getUltraWideFactor(stream, detected = null) {
  * Chưa đo được → "UW" (không bịa 0.5/0.6).
  */
 export function formatZoomModeLabel(mode, ultraFactor = null) {
-  if (
-    mode === "0.5x" ||
-    mode === "0.6x" ||
-    mode === "0.7x" ||
-    mode === "0.8x" ||
-    mode === "0.9x" ||
-    mode === "wide"
-  ) {
+  if (isWideZoomMode(mode)) {
     const f = Number(ultraFactor);
     if (isUltraZoomValue(f)) {
       const r = roundZoomFactor(f);
       return r != null ? String(r) : "UW";
     }
-    // Lens ultra vật lý nhưng API không trả minZoom — không đoán hãng
+    // Physical ultra but caps not exposed yet — never invent 0.5/0.6
     return "UW";
   }
   if (mode === "1x") return "1";
@@ -1483,32 +1598,25 @@ export function resolveZoomModeTarget(mode, ctx = {}) {
 
   const m = String(mode || "1x").toLowerCase();
 
-  // Ultra-wide pill — any factor 0.5–0.9 (internal mode key stays "0.5x")
-  if (
-    m === "0.5x" ||
-    m === "0.5" ||
-    m === "0.6x" ||
-    m === "0.6" ||
-    m === "0.7x" ||
-    m === "0.7" ||
-    m === "0.8x" ||
-    m === "0.8" ||
-    m === "0.9x" ||
-    m === "0.9" ||
-    m === "wide" ||
-    m === "uw"
-  ) {
-    // Chỉ số từ capabilities.zoom.min của stream hiện tại
-    const factor = resolveUltraWideFactor(stream, detected, null);
+  // Widest FOV pill — mode key may be "0.5x"; numeric target = live zoom.min only
+  if (isWideZoomMode(m)) {
+    const liveMin =
+      range.supported && Number.isFinite(range.minZoom) ? range.minZoom : null;
+    const factor =
+      resolveUltraWideFactor(stream, detected, liveMin) ??
+      (liveMin != null && liveMin < 0.98 ? roundZoomFactor(liveMin) : null);
+    // After open, park at capabilities.min (OEM-specific 0.5/0.6/0.7…)
+    const parkZoom =
+      liveMin != null ? liveMin : range.supported ? range.minZoom : null;
 
     // 1) Ultra vật lý
     if (ultraId) {
       return {
         deviceId: ultraId,
-        digitalZoom: 1,
+        digitalZoom: parkZoom,
         displayZoom: factor,
         lensType: "ultrawide",
-        mode: "0.5x",
+        mode: WIDE_ZOOM_MODE,
         ultraFactor: factor,
       };
     }
@@ -1522,14 +1630,14 @@ export function resolveZoomModeTarget(mode, ctx = {}) {
       return {
         deviceId: candidates[0],
         candidateDeviceIds: candidates,
-        digitalZoom: 1,
+        digitalZoom: parkZoom,
         displayZoom: factor,
         lensType: "ultrawide",
-        mode: "0.5x",
+        mode: WIDE_ZOOM_MODE,
         ultraFactor: factor,
       };
     }
-    // 3) Digital: minZoom THẬT từ track — 0.5 / 0.6 / 0.7 / 0.8 / 0.9
+    // 3) Digital on current track — park at live min only
     if (range.supported && isUltraZoomValue(range.minZoom)) {
       const z = range.minZoom;
       const f = roundZoomFactor(z);
@@ -1538,7 +1646,7 @@ export function resolveZoomModeTarget(mode, ctx = {}) {
         digitalZoom: z,
         displayZoom: f,
         lensType: "main",
-        mode: "0.5x",
+        mode: WIDE_ZOOM_MODE,
         ultraFactor: f,
       };
     }
@@ -1548,7 +1656,7 @@ export function resolveZoomModeTarget(mode, ctx = {}) {
       digitalZoom: null,
       displayZoom: null,
       lensType: null,
-      mode: "0.5x",
+      mode: WIDE_ZOOM_MODE,
       unavailable: true,
     };
   }
@@ -1679,6 +1787,12 @@ export function getEffectiveZoomBounds(detected, stream) {
 /**
  * Map display zoom → which lens + track zoom to apply.
  * Never uses tele by default; tele only when displayZoom >= ~2 and no digital.
+ *
+ * CRITICAL (zoom on ultra-wide):
+ * Once the live stream is already on the physical ultra deviceId, continuous
+ * zoom must STAY on that lens — digitalZoom = clamp(z, caps.min, caps.max).
+ * Thresholds come from live min / ultraFactor, never hard-coded 0.5.
+ * Leaving ultra is only for explicit preset 1x / switchToMain (UI), not pinch.
  */
 export function mapDisplayZoomToLens(displayZoom, detected, stream) {
   const z = Number(displayZoom) || 1;
@@ -1686,44 +1800,77 @@ export function mapDisplayZoomToLens(displayZoom, detected, stream) {
   const ultraId = detected?.ultrawide?.deviceId || null;
   const teleId = detected?.telephoto?.deviceId || null;
   const range = readZoomRange(stream);
+  const liveId = getCurrentTrackSettings(stream)?.deviceId || null;
+  const onPhysicalUltra = Boolean(ultraId && liveId && liveId === ultraId);
+  const liveFactor = resolveUltraWideFactor(stream, detected, null);
+  const thr = wideBandThreshold(stream, liveFactor);
 
-  // ── wide band: ultra lens / digital min từ getCapabilities ──
-  if (z < 0.92) {
+  // ── Already on physical ultra-wide: sticky lens, continuous track zoom ──
+  if (onPhysicalUltra) {
+    const digi = range.supported
+      ? clampZoom(z, range.minZoom, range.maxZoom)
+      : z;
+    const factor = resolveUltraWideFactor(stream, detected, digi);
+    let mode = "custom";
+    if (range.supported && digi <= range.minZoom + 0.08) mode = WIDE_ZOOM_MODE;
+    else if (Math.abs(digi - 1) < 0.12) mode = "1x";
+    else if (digi >= 1.7) mode = "2x";
+    else if (digi < thr) mode = WIDE_ZOOM_MODE;
+    return {
+      deviceId: ultraId,
+      digitalZoom: digi,
+      displayZoom: digi,
+      lensType: "ultrawide",
+      mode,
+      switchDevice: false,
+      ultraFactor: factor,
+    };
+  }
+
+  // ── wide band: need ultra lens / digital min (not yet on ultra deviceId) ──
+  if (z < thr) {
     const factor = resolveUltraWideFactor(stream, detected, null);
 
     if (ultraId) {
+      // First hop onto ultra: open device; park at native/min zoom once.
       return {
         deviceId: ultraId,
-        digitalZoom: 1,
+        digitalZoom: range.supported
+          ? clampZoom(
+              factor != null ? factor : range.minZoom,
+              range.minZoom,
+              range.maxZoom,
+            )
+          : null,
         displayZoom: factor != null ? factor : z,
         lensType: "ultrawide",
-        mode: "0.5x",
+        mode: WIDE_ZOOM_MODE,
         switchDevice: true,
       };
     }
-    if (range.supported && range.minZoom < 0.95) {
+    if (range.supported && isUltraZoomValue(range.minZoom)) {
       return {
         deviceId: mainId,
-        digitalZoom: clampZoom(
-          Math.max(z, range.minZoom),
-          range.minZoom,
-          range.maxZoom,
-        ),
+        digitalZoom: clampZoom(z, range.minZoom, range.maxZoom),
         displayZoom: z,
         lensType: "main",
-        mode: "0.5x",
+        mode: WIDE_ZOOM_MODE,
         switchDevice: false,
       };
     }
-    // No ultra & no digital-out → stay main at min (cannot go wider)
+    // No ultra & no digital-out → stay main at live min (cannot go wider)
     return {
       deviceId: mainId,
       digitalZoom: range.supported ? range.minZoom : 1,
-      displayZoom: range.supported && range.minZoom < 1 ? range.minZoom : 1,
+      displayZoom:
+        range.supported && range.minZoom < 1 ? range.minZoom : 1,
       lensType: "main",
-      mode: range.supported && range.minZoom < 0.95 ? "0.5x" : "1x",
+      mode:
+        range.supported && isUltraZoomValue(range.minZoom)
+          ? WIDE_ZOOM_MODE
+          : "1x",
       switchDevice: false,
-      unavailable05: !range.supported || range.minZoom >= 0.95,
+      unavailable05: !range.supported || !isUltraZoomValue(range.minZoom),
     };
   }
 
@@ -1731,7 +1878,9 @@ export function mapDisplayZoomToLens(displayZoom, detected, stream) {
   if (z >= 1.9 && teleId && (!range.supported || range.maxZoom < 1.8)) {
     return {
       deviceId: teleId,
-      digitalZoom: 1,
+      digitalZoom: range.supported
+        ? clampZoom(1, range.minZoom, range.maxZoom)
+        : 1,
       displayZoom: z,
       lensType: "telephoto",
       mode: "2x",
@@ -1739,14 +1888,17 @@ export function mapDisplayZoomToLens(displayZoom, detected, stream) {
     };
   }
 
-  // Main band with digital zoom — leave ultra when zooming back up
+  // Main band — clamp to live caps only
   let digital = 1;
   if (range.supported) {
-    digital = clampZoom(Math.max(z, range.minZoom), range.minZoom, range.maxZoom);
+    digital = clampZoom(z, range.minZoom, range.maxZoom);
   }
 
   let mode = "1x";
   if (z >= 1.7) mode = "2x";
+  else if (z < thr && range.supported && isUltraZoomValue(range.minZoom)) {
+    mode = WIDE_ZOOM_MODE;
+  }
 
   return {
     deviceId: mainId,
@@ -1754,7 +1906,7 @@ export function mapDisplayZoomToLens(displayZoom, detected, stream) {
     displayZoom: z,
     lensType: "main",
     mode,
-    switchDevice: Boolean(ultraId), // may need to leave ultra
+    switchDevice: false,
   };
 }
 
@@ -1841,7 +1993,7 @@ export async function resetToMainCameraX1(options = {}) {
 }
 
 /**
- * Áp digital minZoom (0.5 / 0.6 / 0.7) trên stream còn live.
+ * Park current stream at live capabilities.zoom.min (widest on this track).
  * @returns {Promise<object|null>}
  */
 async function tryDigitalUltraWide(stream, detected, mainId) {
@@ -1851,33 +2003,34 @@ async function tryDigitalUltraWide(stream, detected, mainId) {
   if (!supportsHardwareZoom(stream)) return null;
 
   const range = readZoomRange(stream);
-  // minZoom thật của máy: 0.5 / 0.6 / 0.7 / 0.8 / 0.9… (không ép 0.5)
+  // Only if track actually exposes a wide min (OEM-specific value)
   if (!isUltraZoomValue(range.minZoom)) return null;
 
-  const z = range.minZoom;
   try {
-    clearTrackZoomCache(stream);
-    const applied = await applyCameraZoom(stream, z);
-    if (applied === false) return null;
+    const applied = await parkAtWidestTrackZoom(stream);
+    if (applied == null) return null;
     const settingsZ = getCurrentTrackSettings(stream)?.zoom;
+    const z = range.minZoom;
     const ok =
       typeof settingsZ !== "number" ||
-      settingsZ <= z + 0.15 ||
-      Math.abs(settingsZ - z) < 0.2;
-    if (!ok && typeof settingsZ === "number" && settingsZ >= 0.95) {
+      settingsZ <= z + 0.2 ||
+      Math.abs(settingsZ - z) < 0.25;
+    if (!ok && typeof settingsZ === "number" && settingsZ >= 0.98) {
       return null;
     }
     const factor = resolveUltraWideFactor(
       stream,
       detected,
-      typeof settingsZ === "number" && settingsZ < 0.95 ? settingsZ : applied || z,
+      typeof settingsZ === "number" && settingsZ < 0.98
+        ? settingsZ
+        : applied || z,
     );
     return {
       stream,
       detected,
       deviceId: getCurrentTrackSettings(stream).deviceId || mainId,
       lensType: "main",
-      zoomMode: "0.5x",
+      zoomMode: WIDE_ZOOM_MODE,
       currentZoom: factor || roundZoomFactor(z),
       digitalZoom: applied || z,
       ultraFactor: factor || roundZoomFactor(z),
@@ -1956,15 +2109,29 @@ async function openPhysicalUltraDevice(id, oldStream, videoEl) {
 }
 
 /**
- * Switch góc siêu rộng — factor thật (0.5 / 0.6 Samsung / 0.7).
+ * Switch to the **widest** rear FOV this device can offer.
  *
- * Order (critical for S25 FE):
- *  1) Physical multi-rear candidates FIRST (camera2 2, …) — Samsung often
- *     does NOT expose minZoom&lt;1 on the main track; concurrent open fails.
- *  2) Digital minZoom on current/main stream (logical multi-cam)
- *  3) Re-open main + digital if stream died mid-switch
+ * Does NOT hardcode 0.5:
+ *  - Prefer physical ultra candidates (labels / multi-rear structure)
+ *  - After open, park at track.getCapabilities().zoom.min
+ *  - Among candidates that open, keep the one with lowest zoom.min
+ *  - Else digital park on main when min < ~1
+ *
+ * Order (critical for Samsung multi-cam HAL — one stream at a time):
+ *  1) Physical candidates (try up to a few, pick lowest minZoom)
+ *  2) Digital min on current stream
+ *  3) Re-open main + digital if stream died
+ *
+ * @deprecated name switchToUltraWide05 — use switchToWidestLens
  */
 export async function switchToUltraWide05(options = {}) {
+  return switchToWidestLens(options);
+}
+
+/**
+ * @param {{ oldStream?: MediaStream|null, videoEl?: HTMLVideoElement|null, detected?: object|null }} [options]
+ */
+export async function switchToWidestLens(options = {}) {
   const { oldStream = null, videoEl = null, detected: detIn = null } = options;
   let detected = detIn || (await detectCameraDevices({ probe: false }));
   // Re-classify labels only (no getUserMedia probe) — probing steals the
@@ -1993,69 +2160,118 @@ export async function switchToUltraWide05(options = {}) {
     ),
   ].filter((id, i, arr) => id && arr.indexOf(id) === i && id !== mainId);
 
-  const multiPhysical = candidates.length > 0;
-  let lastOpened = null;
+  /** @type {{ stream: MediaStream, score: number, deviceId: string, factor: number|null, applied: number|null }|null} */
+  let best = null;
   let liveStream = oldStream;
 
-  // 1) Physical ultra FIRST when we have a separate rear deviceId
-  //    (S25 FE camera2 2 — digital zoom alone never changes FOV here)
-  if (multiPhysical) {
-    for (const id of candidates) {
-      try {
-        const stream = await openPhysicalUltraDevice(id, liveStream, videoEl);
-        if (!stream) continue;
-        liveStream = stream;
-        lastOpened = stream;
+  // Cap attempts — each open is expensive and may free the previous camera
+  const MAX_TRY = Math.min(3, candidates.length);
 
-        if (supportsHardwareZoom(stream)) {
+  // 1) Physical multi-rear: open candidates, park at live min, keep widest
+  for (let i = 0; i < MAX_TRY; i++) {
+    const id = candidates[i];
+    try {
+      const stream = await openPhysicalUltraDevice(
+        id,
+        best?.stream || liveStream,
+        videoEl,
+      );
+      if (!stream) continue;
+
+      const applied = await parkAtWidestTrackZoom(stream);
+      const score = widestScoreFromStream(stream);
+      const appliedZ = getCurrentTrackSettings(stream)?.zoom;
+      const factor = resolveUltraWideFactor(
+        stream,
+        detected,
+        typeof appliedZ === "number"
+          ? appliedZ
+          : typeof applied === "number"
+            ? applied
+            : null,
+      );
+      const openedId = getCurrentTrackSettings(stream)?.deviceId || id;
+
+      // Prefer lower zoom.min (wider FOV). Tie-break: classified ultraId first.
+      const better =
+        !best ||
+        score < best.score - 0.02 ||
+        (Math.abs(score - best.score) <= 0.02 && id === ultraId);
+
+      if (better) {
+        if (best?.stream && best.stream !== stream) {
           try {
-            const range = readZoomRange(stream);
-            const z =
-              range.minZoom > 0.15 && range.minZoom < 0.95
-                ? range.minZoom
-                : range.minZoom <= 1 && range.maxZoom >= 1
-                  ? 1
-                  : range.minZoom;
-            await applyCameraZoom(stream, z);
+            clearTrackZoomCache(best.stream);
+            stopCurrentCamera(best.stream, null);
           } catch {
             /* ignore */
           }
         }
-
-        const appliedZ = getCurrentTrackSettings(stream)?.zoom;
-        const factor = resolveUltraWideFactor(
+        best = {
           stream,
-          detected,
-          typeof appliedZ === "number" ? appliedZ : null,
-        );
-        const openedId = getCurrentTrackSettings(stream)?.deviceId || id;
-        return {
-          stream,
-          detected,
+          score,
           deviceId: openedId,
-          lensType: "ultrawide",
-          zoomMode: "0.5x",
-          currentZoom: factor != null ? factor : 1,
-          digitalZoom: 1,
-          ultraFactor: factor,
-          switchedDevice: true,
+          factor,
+          applied:
+            typeof applied === "number"
+              ? applied
+              : typeof appliedZ === "number"
+                ? appliedZ
+                : null,
         };
-      } catch (e) {
-        console.warn("[ultra] open candidate failed", id, e?.message);
+        liveStream = stream;
+      } else if (stream !== best?.stream) {
+        try {
+          clearTrackZoomCache(stream);
+          stopCurrentCamera(stream, null);
+        } catch {
+          /* ignore */
+        }
       }
+
+      // Classified ultra with a real wide min — good enough, stop early
+      if (
+        id === ultraId &&
+        Number.isFinite(score) &&
+        score < 0.98
+      ) {
+        break;
+      }
+    } catch (e) {
+      console.warn("[widest] open candidate failed", id, e?.message);
     }
+  }
+
+  if (best?.stream) {
+    return {
+      stream: best.stream,
+      detected,
+      deviceId: best.deviceId,
+      lensType: "ultrawide",
+      zoomMode: WIDE_ZOOM_MODE,
+      currentZoom:
+        best.factor != null
+          ? best.factor
+          : best.applied != null
+            ? roundZoomFactor(best.applied)
+            : 1,
+      digitalZoom: best.applied,
+      ultraFactor: best.factor,
+      switchedDevice: true,
+      widestScore: best.score,
+    };
   }
 
   // 2) Digital minZoom on remaining live stream (logical multi-cam)
   const digitalFirst = await tryDigitalUltraWide(
-    lastOpened || liveStream || oldStream,
+    liveStream || oldStream,
     detected,
     mainId,
   );
   if (digitalFirst) return digitalFirst;
 
   // 3) Re-open main + digital if stream died
-  let stream = lastOpened || liveStream || oldStream;
+  let stream = liveStream || oldStream;
   const trackLive =
     stream?.getVideoTracks?.()?.[0]?.readyState === "live";
   if (!trackLive) {
@@ -2074,7 +2290,7 @@ export async function switchToUltraWide05(options = {}) {
         }
       }
     } catch (e) {
-      console.warn("[ultra] open main failed", e?.message);
+      console.warn("[widest] open main failed", e?.message);
       return { unavailable: true, detected };
     }
   }
@@ -2082,31 +2298,22 @@ export async function switchToUltraWide05(options = {}) {
   const digitalRetry = await tryDigitalUltraWide(stream, detected, mainId);
   if (digitalRetry) return digitalRetry;
 
-  // 4) Chỉ apply minZoom THẬT của track (không đoán 0.5/0.6)
+  // 4) Last resort: park any live track at its min if wide
   if (stream && supportsHardwareZoom(stream)) {
-    const range = readZoomRange(stream);
-    if (range.minZoom > 0.15 && range.minZoom < 0.95) {
-      const target = range.minZoom;
-      try {
-        clearTrackZoomCache(stream);
-        const applied = await applyCameraZoom(stream, target);
-        if (applied !== false && Number(applied) < 0.95) {
-          const factor = resolveUltraWideFactor(stream, detected, applied);
-          return {
-            stream,
-            detected,
-            deviceId: getCurrentTrackSettings(stream).deviceId || mainId,
-            lensType: "main",
-            zoomMode: "0.5x",
-            currentZoom: factor || roundZoomFactor(applied),
-            digitalZoom: applied,
-            ultraFactor: factor || roundZoomFactor(applied),
-            switchedDevice: false,
-          };
-        }
-      } catch {
-        /* ignore */
-      }
+    const applied = await parkAtWidestTrackZoom(stream);
+    if (applied != null && isUltraZoomValue(applied)) {
+      const factor = resolveUltraWideFactor(stream, detected, applied);
+      return {
+        stream,
+        detected,
+        deviceId: getCurrentTrackSettings(stream).deviceId || mainId,
+        lensType: "main",
+        zoomMode: WIDE_ZOOM_MODE,
+        currentZoom: factor || roundZoomFactor(applied),
+        digitalZoom: applied,
+        ultraFactor: factor || roundZoomFactor(applied),
+        switchedDevice: false,
+      };
     }
   }
 
