@@ -151,19 +151,17 @@ export default function GeneralThemes({ title }) {
       return false;
     }
 
-    // App Locket: caption/text = TÊN BÀI THUẦN (không ghép artist)
-    const song_title = String(
+    const caption =
+      musicData.title ||
+      [musicData.song_title || musicData.song_name, musicData.artist]
+        .filter(Boolean)
+        .join(" · ");
+
+    const song_title =
       musicData.song_title ||
-        musicData.song_name ||
-        musicData.name ||
-        musicData.title ||
-        "",
-    )
-      .trim()
-      .split(/\s*[·|]\s*/)[0]
-      .split(/\s+-\s+/)[0]
-      .trim();
-    const caption = song_title;
+      musicData.song_name ||
+      musicData.name ||
+      "";
     const hasSpotify = Boolean(musicData.spotify_url);
     const hasApple = Boolean(
       musicData.apple_music_url || musicData.appleMusicUrl,
@@ -175,7 +173,6 @@ export default function GeneralThemes({ title }) {
       name: song_title,
       artist: musicData.artist || "",
       isrc,
-      // preview chỉ cho web player local — server KHÔNG gửi lên Locket official
       preview_url:
         musicData.preview_url ||
         musicData.previewUrl ||
@@ -188,7 +185,7 @@ export default function GeneralThemes({ title }) {
           ? "apple"
           : musicData.platform || platformHint,
     };
-    // Dual: Spotify (Android) + Apple (iOS MusicKit)
+    // Platform links: badge ưu tiên Spotify nếu có; giữ Apple song song (iOS play)
     if (hasSpotify) musicPayload.spotify_url = musicData.spotify_url;
     if (hasApple) {
       musicPayload.apple_music_url =
@@ -209,7 +206,7 @@ export default function GeneralThemes({ title }) {
     if (!musicPayload.spotify_url && !musicPayload.apple_music_url) {
       SonnerError(
         "Thiếu link Apple Music / Spotify",
-        "Chọn bài khác — app Locket cần link để hiện + phát nhạc.",
+        "Chọn bài khác (có preview) — app Locket cần link để hiện nhạc.",
       );
       return false;
     }
@@ -542,8 +539,8 @@ export default function GeneralThemes({ title }) {
         return;
       }
 
-      // App Locket: caption = tên bài thuần (không · artist)
-      const caption = song_title;
+      const caption =
+        [song_title, artist].filter(Boolean).join(" · ") || song_title;
 
       // Web: loop full preview — không cắt endTime=30 (hay = hết file → im sau 1 vòng)
       const clipStart = 0;
@@ -556,7 +553,6 @@ export default function GeneralThemes({ title }) {
       };
 
       // Ưu tiên preview iTunes (ổn định); Deezer signed hay chết giữa chừng
-      // preview chỉ cho web player — server KHÔNG gửi lên Locket official
       let webPreview = preview;
       if (
         webPreview &&
