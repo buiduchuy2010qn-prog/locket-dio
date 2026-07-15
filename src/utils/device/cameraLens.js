@@ -3,11 +3,14 @@
  *
  * Rules:
  * - Default rear = main wide @ 1x (never telephoto / macro).
- * - Ultra pill: open ultra lens / apply track.minZoom — label ONLY from
+ * - Ultra pill: open ultra lens / apply track.minZoom — display factor ONLY from
  *   MediaStreamTrack.getCapabilities().zoom / getSettings().zoom
  *   (never guess 0.5 vs 0.6 by User-Agent / brand).
+ * - Universal ultra detection: multi-heuristic (label + multi-rear + optional
+ *   capability probe). Works for 0.5x–0.9x and unlabeled devices.
  * - Pinch: continuous min→max from live track.
  * - Stop old tracks only after the new stream is ready.
+ * - Never hide a usable rear camera from candidate lists.
  */
 
 import { getCameraPreviewConstraints } from "./perfProfile";
@@ -23,14 +26,25 @@ const BACK_RE =
   /mặt\s*sau|back|rear|environment|sau|facing\s*back|outer|world|camera2\s*\d+|camera1\s*0/;
 
 const AVOID_RE =
-  /telephoto|\btele\b|\bzoom\b|macro|depth|portrait|periscope|chụp\s*xa|siêu\s*xa|bokeh|tof|time[\s-]?of[\s-]?flight/;
+  /telephoto|\btele\b|\bzoom\b|macro|depth|portrait|periscope|chụp\s*xa|siêu\s*xa|bokeh|tof|time[\s-]?of[\s-]?flight|红外|ir\s*camera|monochrome/;
 
-// 0.5x / 0.6x / 0.7x: Samsung / Pixel / Xiaomi / Oppo ultra-wide
+/**
+ * Ultra-wide labels — multi-locale, multi-factor (0.5–0.9).
+ * Does NOT assume ultra === 0.5x only.
+ */
 const ULTRA_RE =
-  /cực\s*rộng|siêu\s*rộng|góc\s*siêu\s*rộng|góc\s*rộng|ultra[\s_-]*wide|ultrawide|ultra\b|0\.[5-7]x|\b0\.[5-7]\b|wide[\s_-]*angle|fisheye|fish[\s_-]*eye|\buw\b|camera2\s*2(?!\d)|logical[\s_-]*multi|multi[\s_-]*camera|samsung[\s_-]*camera[\s_-]*2|cam[\s_-]*uw|uwcam|super[\s_-]*wide|extra[\s_-]*wide|uwb|\b0\.5\b|goc\s*rong|sieu\s*rong|cam[_\s-]*2(?!\d)|lens[_\s-]*2(?!\d)|secondary|aux(iliary)?/;
+  /cực\s*rộng|siêu\s*rộng|góc\s*siêu\s*rộng|góc\s*rộng|goc\s*rong|sieu\s*rong|ultra[\s_-]*wide|ultrawide|ultra\b|0\.[5-9]\s*x|\b0\.[5-9]\b|wide[\s_-]*angle|fisheye|fish[\s_-]*eye|\buw\b|cam[\s_-]*uw|uwcam|super[\s_-]*wide|extra[\s_-]*wide|uwb|camera2\s*2(?!\d)|samsung[\s_-]*camera[\s_-]*2|cam[_\s-]*2(?!\d)|lens[_\s-]*2(?!\d)|secondary|aux(iliary)?|超广角|超廣角|广角|초광각|광각|超広角|広角|grand[\s_-]*angle|angolo[\s_-]*ultra|ultrawinkel|ultra[\s_-]*weit/;
+
+/** Strong ultra signal — safe to skip capability probe */
+const CONFIDENT_ULTRA_RE =
+  /ultra[\s_-]*wide|ultrawide|siêu\s*rộng|cực\s*rộng|góc\s*siêu\s*rộng|0\.[5-9]\s*x|\b0\.[5-9]\b|fisheye|fish[\s_-]*eye|super[\s_-]*wide|extra[\s_-]*wide|\buw\b|超广角|超廣角|초광각|超広角|grand[\s_-]*angle/;
 
 const TELE_RE =
-  /chụp\s*xa|telephoto|\btele\b|periscope|\b2x\b|\b3x\b|\b5x\b|\b10x\b|camera2\s*[3-9]|cam[_\s-]*3|lens[_\s-]*3/;
+  /chụp\s*xa|telephoto|\btele\b|periscope|\b2x\b|\b3x\b|\b5x\b|\b10x\b|camera2\s*[3-9]|cam[_\s-]*3|lens[_\s-]*3|长焦|長焦|망원|望遠/;
+
+/** Zoom factor band treated as ultra-wide (physical or digital min) */
+const ULTRA_ZOOM_MIN = 0.15;
+const ULTRA_ZOOM_MAX = 0.95;
 
 /**
  * Chỉ số zoom CHỈ lấy từ camera thật (getCapabilities / getSettings),
@@ -56,16 +70,183 @@ export function defaultUltraFactor() {
   return null;
 }
 
-/** Làm tròn 1 chữ số từ giá trị camera thật (0.5 / 0.6 / 0.7…) */
+/** Làm tròn 1 chữ số từ giá trị camera thật (0.5 / 0.6 / 0.7 / 0.8 / 0.9…) */
 export function roundZoomFactor(z) {
   const n = Number(z);
   if (!Number.isFinite(n) || n <= 0) return null;
-  // Snap gần mốc phổ biến nếu lệch float
-  const snaps = [0.5, 0.6, 0.7, 0.8, 1, 2, 3, 5];
+  // Snap gần mốc phổ biến nếu lệch float — mọi hệ số góc rộng
+  const snaps = [0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.5, 2, 3, 5, 10];
   for (const s of snaps) {
     if (Math.abs(n - s) < 0.05) return s;
   }
   return Math.round(n * 10) / 10;
+}
+
+/** True if zoom value is in ultra-wide band (any manufacturer factor). */
+export function isUltraZoomValue(z) {
+  const n = Number(z);
+  return Number.isFinite(n) && n > ULTRA_ZOOM_MIN && n < ULTRA_ZOOM_MAX;
+}
+
+/** Label confidently says ultra-wide (not weak camera2-2 / secondary only). */
+export function isConfidentUltraLabel(label = "") {
+  return CONFIDENT_ULTRA_RE.test(String(label || "").toLowerCase());
+}
+
+// ─── Capability probe cache (session) ─────────────────────────────
+/** @type {Map<string, { minZoom: number|null, maxZoom: number|null, facingMode: string|null, width: number|null, height: number|null, probedAt: number }>} */
+const deviceProbeCache = new Map();
+let probeInFlight = null;
+
+/** Clear probe cache (call with invalidateCameraCache). */
+export function clearDeviceProbeCache() {
+  deviceProbeCache.clear();
+  probeInFlight = null;
+}
+
+/**
+ * Low-res probe of a single device — getCapabilities/settings only.
+ * Cached; never blocks UI longer than ~2.5s per device.
+ * @param {string} deviceId
+ */
+export async function probeDeviceCapabilities(deviceId) {
+  if (!deviceId || !navigator.mediaDevices?.getUserMedia) return null;
+  if (deviceProbeCache.has(deviceId)) return deviceProbeCache.get(deviceId);
+
+  const run = async () => {
+    let stream = null;
+    try {
+      const timeoutMs = 2500;
+      const open = navigator.mediaDevices.getUserMedia({
+        video: {
+          deviceId: { exact: deviceId },
+          width: { ideal: 320, max: 640 },
+          height: { ideal: 240, max: 480 },
+          frameRate: { ideal: 15, max: 24 },
+        },
+        audio: false,
+      });
+      stream = await Promise.race([
+        open,
+        new Promise((_, rej) =>
+          setTimeout(() => rej(new Error("probe-timeout")), timeoutMs),
+        ),
+      ]);
+      const track = stream.getVideoTracks?.()?.[0];
+      if (!track) return null;
+      let caps = {};
+      let settings = {};
+      try {
+        caps = track.getCapabilities?.() || {};
+      } catch {
+        /* ignore */
+      }
+      try {
+        settings = track.getSettings?.() || {};
+      } catch {
+        /* ignore */
+      }
+      const minZoom =
+        typeof caps?.zoom?.min === "number" ? caps.zoom.min : null;
+      const maxZoom =
+        typeof caps?.zoom?.max === "number" ? caps.zoom.max : null;
+      const meta = {
+        deviceId,
+        minZoom,
+        maxZoom,
+        facingMode: settings.facingMode || null,
+        width: settings.width || null,
+        height: settings.height || null,
+        probedAt: Date.now(),
+      };
+      deviceProbeCache.set(deviceId, meta);
+      return meta;
+    } catch {
+      // Cache miss as empty so we don't retry every flip
+      const meta = {
+        deviceId,
+        minZoom: null,
+        maxZoom: null,
+        facingMode: null,
+        width: null,
+        height: null,
+        probedAt: Date.now(),
+        failed: true,
+      };
+      deviceProbeCache.set(deviceId, meta);
+      return meta;
+    } finally {
+      if (stream) {
+        try {
+          stream.getTracks().forEach((t) => t.stop());
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+  };
+
+  return run();
+}
+
+/**
+ * Score a rear device as ultra-wide candidate (higher = more likely UW).
+ * Combines label + optional probe (minZoom) + weak index hints.
+ * Never brand-specific.
+ */
+export function scoreUltraWideCandidate(
+  device,
+  {
+    mainId = null,
+    teleId = null,
+    rearIndex = 0,
+    rearTotal = 1,
+    probe = null,
+  } = {},
+) {
+  if (!device?.deviceId) return -999;
+  if (device.deviceId === mainId) return -200;
+  if (device.deviceId === teleId) return -150;
+
+  const label = String(device.label || "").toLowerCase();
+  let score = 0;
+
+  if (isConfidentUltraLabel(label)) score += 120;
+  else if (isUltraLabel(label)) score += 70;
+
+  if (isTeleLabel(label) || AVOID_RE.test(label)) score -= 120;
+  if (/macro|depth|portrait|tof|bokeh|infrared|ir\b|mono/.test(label)) {
+    score -= 80;
+  }
+
+  // Explicit factor in label: 0.5–0.9
+  const factorMatch = label.match(/\b0\.([5-9])\b/);
+  if (factorMatch) score += 40 + (9 - Number(factorMatch[1])); // prefer wider
+
+  // Probe: minZoom < 1 is the strongest universal signal
+  const minZ = probe?.minZoom;
+  if (typeof minZ === "number" && Number.isFinite(minZ)) {
+    if (isUltraZoomValue(minZ)) {
+      score += 150;
+      // Wider min → slightly higher (0.5 better ultra signal than 0.9)
+      score += Math.round((0.95 - minZ) * 40);
+    } else if (minZ >= 0.95 && minZ <= 1.05) {
+      score -= 30; // looks like main
+    } else if (minZ > 1.2) {
+      score -= 100; // tele-like
+    }
+  }
+
+  // Facing must not be user
+  if (probe?.facingMode === "user") score -= 200;
+
+  // Weak index hint only (never sole decision): some Android lists ultra early
+  if (rearTotal >= 2 && rearIndex === 0 && !isTeleLabel(label)) score += 8;
+  if (rearTotal >= 3 && rearIndex === rearTotal - 1 && isTeleLabel(label)) {
+    score -= 20;
+  }
+
+  return score;
 }
 
 /**
@@ -82,9 +263,9 @@ export function resolveUltraWideFactor(
   _detected = null,
   appliedZoom = null,
 ) {
-  // 1) Zoom vừa apply (sau applyConstraints)
+  // 1) Zoom vừa apply (sau applyConstraints) — any 0.5–0.9 band
   const applied = Number(appliedZoom);
-  if (Number.isFinite(applied) && applied > 0.15 && applied < 0.95) {
+  if (isUltraZoomValue(applied)) {
     return roundZoomFactor(applied);
   }
 
@@ -93,12 +274,7 @@ export function resolveUltraWideFactor(
   // 2) getSettings().zoom — giá trị đang chạy
   try {
     const settingsZ = getCurrentTrackSettings(stream)?.zoom;
-    if (
-      typeof settingsZ === "number" &&
-      Number.isFinite(settingsZ) &&
-      settingsZ > 0.15 &&
-      settingsZ < 0.95
-    ) {
+    if (isUltraZoomValue(settingsZ)) {
       return roundZoomFactor(settingsZ);
     }
   } catch {
@@ -108,11 +284,7 @@ export function resolveUltraWideFactor(
   // 3) getCapabilities().zoom.min — dải zoom HW/logical multi-cam
   try {
     const range = readZoomRange(stream);
-    if (
-      range.supported &&
-      range.minZoom > 0.15 &&
-      range.minZoom < 0.95
-    ) {
+    if (range.supported && isUltraZoomValue(range.minZoom)) {
       return roundZoomFactor(range.minZoom);
     }
   } catch {
@@ -252,10 +424,36 @@ export async function ensureLabeledVideoDevices() {
 
 /**
  * Detect and classify all cameras (required API name).
+ * Fast by default (labels + multi-rear heuristics).
+ * Pass `{ probe: true }` to await capability probes (slower, more accurate).
+ * Prefer background probe via scheduleCameraCapabilityProbe / switchToUltra.
+ * @param {{ probe?: boolean }} [opts]
  */
-export async function detectCameraDevices() {
+export async function detectCameraDevices(opts = {}) {
   const devices = await ensureLabeledVideoDevices();
-  return detectRearCameras(devices);
+  let result = detectRearCameras(devices);
+  // Only block when explicitly requested — keeps camera open fast
+  if (opts.probe === true) {
+    try {
+      result = await enrichDetectedWithCapabilityProbes(result);
+    } catch (e) {
+      console.warn("[camera] capability probe skipped:", e?.message);
+    }
+  }
+  return result;
+}
+
+/**
+ * Fire-and-forget capability probes — updates probe cache without blocking UI.
+ * Safe to call after first camera list is shown.
+ */
+export function scheduleCameraCapabilityProbe(detected) {
+  if (!detected?.rear || detected.rear.length < 2) return;
+  if (isConfidentUltraLabel(detected.ultrawide?.label || "")) return;
+  // Don't await — warm cache for next ultra switch / reclassify
+  Promise.resolve()
+    .then(() => enrichDetectedWithCapabilityProbes(detected))
+    .catch(() => {});
 }
 
 export function detectRearCameras(videoDevices = []) {
@@ -337,10 +535,11 @@ export function pickMainRearCamera(rearCameras = []) {
 }
 
 /**
- * Ultra-wide picker — cố gắng có 0.5x trên mọi máy multi-lens.
- * 1) Label rõ (ultra / 0.5 / camera2 2 / siêu rộng …)
- * 2) Multi rear: non-main, non-tele → coi là ultra (Android dual/triple)
- * 3) 2 rear không label: cam còn lại (không phải main) = ultra
+ * Ultra-wide picker — universal multi-heuristic (not brand-specific).
+ * 1) Confident label (ultra / 0.5–0.9 / siêu rộng / 超广角 …)
+ * 2) Capability probe minZoom in (0.15, 0.95) when cached
+ * 3) Scored non-main, non-tele rear (never hide candidates)
+ * 4) Dual-rear unlabeled: remaining rear as ultra fallback
  */
 export function pickUltraWideCamera(
   rearCameras = [],
@@ -349,9 +548,6 @@ export function pickUltraWideCamera(
 ) {
   if (!rearCameras.length) return null;
 
-  const byLabel = rearCameras.find((d) => isUltraLabel(d.label || ""));
-  if (byLabel) return byLabel;
-
   const mainId =
     mainCamera?.deviceId || pickMainRearCamera(rearCameras)?.deviceId;
   const teleId =
@@ -359,33 +555,43 @@ export function pickUltraWideCamera(
     rearCameras.find((d) => isTeleLabel(d.label || ""))?.deviceId ||
     null;
 
-  // Mọi rear khác main/tele — ứng viên ultra (không loại vì AVOID: label "zoom" hay nhầm)
-  const others = rearCameras.filter(
-    (d) =>
-      d.deviceId !== mainId &&
-      d.deviceId !== teleId &&
-      !isTeleLabel(d.label || "") &&
-      !isUltraLabel(d.label || ""), // byLabel đã bắt ultra; còn lại non-tele
+  // 1) Confident ultra label first
+  const confident = rearCameras.find((d) =>
+    isConfidentUltraLabel(d.label || ""),
   );
+  if (confident) return confident;
 
-  if (others.length) {
-    // Ưu tiên: label gợi ý rộng, rồi index sớm (Android ultra hay đứng trước main)
-    others.sort((a, b) => {
-      const la = (a.label || "").toLowerCase();
-      const lb = (b.label || "").toLowerCase();
-      const sa = /wide|rộng|0\.[5-7]|uw|camera2\s*2/.test(la) ? 0 : 1;
-      const sb = /wide|rộng|0\.[5-7]|uw|camera2\s*2/.test(lb) ? 0 : 1;
-      if (sa !== sb) return sa - sb;
-      const ia = rearCameras.findIndex((d) => d.deviceId === a.deviceId);
-      const ib = rearCameras.findIndex((d) => d.deviceId === b.deviceId);
-      return ia - ib;
-    });
-    return others[0];
+  // 2) Any ultra label
+  const byLabel = rearCameras.find((d) => isUltraLabel(d.label || ""));
+  if (byLabel) return byLabel;
+
+  // 3) Score all rear using labels + probe cache (if any)
+  const scored = rearCameras
+    .map((device, rearIndex) => {
+      const probe = deviceProbeCache.get(device.deviceId) || null;
+      return {
+        device,
+        score: scoreUltraWideCandidate(device, {
+          mainId,
+          teleId,
+          rearIndex,
+          rearTotal: rearCameras.length,
+          probe,
+        }),
+      };
+    })
+    .filter((s) => s.device.deviceId !== mainId)
+    .filter((s) => s.device.deviceId !== teleId)
+    .filter((s) => !isTeleLabel(s.device.label || ""))
+    .sort((a, b) => b.score - a.score);
+
+  if (scored.length && scored[0].score > 0) {
+    return scored[0].device;
   }
 
-  // 2+ rear, không label: non-main = ultra (dual camera phổ biến)
+  // 4) Dual/triple rear unlabeled — never hide: pick best remaining
   if (rearCameras.length >= 2 && mainId) {
-    // Thử cam đứng trước main trong list (pattern Android)
+    if (scored.length) return scored[0].device;
     const mainIdx = rearCameras.findIndex((d) => d.deviceId === mainId);
     if (mainIdx > 0) {
       const earlier = rearCameras[mainIdx - 1];
@@ -397,7 +603,6 @@ export function pickUltraWideCamera(
         return earlier;
       }
     }
-    // Hoặc bất kỳ rear khác main
     const other = rearCameras.find(
       (d) =>
         d.deviceId !== mainId &&
@@ -407,13 +612,13 @@ export function pickUltraWideCamera(
     if (other) return other;
   }
 
-  // 1 rear only — không có ultra vật lý
   return null;
 }
 
 /**
- * Danh sách deviceId ứng viên ultra (thử lần lượt khi mở 0.5x).
- * Giúp máy không gắn label vẫn có góc siêu rộng.
+ * Danh sách deviceId ứng viên ultra (thử lần lượt khi mở UW).
+ * Sorted by score so 0.5–0.9 / unlabeled devices still get a chance.
+ * Never omits a usable non-main rear (except clear tele labels).
  */
 export function listUltraWideCandidates(
   rearCameras = [],
@@ -426,16 +631,110 @@ export function listUltraWideCandidates(
     teleCamera?.deviceId ||
     rearCameras.find((d) => isTeleLabel(d.label || ""))?.deviceId ||
     null;
+
+  const scored = rearCameras
+    .filter((d) => d?.deviceId)
+    .filter((d) => d.deviceId !== mainId && d.deviceId !== teleId)
+    .filter((d) => !isTeleLabel(d.label || ""))
+    .map((device, rearIndex) => ({
+      device,
+      score: scoreUltraWideCandidate(device, {
+        mainId,
+        teleId,
+        rearIndex: rearCameras.findIndex((x) => x.deviceId === device.deviceId),
+        rearTotal: rearCameras.length,
+        probe: deviceProbeCache.get(device.deviceId) || null,
+      }),
+    }))
+    .sort((a, b) => b.score - a.score);
+
+  const ids = scored.map((s) => s.device.deviceId);
+
+  // Primary pick first if not already first
   const primary = pickUltraWideCamera(rearCameras, mainCamera, teleCamera);
-  const ids = [];
-  if (primary?.deviceId) ids.push(primary.deviceId);
-  for (const d of rearCameras) {
-    if (!d?.deviceId) continue;
-    if (d.deviceId === mainId || d.deviceId === teleId) continue;
-    if (isTeleLabel(d.label || "")) continue;
-    if (!ids.includes(d.deviceId)) ids.push(d.deviceId);
+  if (primary?.deviceId) {
+    const rest = ids.filter((id) => id !== primary.deviceId);
+    return [primary.deviceId, ...rest];
   }
   return ids;
+}
+
+/**
+ * Optional one-shot capability probes for multi-rear phones without
+ * confident ultra labels. Cached — does not re-open cameras next time.
+ * @param {ReturnType<typeof detectRearCameras>} detected
+ */
+export async function enrichDetectedWithCapabilityProbes(detected) {
+  if (!detected?.rear?.length || detected.rear.length < 2) return detected;
+
+  const ultraLabelOk = isConfidentUltraLabel(detected.ultrawide?.label || "");
+  if (ultraLabelOk) return detected;
+
+  // Probe rear devices missing from cache (max 4 to keep startup reasonable)
+  const toProbe = detected.rear
+    .map((d) => d.deviceId)
+    .filter(Boolean)
+    .filter((id) => !deviceProbeCache.has(id))
+    .slice(0, 4);
+
+  if (toProbe.length) {
+    // Deduplicate concurrent enrich calls
+    if (!probeInFlight) {
+      probeInFlight = Promise.all(
+        toProbe.map((id) => probeDeviceCapabilities(id)),
+      ).finally(() => {
+        probeInFlight = null;
+      });
+    }
+    try {
+      await probeInFlight;
+    } catch {
+      /* ignore */
+    }
+  }
+
+  // Re-classify with probe-aware scoring
+  const main = detected.main || pickMainRearCamera(detected.rear);
+  const telephoto = pickTeleCamera(detected.rear, main);
+  const ultrawide = pickUltraWideCamera(detected.rear, main, telephoto);
+
+  // Promote device whose probe minZoom is ultra even if pick missed
+  let bestUltra = ultrawide;
+  let bestScore = -Infinity;
+  for (let i = 0; i < detected.rear.length; i++) {
+    const d = detected.rear[i];
+    if (d.deviceId === main?.deviceId) continue;
+    const probe = deviceProbeCache.get(d.deviceId);
+    const sc = scoreUltraWideCandidate(d, {
+      mainId: main?.deviceId,
+      teleId: telephoto?.deviceId,
+      rearIndex: i,
+      rearTotal: detected.rear.length,
+      probe,
+    });
+    if (sc > bestScore) {
+      bestScore = sc;
+      bestUltra = d;
+    }
+  }
+  if (bestScore > 20) {
+    bestUltra = bestUltra || ultrawide;
+  } else {
+    bestUltra = ultrawide || bestUltra;
+  }
+
+  return {
+    ...detected,
+    main,
+    telephoto,
+    ultrawide: bestUltra || ultrawide,
+    rearOptions: detected.rear,
+    probes: Object.fromEntries(
+      detected.rear
+        .map((d) => [d.deviceId, deviceProbeCache.get(d.deviceId)])
+        .filter(([, v]) => v),
+    ),
+  };
 }
 
 export function pickTeleCamera(rearCameras = [], mainCamera = null) {
@@ -832,10 +1131,12 @@ export function formatZoomModeLabel(mode, ultraFactor = null) {
     mode === "0.5x" ||
     mode === "0.6x" ||
     mode === "0.7x" ||
+    mode === "0.8x" ||
+    mode === "0.9x" ||
     mode === "wide"
   ) {
     const f = Number(ultraFactor);
-    if (Number.isFinite(f) && f > 0.15 && f < 0.95) {
+    if (isUltraZoomValue(f)) {
       const r = roundZoomFactor(f);
       return r != null ? String(r) : "UW";
     }
@@ -967,11 +1268,22 @@ export function computeAvailableZoomModes(detected, stream) {
   const hasUltraLens =
     Boolean(detected?.ultrawide?.deviceId) || ultraCandidates.length > 0;
 
-  // Bật góc siêu rộng khi: lens riêng | multi-cam | digital min < 1
+  // Probe cache: any rear reporting minZoom in ultra band (0.5–0.9)
+  let probeUltra = false;
+  for (const d of detected?.rear || []) {
+    const p = deviceProbeCache.get(d?.deviceId);
+    if (p && isUltraZoomValue(p.minZoom)) {
+      probeUltra = true;
+      break;
+    }
+  }
+
+  // Bật góc siêu rộng khi: lens riêng | multi-cam | digital min < 1 | probe
   const canWide =
     hasUltraLens ||
     multiRear ||
-    (range.supported && range.minZoom > 0.15 && range.minZoom < 0.95);
+    probeUltra ||
+    (range.supported && isUltraZoomValue(range.minZoom));
 
   // Chỉ số hiển thị = đọc từ cam (null → UI "UW" cho đến khi apply xong)
   const modes = {
@@ -1019,7 +1331,21 @@ export function resolveZoomModeTarget(mode, ctx = {}) {
 
   const m = String(mode || "1x").toLowerCase();
 
-  if (m === "0.5x" || m === "0.5" || m === "0.6x" || m === "0.6" || m === "wide") {
+  // Ultra-wide pill — any factor 0.5–0.9 (internal mode key stays "0.5x")
+  if (
+    m === "0.5x" ||
+    m === "0.5" ||
+    m === "0.6x" ||
+    m === "0.6" ||
+    m === "0.7x" ||
+    m === "0.7" ||
+    m === "0.8x" ||
+    m === "0.8" ||
+    m === "0.9x" ||
+    m === "0.9" ||
+    m === "wide" ||
+    m === "uw"
+  ) {
     // Chỉ số từ capabilities.zoom.min của stream hiện tại
     const factor = resolveUltraWideFactor(stream, detected, null);
 
@@ -1034,7 +1360,7 @@ export function resolveZoomModeTarget(mode, ctx = {}) {
         ultraFactor: factor,
       };
     }
-    // 2) Ứng viên multi-rear
+    // 2) Ứng viên multi-rear (sorted by universal score)
     const candidates = listUltraWideCandidates(
       detected?.rear || [],
       detected?.main || null,
@@ -1051,8 +1377,8 @@ export function resolveZoomModeTarget(mode, ctx = {}) {
         ultraFactor: factor,
       };
     }
-    // 3) Digital: minZoom THẬT từ track — không bịa số
-    if (range.supported && range.minZoom > 0.15 && range.minZoom < 0.99) {
+    // 3) Digital: minZoom THẬT từ track — 0.5 / 0.6 / 0.7 / 0.8 / 0.9
+    if (range.supported && isUltraZoomValue(range.minZoom)) {
       const z = range.minZoom;
       const f = roundZoomFactor(z);
       return {
@@ -1373,8 +1699,8 @@ async function tryDigitalUltraWide(stream, detected, mainId) {
   if (!supportsHardwareZoom(stream)) return null;
 
   const range = readZoomRange(stream);
-  // minZoom thật của máy: 0.5 / 0.6 / 0.7… (không ép 0.5)
-  if (!(range.minZoom > 0.15 && range.minZoom < 0.99)) return null;
+  // minZoom thật của máy: 0.5 / 0.6 / 0.7 / 0.8 / 0.9… (không ép 0.5)
+  if (!isUltraZoomValue(range.minZoom)) return null;
 
   const z = range.minZoom;
   try {
@@ -1418,7 +1744,14 @@ async function tryDigitalUltraWide(stream, detected, mainId) {
  */
 export async function switchToUltraWide05(options = {}) {
   const { oldStream = null, videoEl = null, detected: detIn = null } = options;
-  const detected = detIn || (await detectCameraDevices());
+  let detected = detIn || (await detectCameraDevices({ probe: false }));
+  // Universal ultra: one-shot capability probe before picking candidates
+  // (cached — subsequent switches are free; does not run on every open)
+  try {
+    detected = await enrichDetectedWithCapabilityProbes(detected);
+  } catch {
+    /* keep label-based detection */
+  }
   const mainId = detected.main?.deviceId || detected.rear?.[0]?.deviceId || null;
   const ultraId = detected.ultrawide?.deviceId || null;
   const candidates = [
@@ -1614,6 +1947,8 @@ export async function detectAndClassifyCameras() {
     backNormalCamera: d.main,
     backUltraWideCamera: d.ultrawide,
     backZoomCamera: d.telephoto,
+    // Expose full rear list — never hide usable hardware
+    rearOptions: d.rearOptions || d.rear || [],
     detected: d,
   };
 }

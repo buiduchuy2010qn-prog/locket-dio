@@ -8,6 +8,8 @@ import {
   isUltraLabel,
   isTeleLabel,
   detectAndClassifyCameras,
+  clearDeviceProbeCache,
+  scheduleCameraCapabilityProbe,
 } from "./cameraLens";
 
 /** Cache enumerate — avoid enumerateDevices + permission every lens change */
@@ -20,6 +22,7 @@ export const invalidateCameraCache = () => {
   camerasCache = null;
   camerasCacheAt = 0;
   warmPromise = null;
+  clearDeviceProbeCache();
 };
 
 /**
@@ -55,8 +58,26 @@ export const getAvailableCameras = async (opts = {}) => {
     backUltraWideCamera: result.backUltraWideCamera,
     backNormalCamera: result.backNormalCamera,
     backZoomCamera: result.backZoomCamera,
+    // Full rear list for manual lens pick / debug — never hide hardware
+    rearOptions: result.backCameras || [],
+    detected: result.detected || null,
   };
   camerasCacheAt = Date.now();
+
+  // Background probe (non-blocking) — improves ultra pick on multi-lens phones
+  // without slowing first open. Cache warms for next ultra tap / reclassify.
+  try {
+    const det = result.detected || {
+      rear: result.backCameras,
+      main: result.backNormalCamera,
+      ultrawide: result.backUltraWideCamera,
+      telephoto: result.backZoomCamera,
+    };
+    scheduleCameraCapabilityProbe(det);
+  } catch {
+    /* ignore */
+  }
+
   return camerasCache;
 };
 
@@ -83,7 +104,21 @@ export const pickCameraDeviceId = async (mode, zoomLevel = "1x") => {
 
     const z = String(zoomLevel || "1x").toLowerCase();
 
-    if (z === "0.5x" || z === "0.5" || z === "0.6x" || z === "0.6") {
+    // Ultra-wide pill — any manufacturer factor 0.5–0.9 (or "uw" / "wide")
+    if (
+      z === "0.5x" ||
+      z === "0.5" ||
+      z === "0.6x" ||
+      z === "0.6" ||
+      z === "0.7x" ||
+      z === "0.7" ||
+      z === "0.8x" ||
+      z === "0.8" ||
+      z === "0.9x" ||
+      z === "0.9" ||
+      z === "wide" ||
+      z === "uw"
+    ) {
       return cameras?.backUltraWideCamera?.deviceId || mainId;
     }
 
