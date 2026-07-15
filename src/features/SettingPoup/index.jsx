@@ -155,6 +155,47 @@ const SettingPoup = ({ open, onClose }) => {
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto px-4 py-4 space-y-6">
+          {/* Watermark — mục riêng trên đầu menu */}
+          <div>
+            <p className="text-sm text-base-content/60 mb-2">
+              {t("setting_poup.media.section")}
+            </p>
+
+            <div className="bg-base-200 rounded-2xl divide-y divide-base-300 border border-primary/20">
+              {mediaItems.map((item) => {
+                const Icon = item.icon;
+
+                return (
+                  <div
+                    key={item.key}
+                    className="flex items-center justify-between px-4 py-3.5"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-10 h-10 flex items-center justify-center rounded-xl bg-primary/15 text-primary flex-shrink-0">
+                        <Icon className="w-5 h-5 fill-current" />
+                      </div>
+
+                      <div className="min-w-0">
+                        <p className="font-semibold">{item.title}</p>
+                        <p className="text-xs text-base-content/60">
+                          {item.description}
+                        </p>
+                      </div>
+                    </div>
+
+                    <input
+                      type="checkbox"
+                      checked={item.checked}
+                      onChange={item.onChange}
+                      className="toggle toggle-primary flex-shrink-0"
+                      aria-label={item.title}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
           <div>
             <p className="text-sm text-base-content/60 mb-2">
               {t("setting_poup.language.section")}
@@ -184,46 +225,6 @@ const SettingPoup = ({ open, onClose }) => {
                     </div>
 
                     {item.right}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          <div>
-            <p className="text-sm text-base-content/60 mb-2">
-              {t("setting_poup.media.section")}
-            </p>
-
-            <div className="bg-base-200 rounded-2xl divide-y divide-base-300">
-              {mediaItems.map((item) => {
-                const Icon = item.icon;
-
-                return (
-                  <div
-                    key={item.key}
-                    className="flex items-center justify-between px-4 py-3"
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="w-10 h-10 flex items-center justify-center rounded-xl bg-base-300 flex-shrink-0">
-                        <Icon className="w-5 h-5" />
-                      </div>
-
-                      <div className="min-w-0">
-                        <p className="font-medium">{item.title}</p>
-                        <p className="text-xs text-base-content/60">
-                          {item.description}
-                        </p>
-                      </div>
-                    </div>
-
-                    <input
-                      type="checkbox"
-                      checked={item.checked}
-                      onChange={item.onChange}
-                      className="toggle toggle-secondary flex-shrink-0"
-                      aria-label={item.title}
-                    />
                   </div>
                 );
               })}

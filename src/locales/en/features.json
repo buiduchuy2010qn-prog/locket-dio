@@ -277,10 +277,10 @@
       "title": "Language"
     },
     "media": {
-      "section": "📷 Media & saves",
+      "section": "♥ Watermark",
       "watermark": {
         "title": "Watermark on save",
-        "description": "Add ♥ Locket at the bottom when downloading / sharing. Turn off to save the original."
+        "description": "On: add ♥ Locket when download / share. Off: save original."
       }
     },
     "privacy": {

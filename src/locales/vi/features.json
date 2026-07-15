@@ -277,10 +277,10 @@
       "title": "Ngôn ngữ"
     },
     "media": {
-      "section": "📷 Ảnh & lưu trữ",
+      "section": "♥ Watermark",
       "watermark": {
         "title": "Watermark khi lưu ảnh",
-        "description": "Thêm ♥ Locket ở dưới ảnh khi tải / chia sẻ. Tắt để lưu ảnh gốc."
+        "description": "Bật: thêm ♥ Locket khi tải / chia sẻ. Tắt: lưu ảnh gốc."
       }
     },
     "privacy": {
