@@ -1,12 +1,11 @@
-import { useSelectedStore } from "@/stores";
 import "./styles.css";
 import { MusicPlayer } from "@/components/Widgets/MusicPlayer";
 
 /**
- * Pill nhạc trên moment — cover + tên bài · nghệ sĩ (không logo Spotify/Apple).
+ * Pill nhạc trên moment — cover + tên + nút Play (web).
+ * App Locket official phát qua Spotify/Apple; web phát preview iTunes.
  */
 const MusicOverlay = ({ overlayData, momentId }) => {
-  const selectedMomentId = useSelectedStore((s) => s.selectedMomentId);
   const music =
     overlayData?.payload ||
     overlayData?.music ||
@@ -34,16 +33,17 @@ const MusicOverlay = ({ overlayData, momentId }) => {
   const displayText = text || "Nhạc";
 
   return (
-    <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex w-auto items-center gap-2 py-2 px-4 rounded-4xl text-white font-semibold bg-white/50 backdrop-blur-2xl max-w-[85%] overflow-hidden z-20">
+    <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex w-auto items-center gap-2 py-2 pl-2.5 pr-2 rounded-4xl text-white font-semibold bg-white/50 backdrop-blur-2xl max-w-[90%] overflow-visible z-20 shadow-lg">
       {urlImage ? (
         <img
           src={urlImage}
           alt=""
-          className="w-6 h-6 object-cover rounded-sm shrink-0 no-select no-save"
+          className="w-7 h-7 object-cover rounded-md shrink-0 no-select no-save"
+          draggable={false}
         />
       ) : null}
 
-      <div className="relative overflow-hidden whitespace-nowrap flex-1 min-w-0">
+      <div className="relative overflow-hidden whitespace-nowrap flex-1 min-w-0 max-w-[12rem] sm:max-w-[16rem]">
         <div
           className="inline-block animate-marquee"
           style={{
@@ -56,16 +56,16 @@ const MusicOverlay = ({ overlayData, momentId }) => {
           }}
         >
           <span className="mr-4">{displayText}</span>
-          <span className="mr-4 absolute">{displayText}</span>
+          <span className="mr-4 absolute top-0 left-0">{displayText}</span>
         </div>
       </div>
 
+      {/* Nút Play rõ ràng — bắt buộc user gesture trên Chrome/mobile */}
       <MusicPlayer
         thumbnail={urlImage}
         payload={music}
-        isVisible={
-          !momentId || !selectedMomentId || selectedMomentId === momentId
-        }
+        isVisible
+        showButton
       />
     </div>
   );
