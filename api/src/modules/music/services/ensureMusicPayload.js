@@ -391,6 +391,7 @@ async function ensureMusicOptionsData(optionsData = {}) {
     platformOut = "apple";
   }
 
+  // Payload cho Locket official — KHÔNG preview_url (app phát full qua platform URL)
   const nextPayload = {
     song_title: song_title || payload.song_title || "",
     song_name: song_title || payload.song_name || "",
@@ -400,13 +401,12 @@ async function ensureMusicOptionsData(optionsData = {}) {
     image_url: image_url || null,
     platform: platformOut,
   };
-  // Dual platform
+  // Dual: Spotify (Android) + Apple MusicKit (iOS)
   if (apple_music_url) nextPayload.apple_music_url = apple_music_url;
   if (spotify_url) nextPayload.spotify_url = spotify_url;
-  // Preview iTunes ổn định — web MusicPlayer; Locket official bỏ qua field này
-  if (preview && isStablePreviewUrl(preview)) {
-    nextPayload.preview_url = preview;
-  }
+  // preview chỉ giữ nội bộ cho web client (khóa riêng, không nằm trong payload Locket)
+  const webPreview =
+    preview && isStablePreviewUrl(preview) ? preview : null;
 
   const nextIcon =
     image_url
@@ -419,12 +419,11 @@ async function ensureMusicOptionsData(optionsData = {}) {
           }
         : null;
 
-  const caption =
-    (optionsData.caption || optionsData.text || "").trim() ||
-    [song_title, artist].filter(Boolean).join(" · ");
+  // Caption Locket = TÊN BÀI THUẦN (app tự ghép artist). Không "title · artist".
+  const caption = song_title || payload.song_title || "";
 
   console.log(
-    `[ensureMusicOptionsData] ready isrc=${isrc || "none"} platform=${platformOut} title="${song_title}" apple=${apple_music_url ? "yes" : "no"} spotify=${spotify_url ? "yes" : "no"} cover=${image_url ? (isStableCoverUrl(image_url) ? "stable" : "weak") : "none"} preview=${preview ? "yes" : "no"}`,
+    `[ensureMusicOptionsData] ready isrc=${isrc || "none"} platform=${platformOut} title="${song_title}" apple=${apple_music_url ? "yes" : "no"} spotify=${spotify_url ? "yes" : "no"} cover=${image_url ? (isStableCoverUrl(image_url) ? "stable" : "weak") : "none"} webPreview=${webPreview ? "yes" : "no"}`,
   );
 
   return {
@@ -437,7 +436,11 @@ async function ensureMusicOptionsData(optionsData = {}) {
       ...(optionsData.music || {}),
       ...nextPayload,
       image: image_url || null,
+      // web-only preview (imagePostPayloadMusic sẽ bỏ qua)
+      ...(webPreview ? { preview_url: webPreview } : {}),
     },
+    // web-only: client có thể dùng; imagePostPayloadMusic KHÔNG gửi lên Locket
+    ...(webPreview ? { _web_preview_url: webPreview } : {}),
     icon: nextIcon,
     platform: platformOut,
   };
