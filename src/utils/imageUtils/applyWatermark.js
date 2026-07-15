@@ -1,6 +1,6 @@
 /**
  * Locket-style watermark when saving images:
- * bold white heart + "Locket" at bottom-center (match official Locket export).
+ * soft filled white heart + "Locket" at bottom-center (match official Locket export).
  */
 
 import { useUserSetting } from "@/stores/SettingStores/useUserSetting";
@@ -51,7 +51,7 @@ export function isImageFileName(fileName = "") {
 }
 
 /**
- * Draw ♡ + text bottom-center, return JPEG blob.
+ * Draw filled ♥ + text bottom-center, return JPEG blob.
  * On failure returns original blob (never break download).
  *
  * @param {Blob|File} blob
@@ -95,7 +95,7 @@ export async function applyLocketStyleWatermark(blob, opts = {}) {
     // Scale watermark with image size (match official Locket soft white look)
     const base = Math.min(w, h);
     const fontSize = Math.max(18, Math.round(base * 0.04));
-    // Soft heart (not bold black-fill) — lighter like app export
+    // Filled soft heart (♥ solid, not outline ♡)
     const heartSize = Math.round(fontSize * 1.12);
     const gap = Math.round(fontSize * 0.32);
     const bottomPad = Math.round(base * 0.055);
@@ -104,9 +104,9 @@ export async function applyLocketStyleWatermark(blob, opts = {}) {
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
 
-    // White heart outline/soft style (♡ reads lighter than bold ♥)
-    const heart = "♡";
-    ctx.font = `400 ${heartSize}px system-ui, -apple-system, "Segoe UI", Roboto, "Apple Color Emoji", "Segoe UI Emoji", sans-serif`;
+    // Filled heart (not hollow outline)
+    const heart = "♥";
+    ctx.font = `600 ${heartSize}px system-ui, -apple-system, "Segoe UI", Roboto, "Apple Color Emoji", "Segoe UI Emoji", sans-serif`;
     const heartW = ctx.measureText(heart).width;
     ctx.font = `500 ${fontSize}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
     const textW = ctx.measureText(label).width;
@@ -114,19 +114,19 @@ export async function applyLocketStyleWatermark(blob, opts = {}) {
     const startX = (w - totalW) / 2;
     const y = h - bottomPad;
 
-    // Very light shadow — soft white watermark (ref: official Locket export)
-    ctx.shadowColor = "rgba(0,0,0,0.28)";
-    ctx.shadowBlur = Math.max(3, Math.round(fontSize * 0.22));
+    // Soft shadow so pale white stays readable on light areas
+    ctx.shadowColor = "rgba(0,0,0,0.22)";
+    ctx.shadowBlur = Math.max(2, Math.round(fontSize * 0.18));
     ctx.shadowOffsetX = 0;
-    ctx.shadowOffsetY = Math.max(1, Math.round(fontSize * 0.04));
-    // Soft white ~85% (đậm vừa, không trắng “cứng”)
-    ctx.fillStyle = "rgba(255,255,255,0.88)";
+    ctx.shadowOffsetY = Math.max(1, Math.round(fontSize * 0.03));
+    // Trắng nhạt / soft white (~70%)
+    ctx.fillStyle = "rgba(255,255,255,0.72)";
 
-    // Heart — soft / light
-    ctx.font = `400 ${heartSize}px system-ui, -apple-system, "Segoe UI", Roboto, "Apple Color Emoji", "Segoe UI Emoji", sans-serif`;
+    // Heart — solid fill, pale white
+    ctx.font = `600 ${heartSize}px system-ui, -apple-system, "Segoe UI", Roboto, "Apple Color Emoji", "Segoe UI Emoji", sans-serif`;
     ctx.fillText(heart, startX, y);
 
-    // Label — exact "Locket", medium weight
+    // Label — exact "Locket", medium weight, same pale white
     ctx.font = `500 ${fontSize}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
     ctx.fillText(label, startX + heartW + gap, y);
 
