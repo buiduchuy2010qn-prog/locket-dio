@@ -9,71 +9,73 @@ import { useTranslation } from "react-i18next";
 import { getPerfProfile } from "@/utils/device/perfProfile";
 import { captureSharpSquarePhoto } from "@/utils/device/capturePhoto";
 
-/** Ngưỡng giữ để bắt đầu quay (ms) — thấp hơn = nhạy hơn */
-const HOLD_TO_RECORD_MS = 380;
+/** Giữ nhẹ để quay — đủ phân biệt tap chụp vs hold quay */
+const HOLD_TO_RECORD_MS = 300;
 
+let cachedMime = null;
 function pickMimeType() {
-  // Prefer higher-quality codecs first when available
+  if (cachedMime !== null) return cachedMime;
   const candidates = [
-    "video/webm;codecs=vp9",
     "video/webm;codecs=vp8",
     "video/webm",
     "video/mp4",
+    "video/webm;codecs=vp9",
   ];
   for (const t of candidates) {
     try {
-      if (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(t)) {
+      if (
+        typeof MediaRecorder !== "undefined" &&
+        MediaRecorder.isTypeSupported(t)
+      ) {
+        cachedMime = t;
         return t;
       }
     } catch {
       /* ignore */
     }
   }
+  cachedMime = "";
   return "";
 }
 
 /**
- * Encode / canvas targets — use full stream resolution when available.
- * size/captureSize = max side (square crop); never upscale above native.
+ * Profile quay — ưu tiên mượt (30fps canvas) hơn 60fps nặng.
  */
 function recordProfile() {
   const p = getPerfProfile();
   const imgTarget = CAMERA_CONFIG.imageSizePx || 1920;
   const vidTarget = CAMERA_CONFIG.videoResolutionPx || 1080;
 
-  // Low-end: still aim for 720p+/~90% JPEG — no more 640/0.86 blur
   if (p.isLowEnd) {
     return {
       size: Math.min(vidTarget, 720),
-      maxSize: 1080,
-      fps: 30,
-      bitrate: 4_500_000,
-      jpegQ: 0.92,
-      captureSize: Math.min(imgTarget, 1440),
-      maxCapture: 1920,
+      maxSize: 720,
+      fps: 24,
+      bitrate: 2_800_000,
+      jpegQ: 0.9,
+      captureSize: Math.min(imgTarget, 1280),
+      maxCapture: 1440,
     };
   }
-  // Mobile (Android + iOS): Full HD targets, 60 fps when stream allows
   if (p.isAndroid || p.isMobile || p.isIOS) {
     return {
       size: Math.min(vidTarget, 1080),
       maxSize: 1080,
-      fps: 60,
-      bitrate: 8_000_000,
-      jpegQ: 0.94,
-      captureSize: imgTarget,
-      maxCapture: 2560,
+      fps: 30,
+      bitrate: 5_000_000,
+      jpegQ: 0.92,
+      captureSize: Math.min(imgTarget, 1920),
+      maxCapture: 1920,
     };
   }
-  // Desktop
   return {
     size: Math.min(vidTarget, 1080),
-    maxSize: 1440,
-    fps: 60,
-    bitrate: 12_000_000,
-    jpegQ: 0.95,
+    maxSize: 1080,
+    fps: 30,
+    bitrate: 7_000_000,
+    jpegQ: 0.93,
     captureSize: imgTarget,
-    maxCapture: 3840,
+    maxCapture: 2560,
   };
 }
 
@@ -84,7 +86,6 @@ const CameraButton = () => {
     videoRef,
     isHolding,
     setIsHolding,
-    holdTime,
     setHoldTime,
     cameraMode,
     setCameraActive,
@@ -96,18 +97,27 @@ const CameraButton = () => {
   const holdStartTimeRef = useRef(null);
   const holdTimeoutRef = useRef(null);
   const mediaRecorderRef = useRef(null);
-  const intervalRef = useRef(null);
   const isTryingToRecordRef = useRef(false);
   const isRecordingRef = useRef(false);
   const drawRafRef = useRef(0);
   const capturingRef = useRef(false);
+  const canvasRef = useRef(null);
+  const pointerIdRef = useRef(null);
 
   const MAX_RECORD_TIME = getVideoRecordLimit();
 
   const startHold = (e) => {
-    if (e.type === "mousedown" && e.button !== 0) return;
+    // pointer events: 1 path cho touch + mouse
+    if (e.pointerType === "mouse" && e.button !== 0) return;
     e.preventDefault();
-    if (capturingRef.current) return;
+    if (capturingRef.current || isRecordingRef.current) return;
+
+    try {
+      e.currentTarget?.setPointerCapture?.(e.pointerId);
+      pointerIdRef.current = e.pointerId;
+    } catch {
+      /* ignore */
+    }
 
     isTryingToRecordRef.current = true;
     isRecordingRef.current = false;
@@ -131,31 +141,45 @@ const CameraButton = () => {
     isRecordingRef.current = true;
     setIsHolding(true);
 
+    // Haptic nhẹ khi bắt đầu quay (nếu có)
+    try {
+      navigator.vibrate?.(12);
+    } catch {
+      /* ignore */
+    }
+
     const prof = recordProfile();
-    // Use native square crop size (up to profile max) — avoid forced downscale to 720
-    const side = Math.min(video.videoWidth || 720, video.videoHeight || 720);
+    const vw = video.videoWidth || 720;
+    const vh = video.videoHeight || 720;
+    const side = Math.min(vw, vh);
     const outputSize = Math.min(side, prof.maxSize || prof.size || 1080);
 
-    const canvas = document.createElement("canvas");
+    let canvas = canvasRef.current;
+    if (!canvas) {
+      canvas = document.createElement("canvas");
+      canvasRef.current = canvas;
+    }
     canvas.width = outputSize;
     canvas.height = outputSize;
     const ctx = canvas.getContext("2d", {
       alpha: false,
       desynchronized: true,
+      willReadFrequently: false,
     });
     if (!ctx) {
       isRecordingRef.current = false;
       setIsHolding(false);
       return;
     }
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = "high";
+    // medium = mượt hơn high trên mobile GPU
+    ctx.imageSmoothingEnabled = outputSize < side;
+    ctx.imageSmoothingQuality = "medium";
 
-    // fps: request 60; browser/captureStream may deliver lower if needed
     const canvasStream = canvas.captureStream(prof.fps);
     const mimeType = pickMimeType();
-    const recorderOptions = mimeType ? { mimeType } : {};
+    const recorderOptions = {};
     if (mimeType) {
+      recorderOptions.mimeType = mimeType;
       recorderOptions.videoBitsPerSecond = prof.bitrate;
     }
 
@@ -176,8 +200,8 @@ const CameraButton = () => {
     mediaRecorderRef.current = recorder;
 
     const chunks = [];
-    recorder.ondataavailable = (e) => {
-      if (e.data?.size > 0) chunks.push(e.data);
+    recorder.ondataavailable = (ev) => {
+      if (ev.data?.size > 0) chunks.push(ev.data);
     };
 
     recorder.onstop = () => {
@@ -202,7 +226,6 @@ const CameraButton = () => {
       const blob = new Blob(chunks, { type: finalMime });
       const file = new File([blob], `locket_dio.${ext}`, { type: finalMime });
 
-      // Preview ngay
       setMediaFromFile(file);
       setCameraActive(false);
       setLoading?.(false);
@@ -217,8 +240,7 @@ const CameraButton = () => {
     };
 
     try {
-      // timeslice → data đều, stop mượt hơn
-      recorder.start(250);
+      recorder.start(200);
     } catch {
       try {
         recorder.start();
@@ -232,23 +254,23 @@ const CameraButton = () => {
     const frameInterval = 1000 / prof.fps;
     let lastFrame = 0;
     const isFront = cameraMode === "user";
+    const sx = (vw - side) / 2;
+    const sy = (vh - side) / 2;
 
     const drawFrame = (ts) => {
       if (recorder.state !== "recording") return;
-      if (ts - lastFrame < frameInterval - 1) {
+      if (ts - lastFrame < frameInterval - 2) {
         drawRafRef.current = requestAnimationFrame(drawFrame);
         return;
       }
       lastFrame = ts;
 
       if (video.readyState >= 2) {
-        ctx.setTransform(1, 0, 0, 1, 0, 0);
         if (isFront) {
-          ctx.translate(outputSize, 0);
-          ctx.scale(-1, 1);
+          ctx.setTransform(-1, 0, 0, 1, outputSize, 0);
+        } else {
+          ctx.setTransform(1, 0, 0, 1, 0, 0);
         }
-        const sx = (video.videoWidth - side) / 2;
-        const sy = (video.videoHeight - side) / 2;
         ctx.drawImage(
           video,
           sx,
@@ -265,7 +287,6 @@ const CameraButton = () => {
     };
     drawRafRef.current = requestAnimationFrame(drawFrame);
 
-    // Auto stop
     setTimeout(() => {
       if (recorder.state === "recording") {
         try {
@@ -280,19 +301,28 @@ const CameraButton = () => {
   const endHold = (e) => {
     if (e?.preventDefault) e.preventDefault();
 
+    try {
+      if (pointerIdRef.current != null) {
+        e?.currentTarget?.releasePointerCapture?.(pointerIdRef.current);
+      }
+    } catch {
+      /* ignore */
+    }
+    pointerIdRef.current = null;
+
     if (!isTryingToRecordRef.current && !isRecordingRef.current) {
       return;
     }
 
     const heldTime = Date.now() - (holdStartTimeRef.current || Date.now());
     clearTimeout(holdTimeoutRef.current);
-    clearInterval(intervalRef.current);
     setHoldTime(heldTime);
 
     const wasTrying = isTryingToRecordRef.current;
     isTryingToRecordRef.current = false;
     holdStartTimeRef.current = null;
 
+    // Đang quay → stop
     if (
       isRecordingRef.current &&
       mediaRecorderRef.current?.state === "recording"
@@ -315,23 +345,23 @@ const CameraButton = () => {
       return;
     }
 
-    const isLeave =
-      e?.type === "mouseleave" ||
+    const isCancel =
+      e?.type === "pointercancel" ||
       e?.type === "pointerleave" ||
-      e?.type === "touchcancel";
-    if (isLeave) {
+      e?.type === "lostpointercapture";
+    if (isCancel) {
       setIsHolding(false);
       return;
     }
 
+    // Tap ngắn → chụp ngay
     if (wasTrying && !isRecordingRef.current) {
       captureImage();
     }
   };
 
   /**
-   * Chụp nét — ưu tiên ImageCapture.takePhoto (still sensor),
-   * fallback grabFrame / video canvas. Crop vuông native, JPEG ~0.97.
+   * Chụp nhanh: grabFrame / video canvas (không đợi takePhoto 48MP).
    */
   const captureImage = () => {
     if (capturingRef.current) return;
@@ -339,7 +369,6 @@ const CameraButton = () => {
     if (!video) return;
 
     if (!video.videoWidth || video.readyState < 2) {
-      // ImageCapture may still work without videoWidth on some devices
       const track = video.srcObject?.getVideoTracks?.()?.[0];
       if (!track || track.readyState !== "live") {
         SonnerInfo(t("home.camera_not_ready"));
@@ -350,10 +379,16 @@ const CameraButton = () => {
     capturingRef.current = true;
     const mirror = cameraMode === "user";
 
+    // Feedback tức thì
+    try {
+      navigator.vibrate?.(8);
+    } catch {
+      /* ignore */
+    }
+
     captureSharpSquarePhoto(video, {
       mirror,
       onPreviewUrl: (url) => {
-        // Instant UI preview (object URL — no base64 memory spike)
         usePostStore.setState({
           preview: { type: "image", data: url },
           selectedFile: null,
@@ -379,6 +414,8 @@ const CameraButton = () => {
   };
 
   useEffect(() => {
+    // Pre-warm mime detection
+    pickMimeType();
     return () => {
       if (mediaRecorderRef.current?.state === "recording") {
         try {
@@ -389,47 +426,22 @@ const CameraButton = () => {
       }
       if (drawRafRef.current) cancelAnimationFrame(drawRafRef.current);
       clearTimeout(holdTimeoutRef.current);
-      clearInterval(intervalRef.current);
     };
   }, []);
 
   return (
     <button
       type="button"
-      onMouseDown={startHold}
-      onMouseUp={endHold}
-      onMouseLeave={(e) => {
-        if (!isTryingToRecordRef.current && !isRecordingRef.current) return;
-        clearTimeout(holdTimeoutRef.current);
-        if (isRecordingRef.current) return;
-        isTryingToRecordRef.current = false;
-        holdStartTimeRef.current = null;
-        setIsHolding(false);
-      }}
-      onTouchStart={startHold}
-      onTouchEnd={endHold}
-      onTouchCancel={() => {
-        clearTimeout(holdTimeoutRef.current);
-        isTryingToRecordRef.current = false;
-        holdStartTimeRef.current = null;
-        setIsHolding(false);
-        if (
-          isRecordingRef.current &&
-          mediaRecorderRef.current?.state === "recording"
-        ) {
-          try {
-            mediaRecorderRef.current.stop();
-          } catch {
-            /* ignore */
-          }
-        }
-      }}
+      onPointerDown={startHold}
+      onPointerUp={endHold}
+      onPointerCancel={endHold}
       onContextMenu={(e) => e.preventDefault()}
       className="relative flex items-center justify-center w-24 h-24 active:scale-97"
       style={{
         touchAction: "manipulation",
         userSelect: "none",
         WebkitUserSelect: "none",
+        WebkitTouchCallout: "none",
       }}
     >
       <div
@@ -438,7 +450,7 @@ const CameraButton = () => {
         }`}
       />
       <div
-        className={`absolute rounded-full btn w-19 h-19 camera-inner-circle z-0 transition-all duration-300 ${
+        className={`absolute rounded-full btn w-19 h-19 camera-inner-circle z-0 transition-transform duration-150 ${
           isHolding ? "scale-77 opacity-90" : "scale-100 opacity-100"
         }`}
       />

@@ -1,19 +1,25 @@
 /**
- * High-quality still capture for Huy Locket.
+ * Fast + sharp still capture for Huy Locket.
  *
- * Priority (sharpest first):
- *  1) ImageCapture.takePhoto() — camera still pipeline (Chrome Android / desktop)
- *  2) ImageCapture.grabFrame()  — full track resolution VideoFrame
- *  3) <video> → canvas          — Safari / iOS fallback
+ * Priority (snappy first — avoids multi-second takePhoto@48MP):
+ *  1) ImageCapture.grabFrame()  — track resolution, usually <100ms
+ *  2) <video> → canvas          — Safari / iOS / always works
+ *  3) ImageCapture.takePhoto()  — last resort (can be slow on high-MP sensors)
  *
- * Always center-crops to a square at native resolution (no forced 720/1080 downscale).
- * Front camera: horizontal mirror to match the preview.
+ * Single JPEG encode, center-crop square. Front cam mirrored.
  */
 
-const JPEG_Q_FINAL = 0.97;
-const JPEG_Q_PREVIEW = 0.9;
-/** Only cap extreme sensors (e.g. 48MP) to avoid OOM — still far above 1080 */
-const ABS_MAX_SIDE = 4096;
+import { getPerfProfile } from "@/utils/device/perfProfile";
+
+const JPEG_Q_FAST = 0.91;
+const JPEG_Q_HQ = 0.94;
+
+function maxSideForDevice() {
+  const p = getPerfProfile();
+  if (p.isLowEnd) return 1440;
+  if (p.isMobile || p.isAndroid || p.isIOS) return 1920;
+  return 2560;
+}
 
 function getLiveTrack(video) {
   try {
@@ -25,19 +31,14 @@ function getLiveTrack(video) {
 
 /**
  * Center-crop source to square JPEG.
- * @param {CanvasImageSource|ImageBitmap} source
- * @param {number} srcW
- * @param {number} srcH
- * @param {{ mirror?: boolean, quality?: number, maxSide?: number }} opts
- * @returns {Promise<Blob>}
  */
 function cropSourceToSquareJpeg(source, srcW, srcH, opts = {}) {
   const mirror = Boolean(opts.mirror);
   const quality =
     typeof opts.quality === "number"
       ? Math.min(1, Math.max(0.85, opts.quality))
-      : JPEG_Q_FINAL;
-  const maxSide = opts.maxSide || ABS_MAX_SIDE;
+      : JPEG_Q_HQ;
+  const maxSide = opts.maxSide || maxSideForDevice();
 
   if (!srcW || !srcH) {
     return Promise.reject(new Error("invalid dimensions"));
@@ -51,13 +52,16 @@ function cropSourceToSquareJpeg(source, srcW, srcH, opts = {}) {
   const canvas = document.createElement("canvas");
   canvas.width = out;
   canvas.height = out;
-  const ctx = canvas.getContext("2d", { alpha: false });
+  const ctx = canvas.getContext("2d", {
+    alpha: false,
+    desynchronized: true,
+    willReadFrequently: false,
+  });
   if (!ctx) return Promise.reject(new Error("no 2d context"));
 
-  // 1:1 → no smoothing (keeps fine text sharp)
   const needsScale = out !== nativeSide;
   ctx.imageSmoothingEnabled = needsScale;
-  if (needsScale) ctx.imageSmoothingQuality = "high";
+  if (needsScale) ctx.imageSmoothingQuality = "medium";
 
   if (mirror) {
     ctx.translate(out, 0);
@@ -75,16 +79,11 @@ function cropSourceToSquareJpeg(source, srcW, srcH, opts = {}) {
   });
 }
 
-/**
- * @param {Blob} blob
- * @param {{ mirror?: boolean, quality?: number, maxSide?: number }} opts
- */
 async function cropBlobToSquareJpeg(blob, opts = {}) {
   let bitmap;
   try {
     bitmap = await createImageBitmap(blob);
   } catch {
-    // Fallback decode via Image element
     const url = URL.createObjectURL(blob);
     try {
       const img = await new Promise((resolve, reject) => {
@@ -122,50 +121,7 @@ async function cropBlobToSquareJpeg(blob, opts = {}) {
   }
 }
 
-/**
- * Try ImageCapture.takePhoto with max photo size when exposed.
- * @param {MediaStreamTrack} track
- * @returns {Promise<Blob|null>}
- */
-async function takePhotoBlob(track) {
-  if (!track || typeof ImageCapture === "undefined") return null;
-  let ic;
-  try {
-    ic = new ImageCapture(track);
-  } catch {
-    return null;
-  }
-
-  try {
-    let settings = {};
-    try {
-      if (typeof ic.getPhotoCapabilities === "function") {
-        const caps = await ic.getPhotoCapabilities();
-        if (caps?.imageWidth?.max) settings.imageWidth = caps.imageWidth.max;
-        if (caps?.imageHeight?.max) settings.imageHeight = caps.imageHeight.max;
-      }
-    } catch {
-      settings = {};
-    }
-
-    const blob =
-      Object.keys(settings).length > 0
-        ? await ic.takePhoto(settings)
-        : await ic.takePhoto();
-
-    if (blob && blob.size > 1024) return blob;
-  } catch {
-    /* not supported / busy */
-  }
-
-  return null;
-}
-
-/**
- * @param {MediaStreamTrack} track
- * @param {{ mirror?: boolean }} opts
- * @returns {Promise<Blob|null>}
- */
+/** grabFrame — nhanh, đủ nét cho feed */
 async function grabFrameBlob(track, opts = {}) {
   if (!track || typeof ImageCapture === "undefined") return null;
   let ic;
@@ -182,7 +138,8 @@ async function grabFrameBlob(track, opts = {}) {
     try {
       return await cropSourceToSquareJpeg(frame, frame.width, frame.height, {
         mirror: opts.mirror,
-        quality: JPEG_Q_FINAL,
+        quality: opts.quality ?? JPEG_Q_HQ,
+        maxSide: opts.maxSide,
       });
     } finally {
       if (typeof frame.close === "function") {
@@ -199,8 +156,22 @@ async function grabFrameBlob(track, opts = {}) {
 }
 
 /**
- * Capture a sharp square JPEG from the live camera preview.
- *
+ * takePhoto không gọi getPhotoCapabilities (tránh delay + 48MP).
+ * Chỉ dùng khi grabFrame/video fail.
+ */
+async function takePhotoBlobFast(track) {
+  if (!track || typeof ImageCapture === "undefined") return null;
+  try {
+    const ic = new ImageCapture(track);
+    const blob = await ic.takePhoto();
+    if (blob && blob.size > 1024) return blob;
+  } catch {
+    /* not supported / busy */
+  }
+  return null;
+}
+
+/**
  * @param {HTMLVideoElement} video
  * @param {{
  *   mirror?: boolean,
@@ -212,6 +183,8 @@ export async function captureSharpSquarePhoto(video, opts = {}) {
   if (!video) throw new Error("no video");
   const mirror = Boolean(opts.mirror);
   const track = getLiveTrack(video);
+  const maxSide = maxSideForDevice();
+  const quality = getPerfProfile().isLowEnd ? JPEG_Q_FAST : JPEG_Q_HQ;
 
   const emitPreview = (blob) => {
     if (typeof opts.onPreviewUrl !== "function" || !blob) return;
@@ -231,57 +204,43 @@ export async function captureSharpSquarePhoto(video, opts = {}) {
     method,
   });
 
-  // ── 1) Full still photo (sharpest — sensor still pipeline) ──
+  // ── 1) grabFrame (nhanh + nét) ──
   if (track?.readyState === "live") {
-    const raw = await takePhotoBlob(track);
-    if (raw) {
-      // Light preview first (smaller) then full encode
-      try {
-        const preview = await cropBlobToSquareJpeg(raw, {
-          mirror,
-          quality: JPEG_Q_PREVIEW,
-          maxSide: 1440,
-        });
-        emitPreview(preview);
-      } catch {
-        /* preview optional */
-      }
-
-      const jpeg = await cropBlobToSquareJpeg(raw, {
-        mirror,
-        quality: JPEG_Q_FINAL,
-      });
-      return toResult(jpeg, "ImageCapture.takePhoto");
-    }
-
-    // ── 2) grabFrame at track resolution ──
-    const grabbed = await grabFrameBlob(track, { mirror });
+    const grabbed = await grabFrameBlob(track, { mirror, quality, maxSide });
     if (grabbed) {
       emitPreview(grabbed);
       return toResult(grabbed, "ImageCapture.grabFrame");
     }
   }
 
-  // ── 3) Video element frame (Safari / iOS / fallback) ──
-  if (!video.videoWidth || video.readyState < 2) {
-    throw new Error("camera_not_ready");
+  // ── 2) Video frame — luôn sẵn, 1 encode ──
+  if (video.videoWidth && video.readyState >= 2) {
+    // 1 rAF để lấy frame mới nhất (không pause stream — tránh giật preview)
+    await new Promise((r) => requestAnimationFrame(() => r()));
+
+    const jpeg = await cropSourceToSquareJpeg(
+      video,
+      video.videoWidth,
+      video.videoHeight,
+      { mirror, quality, maxSide },
+    );
+    emitPreview(jpeg);
+    return toResult(jpeg, "video.canvas");
   }
 
-  try {
-    video.pause();
-  } catch {
-    /* ignore */
+  // ── 3) takePhoto fallback (chậm hơn — chỉ khi video chưa ready) ──
+  if (track?.readyState === "live") {
+    const raw = await takePhotoBlobFast(track);
+    if (raw) {
+      const jpeg = await cropBlobToSquareJpeg(raw, {
+        mirror,
+        quality,
+        maxSide,
+      });
+      emitPreview(jpeg);
+      return toResult(jpeg, "ImageCapture.takePhoto");
+    }
   }
 
-  // Commit last decoded frame
-  await new Promise((r) => requestAnimationFrame(() => r()));
-
-  const jpeg = await cropSourceToSquareJpeg(
-    video,
-    video.videoWidth,
-    video.videoHeight,
-    { mirror, quality: JPEG_Q_FINAL },
-  );
-  emitPreview(jpeg);
-  return toResult(jpeg, "video.canvas");
+  throw new Error("camera_not_ready");
 }
