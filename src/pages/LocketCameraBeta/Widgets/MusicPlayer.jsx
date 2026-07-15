@@ -1,22 +1,61 @@
-import { MusicPlayer as SharedMusicPlayer } from "@/components/Widgets/MusicPlayer";
+import { useEffect, useRef } from "react";
 
-/**
- * Camera studio — preview nhạc khi đã gắn caption music.
- * API cũ: <MusicPlayer music={payload} />
- */
+function resizeAppleCover(url, size = 64) {
+  if (!url || typeof url !== "string") return "";
+  return url.replace(/\/\d+x\d+bb(\.(jpg|png))?$/, `/${size}x${size}bb.jpg`);
+}
+
 export function MusicPlayer({ music }) {
-  if (!music) return null;
-  return (
-    <div className="fixed bottom-28 left-1/2 -translate-x-1/2 z-[70] flex items-center gap-2 px-3 py-2 rounded-full bg-black/40 backdrop-blur-md">
-      <span className="text-white text-xs max-w-[10rem] truncate font-medium">
-        {music.song_title || music.song_name || music.name || "Nhạc"}
-      </span>
-      <SharedMusicPlayer
-        payload={music}
-        thumbnail={music.image_url || music.image}
-        isVisible
-        showButton
-      />
-    </div>
-  );
+  const audioRef = useRef(null);
+
+  // 🎧 Setup Media Session
+  useEffect(() => {
+    if (!("mediaSession" in navigator)) return;
+
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: music?.title,
+      artist: music?.artist,
+      album: music?.album,
+      artwork: [
+        { src: resizeAppleCover(music.image_url, 96), sizes: "96x96", type: "image/jpeg" },
+        { src: resizeAppleCover(music.image_url, 256), sizes: "256x256", type: "image/jpeg" },
+        { src: resizeAppleCover(music.image_url, 512), sizes: "512x512", type: "image/jpeg" },
+      ],
+    });
+
+    navigator.mediaSession.setActionHandler("play", () => {
+      audioRef.current?.play();
+    });
+
+    navigator.mediaSession.setActionHandler("pause", () => {
+      audioRef.current?.pause();
+    });
+
+    return () => {
+      navigator.mediaSession.metadata = null;
+      navigator.mediaSession.setActionHandler("play", null);
+      navigator.mediaSession.setActionHandler("pause", null);
+    };
+  }, [music]);
+
+  // ▶️ Play music
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio || !music?.preview_url) return;
+
+    audio.src = music.preview_url;
+    audio.loop = true;
+    audio.volume = 1;
+
+    audio.play().catch(() => {});
+
+    // 🧹 Cleanup cực kỳ quan trọng
+    return () => {
+      audio.pause();
+      audio.removeAttribute("src"); // giải phóng memory
+      audio.load(); // reset audio
+    };
+  }, [music?.preview_url]);
+
+  return <audio ref={audioRef} className="hidden" />;
 }

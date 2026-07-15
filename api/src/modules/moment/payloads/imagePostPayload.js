@@ -336,28 +336,19 @@ const imagePostPayloadMusic = ({ imageUrl, optionsData }) => {
     throw err;
   }
 
-  // Payload — iOS MusicKit + Android Spotify + preview iTunes (web)
+  // Payload tối giản — iOS MusicKit cần apple_music_url với ?i=trackId
   const musicPayload = {
     isrc,
     song_title: songTitle,
     artist,
   };
 
-  // Preview ổn định (iTunes / m4a) — web nghe; app Locket bỏ qua field này
-  const preview =
-    payload?.preview_url || payload?.audio || payload?.previewUrl || null;
-  if (
-    preview &&
-    (/audio-ssl\.itunes\.apple\.com|mzstatic\.com|\.m4a(\?|$)/i.test(
-      String(preview),
-    ) ||
-      (!/dzcdn\.net|hdnea=|p\.scdn\.co/i.test(String(preview)) &&
-        /^https?:\/\//i.test(String(preview))))
-  ) {
-    musicPayload.preview_url = preview;
-  }
+  // Không gửi preview_url lên Locket app (iOS/Android phát bằng platform URL).
+  // Preview signed/Deezer hay làm app bỏ overlay.
 
+  // Apple first (iOS), then Spotify (Android) — both when present
   if (apple_music_url) {
+    // Require track id for MusicKit; drop unusable links
     if (/[?&]i=\d{5,}/.test(String(apple_music_url))) {
       musicPayload.apple_music_url = apple_music_url;
     }
