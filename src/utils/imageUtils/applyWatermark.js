@@ -1,7 +1,6 @@
 /**
  * Soft watermark when saving images:
- * filled vector heart + brand text at bottom-center.
- * Label syncs from CONFIG.app (Huy Locket branding) — not hard-coded "Locket".
+ * filled vector heart + "Locket" at bottom-center (official style).
  */
 
 import { useUserSetting } from "@/stores/SettingStores/useUserSetting";
