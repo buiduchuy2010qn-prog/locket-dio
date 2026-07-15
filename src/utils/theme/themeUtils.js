@@ -33,9 +33,9 @@ export const applyTheme = (theme) => {
   let baseColor =
     computedStyle.getPropertyValue("--color-base-100")?.trim() || "#ffc4dd";
 
-  // pinksnow: status bar hồng đậm
+  // pinksnow: status bar hồng tươi hơn (khớp gradient dreamy)
   if (t === PINK_SNOW_THEME) {
-    baseColor = "#ff8fc4";
+    baseColor = "#ff7ab8";
   } else if (t === "valentine") {
     baseColor = "#ff6b9d";
   }

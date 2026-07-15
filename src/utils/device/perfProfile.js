@@ -170,11 +170,12 @@ export function getSnowPerfConfig({ onCameraRoute, isPinkSnow, isPink }) {
   if ((p.isAndroid || p.isLowEnd) && onCameraRoute) {
     return { enabled: true, intervalMs: 320, maxFlakes: 8, lite: true };
   }
+  // Android / low-end: denser pinksnow still lite (no heavy glow)
   if (p.isAndroid || p.isLowEnd) {
     return {
       enabled: true,
-      intervalMs: isPinkSnow ? 180 : 220,
-      maxFlakes: isPinkSnow ? 18 : 12,
+      intervalMs: isPinkSnow ? 140 : 220,
+      maxFlakes: isPinkSnow ? 26 : 12,
       lite: true,
     };
   }
@@ -182,19 +183,19 @@ export function getSnowPerfConfig({ onCameraRoute, isPinkSnow, isPink }) {
     return { enabled: true, intervalMs: 200, maxFlakes: 16, lite: true };
   }
 
-  // Desktop / iOS mạnh
+  // Desktop / iOS mạnh — pinksnow denser + multi-layer (premium in GlobalThemeEffects)
   if (onCameraRoute) {
     return {
       enabled: true,
-      intervalMs: isPinkSnow ? 140 : 180,
-      maxFlakes: isPinkSnow ? 22 : 16,
+      intervalMs: isPinkSnow ? 120 : 180,
+      maxFlakes: isPinkSnow ? 28 : 16,
       lite: false,
     };
   }
   return {
     enabled: true,
-    intervalMs: isPinkSnow ? 80 : isPink ? 100 : 130,
-    maxFlakes: isPinkSnow ? 48 : isPink ? 36 : 28,
+    intervalMs: isPinkSnow ? 55 : isPink ? 100 : 130,
+    maxFlakes: isPinkSnow ? 68 : isPink ? 36 : 28,
     lite: false,
   };
 }

@@ -12,25 +12,25 @@
   prefersdark: false;
   color-scheme: light;
 
-  /* Nền hồng kem → hồng sữa */
-  --color-base-100: oklch(97.5% 0.025 350);
-  --color-base-200: oklch(94% 0.045 350);
-  --color-base-300: oklch(89% 0.07 350);
-  --color-base-content: oklch(28% 0.06 350);
+  /* Nền hồng kem sống động hơn (chroma ↑ nhẹ, vẫn soft) */
+  --color-base-100: oklch(97.2% 0.038 350);
+  --color-base-200: oklch(93.5% 0.062 350);
+  --color-base-300: oklch(88% 0.095 350);
+  --color-base-content: oklch(26% 0.07 350);
 
-  /* Primary hồng đậm (nút, badge) */
-  --color-primary: oklch(68% 0.22 350);
+  /* Primary hồng đậm / vibrant */
+  --color-primary: oklch(64% 0.245 350);
   --color-primary-content: oklch(99% 0.01 350);
 
-  /* Secondary hồng cam nhẹ */
-  --color-secondary: oklch(78% 0.14 20);
-  --color-secondary-content: oklch(25% 0.05 20);
+  /* Secondary hồng peach */
+  --color-secondary: oklch(76% 0.155 18);
+  --color-secondary-content: oklch(24% 0.05 20);
 
-  /* Accent hồng tím */
-  --color-accent: oklch(72% 0.16 330);
+  /* Accent hồng lilac */
+  --color-accent: oklch(70% 0.18 330);
   --color-accent-content: oklch(98% 0.01 330);
 
-  --color-neutral: oklch(32% 0.05 350);
+  --color-neutral: oklch(30% 0.055 350);
   --color-neutral-content: oklch(98% 0.01 350);
 
   --color-info: oklch(75% 0.1 230);
@@ -47,10 +47,32 @@
   --radius-box: 1.25rem;
 }
 
-/* Nền gradient hồng toàn app khi theme Hồng tuyết */
-html.theme-pink-snow,
-html.theme-pink-snow body,
-body.theme-pink-snow {
+/*
+ * Pinksnow-only backdrop (data-theme) — valentine giữ class theme-pink-snow
+ * nhưng gradient dreamy chỉ pinksnow để không đụng theme khác.
+ */
+html[data-theme="pinksnow"],
+html[data-theme="pinksnow"] body {
+  min-height: 100%;
+  background:
+    radial-gradient(ellipse 110% 75% at 50% -18%, rgba(255, 130, 185, 0.55), transparent 52%),
+    radial-gradient(ellipse 70% 48% at 100% 95%, rgba(255, 155, 200, 0.42), transparent 55%),
+    radial-gradient(ellipse 65% 42% at 0% 75%, rgba(255, 175, 215, 0.38), transparent 50%),
+    radial-gradient(ellipse 55% 35% at 50% 55%, rgba(255, 210, 230, 0.22), transparent 60%),
+    linear-gradient(
+      168deg,
+      #ffeaf5 0%,
+      #ffd6ec 32%,
+      #ffc4e3 62%,
+      #ffb4da 100%
+    ) !important;
+  background-attachment: fixed;
+}
+
+/* Valentine / generic pink-snow class — giữ gradient cũ nhẹ hơn */
+html.theme-pink-snow:not([data-theme="pinksnow"]),
+html.theme-pink-snow:not([data-theme="pinksnow"]) body,
+body.theme-pink-snow:not(:is(html[data-theme="pinksnow"] body)) {
   min-height: 100%;
   background:
     radial-gradient(ellipse 120% 80% at 50% -20%, rgba(255, 160, 200, 0.45), transparent 55%),
@@ -60,12 +82,24 @@ body.theme-pink-snow {
   background-attachment: fixed;
 }
 
-html.theme-pink-snow .bg-base-100 {
+html[data-theme="pinksnow"] .bg-base-100 {
+  background-color: color-mix(in oklab, var(--color-base-100) 86%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+html.theme-pink-snow:not([data-theme="pinksnow"]) .bg-base-100 {
   background-color: color-mix(in oklab, var(--color-base-100) 88%, transparent);
 }
 
-/* Locket camera: giữ hồng nhưng đỡ chói lên preview */
-html.theme-pink-snow body:has([data-locket-camera]) {
+/* Locket camera: hồng êm hơn, không che preview */
+html[data-theme="pinksnow"] body:has([data-locket-camera]) {
+  background:
+    linear-gradient(180deg, #ffeaf4 0%, #ffd8ec 48%, #ffcce6 100%) !important;
+  background-attachment: scroll !important;
+}
+
+html.theme-pink-snow:not([data-theme="pinksnow"]) body:has([data-locket-camera]) {
   background:
     linear-gradient(180deg, #ffe8f2 0%, #ffd6ea 50%, #ffcce4 100%) !important;
 }

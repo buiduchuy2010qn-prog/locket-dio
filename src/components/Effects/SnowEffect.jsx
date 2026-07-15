@@ -2,15 +2,62 @@ import React, { useEffect, useRef } from "react";
 import "./snow.css";
 
 /**
- * Tuyết — lite mode (Android): ít bông, không filter/glow nặng, setInterval thay rAF.
+ * Tuyết rơi — CSS transform GPU.
+ * premium (pinksnow): multi-depth layers, denser, brighter.
+ * lite (Android): ít bông, setInterval, glow nhẹ.
  */
 const FLAKE_POOL = [
   { char: "❄", kind: "" },
   { char: "❅", kind: "" },
+  { char: "❆", kind: "" },
   { char: "·", kind: "" },
   { char: "✦", kind: "is-spark" },
+  { char: "✧", kind: "is-spark" },
   { char: "♥", kind: "is-heart" },
 ];
+
+/** Depth profiles: size / duration / opacity / drift scale */
+const DEPTH = {
+  back: {
+    cls: "flake-back",
+    size: [8, 12],
+    duration: [8, 12],
+    opacity: [0.35, 0.55],
+    drift: 50,
+    weight: 0.4,
+  },
+  mid: {
+    cls: "flake-mid",
+    size: [12, 18],
+    duration: [5.5, 8.5],
+    opacity: [0.55, 0.85],
+    drift: 90,
+    weight: 0.4,
+  },
+  fore: {
+    cls: "flake-fore",
+    size: [16, 24],
+    duration: [3.8, 6],
+    opacity: [0.75, 0.98],
+    drift: 120,
+    weight: 0.2,
+  },
+};
+
+function pickDepth(premium) {
+  if (!premium) {
+    // Standard: mostly mid, some back
+    return Math.random() < 0.35 ? DEPTH.back : DEPTH.mid;
+  }
+  const r = Math.random();
+  if (r < DEPTH.back.weight) return DEPTH.back;
+  if (r < DEPTH.back.weight + DEPTH.mid.weight) return DEPTH.mid;
+  return DEPTH.fore;
+}
+
+function randRange([a, b]) {
+  return a + Math.random() * (b - a);
+}
 
 const SnowEffect = ({
   intervalMs = 90,
@@ -19,6 +66,8 @@ const SnowEffect = ({
   snowflakeCount,
   containerHeight,
   pinkMode = false,
+  /** pinksnow only — multi-layer + denser */
+  premium = false,
   /** Android/low-end: giảm DOM churn + CSS nặng */
   lite = false,
 }) => {
@@ -41,19 +90,22 @@ const SnowEffect = ({
     const fallDistance =
       typeof containerHeight === "number" && containerHeight > 0
         ? `${containerHeight + 40}px`
-        : "110vh";
+        : "115vh";
 
     const pickFlake = () => {
       if (lite) {
-        // Lite: chỉ ❄ và ·
-        return Math.random() < 0.7
-          ? FLAKE_POOL[0]
-          : FLAKE_POOL[2];
+        return Math.random() < 0.75 ? FLAKE_POOL[0] : FLAKE_POOL[3];
       }
-      if (pinkMode) {
+      if (premium || pinkMode) {
         const r = Math.random();
-        if (r < 0.15) return FLAKE_POOL[4];
-        if (r < 0.28) return FLAKE_POOL[3];
+        // Premium pinksnow: more variety, still mostly snow glyphs
+        if (premium) {
+          if (r < 0.12) return FLAKE_POOL[6]; // ♥
+          if (r < 0.28) return FLAKE_POOL[4 + (Math.random() < 0.5 ? 0 : 1)]; // spark
+          return FLAKE_POOL[Math.floor(Math.random() * 4)]; // snow + ·
+        }
+        if (r < 0.15) return FLAKE_POOL[6];
+        if (r < 0.28) return FLAKE_POOL[4];
         return FLAKE_POOL[Math.floor(Math.random() * 3)];
       }
       return FLAKE_POOL[Math.floor(Math.random() * 3)];
@@ -64,30 +116,57 @@ const SnowEffect = ({
       if (countRef.current >= maxFlakes) return;
 
       const flake = pickFlake();
+      const depth = pickDepth(premium && !lite);
       const el = document.createElement("span");
-      el.className = `snowflake-emoji ${flake.kind}`.trim();
+      el.className =
+        `snowflake-emoji ${flake.kind} ${depth.cls}`.trim();
       el.textContent = flake.char;
       el.setAttribute("aria-hidden", "true");
 
-      const size = lite
-        ? 10 + Math.random() * 10
-        : 11 + Math.random() * 16;
-      const duration = lite ? 5 + Math.random() * 4 : 4.5 + Math.random() * 5;
+      let size;
+      let duration;
+      let opacity;
+      let driftScale = depth.drift;
+
+      if (lite) {
+        size = 11 + Math.random() * 11;
+        duration = 5 + Math.random() * 4;
+        opacity = 0.45 + Math.random() * 0.4;
+        driftScale = 45;
+      } else if (premium) {
+        size = randRange(depth.size);
+        duration = randRange(depth.duration);
+        opacity = randRange(depth.opacity);
+      } else {
+        size = 11 + Math.random() * 16;
+        duration = 4.5 + Math.random() * 5;
+        opacity = 0.45 + Math.random() * 0.5;
+      }
+
       const left = Math.random() * 100;
-      const opacity = lite ? 0.35 + Math.random() * 0.35 : 0.45 + Math.random() * 0.5;
-      const drift = (Math.random() - 0.5) * (lite ? 40 : 90);
+      const drift = (Math.random() - 0.5) * 2 * driftScale;
       const spin = lite
         ? (Math.random() > 0.5 ? 1 : -1) * 90
-        : (Math.random() > 0.5 ? 1 : -1) * (120 + Math.random() * 400);
+        : (Math.random() > 0.5 ? 1 : -1) *
+          (premium ? 160 + Math.random() * 480 : 120 + Math.random() * 400);
+      const scale =
+        premium && depth.cls === "flake-fore"
+          ? 1 + Math.random() * 0.15
+          : premium && depth.cls === "flake-back"
+            ? 0.75 + Math.random() * 0.15
+            : 1;
 
       el.style.left = `${left}%`;
       el.style.fontSize = `${size}px`;
       el.style.opacity = String(opacity);
       el.style.setProperty("--flake-opacity", String(opacity));
-      el.style.setProperty("--drift", `${drift}px`);
+      el.style.setProperty("--drift", `${drift.toFixed(1)}px`);
       el.style.setProperty("--fall-distance", fallDistance);
       el.style.setProperty("--spin", `${spin}deg`);
-      el.style.animationDuration = `${duration}s`;
+      el.style.setProperty("--flake-scale", String(scale.toFixed(3)));
+      el.style.animationDuration = `${duration.toFixed(2)}s`;
+      // Stagger start so rain feels continuous, not pulsed
+      el.style.animationDelay = lite ? "0s" : `${(-Math.random() * duration).toFixed(2)}s`;
 
       if (!alive || !layer.isConnected) return;
       try {
@@ -97,7 +176,7 @@ const SnowEffect = ({
       }
       countRef.current += 1;
 
-      const life = Math.ceil(duration * 1000) + 200;
+      const life = Math.ceil(duration * 1000) + 250;
       window.setTimeout(() => {
         if (!alive) return;
         try {
@@ -109,13 +188,16 @@ const SnowEffect = ({
       }, life);
     };
 
-    const seed = Math.min(lite ? 3 : 6, maxFlakes);
+    // Seed more flakes for premium pinksnow so first paint already feels snowy
+    const seed = Math.min(
+      lite ? 4 : premium ? 14 : 6,
+      maxFlakes,
+    );
     for (let i = 0; i < seed; i++) {
-      window.setTimeout(spawn, i * (lite ? 150 : 90));
+      window.setTimeout(spawn, i * (lite ? 120 : premium ? 45 : 90));
     }
 
     if (lite) {
-      // setInterval nhẹ hơn rAF liên tục trên Android
       intervalId = window.setInterval(() => {
         if (!alive || document.hidden) return;
         spawn();
@@ -126,7 +208,11 @@ const SnowEffect = ({
         if (!alive) return;
         if (!document.hidden && now - last >= spawnEvery) {
           last = now;
+          // Premium: occasional double-spawn for density without shorter interval
           spawn();
+          if (premium && countRef.current < maxFlakes * 0.85 && Math.random() < 0.35) {
+            spawn();
+          }
         }
         timer = window.requestAnimationFrame(tick);
       };
@@ -146,7 +232,7 @@ const SnowEffect = ({
       }
       countRef.current = 0;
     };
-  }, [spawnEvery, maxFlakes, containerHeight, pinkMode, lite]);
+  }, [spawnEvery, maxFlakes, containerHeight, pinkMode, premium, lite]);
 
   return (
     <div

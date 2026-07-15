@@ -44,13 +44,25 @@ const GlobalThemeEffects = () => {
   const cfg = getSnowPerfConfig({ onCameraRoute, isPinkSnow, isPink });
   if (!cfg.enabled) return null;
 
+  // Premium visuals only for pinksnow (not valentine/winter)
+  const premium = isPinkSnow && !cfg.lite;
+
   return (
     <SnowEffect
       intervalMs={cfg.intervalMs}
       maxFlakes={cfg.maxFlakes}
-      pinkMode={isPink && !cfg.lite}
+      pinkMode={(isPink || isPinkSnow) && !cfg.lite}
+      premium={premium}
       lite={cfg.lite}
-      className={`${isPink ? "snow-layer--pink" : ""} ${cfg.lite ? "snow-layer--lite" : ""}`.trim()}
+      className={[
+        isPink || isPinkSnow ? "snow-layer--pink" : "",
+        premium ? "snow-layer--premium" : "",
+        // lite pinksnow still marks premium for slightly brighter lite CSS
+        isPinkSnow && cfg.lite ? "snow-layer--premium" : "",
+        cfg.lite ? "snow-layer--lite" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
     />
   );
 };
