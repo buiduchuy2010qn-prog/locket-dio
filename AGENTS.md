@@ -24,7 +24,12 @@ User: *“bản này được rồi ngon lắm”* — giữ hành vi này.
 | **Web** | https://huy-locket-production.up.railway.app |
 | **API** | https://huy-locket-api-production.up.railway.app |
 
-**App Locket cần:** `isrc` (12 ký tự) + `song_title` + `artist` + (`spotify_url` **hoặc** `apple_music_url`) + cover icon.
+**App Locket cần:** `isrc` (12 ký tự) + `song_title` + `artist` + (`spotify_url` **và/hoặc** `apple_music_url`) + cover icon.
+
+**Playback platform:**
+- **Android** — `spotify_url` (giữ như cũ; badge ưu tiên Spotify khi có)
+- **iOS** — cần thêm `apple_music_url` sạch (path + `?i=` track id) cho MusicKit; metadata vẫn hiện từ ISRC nếu thiếu Apple nhưng **không phát được**
+- Khi resolve được cả hai: **gửi cả hai** — không XOR drop Apple vì đã có Spotify
 
 **Files (đụng cẩn thận):**
 - Client attach: `src/features/CustomeStudio/components/GeneralSections/index.jsx`
@@ -36,9 +41,10 @@ User: *“bản này được rồi ngon lắm”* — giữ hành vi này.
 **Rules:**
 - Không đăng nhạc nếu thiếu ISRC / platform URL (chặn + toast rõ)
 - Server `ensureMusic` bù ISRC (Deezer → iTunes → MusicBrainz) trước post
+- Server song.link: map Spotify↔Apple khi thiếu một phía (iOS cần Apple)
 - Sau post: inject overlay local vào feed (Locket response hay cắt overlays)
 - Merge feed: **không** ghi đè mất music overlay khi API omit
-- Đổi music → test: gắn → toast có ISRC → đăng bài **mới** → web pill + app Locket
+- Đổi music → test: gắn → toast có ISRC → đăng bài **mới** → web pill + app Android play + app iOS play
 
 ## Production deploy (mandatory)
 

@@ -350,8 +350,9 @@ const videoPostPayloadMusic = ({ videoUrl, thumbnailUrl, optionsData }) => {
   if (preview && !/dzcdn\.net|hdnea=/i.test(preview)) {
     musicPayload.preview_url = preview;
   }
+  // Dual platform: Spotify (Android) + Apple (iOS) when both available
   if (spotify_url) musicPayload.spotify_url = spotify_url;
-  else musicPayload.apple_music_url = apple_music_url;
+  if (apple_music_url) musicPayload.apple_music_url = apple_music_url;
 
   const cover =
     (icon && icon.data) ||

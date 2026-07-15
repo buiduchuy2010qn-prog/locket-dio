@@ -149,9 +149,9 @@ export default function GeneralThemes({ title }) {
           ? "apple"
           : musicData.platform || platformHint,
     };
-    // XOR platform link — Locket hiện badge Spotify hoặc Apple Music
+    // Platform links: badge ưu tiên Spotify nếu có; giữ Apple song song (iOS play)
     if (hasSpotify) musicPayload.spotify_url = musicData.spotify_url;
-    else if (hasApple) {
+    if (hasApple) {
       musicPayload.apple_music_url =
         musicData.apple_music_url || musicData.appleMusicUrl;
     }

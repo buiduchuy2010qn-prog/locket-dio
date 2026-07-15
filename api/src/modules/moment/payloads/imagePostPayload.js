@@ -268,7 +268,8 @@ const imagePostPayloadReview = ({ imageUrl, optionsData }) => {
 };
 
 // Đăng ảnh Music — format giống Locket Dio gốc + ISRC bắt buộc:
-// isrc + song_title + artist + (spotify_url XOR apple_music_url) + icon cover
+// isrc + song_title + artist + (spotify_url | apple_music_url) + icon cover
+// Dual URL OK: Spotify (Android) + Apple (iOS MusicKit) — không XOR drop.
 // Apple URL phải sạch (path + ?i=); không gửi preview Deezer signed.
 const imagePostPayloadMusic = ({ imageUrl, optionsData }) => {
   const payload = optionsData?.payload || optionsData?.music || {};
@@ -352,9 +353,9 @@ const imagePostPayloadMusic = ({ imageUrl, optionsData }) => {
     musicPayload.preview_url = preview;
   }
 
-  // XOR platform — ưu tiên Spotify
+  // Platform URLs — keep both when present (Android Spotify + iOS Apple Music)
   if (spotify_url) musicPayload.spotify_url = spotify_url;
-  else musicPayload.apple_music_url = apple_music_url;
+  if (apple_music_url) musicPayload.apple_music_url = apple_music_url;
 
   const cover =
     (icon && icon.data) ||

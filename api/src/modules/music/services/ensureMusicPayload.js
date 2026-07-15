@@ -3,10 +3,13 @@
  * App Locket cần: isrc + song_title + artist + (spotify_url | apple_music_url) + icon.
  * Web merge local vẫn hiện nếu chỉ có isrc — nhưng app thật thì không.
  *
+ * iOS playback: giữ apple_music_url (MusicKit) ngay cả khi đã có spotify_url.
+ * Android playback: giữ spotify_url như cũ — không drop / không đổi thứ tự ưu tiên badge.
+ *
  * Lưu ý (Buông·Hngle fail case):
  * - URL Apple phải sạch (không uo=/tracking)
  * - Ưu tiên cover/preview iTunes (mzstatic) thay Deezer signed
- * - Ưu tiên Spotify URL nếu song.link có; không thì Apple clean
+ * - Spotify + Apple clean cùng lúc khi resolve được (dual, không XOR)
  */
 const {
   fetchMusicApi,
@@ -257,7 +260,10 @@ async function ensureMusicOptionsData(optionsData = {}) {
     }
   }
 
-  // song.link: chỉ lấy Spotify — KHÔNG ghi đè Apple bằng URL slug `_`
+  // song.link cross-map:
+  // - Apple-only → Spotify (Android playback / badge)
+  // - Spotify-only / weak Apple → Apple (iOS MusicKit playback)
+  // Không ghi đè Apple bằng URL slug `_` từ song.link
   if (!spotify_url && apple_music_url) {
     try {
       const sl = await fetchSongLink(apple_music_url);
@@ -271,7 +277,30 @@ async function ensureMusicOptionsData(optionsData = {}) {
         image_url = sl.image_url;
       }
     } catch (e) {
-      console.warn("[ensureMusicOptionsData] song.link:", e.message);
+      console.warn("[ensureMusicOptionsData] song.link apple→spotify:", e.message);
+    }
+  }
+  if (
+    spotify_url &&
+    (!apple_music_url || scoreAppleUrl(apple_music_url, isrc) < 40)
+  ) {
+    try {
+      const sl = await fetchSongLink(spotify_url);
+      if (sl?.apple_music_url) {
+        apple_music_url = pickBetterAppleUrl(
+          apple_music_url,
+          sl.apple_music_url,
+          isrc,
+        );
+        console.log(
+          `[ensureMusicOptionsData] song.link → Apple for iOS "${song_title}"`,
+        );
+      }
+      if (sl?.image_url && (!image_url || !isStableCoverUrl(image_url))) {
+        image_url = sl.image_url;
+      }
+    } catch (e) {
+      console.warn("[ensureMusicOptionsData] song.link spotify→apple:", e.message);
     }
   }
 
@@ -299,7 +328,7 @@ async function ensureMusicOptionsData(optionsData = {}) {
     preview = null;
   }
 
-  // Platform: ưu tiên Spotify (Locket native), không có thì Apple
+  // Platform badge: ưu tiên Spotify (Android ổn); Apple vẫn giữ song song cho iOS
   let platformOut = "spotify";
   if (spotify_url) platformOut = "spotify";
   else if (apple_music_url) platformOut = "apple";
@@ -317,9 +346,12 @@ async function ensureMusicOptionsData(optionsData = {}) {
     image_url: image_url || null,
     platform: platformOut,
   };
-  // XOR — chỉ 1 platform URL cho Locket (ưu tiên Spotify)
+  // Dual platform when both available:
+  // - spotify_url → Android Spotify playback (unchanged)
+  // - apple_music_url → iOS Apple Music / MusicKit playback
+  // Do not drop Apple just because Spotify exists (old XOR broke iOS play).
   if (spotify_url) nextPayload.spotify_url = spotify_url;
-  else if (apple_music_url) nextPayload.apple_music_url = apple_music_url;
+  if (apple_music_url) nextPayload.apple_music_url = apple_music_url;
 
   const nextIcon =
     image_url
