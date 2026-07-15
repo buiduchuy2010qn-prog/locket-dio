@@ -30,6 +30,16 @@ import {
   upgradeStreamQuality,
 } from "./perfProfile";
 import { CONFIG } from "@/config";
+import {
+  classifyCameras as classifyCamerasUniversal,
+  extractTrackSignals,
+  probeDeviceSignals,
+  analyzeLensCandidate,
+  confidenceFromAnalysis,
+  hasNonZoomSignal,
+  getBrowserCameraEnv,
+  classifyLiveTrack,
+} from "./cameraClassification";
 
 // ─── Label matchers ───────────────────────────────────────────────
 
@@ -140,88 +150,18 @@ export function clearDeviceProbeCache() {
 }
 
 /**
- * Low-res probe of a single device — getCapabilities/settings only.
+ * Low-res probe — full signal bag (zoom, facing, resolution, FOV/focal if any).
  * Cached; never blocks UI longer than ~2.5s per device.
  * @param {string} deviceId
+ * @param {MediaDeviceInfo|null} [deviceInfo]
  */
-export async function probeDeviceCapabilities(deviceId) {
+export async function probeDeviceCapabilities(deviceId, deviceInfo = null) {
   if (!deviceId || !navigator.mediaDevices?.getUserMedia) return null;
   if (deviceProbeCache.has(deviceId)) return deviceProbeCache.get(deviceId);
 
-  const run = async () => {
-    let stream = null;
-    try {
-      const timeoutMs = 2500;
-      const open = navigator.mediaDevices.getUserMedia({
-        video: {
-          deviceId: { exact: deviceId },
-          width: { ideal: 320, max: 640 },
-          height: { ideal: 240, max: 480 },
-          frameRate: { ideal: 15, max: 24 },
-        },
-        audio: false,
-      });
-      stream = await Promise.race([
-        open,
-        new Promise((_, rej) =>
-          setTimeout(() => rej(new Error("probe-timeout")), timeoutMs),
-        ),
-      ]);
-      const track = stream.getVideoTracks?.()?.[0];
-      if (!track) return null;
-      let caps = {};
-      let settings = {};
-      try {
-        caps = track.getCapabilities?.() || {};
-      } catch {
-        /* ignore */
-      }
-      try {
-        settings = track.getSettings?.() || {};
-      } catch {
-        /* ignore */
-      }
-      const minZoom =
-        typeof caps?.zoom?.min === "number" ? caps.zoom.min : null;
-      const maxZoom =
-        typeof caps?.zoom?.max === "number" ? caps.zoom.max : null;
-      const meta = {
-        deviceId,
-        minZoom,
-        maxZoom,
-        facingMode: settings.facingMode || null,
-        width: settings.width || null,
-        height: settings.height || null,
-        probedAt: Date.now(),
-      };
-      deviceProbeCache.set(deviceId, meta);
-      return meta;
-    } catch {
-      // Cache miss as empty so we don't retry every flip
-      const meta = {
-        deviceId,
-        minZoom: null,
-        maxZoom: null,
-        facingMode: null,
-        width: null,
-        height: null,
-        probedAt: Date.now(),
-        failed: true,
-      };
-      deviceProbeCache.set(deviceId, meta);
-      return meta;
-    } finally {
-      if (stream) {
-        try {
-          stream.getTracks().forEach((t) => t.stop());
-        } catch {
-          /* ignore */
-        }
-      }
-    }
-  };
-
-  return run();
+  const meta = await probeDeviceSignals(deviceId, deviceInfo);
+  if (meta) deviceProbeCache.set(deviceId, meta);
+  return meta;
 }
 
 /**
@@ -584,67 +524,20 @@ export function scheduleCameraCapabilityProbe(detected) {
 }
 
 export function detectRearCameras(videoDevices = []) {
-  const front = [];
-  const rear = [];
-
-  for (const device of videoDevices) {
-    const label = device.label || "";
-    if (isFrontLabel(label)) front.push(device);
-    else if (isBackLabel(label)) rear.push(device);
-  }
-
-  // Samsung / Android: camera2 2 (ultra), camera2 3 (tele) đôi khi không match BACK_RE cũ.
-  // Mọi device còn lại (không phải front) phải vào rear — nếu không 0.6x bị mất.
-  const remaining = videoDevices.filter(
-    (d) =>
-      !front.some((c) => c.deviceId === d.deviceId) &&
-      !rear.some((c) => c.deviceId === d.deviceId),
-  );
-
-  if (remaining.length) {
-    if (!rear.length) {
-      if (remaining.length >= 2) {
-        // Heuristic: last ≈ rear main, first ≈ front nếu chưa có front
-        rear.push(remaining[remaining.length - 1]);
-        if (!front.length) front.push(remaining[0]);
-        for (let i = 1; i < remaining.length - 1; i++) {
-          rear.push(remaining[i]);
-        }
-        // remaining[0] đã front; nếu remaining.length===2 chỉ 1 rear
-      } else {
-        rear.push(remaining[0]);
-      }
-    } else {
-      // Đã có rear (camera2 0) — thêm ultra/tele còn sót (camera2 2, 3…)
-      for (const d of remaining) {
-        if (!isFrontLabel(d.label || "")) rear.push(d);
-      }
-    }
-  }
-
-  if (!front.length) {
-    const fb = videoDevices.find(
-      (d) => !rear.some((c) => c.deviceId === d.deviceId),
-    );
-    if (fb) front.push(fb);
-  }
-
-  const main = pickMainRearCamera(rear);
-  const telephoto = pickTeleCamera(rear, main);
-  const ultraState = classifyUltraWideState(rear, main, telephoto);
-
+  // Universal engine — labels + structure + probe cache (when warm)
+  const classified = classifyCamerasUniversal(videoDevices, deviceProbeCache);
   return {
-    all: videoDevices,
-    front,
-    rear,
-    main,
-    ultrawide: ultraState.ultrawide,
-    telephoto,
-    // Always expose every rear cam for manual pick when auto is unsure
-    rearOptions: rear.slice(),
-    ultraConfidence: ultraState.confidence,
-    needsManualLensPick: ultraState.needsManualLensPick,
-    ultraRanked: ultraState.ranked,
+    all: classified.all,
+    front: classified.front,
+    rear: classified.rear,
+    main: classified.main,
+    ultrawide: classified.ultrawide,
+    telephoto: classified.telephoto,
+    rearOptions: classified.rearOptions,
+    ultraConfidence: classified.ultraConfidence,
+    needsManualLensPick: classified.needsManualLensPick,
+    ultraRanked: classified.ultraRanked,
+    browser: classified.browser || getBrowserCameraEnv(),
   };
 }
 

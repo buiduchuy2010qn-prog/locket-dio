@@ -53,6 +53,7 @@ import { SonnerInfo } from "@/components/ui/SonnerToast";
 import { usePostStore, useUIStore } from "@/stores";
 import { useTranslation } from "react-i18next";
 import ZoomPresets from "./ZoomPresets";
+import RearLensPicker from "./RearLensPicker";
 
 /** Pinch: ~30fps UI, zoom HW coalesce — mượt không await block */
 const PINCH_THROTTLE_MS = 33;
@@ -85,6 +86,7 @@ const MediaPreviewAndroid = () => {
     activeZoomMode,
     setActiveZoomMode,
     setDetectedCameras,
+    detectedCameras,
   } = camera;
   const { isBottomOpen, isHomeOpen, isProfileOpen } = navigation || {};
 
@@ -138,9 +140,12 @@ const MediaPreviewAndroid = () => {
     main: cameras?.backNormalCamera,
     ultrawide: cameras?.backUltraWideCamera,
     telephoto: cameras?.backZoomCamera,
-    rear: cameras?.backCameras || [],
+    rear: cameras?.backCameras || cameras?.rearOptions || [],
     front: cameras?.frontCameras || [],
     all: cameras?.allCameras || [],
+    rearOptions: cameras?.rearOptions || cameras?.backCameras || [],
+    ultraConfidence: cameras?.ultraConfidence,
+    needsManualLensPick: cameras?.needsManualLensPick,
   });
 
   const syncZoomStateFromStream = useCallback(
@@ -1240,7 +1245,34 @@ const MediaPreviewAndroid = () => {
               </div>
             )}
 
-            {/* Hàng nút zoom ấn — cam trước (1x·2x) + cam sau (0.6·1x·2x) */}
+            {/* Manual rear lens pick when classification is uncertain */}
+            {showZoomUi && (cameraMode || "environment") !== "user" && (
+              <RearLensPicker
+                rearOptions={
+                  availableZoomModes?.rearOptions ||
+                  detectedCameras?.rearOptions ||
+                  detectedCameras?.backCameras ||
+                  detectedRef.current?.rearOptions ||
+                  detectedRef.current?.backCameras ||
+                  []
+                }
+                activeDeviceId={deviceId || lastDeviceId.current}
+                visible={Boolean(
+                  availableZoomModes?.needsManualLensPick ||
+                    detectedCameras?.needsManualLensPick ||
+                    detectedRef.current?.needsManualLensPick,
+                )}
+                disabled={isSwitchingCamera || isPinching}
+                onSelect={(id) => {
+                  if (!id || isSwitchingCamera) return;
+                  setIsSwitchingCamera(true);
+                  setDeviceId(id);
+                  lastDeviceId.current = id;
+                }}
+              />
+            )}
+
+            {/* Hàng nút zoom ấn — cam trước (1x·2x) + cam sau (UW·1x·2x) */}
             {showZoomUi && (
               <ZoomPresets
                 activeMode={activeZoomMode}
