@@ -352,10 +352,7 @@ function rankTracksByQuery(query, tracks, limit = 40) {
     .slice(0, limit);
 }
 
-/**
- * Fallback tìm iTunes trực tiếp từ browser (CORS mở).
- * Khi API server (Railway) bị chặn Deezer → search rỗng.
- */
+/** Fallback iTunes từ browser khi API Railway trả rỗng (Deezer chặn) */
 async function searchItunesBrowser(query, limit = 25) {
   const q = String(query || "").trim();
   if (!q) return [];
@@ -373,7 +370,7 @@ async function searchItunesBrowser(query, limit = 25) {
       if (!res.ok) continue;
       const data = await res.json();
       for (const r of data?.results || []) {
-        if (!r.trackName || !r.previewUrl) continue;
+        if (!r.trackName) continue;
         const id = String(r.trackId || "");
         if (id && seen.has(id)) continue;
         if (id) seen.add(id);
@@ -393,7 +390,6 @@ async function searchItunesBrowser(query, limit = 25) {
           song_name: r.trackName,
           name: r.trackName,
           artist: r.artistName || "",
-          album: r.collectionName || "",
           image_url: (r.artworkUrl100 || "").replace("100x100", "600x600") || "",
           preview_url: r.previewUrl || null,
           isrc: null,
@@ -405,18 +401,17 @@ async function searchItunesBrowser(query, limit = 25) {
         });
       }
     } catch (e) {
-      console.warn("[searchItunesBrowser]", country, e.message);
+      console.warn("[searchItunesBrowser]", e.message);
     }
   }
   return out.slice(0, limit);
 }
 
-/** Tìm nhạc theo tên — API server (Deezer/iTunes/MB) + fallback browser iTunes */
+/** Tìm nhạc — API server + fallback iTunes browser (bản ~8:40 PM + fix Railway) */
 export const searchMusicByQuery = async (query, limit = 30) => {
   const q = String(query || "").trim();
   if (!q) return [];
   const fetchLimit = Math.min(50, Math.max(Number(limit) || 30, 25));
-
   let list = [];
   try {
     const res = await api.post(
@@ -435,21 +430,11 @@ export const searchMusicByQuery = async (query, limit = 30) => {
     console.error("🚨 searchMusicByQuery server:", error.message);
   }
 
-  // Server rỗng (Railway chặn Deezer) → iTunes browser
   if (!list.length) {
-    try {
-      list = await searchItunesBrowser(q, fetchLimit);
-      console.info(
-        `[searchMusic] browser iTunes fallback: ${list.length} for "${q.slice(0, 40)}"`,
-      );
-    } catch (e) {
-      console.error("🚨 searchItunesBrowser:", e.message);
-    }
+    list = await searchItunesBrowser(q, fetchLimit);
   }
-
   if (!list.length) return [];
 
-  // Soft re-rank
   const ranked = rankTracksByQuery(q, list, fetchLimit);
   const out = ranked.length ? ranked : list;
   out.sort((a, b) => {

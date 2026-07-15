@@ -1250,65 +1250,6 @@ function stripDiacritics(s) {
     .replace(/Đ/g, "D");
 }
 
-/**
- * MusicBrainz search theo tên — trả list track có ISRC (khi Deezer/iTunes down).
- */
-async function searchMusicBrainzRecordings(query, limit = 12) {
-  const q = String(query || "").trim();
-  if (!q) return [];
-  try {
-    const clean = q.replace(/"/g, "").replace(/[()[\]]/g, " ").trim().slice(0, 100);
-    const r = await http.get("https://musicbrainz.org/ws/2/recording", {
-      params: {
-        query: clean,
-        fmt: "json",
-        limit: Math.min(25, Math.max(5, limit)),
-      },
-      timeout: 14000,
-      headers: {
-        "User-Agent":
-          "HuyLocket/1.4 (https://github.com/buiduchuy2010qn-prog/locket-dio)",
-        Accept: "application/json",
-      },
-    });
-    const recs = r.data?.recordings || [];
-    const out = [];
-    for (const rec of recs) {
-      const isrc = normalizeIsrc((rec.isrcs || [])[0]);
-      if (!isrc) continue;
-      const artist =
-        (rec["artist-credit"] || [])
-          .map((a) => a.name || a.artist?.name)
-          .filter(Boolean)
-          .join(", ") || "";
-      const title = rec.title || "";
-      if (!title) continue;
-      const blob = `${title} ${rec.disambiguation || ""}`.toLowerCase();
-      if (/\b(karaoke|instrumental)\b/.test(blob)) continue;
-      out.push({
-        id: `mb-${rec.id || isrc}`,
-        song_name: title,
-        song_title: title,
-        name: title,
-        artist,
-        album: "",
-        image_url: "",
-        preview_url: null,
-        isrc,
-        spotify_url: null,
-        apple_music_url: null,
-        platform: "spotify",
-        source: "musicbrainz-search",
-        title: [title, artist].filter(Boolean).join(" - "),
-      });
-    }
-    return out.slice(0, limit);
-  } catch (e) {
-    console.warn("searchMusicBrainzRecordings:", e.message);
-    return [];
-  }
-}
-
 /** MusicBrainz — fallback ISRC khi Deezer miss (rate-limit nhẹ) */
 async function fetchIsrcFromMusicBrainz(songName, artist) {
   if (!songName) return null;
@@ -1594,57 +1535,45 @@ async function searchMusicByQuery(query, limit = 30) {
     }
   }
 
-  // iTunes multi-country (Railway đôi khi chặn Deezer — iTunes + MB vẫn OK)
-  async function fetchItunesList(term, country) {
-    try {
-      const s = await axios.get("https://itunes.apple.com/search", {
-        params: {
-          term,
-          media: "music",
-          entity: "song",
-          limit: fetchLim,
-          country,
-        },
-        timeout: 12000,
-        headers: { "User-Agent": UA },
-        validateStatus: (st) => st >= 200 && st < 500,
-      });
-      if (!s.data?.results) {
-        console.warn(
-          `searchMusic itunes ${country}: no results body status=${s.status}`,
+  // Song song: Spotify (optional) + Deezer (ISRC, multi-q) + iTunes
+  const [spotifyTracks, deezerNested, itunesTracks] = await Promise.all([
+    fetchSpotifySearchFull(q, fetchLim).catch(() => []),
+    Promise.all(qVariants.slice(0, 3).map((term) => fetchDeezerList(term))),
+    (async () => {
+      try {
+        const terms = qVariants.slice(0, 2);
+        const batches = await Promise.all(
+          terms.map(async (term) => {
+            try {
+              const s = await axios.get("https://itunes.apple.com/search", {
+                params: {
+                  term,
+                  media: "music",
+                  entity: "song",
+                  limit: fetchLim,
+                  country: "vn",
+                },
+                timeout: 10000,
+                headers: { "User-Agent": UA },
+                validateStatus: (st) => st >= 200 && st < 500,
+              });
+              return (s.data?.results || []).map(mapITunesTrack);
+            } catch {
+              return [];
+            }
+          }),
         );
+        return batches.flat();
+      } catch (e) {
+        console.warn("searchMusic itunes:", e.message);
         return [];
       }
-      return (s.data.results || []).map(mapITunesTrack);
-    } catch (e) {
-      console.warn(`searchMusic itunes ${country}:`, e.message);
-      return [];
-    }
-  }
-
-  // Song song: Spotify (optional) + Deezer (ISRC) + iTunes VN/US
-  const [spotifyTracks, deezerNested, itunesVn, itunesUs] = await Promise.all([
-    fetchSpotifySearchFull(q, fetchLim).catch((e) => {
-      console.warn("searchMusic spotify:", e.message);
-      return [];
-    }),
-    Promise.all(qVariants.slice(0, 3).map((term) => fetchDeezerList(term))),
-    Promise.all(
-      qVariants.slice(0, 2).map((term) => fetchItunesList(term, "vn")),
-    ),
-    Promise.all(
-      qVariants.slice(0, 2).map((term) => fetchItunesList(term, "us")),
-    ),
+    })(),
   ]);
 
   const deezerTracks = deezerNested.flat();
-  const itunesTracks = [...itunesVn.flat(), ...itunesUs.flat()];
 
-  console.log(
-    `[searchMusic] "${q.slice(0, 40)}" deezer=${deezerTracks.length} itunes=${itunesTracks.length} spotify=${spotifyTracks.length}`,
-  );
-
-  // Merge: ưu tiên khớp score; nếu 0 → vẫn lấy raw (tránh list rỗng trên cloud)
+  // Luôn merge Deezer (ISRC) + iTunes + Spotify
   const keepIfMatch = (t, prefer) => {
     if (!t) return;
     if (scoreTrackMatch(q, t) <= 0) return;
@@ -1654,27 +1583,16 @@ async function searchMusicByQuery(query, limit = 30) {
   for (const t of spotifyTracks) keepIfMatch(t, true);
   for (const t of itunesTracks) keepIfMatch(t, true);
 
-  // Filter quá chặt hoặc API cloud miss → soft fallback
+  // Nếu filter quá chặt (0 hit) — vẫn giữ top Deezer/iTunes để có ISRC
   if (merged.size === 0) {
     console.warn(
-      `[searchMusic] score/source empty for "${q}" — soft fallback raw`,
+      `[searchMusic] score filter empty for "${q}" — soft fallback`,
     );
     for (const t of [...deezerTracks, ...itunesTracks, ...spotifyTracks].slice(
       0,
       fetchLim,
     )) {
       addTrack(t, true);
-    }
-  }
-
-  // MusicBrainz recording search — khi Deezer/iTunes đều chết (hay gặp trên Railway)
-  if (merged.size === 0) {
-    try {
-      const mb = await searchMusicBrainzRecordings(q, Math.min(15, fetchLim));
-      for (const t of mb) addTrack(t, true);
-      console.log(`[searchMusic] musicbrainz fallback: ${mb.length}`);
-    } catch (e) {
-      console.warn("searchMusic musicbrainz:", e.message);
     }
   }
 
