@@ -7,7 +7,11 @@ import {
   SonnerInfo,
 } from "@/components/ui/SonnerToast";
 import Modal from "@/components/ui/Modal";
-import { DeleteMoment, downloadAndShareFile } from "@/services";
+import {
+  DeleteMoment,
+  downloadFileToDevice,
+  shareFile,
+} from "@/services";
 import { getMomentById } from "@/cache/momentDB";
 import {
   useMomentsStoreV2,
@@ -133,7 +137,8 @@ const OptionMoment = ({ setOptionModalOpen, isOptionModalOpen }) => {
         return;
       }
 
-      await downloadAndShareFile(media.url, media.filename, () =>
+      // Nút tải → lưu thẳng về máy (không share sheet)
+      await downloadFileToDevice(media.url, media.filename, () =>
         setDownloading(false),
       );
     } catch (err) {
@@ -156,9 +161,8 @@ const OptionMoment = ({ setOptionModalOpen, isOptionModalOpen }) => {
         return;
       }
 
-      await downloadAndShareFile(media.url, media.filename, () =>
-        setSharing(false),
-      );
+      // Nút chia sẻ → share sheet
+      await shareFile(media.url, media.filename, () => setSharing(false));
     } catch (err) {
       SonnerWarning(t("option_moment.share_error"));
       console.error(err);

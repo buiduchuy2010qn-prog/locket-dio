@@ -2,10 +2,11 @@ import { useState } from "react";
 import { ChevronDown, Download, Menu, MessageCircle } from "lucide-react";
 import HistorySelectFriend from "@/features/HistorySelectFriend";
 import { useAuthStore, useFriendList } from "@/stores";
-import { shareBlob } from "@/services";
+import { downloadBlob } from "@/services";
 import { useTranslation } from "react-i18next";
 import { useAutoDriveBackup } from "@/hooks/useAutoDriveBackup";
 import AppUpdateButton from "@/components/AppUpdateButton";
+import { SonnerInfo, SonnerWarning } from "@/components/ui/SonnerToast";
 
 const HeaderHome = ({
   setIsHomeOpen,
@@ -52,6 +53,7 @@ const HeaderHome = ({
     if (!selectedFile) return;
 
     try {
+      SonnerInfo(t("home.preparing_download", { defaultValue: "Đang tải…" }));
       const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
       let file = selectedFile;
       let fileName = `huylocket-${timestamp}.jpg`;
@@ -74,9 +76,13 @@ const HeaderHome = ({
         fileName = `huylocket-${timestamp}.${extension}`;
       }
 
-      await shareBlob(file, fileName);
+      // Tải thẳng về máy — không mở share sheet
+      downloadBlob(file, fileName);
     } catch (err) {
-      console.error("❌ Share error:", err);
+      console.error("❌ Download error:", err);
+      SonnerWarning(
+        t("home.download_error", { defaultValue: "Không tải được ảnh" }),
+      );
     }
   };
 
