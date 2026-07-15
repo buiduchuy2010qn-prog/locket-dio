@@ -42,6 +42,10 @@ const MAIN_HINT_RE =
 
 const ZOOM_IN_LABEL_RE = /0\.[5-9]\s*x|\b0\.[5-9]\b/;
 
+/** Desktop / virtual webcams — never treat as multi-lens phone rear */
+const VIRTUAL_DESKTOP_RE =
+  /obs|virtual\s*cam|virtualcam|manycam|snap\s*camera|xsplit|nvidia\s*broadcast|droidcam|iriun|epoccam|ndi|capture\s*card|screen\s*capture|desktop\s*capture|integrated\s*webcam|built[\s-]*in\s*(hd\s*)?webcam|facetime\s*hd|usb\s*camera|logitech|microsoft\s*life|hd\s*pro\s*webcam|c920|c922|ivcam/i;
+
 const NON_ZOOM_SIGNALS = new Set([
   "confident_label",
   "ultra_label",
@@ -55,7 +59,37 @@ const NON_ZOOM_SIGNALS = new Set([
   "resolution_hint",
   "fov_hint",
   "focal_hint",
+  "camera2_ultra_index",
+  "android_aux_rear",
 ]);
+
+/** Parse Android camera2 / camera1 numeric index from label */
+export function parseCamera2Index(label = "") {
+  const s = String(label);
+  let m = s.match(/camera2\s*(\d+)/i);
+  if (m) return Number(m[1]);
+  m = s.match(/camera1\s*(\d+)/i);
+  if (m) return Number(m[1]);
+  m = s.match(/(?:^|[^\d])(\d)\s*,\s*facing/i);
+  if (m) return Number(m[1]);
+  return null;
+}
+
+export function isVirtualOrDesktopCamera(label = "") {
+  return VIRTUAL_DESKTOP_RE.test(String(label || ""));
+}
+
+export function isPhoneLikeCameraEnv() {
+  try {
+    const ua = String(navigator.userAgent || "");
+    if (/Android|iPhone|iPad|iPod/i.test(ua)) return true;
+    if (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
+      return true;
+    return false;
+  } catch {
+    return false;
+  }
+}
 
 // ─── Browser metadata (diagnostic only) ───────────────────────────
 
@@ -326,6 +360,27 @@ export function analyzeLensCandidate(device, ctx = {}) {
     signals.push("secondary_hint");
   }
 
+  // Android camera2 index (Samsung S25 FE: 0=main, 1=front, 2=ultra, 3+=tele)
+  // Structural index — not a zoom number and not a phone-model table.
+  const camIdx = parseCamera2Index(label);
+  if (camIdx === 2 && rearTotal >= 2) {
+    score += 55;
+    signals.push("camera2_ultra_index", "secondary_hint", "android_aux_rear");
+    if (lensGuess === "unknown") lensGuess = "ultrawide";
+  } else if (camIdx != null && camIdx >= 3 && rearTotal >= 2) {
+    score -= 35;
+    signals.push("camera2_high_index");
+  } else if (
+    camIdx != null &&
+    camIdx !== 0 &&
+    camIdx !== 1 &&
+    rearTotal >= 2 &&
+    device.deviceId !== mainId
+  ) {
+    score += 20;
+    signals.push("android_aux_rear");
+  }
+
   // ── Multi-device structure ──
   if (rearTotal >= 2) {
     score += 18;
@@ -432,8 +487,11 @@ export function confidenceFromAnalysis({ score = 0, signals = [] } = {}) {
   if (hasConfident && score >= 80) return "high";
   if (hasUltra && hasStructure && score >= 60) return "high";
   if (signals.includes("fov_hint") && score >= 50) return "high";
+  // Android camera2 index 2 + multi-rear = reliable UW on Samsung/Pixel/etc.
+  if (signals.includes("camera2_ultra_index") && score >= 50) return "high";
   if (nonZoom.length >= 2 && score >= 40) return "medium";
   if ((hasUltra || hasStructure) && score >= 50) return "medium";
+  if (signals.includes("android_aux_rear") && score >= 35) return "medium";
   if (score > 0) return "low";
   return "none";
 }
@@ -447,23 +505,51 @@ export function hasNonZoomSignal(signals = []) {
 export function partitionVideoDevices(videoDevices = []) {
   const front = [];
   const rear = [];
+  const virtual = [];
+  const leftover = [];
+
   for (const d of videoDevices) {
     const label = d.label || "";
-    if (isFrontLabel(label)) front.push(d);
-    else if (isBackLabel(label)) rear.push(d);
-    else {
-      // Unlabeled leftovers → rear candidates (Android camera2 aux)
-      // Front heuristic: if no front yet and only one leftover with "1" index
+    if (isVirtualOrDesktopCamera(label)) {
+      virtual.push(d);
+      continue;
+    }
+    if (isFrontLabel(label)) {
+      front.push(d);
+      continue;
+    }
+    if (isBackLabel(label)) {
+      rear.push(d);
+      continue;
+    }
+    leftover.push(d);
+  }
+
+  // Android camera2 aux (2, 3…) sometimes only match partially — keep all non-front
+  for (const d of leftover) {
+    const idx = parseCamera2Index(d.label || "");
+    if (idx === 1 && !front.length) {
+      front.push(d);
+    } else if (!isFrontLabel(d.label || "")) {
       rear.push(d);
     }
   }
+
   // Pull obvious front out of rear if mis-bucketed
   for (let i = rear.length - 1; i >= 0; i--) {
     if (isFrontLabel(rear[i].label || "")) {
       front.push(rear.splice(i, 1)[0]);
     }
   }
-  return { front, rear };
+
+  // Desktop-only: virtual/webcams are NOT multi-lens rear for manual pick
+  // (still available as generic video inputs via all[])
+  if (!isPhoneLikeCameraEnv() && !rear.length && virtual.length) {
+    // Put first virtual as "main" so UI still works on PC preview
+    rear.push(virtual[0]);
+  }
+
+  return { front, rear, virtual };
 }
 
 function scoreMainCamera(device, index, total) {
@@ -565,14 +651,29 @@ export function classifyCameras(videoDevices = [], probeMap = null) {
     ultrawide = best?.device || null;
   }
 
+  // Fallback: camera2 index 2 when ensemble left ultra empty (Samsung S25 FE)
+  if (!ultrawide && rear.length >= 2) {
+    const byIdx = rear.find((d) => {
+      if (d.deviceId === main?.deviceId || d.deviceId === telephoto?.deviceId)
+        return false;
+      return parseCamera2Index(d.label || "") === 2;
+    });
+    if (byIdx) ultrawide = byIdx;
+  }
+
   const bestRanked = ranked.find((r) => r.deviceId === ultrawide?.deviceId);
   const ultraConfidence = ultrawide
-    ? bestRanked?.confidence || "medium"
+    ? bestRanked?.confidence ||
+      (parseCamera2Index(ultrawide.label || "") === 2 ? "high" : "medium")
     : ranked.some((r) => r.score > 0 && r.deviceId !== main?.deviceId)
       ? "low"
       : "none";
 
+  // Manual pick ONLY on real phones with multi-rear and low confidence.
+  // Never on desktop Integrated Webcam + OBS (was blocking the zoom UI).
+  const phoneEnv = isPhoneLikeCameraEnv();
   const needsManualLensPick =
+    phoneEnv &&
     rear.length >= 2 &&
     (!ultrawide || ultraConfidence === "low");
 
@@ -588,6 +689,7 @@ export function classifyCameras(videoDevices = [], probeMap = null) {
     needsManualLensPick,
     ultraRanked: ranked,
     browser: getBrowserCameraEnv(),
+    isPhoneEnv: phoneEnv,
   };
 }
 

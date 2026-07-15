@@ -10,6 +10,9 @@ export {
   analyzeLensCandidate,
   confidenceFromAnalysis,
   hasNonZoomSignal,
+  parseCamera2Index,
+  isVirtualOrDesktopCamera,
+  isPhoneLikeCameraEnv,
 } from "./cameraClassification";
 export * from "./batteryUtils";
 export * from "./onlyIOS";

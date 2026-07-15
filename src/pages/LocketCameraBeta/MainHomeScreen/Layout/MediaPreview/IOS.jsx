@@ -1156,7 +1156,7 @@ const MediaPreviewIOS = () => {
               </div>
             )}
 
-            {/* Manual rear lens pick when classification is uncertain */}
+            {/* Manual rear lens pick — phones only, low confidence, top bar */}
             {showZoomUi && (cameraMode || "environment") !== "user" && (
               <RearLensPicker
                 rearOptions={
@@ -1174,11 +1174,42 @@ const MediaPreviewIOS = () => {
                     detectedRef.current?.needsManualLensPick,
                 )}
                 disabled={isSwitchingCamera || isPinching}
-                onSelect={(id) => {
+                onSelect={async (id) => {
                   if (!id || isSwitchingCamera) return;
                   setIsSwitchingCamera(true);
-                  setDeviceId(id);
-                  lastDeviceId.current = id;
+                  try {
+                    const prev = streamRef.current;
+                    if (prev) {
+                      clearTrackZoomCache(prev);
+                      stopCurrentCamera(prev, videoRef.current);
+                    }
+                    await new Promise((r) => setTimeout(r, 60));
+                    const stream = await startCameraByDeviceId(id, {
+                      facingMode: "environment",
+                      forceDeviceId: true,
+                      preferDeviceId: true,
+                    });
+                    streamRef.current = stream;
+                    lastDeviceId.current = id;
+                    setDeviceId(id);
+                    setZoomLevel("0.5x");
+                    lastZoomLevel.current = "0.5x";
+                    setActiveZoomMode("0.5x");
+                    const live = readLiveZoomFromCamera(stream);
+                    currentZoomValue.current = live.current ?? live.min ?? 1;
+                    setCurrentZoom(currentZoomValue.current);
+                    setCurrentLensType("ultrawide");
+                    attachStreamToVideo(stream, "environment");
+                    syncZoomStateFromStream(
+                      stream,
+                      detectedRef.current || detectedCameras,
+                      "environment",
+                    );
+                  } catch (e) {
+                    console.warn("[lens-pick iOS]", e?.message);
+                  } finally {
+                    setIsSwitchingCamera(false);
+                  }
                 }}
               />
             )}

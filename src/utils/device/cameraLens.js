@@ -39,6 +39,8 @@ import {
   hasNonZoomSignal,
   getBrowserCameraEnv,
   classifyLiveTrack,
+  parseCamera2Index,
+  isPhoneLikeCameraEnv,
 } from "./cameraClassification";
 
 // ─── Label matchers ───────────────────────────────────────────────
@@ -89,6 +91,8 @@ const NON_ZOOM_SIGNALS = new Set([
   "not_tele",
   "index_hint",
   "secondary_hint",
+  "camera2_ultra_index",
+  "android_aux_rear",
 ]);
 
 /**
@@ -232,6 +236,24 @@ export function analyzeUltraWideCandidate(
     signals.push("secondary_hint");
   }
 
+  // Android camera2 index 2 = ultra-wide (S25 FE / multi-lens Android)
+  const camIdx = parseCamera2Index(label);
+  if (camIdx === 2 && rearTotal >= 2) {
+    score += 55;
+    signals.push("camera2_ultra_index", "secondary_hint", "android_aux_rear");
+  } else if (camIdx != null && camIdx >= 3 && rearTotal >= 2) {
+    score -= 35;
+  } else if (
+    camIdx != null &&
+    camIdx !== 0 &&
+    camIdx !== 1 &&
+    rearTotal >= 2 &&
+    device.deviceId !== mainId
+  ) {
+    score += 20;
+    signals.push("android_aux_rear");
+  }
+
   // ── Weak: capability probe zoom (NEVER sole auto-pick) ──
   const minZ = probe?.minZoom;
   if (typeof minZ === "number" && Number.isFinite(minZ)) {
@@ -301,10 +323,12 @@ export function ultraWideConfidenceFromAnalysis({ score = 0, signals = [] } = {}
   // High: clear text identity
   if (hasConfidentLabel && score >= 80) return "high";
   if (hasUltraLabel && hasStructure && score >= 60) return "high";
+  if (signals.includes("camera2_ultra_index") && score >= 50) return "high";
 
   // Medium: label or multi-rear structure with supporting evidence
   if (nonZoom.length >= 2 && score >= 40) return "medium";
   if ((hasUltraLabel || hasStructure) && score >= 50) return "medium";
+  if (signals.includes("android_aux_rear") && score >= 35) return "medium";
 
   // Low: zoom-only or single weak signal — do NOT trust as THE ultra lens
   if (score > 0) return "low";
@@ -589,7 +613,16 @@ export function pickUltraWideCamera(
   );
   if (confident) return confident;
 
-  // 2) Ultra label that is more than just "0.6x" text
+  // 2) Android camera2 index 2 = ultra-wide (Samsung S25 FE, Pixel, …)
+  //    Structural index from enumerateDevices — not a zoom number guess.
+  const byCamera2 = rearCameras.find((d) => {
+    if (!d?.deviceId || d.deviceId === mainId || d.deviceId === teleId)
+      return false;
+    return parseCamera2Index(d.label || "") === 2;
+  });
+  if (byCamera2) return byCamera2;
+
+  // 3) Ultra label that is more than just "0.6x" text
   const byLabel = rearCameras.find((d) => {
     const l = d.label || "";
     if (!isUltraLabel(l)) return false;
@@ -612,7 +645,7 @@ export function pickUltraWideCamera(
   if (byStrongLabel) return byStrongLabel;
   if (byLabel && isConfidentUltraLabel(byLabel.label || "")) return byLabel;
 
-  // 3) Ensemble score — require non-zoom signal for auto-pick
+  // 4) Ensemble score — require non-zoom signal for auto-pick
   const scored = rearCameras
     .map((device, rearIndex) => {
       const probe = deviceProbeCache.get(device.deviceId) || null;
@@ -623,10 +656,22 @@ export function pickUltraWideCamera(
         rearTotal: rearCameras.length,
         probe,
       });
+      let score = analysis.score;
+      if (parseCamera2Index(device.label || "") === 2) score += 80;
       return {
         device,
         ...analysis,
-        confidence: ultraWideConfidenceFromAnalysis(analysis),
+        score,
+        confidence: ultraWideConfidenceFromAnalysis({
+          ...analysis,
+          score,
+          signals: [
+            ...analysis.signals,
+            ...(parseCamera2Index(device.label || "") === 2
+              ? ["camera2_ultra_index", "secondary_hint"]
+              : []),
+          ],
+        }),
       };
     })
     .filter((s) => s.device.deviceId !== mainId)
@@ -640,6 +685,7 @@ export function pickUltraWideCamera(
   if (best.confidence === "high" || best.confidence === "medium") {
     // Guard: zoom-only must never win auto-pick
     if (hasNonZoomUltraSignal(best.signals)) return best.device;
+    if (parseCamera2Index(best.device.label || "") === 2) return best.device;
   }
 
   if (allowLowConfidence && best.score > 0) {
@@ -726,29 +772,42 @@ export function listUltraWideCandidates(
     .filter((d) => d?.deviceId)
     .filter((d) => d.deviceId !== mainId && d.deviceId !== teleId)
     .filter((d) => !isTeleLabel(d.label || ""))
-    .map((device) => ({
-      device,
-      score: scoreUltraWideCandidate(device, {
+    .map((device) => {
+      let score = scoreUltraWideCandidate(device, {
         mainId,
         teleId,
         rearIndex: rearCameras.findIndex((x) => x.deviceId === device.deviceId),
         rearTotal: rearCameras.length,
         probe: deviceProbeCache.get(device.deviceId) || null,
-      }),
-    }))
+      });
+      // Samsung / Android camera2 2 = ultra (S25 FE, A-series, …)
+      const idx = parseCamera2Index(device.label || "");
+      if (idx === 2) score += 80;
+      else if (idx != null && idx > 2) score -= 20;
+      return { device, score };
+    })
     .sort((a, b) => b.score - a.score);
 
   // Always expose every non-main/non-tele rear as a candidate (manual + trial open)
   const ids = scored.map((s) => s.device.deviceId);
 
-  // Prefer confident auto pick first when available
+  // Prefer confident auto pick / camera2-2 first
   const primary = pickUltraWideCamera(rearCameras, mainCamera, teleCamera);
-  if (primary?.deviceId) {
-    const rest = ids.filter((id) => id !== primary.deviceId);
-    return [primary.deviceId, ...rest];
+  const cam2Ultra = rearCameras.find(
+    (d) =>
+      d?.deviceId &&
+      d.deviceId !== mainId &&
+      parseCamera2Index(d.label || "") === 2,
+  );
+  const head = [primary?.deviceId, cam2Ultra?.deviceId].filter(Boolean);
+  const ordered = [];
+  for (const id of head) {
+    if (!ordered.includes(id)) ordered.push(id);
   }
-  // Low confidence: still return all candidates so open can trial / user can pick
-  return ids;
+  for (const id of ids) {
+    if (!ordered.includes(id)) ordered.push(id);
+  }
+  return ordered;
 }
 
 /**
@@ -1830,21 +1889,99 @@ async function tryDigitalUltraWide(stream, detected, mainId) {
 }
 
 /**
+ * Open a specific rear lens deviceId for ultra-wide.
+ * Android/Samsung often allow ONLY ONE camera stream — open-new-first fails
+ * while main is live. Strategy:
+ *  1) Try open-new-first (iOS / multi-stream browsers)
+ *  2) On failure: stop old → open exact deviceId (Samsung S25 FE path)
+ */
+async function openPhysicalUltraDevice(id, oldStream, videoEl) {
+  const openExact = () =>
+    startCameraByDeviceId(id, {
+      facingMode: "environment",
+      highRes: false,
+      preferDeviceId: true,
+      forceDeviceId: true,
+      facingOnly: false,
+    });
+
+  // Path A: keep old until new is ready (smoother where multi-cam concurrent OK)
+  try {
+    const stream = await openExact();
+    const openedId = getCurrentTrackSettings(stream)?.deviceId || null;
+    // Browser silently gave us main instead of ultra
+    if (openedId && openedId !== id) {
+      stopCurrentCamera(stream);
+      throw new Error("wrong-device-opened");
+    }
+    if (oldStream && oldStream !== stream) {
+      clearTrackZoomCache(oldStream);
+      stopCurrentCamera(oldStream, videoEl);
+    }
+    return stream;
+  } catch (e1) {
+    // Path B: Samsung / many Android — must free the main camera first
+    try {
+      if (oldStream) {
+        clearTrackZoomCache(oldStream);
+        stopCurrentCamera(oldStream, videoEl);
+      }
+      // Brief yield so HAL releases camera2 0 before opening camera2 2
+      await new Promise((r) => setTimeout(r, 80));
+      const stream = await openExact();
+      const openedId = getCurrentTrackSettings(stream)?.deviceId || null;
+      if (openedId && openedId !== id) {
+        // Last resort: bare exact without quality extras
+        try {
+          stopCurrentCamera(stream);
+          const stream2 = await openAndUpgrade({
+            deviceId: { exact: id },
+          });
+          return stream2;
+        } catch {
+          /* fall through */
+        }
+      }
+      return stream;
+    } catch (e2) {
+      console.warn(
+        "[ultra] physical open failed",
+        id,
+        e1?.message,
+        e2?.message,
+      );
+      return null;
+    }
+  }
+}
+
+/**
  * Switch góc siêu rộng — factor thật (0.5 / 0.6 Samsung / 0.7).
- * 1) Digital minZoom TRƯỚC (Samsung logical multi-cam = 0.6, không restart)
- * 2) Physical ultra / multi-rear (chỉ stop stream cũ SAU khi mở stream mới)
- * 3) Re-open main + digital nếu stream chết giữa chừng
+ *
+ * Order (critical for S25 FE):
+ *  1) Physical multi-rear candidates FIRST (camera2 2, …) — Samsung often
+ *     does NOT expose minZoom&lt;1 on the main track; concurrent open fails.
+ *  2) Digital minZoom on current/main stream (logical multi-cam)
+ *  3) Re-open main + digital if stream died mid-switch
  */
 export async function switchToUltraWide05(options = {}) {
   const { oldStream = null, videoEl = null, detected: detIn = null } = options;
   let detected = detIn || (await detectCameraDevices({ probe: false }));
-  // Universal ultra: one-shot capability probe before picking candidates
-  // (cached — subsequent switches are free; does not run on every open)
-  try {
-    detected = await enrichDetectedWithCapabilityProbes(detected);
-  } catch {
-    /* keep label-based detection */
+  // Re-classify labels only (no getUserMedia probe) — probing steals the
+  // single Android camera slot and breaks the subsequent ultra open.
+  if (!detected?.ultrawide?.deviceId && (detected?.rear?.length || 0) >= 2) {
+    try {
+      const devices =
+        detected.all?.length > 0
+          ? detected.all
+          : await ensureLabeledVideoDevices();
+      const refreshed = detectRearCameras(devices);
+      detected = { ...detected, ...refreshed };
+    } catch {
+      /* keep */
+    }
   }
+
   const mainId = detected.main?.deviceId || detected.rear?.[0]?.deviceId || null;
   const ultraId = detected.ultrawide?.deviceId || null;
   const candidates = [
@@ -1856,116 +1993,69 @@ export async function switchToUltraWide05(options = {}) {
     ),
   ].filter((id, i, arr) => id && arr.indexOf(id) === i && id !== mainId);
 
-  // 1) Digital TRƯỚC — S25 FE / Chrome Samsung hay expose minZoom=0.6 trên main
-  const digitalFirst = await tryDigitalUltraWide(oldStream, detected, mainId);
-  if (digitalFirst) return digitalFirst;
-
-  // 2) Physical ultra — exact deviceId (không ideal) + không stop old cho đến khi OK
+  const multiPhysical = candidates.length > 0;
   let lastOpened = null;
-  for (const id of candidates) {
-    try {
-      const stream = await startCameraByDeviceId(id, {
-        facingMode: "environment",
-        highRes: false,
-        preferDeviceId: true,
-        forceDeviceId: true, // QUAN TRỌNG: ép lens ultra
-        facingOnly: false,
-      });
-      // Xác nhận browser thật sự mở đúng device (không lén main)
-      const openedId = getCurrentTrackSettings(stream)?.deviceId || null;
-      if (openedId && openedId !== id && candidates.length > 1) {
-        // Thử lại exact-only
-        try {
-          const stream2 = await openAndUpgrade({
-            deviceId: { exact: id },
-            ...getCameraPreviewConstraints(
-              CONFIG?.app?.camera?.constraints?.default || {},
-            ),
-          });
-          stopCurrentCamera(stream);
-          // Có stream mới → tắt cũ
-          if (oldStream && oldStream !== stream2) {
-            clearTrackZoomCache(oldStream);
-            stopCurrentCamera(oldStream, videoEl);
+  let liveStream = oldStream;
+
+  // 1) Physical ultra FIRST when we have a separate rear deviceId
+  //    (S25 FE camera2 2 — digital zoom alone never changes FOV here)
+  if (multiPhysical) {
+    for (const id of candidates) {
+      try {
+        const stream = await openPhysicalUltraDevice(id, liveStream, videoEl);
+        if (!stream) continue;
+        liveStream = stream;
+        lastOpened = stream;
+
+        if (supportsHardwareZoom(stream)) {
+          try {
+            const range = readZoomRange(stream);
+            const z =
+              range.minZoom > 0.15 && range.minZoom < 0.95
+                ? range.minZoom
+                : range.minZoom <= 1 && range.maxZoom >= 1
+                  ? 1
+                  : range.minZoom;
+            await applyCameraZoom(stream, z);
+          } catch {
+            /* ignore */
           }
-          lastOpened = stream2;
-          if (supportsHardwareZoom(stream2)) {
-            try {
-              const range = readZoomRange(stream2);
-              const z =
-                range.minZoom > 0.15 && range.minZoom < 0.95
-                  ? range.minZoom
-                  : 1;
-              await applyCameraZoom(stream2, z);
-            } catch {
-              /* ignore */
-            }
-          }
-          const factor2 = resolveUltraWideFactor(stream2, detected, null);
-          return {
-            stream: stream2,
-            detected,
-            deviceId: getCurrentTrackSettings(stream2).deviceId || id,
-            lensType: "ultrawide",
-            zoomMode: "0.5x",
-            // Số chỉ khi cam báo; null → UI "UW"
-            currentZoom: factor2 != null ? factor2 : 1,
-            digitalZoom: 1,
-            ultraFactor: factor2,
-            switchedDevice: true,
-          };
-        } catch {
-          /* keep stream từ attempt đầu */
         }
-      }
 
-      // Có stream mới → mới tắt stream cũ (tránh digital fallback chết)
-      if (oldStream && oldStream !== stream) {
-        clearTrackZoomCache(oldStream);
-        stopCurrentCamera(oldStream, videoEl);
+        const appliedZ = getCurrentTrackSettings(stream)?.zoom;
+        const factor = resolveUltraWideFactor(
+          stream,
+          detected,
+          typeof appliedZ === "number" ? appliedZ : null,
+        );
+        const openedId = getCurrentTrackSettings(stream)?.deviceId || id;
+        return {
+          stream,
+          detected,
+          deviceId: openedId,
+          lensType: "ultrawide",
+          zoomMode: "0.5x",
+          currentZoom: factor != null ? factor : 1,
+          digitalZoom: 1,
+          ultraFactor: factor,
+          switchedDevice: true,
+        };
+      } catch (e) {
+        console.warn("[ultra] open candidate failed", id, e?.message);
       }
-      lastOpened = stream;
-
-      if (supportsHardwareZoom(stream)) {
-        try {
-          const range = readZoomRange(stream);
-          const z =
-            range.minZoom > 0.15 && range.minZoom < 0.95
-              ? range.minZoom
-              : range.minZoom <= 1 && range.maxZoom >= 1
-                ? 1
-                : range.minZoom;
-          await applyCameraZoom(stream, z);
-        } catch {
-          /* ignore */
-        }
-      }
-
-      // Factor CHỈ từ getCapabilities/settings sau khi mở cam
-      const appliedZ = getCurrentTrackSettings(stream)?.zoom;
-      const factor = resolveUltraWideFactor(
-        stream,
-        detected,
-        typeof appliedZ === "number" ? appliedZ : null,
-      );
-      return {
-        stream,
-        detected,
-        deviceId: getCurrentTrackSettings(stream).deviceId || id,
-        lensType: "ultrawide",
-        zoomMode: "0.5x",
-        currentZoom: factor != null ? factor : 1,
-        digitalZoom: 1,
-        ultraFactor: factor,
-        switchedDevice: true,
-      };
-    } catch (e) {
-      console.warn("[ultra] open candidate failed", id, e?.message);
     }
   }
 
-  // 3) Digital lại — re-open main nếu oldStream đã bị stop / ended
-  let stream = lastOpened || oldStream;
+  // 2) Digital minZoom on remaining live stream (logical multi-cam)
+  const digitalFirst = await tryDigitalUltraWide(
+    lastOpened || liveStream || oldStream,
+    detected,
+    mainId,
+  );
+  if (digitalFirst) return digitalFirst;
+
+  // 3) Re-open main + digital if stream died
+  let stream = lastOpened || liveStream || oldStream;
   const trackLive =
     stream?.getVideoTracks?.()?.[0]?.readyState === "live";
   if (!trackLive) {
