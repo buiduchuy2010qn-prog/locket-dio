@@ -320,9 +320,15 @@ const imagePostPayloadMusic = ({ imageUrl, optionsData }) => {
     try {
       const u = new URL(String(apple_music_url));
       const host = u.hostname.replace(/^geo\./i, "");
-      const trackId = u.searchParams.get("i");
-      apple_music_url = `https://music.apple.com${u.pathname}${trackId ? `?i=${trackId}` : ""}`;
-      if (!/apple\.com/i.test(host)) apple_music_url = String(payload.apple_music_url);
+      const trackId = (u.searchParams.get("i") || "").replace(/\D/g, "");
+      const store =
+        (u.pathname.match(/^\/([a-z]{2})\//i) || [])[1]?.toLowerCase() || "us";
+      // iOS MusicKit: /song/{id}?i={id} — logo + play ổn hơn album path
+      if (trackId.length >= 5 && /apple\.com/i.test(host)) {
+        apple_music_url = `https://music.apple.com/${store}/song/${trackId}?i=${trackId}`;
+      } else if (/apple\.com/i.test(host)) {
+        apple_music_url = `https://music.apple.com${u.pathname}${trackId ? `?i=${trackId}` : ""}`;
+      }
     } catch {
       /* keep raw */
     }
@@ -336,48 +342,43 @@ const imagePostPayloadMusic = ({ imageUrl, optionsData }) => {
     throw err;
   }
 
-  // Payload — iOS MusicKit + Android Spotify + preview iTunes (web)
+  // Payload — iOS MusicKit + Android Spotify
+  // Thứ tự field: Apple trước (iOS đọc/play + hiện logo music)
   const musicPayload = {
     isrc,
     song_title: songTitle,
+    song_name: songTitle,
     artist,
   };
 
-  // Preview ổn định (iTunes / m4a) — web nghe; app Locket bỏ qua field này
-  const preview =
-    payload?.preview_url || payload?.audio || payload?.previewUrl || null;
-  if (
-    preview &&
-    (/audio-ssl\.itunes\.apple\.com|mzstatic\.com|\.m4a(\?|$)/i.test(
-      String(preview),
-    ) ||
-      (!/dzcdn\.net|hdnea=|p\.scdn\.co/i.test(String(preview)) &&
-        /^https?:\/\//i.test(String(preview))))
-  ) {
-    musicPayload.preview_url = preview;
-  }
-
-  if (apple_music_url) {
-    if (/[?&]i=\d{5,}/.test(String(apple_music_url))) {
-      musicPayload.apple_music_url = apple_music_url;
-    }
+  if (apple_music_url && /[?&]i=\d{5,}/.test(String(apple_music_url))) {
+    musicPayload.apple_music_url = apple_music_url;
   }
   if (spotify_url) musicPayload.spotify_url = spotify_url;
 
+  // Không gửi preview_url lên Locket app — iOS chỉ play qua MusicKit;
+  // preview Deezer/Spotify CDN hay làm pill hiện text-only, mất logo music.
+
   if (!musicPayload.apple_music_url) {
     const err = new Error(
-      "Thiếu Apple Music URL (?i=) — iPhone không phát được. Chọn lại bài hoặc dán link Apple Music.",
+      "Thiếu Apple Music URL (?i=) — iPhone không hiện logo / không phát. Chọn lại bài từ tìm nhạc.",
     );
     err.status = 400;
     throw err;
   }
 
-  const cover =
+  // Cover album (mzstatic ổn định) — logo tròn bên trái pill
+  let cover =
     (icon && icon.data) ||
     payload?.image_url ||
     payload?.image ||
     payload?.thumbnail_url ||
     "";
+  // Ưu tiên cover Apple CDN; tránh Deezer signed (iOS hay không load → mất logo)
+  if (cover && /dzcdn\.net|hdnea=/i.test(String(cover))) {
+    const alt = payload?.image_url || payload?.image || "";
+    if (alt && /mzstatic\.com|scdn\.co/i.test(String(alt))) cover = alt;
+  }
   const musicIcon = cover
     ? {
         type: "image",
@@ -385,6 +386,7 @@ const imagePostPayloadMusic = ({ imageUrl, optionsData }) => {
         source: (icon && icon.source) || "url",
       }
     : {
+        // Fallback note icon (CDN)
         type: "image",
         data: "https://cdn.locket-dio.com/v1/caption/caption-icon/spotify_music.png",
         source: "url",
@@ -399,6 +401,7 @@ const imagePostPayloadMusic = ({ imageUrl, optionsData }) => {
       text_color: "#FFFFFFE6",
       type: "music",
       max_lines: 1,
+      // Apple trước trong payload object — logo MusicKit
       payload: musicPayload,
       icon: musicIcon,
       background: { material_blur: "ultra_thin", colors: [] },

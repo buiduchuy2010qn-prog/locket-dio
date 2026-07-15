@@ -43,6 +43,14 @@ const postVideoToLocket = async (
         err.status = 400;
         throw err;
       }
+      // iOS: logo + play cần apple_music_url ?i= (giống post ảnh)
+      if (!p.apple_music_url || !/[?&]i=\d{5,}/.test(String(p.apple_music_url))) {
+        const err = new Error(
+          "Thiếu Apple Music (?i=trackId) — iPhone sẽ không hiện logo / không phát. Chọn lại bài từ tìm nhạc.",
+        );
+        err.status = 400;
+        throw err;
+      }
     }
     const { type } = optionsData;
     // Xử lý theo từng loại type

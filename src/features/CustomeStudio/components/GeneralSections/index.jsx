@@ -603,11 +603,16 @@ export default function GeneralThemes({ title }) {
         webPreview = musicData.preview_url;
       }
 
+      // Cover ưu tiên Apple CDN (logo pill iOS); webPreview chỉ cho nghe thử trên web
+      const coverForLocket =
+        (/mzstatic\.com|scdn\.co/i.test(String(imageFinal)) && imageFinal) ||
+        imageFinal;
+
       applyOverlay({
         overlay_id: "caption:music",
         caption,
         text: caption,
-        icon: { data: imageFinal, type: "image", source: "url" },
+        icon: { data: coverForLocket, type: "image", source: "url" },
         type: "music",
         payload: {
           song_title,
@@ -615,24 +620,27 @@ export default function GeneralThemes({ title }) {
           name: song_title,
           artist,
           isrc,
+          // Web preview only — server KHÔNG forward preview_url lên Locket app
           preview_url: webPreview,
           audio: webPreview,
-          image_url: imageFinal,
-          image: imageFinal,
-          ...platformPayload,
-          platform,
+          image_url: coverForLocket,
+          image: coverForLocket,
+          // Apple trước trong object (spread order: Apple then Spotify)
+          ...(apple_music_url ? { apple_music_url } : {}),
+          ...(finalSpotify ? { spotify_url: finalSpotify } : {}),
+          platform: apple_music_url ? "apple" : platform,
           startTime: clipStart,
           endTime: clipEnd,
           volume: 1,
           originalVideoVolume: 1,
           duration: 30,
         },
-        platform,
+        platform: apple_music_url ? "apple" : platform,
       });
 
       setSpotifyPickerOpen(false);
       SonnerSuccess(
-        `Đã gắn · ISRC ${isrc} · iPhone+Android`,
+        `Đã gắn · ISRC ${isrc} · logo+play iPhone`,
         `${song_title}${artist ? ` · ${artist}` : ""}`,
       );
     } catch (e) {

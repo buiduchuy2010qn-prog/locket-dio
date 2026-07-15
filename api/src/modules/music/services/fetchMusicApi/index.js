@@ -273,13 +273,18 @@ function normalizeAppleMusicUrl(url = "") {
     const u = new URL(s);
     const host = u.hostname.replace(/^geo\./i, "").toLowerCase();
     if (!/^(music|itunes)\.apple\.com$/i.test(host)) return s.split("?")[0] || s;
-    const trackId = u.searchParams.get("i");
-    // pathname: /vn/album/name/albumId
+    const trackId = (u.searchParams.get("i") || "").replace(/\D/g, "");
+    // Storefront: /vn/ /us/ ...
+    const store =
+      (u.pathname.match(/^\/([a-z]{2})\//i) || [])[1]?.toLowerCase() || "us";
+    // MusicKit / Locket iOS: dạng /song/{id}?i={id} ổn định hơn album path + tracking
+    if (trackId.length >= 5) {
+      return `https://music.apple.com/${store}/song/${trackId}?i=${trackId}`;
+    }
     let path = u.pathname || "";
     if (!path.startsWith("/")) path = `/${path}`;
-    let out = `https://music.apple.com${path}`;
-    if (trackId) out += `?i=${trackId}`;
-    return out;
+    // Strip tracking query junk
+    return `https://music.apple.com${path}`;
   } catch {
     return s.replace(/[?&]uo=\d+/gi, "").replace(/[?&]ls=1/gi, "") || s;
   }
