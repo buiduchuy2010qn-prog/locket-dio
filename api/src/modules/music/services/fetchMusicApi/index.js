@@ -267,6 +267,11 @@ async function enrichFromDeezer(deezerId, songName, artist) {
  * Bỏ query rác (uo, ls, at, ct…) — chỉ giữ path + ?i=trackId.
  * geo.music.apple.com → music.apple.com
  */
+/**
+ * Chuẩn hoá Apple Music URL cho Locket MusicKit.
+ * Ưu tiên dạng gọn: /{cc}/song/{trackId}?i={trackId}
+ * (slug album có % encoding / `_` hay làm iOS hiện "Music" mà không phát)
+ */
 function normalizeAppleMusicUrl(url = "") {
   const s = String(url || "").trim();
   if (!s) return null;
@@ -274,13 +279,26 @@ function normalizeAppleMusicUrl(url = "") {
     const u = new URL(s);
     const host = u.hostname.replace(/^geo\./i, "").toLowerCase();
     if (!/^(music|itunes)\.apple\.com$/i.test(host)) return s.split("?")[0] || s;
-    const trackId = u.searchParams.get("i");
-    // pathname: /vn/album/name/albumId
-    let path = u.pathname || "";
-    if (!path.startsWith("/")) path = `/${path}`;
-    let out = `https://music.apple.com${path}`;
-    if (trackId) out += `?i=${trackId}`;
-    return out;
+
+    let trackId = u.searchParams.get("i");
+    if (!trackId) {
+      const songPath = u.pathname.match(/\/song\/(?:[^/]+\/)?(\d{5,})/i);
+      if (songPath) trackId = songPath[1];
+    }
+    if (!trackId) {
+      const albumI = u.pathname.match(/\/album\/[^/]+\/\d+/i);
+      // no track id → keep cleaned path (not playable for MusicKit)
+      let path = u.pathname || "";
+      if (!path.startsWith("/")) path = `/${path}`;
+      return `https://music.apple.com${path}`;
+    }
+
+    // Country từ path (/vn/ /us/) — default us (catalog rộng hơn cho MusicKit)
+    const ccMatch = u.pathname.match(/^\/([a-z]{2})\//i);
+    let cc = (ccMatch?.[1] || "us").toLowerCase();
+    if (cc === "gb") cc = "us";
+    // URL gọn — không slug tiếng Việt encode
+    return `https://music.apple.com/${cc}/song/${trackId}?i=${trackId}`;
   } catch {
     return s.replace(/[?&]uo=\d+/gi, "").replace(/[?&]ls=1/gi, "") || s;
   }

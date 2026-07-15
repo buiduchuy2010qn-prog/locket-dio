@@ -353,9 +353,33 @@ async function ensureMusicOptionsData(optionsData = {}) {
     }
   }
 
-  // Final normalize
+  // Final normalize — Apple song URL gọn cho MusicKit
   spotify_url = cleanSpotifyUrl(spotify_url || "") || null;
   apple_music_url = normalizeAppleMusicUrl(apple_music_url || "") || null;
+
+  // Cover yếu (Deezer signed / icon generic) → ép iTunes mzstatic
+  if (
+    !image_url ||
+    !isStableCoverUrl(image_url) ||
+    /cdn\.locket-dio\.com|caption-icon|spotify_music/i.test(String(image_url))
+  ) {
+    try {
+      const it = await enrichFromItunes(song_title, artist);
+      if (it?.image_url) image_url = it.image_url;
+      if (it?.apple_music_url) {
+        apple_music_url = pickBetterAppleUrl(
+          apple_music_url,
+          it.apple_music_url,
+          isrc,
+        );
+      }
+      if (it?.preview_url && (!preview || isSignedEphemeralPreview(preview))) {
+        preview = it.preview_url;
+      }
+    } catch {
+      /* keep */
+    }
+  }
 
   // ISRC Việt → ép country /vn/ nếu đang /us/ cùng track id
   if (
