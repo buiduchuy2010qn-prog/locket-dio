@@ -269,8 +269,8 @@ async function enrichFromDeezer(deezerId, songName, artist) {
  */
 /**
  * Chuẩn hoá Apple Music URL cho Locket MusicKit.
- * Ưu tiên dạng gọn: /{cc}/song/{trackId}?i={trackId}
- * (slug album có % encoding / `_` hay làm iOS hiện "Music" mà không phát)
+ * Giữ path album/song gốc + ?i=trackId (bỏ uo=/geo./tracking).
+ * Không ép /song/{id} — format album+?i= từ iTunes ổn định hơn trên app Locket.
  */
 function normalizeAppleMusicUrl(url = "") {
   const s = String(url || "").trim();
@@ -285,20 +285,16 @@ function normalizeAppleMusicUrl(url = "") {
       const songPath = u.pathname.match(/\/song\/(?:[^/]+\/)?(\d{5,})/i);
       if (songPath) trackId = songPath[1];
     }
-    if (!trackId) {
-      const albumI = u.pathname.match(/\/album\/[^/]+\/\d+/i);
-      // no track id → keep cleaned path (not playable for MusicKit)
-      let path = u.pathname || "";
-      if (!path.startsWith("/")) path = `/${path}`;
-      return `https://music.apple.com${path}`;
-    }
 
-    // Country từ path (/vn/ /us/) — default us (catalog rộng hơn cho MusicKit)
-    const ccMatch = u.pathname.match(/^\/([a-z]{2})\//i);
-    let cc = (ccMatch?.[1] || "us").toLowerCase();
-    if (cc === "gb") cc = "us";
-    // URL gọn — không slug tiếng Việt encode
-    return `https://music.apple.com/${cc}/song/${trackId}?i=${trackId}`;
+    // Decode path để tránh %C3%ACm... (Locket đôi khi fail slug encode)
+    let path = decodeURIComponent(u.pathname || "");
+    if (!path.startsWith("/")) path = `/${path}`;
+    // Bỏ slug rỗng /album/_/
+    path = path.replace(/\/album\/_\//i, "/album/track/");
+
+    let out = `https://music.apple.com${path}`;
+    if (trackId) out += `?i=${trackId}`;
+    return out;
   } catch {
     return s.replace(/[?&]uo=\d+/gi, "").replace(/[?&]ls=1/gi, "") || s;
   }

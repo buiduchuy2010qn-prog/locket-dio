@@ -151,11 +151,13 @@ export default function GeneralThemes({ title }) {
       return false;
     }
 
+    // caption = TÊN BÀI thuần — Locket official tự ghép artist
     const caption =
+      musicData.song_title ||
+      musicData.song_name ||
+      musicData.name ||
       musicData.title ||
-      [musicData.song_title || musicData.song_name, musicData.artist]
-        .filter(Boolean)
-        .join(" · ");
+      "";
 
     const song_title =
       musicData.song_title ||
@@ -214,15 +216,23 @@ export default function GeneralThemes({ title }) {
       );
       return false;
     }
-    if (!musicPayload.image_url) {
-      musicPayload.image_url =
-        "https://cdn.locket-dio.com/v1/caption/caption-icon/spotify_music.png";
+    if (
+      !musicPayload.image_url ||
+      /cdn\.locket-dio\.com|caption-icon|spotify_music/i.test(
+        String(musicPayload.image_url),
+      )
+    ) {
+      SonnerError(
+        "Thiếu ảnh bìa album",
+        "Chọn bài có cover album thật (mzstatic) — icon generic làm app chỉ hiện Music.",
+      );
+      return false;
     }
 
     applyOverlay({
       overlay_id: "caption:music",
-      caption,
-      text: caption,
+      caption: song_title || caption,
+      text: song_title || caption,
       icon: {
         data: musicPayload.image_url,
         type: "image",
@@ -587,8 +597,22 @@ export default function GeneralThemes({ title }) {
           "https://cdn.locket-dio.com/v1/caption/caption-icon/spotify_music.png";
       }
 
-      const caption =
-        [song_title, artist].filter(Boolean).join(" · ") || song_title;
+      // text/caption = TÊN BÀI thuần (Locket official tự ghép artist)
+      const caption = song_title;
+      if (!caption) {
+        SonnerError("Thiếu tên bài", "Chọn lại bài từ Tìm nhạc.");
+        return;
+      }
+      if (
+        !image_url ||
+        /cdn\.locket-dio\.com|caption-icon|spotify_music/i.test(String(image_url))
+      ) {
+        SonnerError(
+          "Thiếu cover album",
+          "Chọn bài có ảnh bìa — cover giả làm app chỉ hiện chữ Music.",
+        );
+        return;
+      }
 
       const clipStart = Math.max(0, Number(raw.startTime) || 0);
       let clipEnd = Number(raw.endTime);
@@ -598,11 +622,9 @@ export default function GeneralThemes({ title }) {
       clipEnd = Math.min(Math.max(clipEnd, clipStart + 1), clipStart + 60);
       const clipDur = clipEnd - clipStart;
 
-      // Dual: Apple (iOS) bắt buộc + Spotify (Android) nếu có
-      // platform badge: spotify nếu có (Android), vẫn gửi apple_music_url
       const platform = finalSpotify ? "spotify" : "apple";
       const platformPayload = {
-        apple_music_url,
+        ...(apple_music_url ? { apple_music_url } : {}),
         ...(finalSpotify ? { spotify_url: finalSpotify } : {}),
       };
 
@@ -617,7 +639,8 @@ export default function GeneralThemes({ title }) {
           song_name: song_title,
           name: song_title,
           artist,
-          isrc, // chuẩn 12 ký tự — Locket app
+          isrc,
+          // chỉ preview iTunes ổn định — server cũng lọc
           preview_url: preview,
           audio: preview,
           image_url,

@@ -482,9 +482,11 @@ async function ensureMusicOptionsData(optionsData = {}) {
           }
         : null;
 
+  // text/caption = TÊN BÀI thuần — Locket tự ghép artist (không ghép sẵn)
   const caption =
+    song_title ||
     (optionsData.caption || optionsData.text || "").trim() ||
-    [song_title, artist].filter(Boolean).join(" · ");
+    "Music";
 
   console.log(
     `[ensureMusicOptionsData] ready isrc=${isrc || "none"} platform=${platformOut} title="${song_title}" apple=${apple_music_url ? "yes" : "no"} spotify=${spotify_url ? "yes" : "no"} cover=${image_url ? (isStableCoverUrl(image_url) ? "stable" : "weak") : "none"} preview=${preview ? "yes" : "no"}`,
