@@ -17,7 +17,12 @@ import { useTranslation } from "react-i18next";
 import FormMusicPoup from "@/features/FormMusicPoup";
 import FormSpotifyPicker from "@/features/FormSpotifyPicker";
 import FormReviewPoup from "@/features/FormReviewPoup";
-import { useOverlayEditorStore, useStreakStore } from "@/stores";
+import {
+  useAuthStore,
+  useOverlayEditorStore,
+  useStreakStore,
+  useUploadQueueStore,
+} from "@/stores";
 import IconRenderer from "@/components/Overlay/icons/IconRenderer";
 import { getCaptionStyle } from "@/helpers/styleHelpers";
 import {
@@ -27,6 +32,8 @@ import {
 } from "../../hooks";
 import LocationIcon from "@/assets/icons/LocationIcon";
 import { Music2 } from "lucide-react";
+import { getMomentsByUser } from "@/cache/momentDB";
+import { getMyLocalId } from "@/utils/auth/getMyLocalId";
 
 export default function GeneralThemes({ title }) {
   const { t } = useTranslation("features");
@@ -38,6 +45,9 @@ export default function GeneralThemes({ title }) {
 
   const { level, charging } = useBatteryStatus();
   const streak = useStreakStore((s) => s.streak);
+  const postedMoments = useUploadQueueStore((s) => s.postedMoments);
+  const authUser = useAuthStore((s) => s.user);
+  const [locketCount, setLocketCount] = useState(1);
 
   const updateOverlayEditor = useOverlayEditorStore(
     (s) => s.updateOverlayEditor,
@@ -70,6 +80,32 @@ export default function GeneralThemes({ title }) {
     const timer = setInterval(() => setTime(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
+
+  // Tổng số Locket (bài đăng web + cache moments của user)
+  useEffect(() => {
+    let cancelled = false;
+    const posted = Array.isArray(postedMoments) ? postedMoments.length : 0;
+
+    (async () => {
+      let fromCache = 0;
+      try {
+        const uid = getMyLocalId(authUser);
+        if (uid) {
+          const mine = await getMomentsByUser(uid);
+          fromCache = Array.isArray(mine) ? mine.length : 0;
+        }
+      } catch {
+        /* ignore */
+      }
+      if (!cancelled) {
+        setLocketCount(Math.max(posted, fromCache, 1));
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [postedMoments, authUser]);
 
   const formattedTime = useMemo(
     () =>
@@ -579,7 +615,23 @@ export default function GeneralThemes({ title }) {
         type: "heart",
       }),
 
-    locket_count: () => SonnerInfo("Sắp ra mắt!"),
+    // Caption Lockets — pill vàng + ♥ + tổng số Locket (khoe với bạn bè)
+    locket_count: () => {
+      const count = String(locketCount || 1);
+      applyOverlay({
+        overlay_id: "locket_count",
+        icon: {
+          color: "#00000099",
+          data: "suit.heart.fill",
+          type: "sf_symbol",
+        },
+        background: { colors: ["#FFD25F", "#EAA900"] },
+        caption: count,
+        text: count,
+        type: "locket_count",
+        text_color: "#00000099",
+      });
+    },
 
     streak: () =>
       applyOverlay({
@@ -643,7 +695,7 @@ export default function GeneralThemes({ title }) {
       icon: (
         <img src="/icons/suit_heart_fill.png" className="w-5 h-5 mr-0.5" />
       ),
-      label: streak?.count || "1",
+      label: String(locketCount || 1),
       background: ["#FFD25F", "#EAA900"],
       color: "#00000099",
     },

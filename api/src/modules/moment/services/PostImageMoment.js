@@ -121,6 +121,11 @@ const postImageToLocketV2 = async ({
             imageUrl,
             optionsData,
           });
+        case "locket_count":
+          return imagePayloadV2.imagePostPayloadLocketCount({
+            imageUrl,
+            optionsData,
+          });
         case "location":
           return imagePayloadV2.imagePostPayloadLocation({
             imageUrl,

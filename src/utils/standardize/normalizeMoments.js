@@ -207,11 +207,17 @@ export function overlayFromOptionsData(optionsData) {
       icon = { type: "image", data: cover, source: "url" };
     }
   }
+  const overlayId =
+    type === "music"
+      ? "caption:music"
+      : type === "locket_count"
+        ? "caption:lockets"
+        : type === "streak"
+          ? "caption:streak"
+          : optionsData.overlay_id || type;
+
   return {
-    overlay_id:
-      type === "music"
-        ? "caption:music"
-        : optionsData.overlay_id || type,
+    overlay_id: overlayId,
     overlay_type: "caption",
     type: type === "default" ? "caption" : type,
     text,

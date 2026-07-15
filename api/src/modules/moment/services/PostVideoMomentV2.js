@@ -125,6 +125,12 @@ const postVideoToLocket = async (
             thumbnailUrl,
             optionsData,
           });
+        case "locket_count":
+          return videoPayloadV2.videoPostPayloadLocketCount({
+            videoUrl,
+            thumbnailUrl,
+            optionsData,
+          });
         case "location":
           return videoPayloadV2.videoPostPayloadLocation({
             videoUrl,

@@ -7,6 +7,7 @@ import { useTranslation } from "react-i18next";
 import ReviewOverlay from "./components/ReviewOverlay";
 import DecorativeOverlay from "./components/DecorativeOverlay";
 import StreakOverlay from "./components/StreakOverlay";
+import LocketCountOverlay from "./components/LocketCountOverlay";
 import MusicOverlay from "./components/MusicOverlay";
 import CaptionIconOverlay from "./components/CaptionIconOverlay";
 import WeatherOverlay from "./components/WeatherOverlay";
@@ -72,6 +73,9 @@ const EditorCaption = () => {
         
       case "streak":
         return <StreakOverlay postOverlay={overlayData} />;
+
+      case "locket_count":
+        return <LocketCountOverlay postOverlay={overlayData} />;
 
       case "battery":
         return <BatteryOverlay {...commonProps} />;

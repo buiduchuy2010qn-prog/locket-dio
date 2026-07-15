@@ -500,6 +500,39 @@ const videoPostPayloadStreak = ({ videoUrl, thumbnailUrl, optionsData }) => {
   return { data };
 };
 
+/** Caption Lockets — pill vàng + ♥ + tổng số Locket */
+const videoPostPayloadLocketCount = ({ videoUrl, thumbnailUrl, optionsData }) => {
+  const count = String(
+    optionsData?.text || optionsData?.caption || optionsData?.count || "1",
+  );
+  const data = createBaseVideoPayload({ videoUrl, thumbnailUrl, optionsData });
+
+  data.overlays.push({
+    data: {
+      text: count,
+      text_color: "#00000099",
+      type: "streak",
+      max_lines: {
+        "@type": "type.googleapis.com/google.protobuf.Int64Value",
+        value: "1",
+      },
+      icon: {
+        color: "#00000099",
+        data: "suit.heart.fill",
+        type: "sf_symbol",
+      },
+      background: {
+        colors: ["#FFD25F", "#EAA900"],
+      },
+    },
+    alt_text: count,
+    overlay_id: "caption:lockets",
+    overlay_type: "caption",
+  });
+
+  return { data };
+};
+
 const videoPostPayloadLocation = ({ videoUrl, thumbnailUrl, optionsData }) => {
   const { caption } = optionsData;
   const data = createBaseVideoPayload({ videoUrl, thumbnailUrl, optionsData });
@@ -627,6 +660,7 @@ module.exports = {
   videoPostPayloadWeather,
   videoPostPayloadEffect,
   videoPostPayloadStreak,
+  videoPostPayloadLocketCount,
   videoPostPayloadStarSign,
   videoPostPayloadPalette,
   videoPostPayloadPoll,

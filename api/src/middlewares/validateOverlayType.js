@@ -18,6 +18,7 @@ const allowedTypes = new Set([
   "battery",
   "heart",
   "streak",
+  "locket_count",
   "location",
   "weather",
   "special",
