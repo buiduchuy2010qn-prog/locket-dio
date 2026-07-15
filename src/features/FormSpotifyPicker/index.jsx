@@ -170,6 +170,7 @@ export default function FormSpotifyPicker({
   const [query, setQuery] = useState("");
   const [searching, setSearching] = useState(false);
   const [results, setResults] = useState([]);
+  const [searchError, setSearchError] = useState("");
   const [uploading, setUploading] = useState(false);
   const [library, setLibrary] = useState([]);
   const [pickingId, setPickingId] = useState(null);
@@ -228,34 +229,38 @@ export default function FormSpotifyPicker({
       setTimeout(() => setShowModal(false), 280);
       setQuery("");
       setResults([]);
+      setSearchError("");
       setPickingId(null);
       setSelected(null);
       stopAudio();
     }
   }, [open, stopAudio]);
 
-  // Search — /api/searchMusic (rank server) + filter client cứng
+  // Search — server + client fallback (iTunes/Deezer) + Spotify user
   useEffect(() => {
     if (!open || selected) return;
     if (searchTimer.current) clearTimeout(searchTimer.current);
     const q = query.trim();
     if (q.length < 2) {
       setResults([]);
+      setSearchError("");
       setSearching(false);
       return;
     }
     setSearching(true);
+    setSearchError("");
+    let cancelled = false;
     searchTimer.current = setTimeout(async () => {
       try {
-        // Server đã rank theo title + artist — tin API
         let list = await searchMusicByQuery(q, 40);
         // Fallback không dấu nếu rỗng
         if (!list?.length) {
           const bare = normalizeQ(q);
-          if (bare && bare !== q.toLowerCase()) {
+          if (bare && bare !== q.toLowerCase() && bare.length >= 2) {
             list = await searchMusicByQuery(bare, 40);
           }
         }
+        if (cancelled) return;
 
         const normalized = (Array.isArray(list) ? list : []).map((t) => {
           if (t._raw) {
@@ -278,6 +283,8 @@ export default function FormSpotifyPicker({
               image_url: t._raw.image_url || t.coverUrl || t.image_url || "",
               isrc: t._raw.isrc || t.isrc || null,
               spotify_url: t._raw.spotify_url || t.spotify_url || null,
+              apple_music_url:
+                t._raw.apple_music_url || t.apple_music_url || null,
               platform: t._raw.platform || t.platform || "spotify",
               source: t._raw.source || t.source || "spotify",
             };
@@ -289,35 +296,50 @@ export default function FormSpotifyPicker({
             artist: t.artist || "",
             image_url: t.image_url || t.coverUrl || "",
             preview_url: t.preview_url || t.audioUrl || "",
+            apple_music_url: t.apple_music_url || null,
           };
         });
 
-        // Soft re-rank: khớp title + ưu tiên bài có ISRC (đăng Locket được)
+        // Soft re-rank: title/artist + ISRC + dual platform
         const scored = normalized
           .map((t) => {
             let s = scoreTitleMatch(q, t);
             if (t.isrc) s += 500;
-            if (t.spotify_url || t.apple_music_url) s += 80;
+            if (t.spotify_url) s += 100;
+            if (t.apple_music_url) s += 80;
+            if (t.preview_url) s += 20;
             return { t, s };
           })
           .sort((a, b) => b.s - a.s)
           .map((x) => x.t);
 
         setResults(scored);
+        if (!scored.length) {
+          setSearchError(
+            "Không có kết quả. Thử tên bài ngắn hơn hoặc tên ca sĩ.",
+          );
+        }
       } catch (e) {
+        if (cancelled) return;
         console.error("[search music]", e);
-        SonnerError("Tìm nhạc lỗi", e?.message || "Thử lại sau");
+        const msg =
+          e?.response?.data?.message ||
+          e?.message ||
+          "Lỗi mạng / API — thử lại";
+        setSearchError(msg);
         setResults([]);
+        SonnerError("Tìm nhạc lỗi", msg);
       } finally {
-        setSearching(false);
+        if (!cancelled) setSearching(false);
       }
     }, 280);
     return () => {
+      cancelled = true;
       if (searchTimer.current) clearTimeout(searchTimer.current);
     };
   }, [query, open, selected]);
 
-  /** Chọn bài → vào màn cắt đoạn */
+  /** Chọn bài → vào màn cắt đoạn (vẫn cho gắn khi không có preview) */
   const openClipEditor = async (track) => {
     if (!track || loading || pickingId) return;
     stopAudio();
@@ -333,9 +355,15 @@ export default function FormSpotifyPicker({
     else if (Number(track.duration) > 0) metaDur = Number(track.duration);
     // Preview web thường ~30s
     if (src && !track.musicTrackId && metaDur > 35) metaDur = 30;
+    if (!src) metaDur = 30;
 
-    const playable = await loadPlayableDuration(src, Math.min(30, metaDur));
-    const dur = Math.max(1, Math.min(playable, track.musicTrackId ? playable : 30));
+    const playable = src
+      ? await loadPlayableDuration(src, Math.min(30, metaDur))
+      : Math.min(30, metaDur);
+    const dur = Math.max(
+      1,
+      Math.min(playable || 30, track.musicTrackId ? playable || 30 : 30),
+    );
     setPlayableDur(dur);
     playableRef.current = dur;
 
@@ -447,29 +475,50 @@ export default function FormSpotifyPicker({
     }
   };
 
-  /** Xác nhận gắn + clip */
+  /** Xác nhận gắn + clip (cho phép gắn cả khi không có preview — app Locket dùng platform URL) */
   const confirmClip = async () => {
     if (!selected || loading) return;
-    const id = selected.id || selected.spotify_url || selected.song_title || "pick";
+    const id =
+      selected.id ||
+      selected.spotify_url ||
+      selected.apple_music_url ||
+      selected.song_title ||
+      "pick";
     setPickingId(id);
     stopAudio();
 
     const src = trackSrc(selected);
-    const len = Math.min(clipLen, playableDur);
-    const s = Math.max(0, Math.min(startTime, Math.max(0, playableDur - len)));
-    const e = Math.min(playableDur, s + len);
+    const len = Math.min(clipLen, playableDur || 30);
+    const baseDur = playableDur > 0 ? playableDur : 30;
+    const s = Math.max(0, Math.min(startTime, Math.max(0, baseDur - len)));
+    const e = Math.min(baseDur, s + (len || 30));
 
     try {
       await onPick?.({
         ...selected,
+        song_title:
+          selected.song_title ||
+          selected.song_name ||
+          selected.name ||
+          selected.title,
+        song_name:
+          selected.song_name ||
+          selected.song_title ||
+          selected.name ||
+          selected.title,
+        artist: selected.artist || "",
         preview_url: src || selected.preview_url || null,
         audioUrl: src || selected.audioUrl || null,
+        apple_music_url: selected.apple_music_url || null,
+        spotify_url: selected.spotify_url || null,
+        isrc: selected.isrc || null,
+        image_url: selected.image_url || selected.coverUrl || "",
         startTime: s,
         endTime: e,
         volume: 1,
         originalVideoVolume: 1,
         duration: e - s,
-        duration_ms: selected.duration_ms || playableDur * 1000,
+        duration_ms: selected.duration_ms || baseDur * 1000,
       });
     } catch (err) {
       SonnerError("Gắn nhạc thất bại", err?.message || "");
@@ -853,35 +902,49 @@ export default function FormSpotifyPicker({
                 </div>
               ) : !results.length ? (
                 <p className="text-center text-sm text-base-content/50 py-12 px-4">
-                  Không thấy — thử tên bài (Tìm Em) hoặc ca sĩ (Sơn Tùng)
+                  {searchError ||
+                    "Không thấy — thử tên bài (Tìm Em) hoặc ca sĩ (Sơn Tùng)"}
                 </p>
               ) : (
-                results.map((track) => {
-                  const key = track.id || track.spotify_url || track.song_title;
-                  const hasIsrc = Boolean(track.isrc);
-                  const dur = track.duration_ms
-                    ? formatMs(track.duration_ms)
-                    : "";
-                  return (
-                    <TrackRow
-                      key={key}
-                      title={titleOf(track)}
-                      artist={track.artist}
-                      image={track.image_url}
-                      meta={[hasIsrc ? "✓ ISRC" : null, dur]
-                        .filter(Boolean)
-                        .join(" · ") || undefined}
-                      busy={busy}
-                      picking={pickingId === key || pickingId === track.id}
-                      onPick={() => openClipEditor(track)}
-                      onPreview={
-                        trackSrc(track)
-                          ? (e) => previewPlay(track, e)
-                          : null
-                      }
-                    />
-                  );
-                })
+                <>
+                  {searchError ? (
+                    <p className="text-xs text-warning px-3 py-1">{searchError}</p>
+                  ) : null}
+                  {results.map((track, idx) => {
+                    const key =
+                      track.id ||
+                      track.spotify_url ||
+                      track.apple_music_url ||
+                      `${titleOf(track)}-${track.artist}-${idx}`;
+                    const hasIsrc = Boolean(track.isrc);
+                    const dur = track.duration_ms
+                      ? formatMs(track.duration_ms)
+                      : "";
+                    const badges = [
+                      hasIsrc ? "✓ ISRC" : null,
+                      track.spotify_url ? "Spotify" : null,
+                      track.apple_music_url ? "Apple" : null,
+                      dur || null,
+                    ].filter(Boolean);
+                    return (
+                      <TrackRow
+                        key={key}
+                        title={titleOf(track)}
+                        artist={track.artist}
+                        image={track.image_url}
+                        meta={badges.join(" · ") || undefined}
+                        busy={busy}
+                        picking={pickingId === key || pickingId === track.id}
+                        onPick={() => openClipEditor(track)}
+                        onPreview={
+                          trackSrc(track)
+                            ? (e) => previewPlay(track, e)
+                            : null
+                        }
+                      />
+                    );
+                  })}
+                </>
               )}
             </div>
 

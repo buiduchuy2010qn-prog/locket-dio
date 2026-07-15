@@ -345,15 +345,15 @@ const videoPostPayloadMusic = ({ videoUrl, thumbnailUrl, optionsData }) => {
     artist,
   };
 
-  // No preview_url to Locket app — iOS plays via MusicKit apple_music_url
+  // Dual when possible: Apple (iOS MusicKit) + Spotify (Android)
   if (apple_music_url && /[?&]i=\d{5,}/.test(String(apple_music_url))) {
     musicPayload.apple_music_url = apple_music_url;
   }
   if (spotify_url) musicPayload.spotify_url = spotify_url;
 
-  if (!musicPayload.apple_music_url) {
+  if (!musicPayload.apple_music_url && !musicPayload.spotify_url) {
     const err = new Error(
-      "Thiếu Apple Music URL (?i=) — iPhone không phát được. Chọn lại bài hoặc dán link Apple Music.",
+      "Thiếu link Apple Music / Spotify — app Locket không hiện nhạc. Chọn lại bài có ISRC.",
     );
     err.status = 400;
     throw err;

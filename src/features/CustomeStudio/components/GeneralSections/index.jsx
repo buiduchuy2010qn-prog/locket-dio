@@ -203,30 +203,24 @@ export default function GeneralThemes({ title }) {
       );
       return false;
     }
-    if (!musicPayload.spotify_url && !musicPayload.apple_music_url) {
-      SonnerError(
-        "Thiếu link Apple Music / Spotify",
-        "Chọn bài khác (có preview) — app Locket cần link để hiện nhạc.",
-      );
-      return false;
-    }
-    // iOS MusicKit: bắt buộc apple_music_url có ?i=trackId
     const appleOk =
       musicPayload.apple_music_url &&
       /[?&]i=\d{5,}/.test(String(musicPayload.apple_music_url));
     if (!appleOk) {
+      // Drop non-playable apple so we don't send bad URLs
+      delete musicPayload.apple_music_url;
+    }
+    if (!musicPayload.spotify_url && !musicPayload.apple_music_url) {
       SonnerError(
-        "Thiếu link Apple Music (iOS)",
-        "iPhone cần link Apple Music có mã bài (?i=). Thử dán link Apple Music hoặc chọn bản khác.",
+        "Thiếu link Apple Music / Spotify",
+        "Chọn bài khác (có ✓ ISRC) — app Locket cần link để hiện nhạc.",
       );
       return false;
     }
     if (!musicPayload.image_url) {
-      SonnerError(
-        "Thiếu ảnh bìa album",
-        "Chọn lại bài có cover rồi gắn nhạc.",
-      );
-      return false;
+      // Cover optional for web; Locket still shows text pill — use placeholder
+      musicPayload.image_url =
+        "https://cdn.locket-dio.com/v1/caption/caption-icon/spotify_music.png";
     }
 
     applyOverlay({
@@ -471,7 +465,7 @@ export default function GeneralThemes({ title }) {
       const artist = musicData?.artist || artistFromTrack;
       const preview =
         musicData?.preview_url || raw.preview_url || raw.audioUrl || null;
-      const image_url =
+      let image_url =
         musicData?.image_url || raw.image_url || raw.coverUrl || "";
       let finalSpotify = musicData?.spotify_url || raw.spotify_url || null;
       let apple_music_url =
@@ -499,44 +493,76 @@ export default function GeneralThemes({ title }) {
         }
       }
 
-      // App Locket: Spotify (Android) + Apple ?i= (iOS MusicKit)
-      if (!finalSpotify && !apple_music_url) {
-        SonnerError(
-          "Thiếu link Apple Music / Spotify",
-          "Chọn bài khác có preview — app Locket mới hiện nhạc.",
-        );
-        return;
-      }
-      // Bù Apple từ search nếu thiếu / không có ?i=
-      if (!apple_music_url || !/[?&]i=\d{5,}/.test(String(apple_music_url))) {
+      // Bù dual platform: Apple ?i= (iOS) + Spotify (Android)
+      if (
+        !finalSpotify ||
+        !apple_music_url ||
+        !/[?&]i=\d{5,}/.test(String(apple_music_url || ""))
+      ) {
         try {
           const hits = await searchMusicByQuery(
             [song_title, artist].filter(Boolean).join(" "),
             15,
           );
-          const hit = (hits || []).find(
+          const hitApple = (hits || []).find(
             (h) =>
               h.apple_music_url &&
               /[?&]i=\d{5,}/.test(String(h.apple_music_url)),
           );
-          if (hit) {
-            apple_music_url = hit.apple_music_url;
-            finalSpotify = finalSpotify || hit.spotify_url || null;
+          const hitSp = (hits || []).find((h) => h.spotify_url);
+          if (hitApple) {
+            apple_music_url = apple_music_url || hitApple.apple_music_url;
+            finalSpotify = finalSpotify || hitApple.spotify_url || null;
+            if (!image_url && hitApple.image_url) image_url = hitApple.image_url;
+            if (!preview && hitApple.preview_url) {
+              /* keep preview from hit if better */
+            }
+          }
+          if (hitSp?.spotify_url) {
+            finalSpotify = finalSpotify || hitSp.spotify_url;
           }
         } catch {
           /* keep */
         }
       }
-      if (!apple_music_url || !/[?&]i=\d{5,}/.test(String(apple_music_url))) {
+      // Spotify user token fallback (Android)
+      if (!finalSpotify) {
+        try {
+          const localId =
+            localStorage.getItem("localId") ||
+            sessionStorage.getItem("localId") ||
+            "guest";
+          const { isSpotifyUserLinked, searchSpotifyTracks } = await import(
+            "@/services/ExtensionsServices/SpotifyUserServices"
+          );
+          if (isSpotifyUserLinked(localId)) {
+            const hits = await searchSpotifyTracks(
+              localId,
+              [song_title, artist].filter(Boolean).join(" "),
+              5,
+            );
+            const hit = (hits || []).find((h) => h.spotify_url);
+            if (hit?.spotify_url) finalSpotify = hit.spotify_url;
+          }
+        } catch {
+          /* optional */
+        }
+      }
+
+      const applePlayable =
+        apple_music_url && /[?&]i=\d{5,}/.test(String(apple_music_url));
+      if (!applePlayable) apple_music_url = null;
+
+      if (!finalSpotify && !apple_music_url) {
         SonnerError(
-          "Thiếu Apple Music cho iPhone",
-          "Không lấy được link Apple (?i=). Dán link Apple Music hoặc chọn bài khác — không đăng sẽ im trên iOS.",
+          "Thiếu link Apple Music / Spotify",
+          "Chọn bài khác có ✓ ISRC, hoặc dán link Spotify/Apple Music.",
         );
         return;
       }
       if (!image_url) {
-        SonnerError("Thiếu ảnh bìa album", "Chọn lại bài có cover.");
-        return;
+        image_url =
+          "https://cdn.locket-dio.com/v1/caption/caption-icon/spotify_music.png";
       }
 
       const caption =
@@ -585,9 +611,15 @@ export default function GeneralThemes({ title }) {
       });
 
       setSpotifyPickerOpen(false);
+      const dualHint =
+        finalSpotify && apple_music_url
+          ? "Android + iOS"
+          : finalSpotify
+            ? "Android OK — thiếu Apple (iOS có thể im)"
+            : "iOS OK — thiếu Spotify (Android có thể im)";
       SonnerSuccess(
-        `Đã gắn nhạc · ISRC ${isrc}`,
-        `${song_title}${artist ? ` · ${artist}` : ""}`,
+        `Đã gắn · ${song_title}${artist ? ` · ${artist}` : ""}`,
+        `${dualHint} · ISRC ${isrc}`,
       );
     } catch (e) {
       console.error("[handleSpotifyLivePick]", e);

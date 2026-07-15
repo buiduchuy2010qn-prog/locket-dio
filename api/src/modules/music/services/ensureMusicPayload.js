@@ -22,6 +22,8 @@ const {
   isStableCoverUrl,
   enrichFromItunes,
   fetchSongLink,
+  searchSpotifyByIsrc,
+  enrichTrackPlatforms,
 } = require("./fetchMusicApi");
 
 function isSignedEphemeralPreview(url = "") {
@@ -261,47 +263,93 @@ async function ensureMusicOptionsData(optionsData = {}) {
     }
   }
 
-  // song.link cross-map:
-  // - Apple-only → Spotify (Android playback / badge)
-  // - Spotify-only / weak Apple → Apple (iOS MusicKit playback)
-  // Không ghi đè Apple bằng URL slug `_` từ song.link
-  if (!spotify_url && apple_music_url) {
+  // song.link / seed multi-source cross-map (Apple ↔ Spotify ↔ Deezer)
+  // Android cần spotify_url; iOS cần Apple ?i=
+  const songLinkSeeds = [
+    spotify_url,
+    apple_music_url,
+    payload.deezer_url,
+    payload.deezerId
+      ? `https://www.deezer.com/track/${payload.deezerId}`
+      : null,
+  ].filter(Boolean);
+  for (const seed of songLinkSeeds) {
+    if (spotify_url && isPlayableAppleMusicUrl(apple_music_url)) break;
     try {
-      const sl = await fetchSongLink(apple_music_url);
-      if (sl?.spotify_url) {
+      const sl = await fetchSongLink(seed);
+      if (!sl) continue;
+      if (!spotify_url && sl.spotify_url) {
         spotify_url = cleanSpotifyUrl(sl.spotify_url);
         console.log(
           `[ensureMusicOptionsData] song.link → Spotify for "${song_title}"`,
         );
       }
-      if (sl?.image_url && (!image_url || !isStableCoverUrl(image_url))) {
-        image_url = sl.image_url;
-      }
-    } catch (e) {
-      console.warn("[ensureMusicOptionsData] song.link apple→spotify:", e.message);
-    }
-  }
-  if (
-    spotify_url &&
-    (!apple_music_url || scoreAppleUrl(apple_music_url, isrc) < 40)
-  ) {
-    try {
-      const sl = await fetchSongLink(spotify_url);
-      if (sl?.apple_music_url) {
+      if (sl.apple_music_url) {
         apple_music_url = pickBetterAppleUrl(
           apple_music_url,
           sl.apple_music_url,
           isrc,
         );
-        console.log(
-          `[ensureMusicOptionsData] song.link → Apple for iOS "${song_title}"`,
-        );
       }
-      if (sl?.image_url && (!image_url || !isStableCoverUrl(image_url))) {
+      if (sl.image_url && (!image_url || !isStableCoverUrl(image_url))) {
         image_url = sl.image_url;
       }
     } catch (e) {
-      console.warn("[ensureMusicOptionsData] song.link spotify→apple:", e.message);
+      console.warn("[ensureMusicOptionsData] song.link:", e.message);
+    }
+  }
+
+  // Spotify by ISRC + full enrich (Android playback)
+  if (!spotify_url && isrc) {
+    try {
+      const sp = await searchSpotifyByIsrc(isrc);
+      if (sp?.spotify_url) {
+        spotify_url = cleanSpotifyUrl(sp.spotify_url);
+        console.log(
+          `[ensureMusicOptionsData] Spotify ISRC → ${spotify_url} for "${song_title}"`,
+        );
+      }
+    } catch (e) {
+      console.warn("[ensureMusicOptionsData] searchSpotifyByIsrc:", e.message);
+    }
+  }
+  if (!spotify_url || !isPlayableAppleMusicUrl(apple_music_url)) {
+    try {
+      const enriched = await enrichTrackPlatforms(
+        {
+          song_title,
+          artist,
+          isrc,
+          spotify_url,
+          apple_music_url,
+          preview_url: preview,
+          image_url,
+          deezer_url: payload.deezer_url,
+          deezerId: payload.deezerId || payload.deezer_id,
+        },
+        { full: true },
+      );
+      if (enriched) {
+        spotify_url =
+          spotify_url || cleanSpotifyUrl(enriched.spotify_url || "") || null;
+        apple_music_url = pickBetterAppleUrl(
+          apple_music_url,
+          enriched.apple_music_url,
+          isrc,
+        );
+        if (
+          enriched.preview_url &&
+          (!preview || isSignedEphemeralPreview(preview))
+        ) {
+          preview = enriched.preview_url;
+        }
+        if (enriched.image_url && (!image_url || !isStableCoverUrl(image_url))) {
+          image_url = enriched.image_url;
+        }
+        isrc = isrc || normalizeIsrc(enriched.isrc);
+      }
+    } catch (e) {
+      console.warn("[ensureMusicOptionsData] enrichTrackPlatforms:", e.message);
     }
   }
 
@@ -351,13 +399,23 @@ async function ensureMusicOptionsData(optionsData = {}) {
     apple_music_url = null;
   }
 
-  // Hard requirement: iOS MusicKit needs playable Apple URL
-  if (!isPlayableAppleMusicUrl(apple_music_url)) {
+  // Cần ít nhất 1 platform playable. Ưu tiên dual (Android Spotify + iOS Apple).
+  if (!spotify_url && !isPlayableAppleMusicUrl(apple_music_url)) {
     const err = new Error(
-      "Thiếu link Apple Music hợp lệ (cần ?i=trackId) — iPhone sẽ không phát nhạc. Thử bài khác hoặc dán link Apple Music.",
+      "Thiếu link Apple Music / Spotify — app Locket không hiện nhạc. Thử bài khác hoặc dán link track.",
     );
     err.status = 400;
     throw err;
+  }
+  if (!isPlayableAppleMusicUrl(apple_music_url) && spotify_url) {
+    console.warn(
+      `[ensureMusicOptionsData] no Apple URL — iOS may be silent: "${song_title}"`,
+    );
+  }
+  if (!spotify_url && isPlayableAppleMusicUrl(apple_music_url)) {
+    console.warn(
+      `[ensureMusicOptionsData] no Spotify URL — Android may be silent: "${song_title}"`,
+    );
   }
 
   // Bỏ preview hết hạn / signed — có thể làm app Locket bỏ overlay

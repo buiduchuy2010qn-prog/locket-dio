@@ -96,7 +96,7 @@ const MyBirthday = () => {
                 className="w-48 h-48 mx-auto rounded-lg shadow mb-4 border border-pink-300"
               />
               <h3 className="text-2xl font-extrabold text-pink-600 mb-2">
-                🎂 Chúc mừng sinh nhật Dio 🎂
+                🎂 Chúc mừng sinh nhật Huy 🎂
               </h3>
               <p className="text-sm text-gray-500 mb-3">Sắp tới: 29/08/2025</p>
 

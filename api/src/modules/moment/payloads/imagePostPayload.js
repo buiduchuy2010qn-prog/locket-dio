@@ -346,18 +346,15 @@ const imagePostPayloadMusic = ({ imageUrl, optionsData }) => {
   // Không gửi preview_url lên Locket app (iOS/Android phát bằng platform URL).
   // Preview signed/Deezer hay làm app bỏ overlay.
 
-  // Apple first (iOS), then Spotify (Android) — both when present
-  if (apple_music_url) {
-    // Require track id for MusicKit; drop unusable links
-    if (/[?&]i=\d{5,}/.test(String(apple_music_url))) {
-      musicPayload.apple_music_url = apple_music_url;
-    }
+  // Dual when possible: Apple (iOS MusicKit) + Spotify (Android)
+  if (apple_music_url && /[?&]i=\d{5,}/.test(String(apple_music_url))) {
+    musicPayload.apple_music_url = apple_music_url;
   }
   if (spotify_url) musicPayload.spotify_url = spotify_url;
 
-  if (!musicPayload.apple_music_url) {
+  if (!musicPayload.apple_music_url && !musicPayload.spotify_url) {
     const err = new Error(
-      "Thiếu Apple Music URL (?i=) — iPhone không phát được. Chọn lại bài hoặc dán link Apple Music.",
+      "Thiếu link Apple Music / Spotify — app Locket không hiện nhạc. Chọn lại bài có ISRC.",
     );
     err.status = 400;
     throw err;
