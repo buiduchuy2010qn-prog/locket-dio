@@ -273,18 +273,13 @@ function normalizeAppleMusicUrl(url = "") {
     const u = new URL(s);
     const host = u.hostname.replace(/^geo\./i, "").toLowerCase();
     if (!/^(music|itunes)\.apple\.com$/i.test(host)) return s.split("?")[0] || s;
-    const trackId = (u.searchParams.get("i") || "").replace(/\D/g, "");
-    // Storefront: /vn/ /us/ ...
-    const store =
-      (u.pathname.match(/^\/([a-z]{2})\//i) || [])[1]?.toLowerCase() || "us";
-    // MusicKit / Locket iOS: dạng /song/{id}?i={id} ổn định hơn album path + tracking
-    if (trackId.length >= 5) {
-      return `https://music.apple.com/${store}/song/${trackId}?i=${trackId}`;
-    }
+    const trackId = u.searchParams.get("i");
+    // pathname: /vn/album/name/albumId
     let path = u.pathname || "";
     if (!path.startsWith("/")) path = `/${path}`;
-    // Strip tracking query junk
-    return `https://music.apple.com${path}`;
+    let out = `https://music.apple.com${path}`;
+    if (trackId) out += `?i=${trackId}`;
+    return out;
   } catch {
     return s.replace(/[?&]uo=\d+/gi, "").replace(/[?&]ls=1/gi, "") || s;
   }
@@ -1133,14 +1128,6 @@ function mapDeezerTrack(t) {
 }
 
 function mapITunesTrack(t) {
-  const trackId = String(t.trackId || "").replace(/\D/g, "");
-  let apple = normalizeAppleMusicUrl(t.trackViewUrl) || null;
-  // Đảm bảo ?i=trackId cho iOS MusicKit (tìm web → gắn luôn, không dán link)
-  if (!isPlayableAppleMusicUrl(apple) && trackId.length >= 5) {
-    apple = `https://music.apple.com/vn/song/${trackId}?i=${trackId}`;
-  } else if (apple && trackId && !/[?&]i=\d{5,}/.test(apple)) {
-    apple = `${apple.split("?")[0]}?i=${trackId}`;
-  }
   return {
     id: String(t.trackId || t.collectionId || ""),
     song_name: t.trackName || "",
@@ -1152,10 +1139,10 @@ function mapITunesTrack(t) {
     preview_url: t.previewUrl || null,
     isrc: null,
     spotify_url: null,
-    apple_music_url: apple,
+    apple_music_url: normalizeAppleMusicUrl(t.trackViewUrl) || null,
     duration_ms: t.trackTimeMillis || 0,
     popularity: 50,
-    platform: "apple",
+    platform: "spotify",
     source: "itunes-search",
     title: [t.trackName, t.artistName].filter(Boolean).join(" - "),
   };
@@ -1555,29 +1542,26 @@ async function searchMusicByQuery(query, limit = 30) {
     (async () => {
       try {
         const terms = qVariants.slice(0, 2);
-        const countries = ["vn", "us"];
         const batches = await Promise.all(
-          terms.flatMap((term) =>
-            countries.map(async (country) => {
-              try {
-                const s = await axios.get("https://itunes.apple.com/search", {
-                  params: {
-                    term,
-                    media: "music",
-                    entity: "song",
-                    limit: fetchLim,
-                    country,
-                  },
-                  timeout: 10000,
-                  headers: { "User-Agent": UA },
-                  validateStatus: (st) => st >= 200 && st < 500,
-                });
-                return (s.data?.results || []).map(mapITunesTrack);
-              } catch {
-                return [];
-              }
-            }),
-          ),
+          terms.map(async (term) => {
+            try {
+              const s = await axios.get("https://itunes.apple.com/search", {
+                params: {
+                  term,
+                  media: "music",
+                  entity: "song",
+                  limit: fetchLim,
+                  country: "vn",
+                },
+                timeout: 10000,
+                headers: { "User-Agent": UA },
+                validateStatus: (st) => st >= 200 && st < 500,
+              });
+              return (s.data?.results || []).map(mapITunesTrack);
+            } catch {
+              return [];
+            }
+          }),
         );
         return batches.flat();
       } catch (e) {

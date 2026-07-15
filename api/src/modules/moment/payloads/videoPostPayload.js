@@ -324,14 +324,8 @@ const videoPostPayloadMusic = ({ videoUrl, thumbnailUrl, optionsData }) => {
   if (apple_music_url) {
     try {
       const u = new URL(String(apple_music_url));
-      const trackId = (u.searchParams.get("i") || "").replace(/\D/g, "");
-      const store =
-        (u.pathname.match(/^\/([a-z]{2})\//i) || [])[1]?.toLowerCase() || "us";
-      if (trackId.length >= 5) {
-        apple_music_url = `https://music.apple.com/${store}/song/${trackId}?i=${trackId}`;
-      } else {
-        apple_music_url = `https://music.apple.com${u.pathname}`;
-      }
+      const trackId = u.searchParams.get("i");
+      apple_music_url = `https://music.apple.com${u.pathname}${trackId ? `?i=${trackId}` : ""}`;
     } catch {
       /* keep */
     }
@@ -348,11 +342,10 @@ const videoPostPayloadMusic = ({ videoUrl, thumbnailUrl, optionsData }) => {
   const musicPayload = {
     isrc,
     song_title: songTitle,
-    song_name: songTitle,
     artist,
   };
 
-  // No preview_url to Locket — iOS MusicKit only; Apple first for logo + play
+  // No preview_url to Locket app — iOS plays via MusicKit apple_music_url
   if (apple_music_url && /[?&]i=\d{5,}/.test(String(apple_music_url))) {
     musicPayload.apple_music_url = apple_music_url;
   }
@@ -360,22 +353,18 @@ const videoPostPayloadMusic = ({ videoUrl, thumbnailUrl, optionsData }) => {
 
   if (!musicPayload.apple_music_url) {
     const err = new Error(
-      "Thiếu Apple Music URL (?i=) — iPhone không hiện logo / không phát. Chọn lại bài từ tìm nhạc.",
+      "Thiếu Apple Music URL (?i=) — iPhone không phát được. Chọn lại bài hoặc dán link Apple Music.",
     );
     err.status = 400;
     throw err;
   }
 
-  let cover =
+  const cover =
     (icon && icon.data) ||
     payload?.image_url ||
     payload?.image ||
     payload?.thumbnail_url ||
     "";
-  if (cover && /dzcdn\.net|hdnea=/i.test(String(cover))) {
-    const alt = payload?.image_url || payload?.image || "";
-    if (alt && /mzstatic\.com|scdn\.co/i.test(String(alt))) cover = alt;
-  }
   const musicIcon = cover
     ? {
         type: "image",

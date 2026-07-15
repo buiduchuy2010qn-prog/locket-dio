@@ -278,12 +278,6 @@ export default function FormSpotifyPicker({
               image_url: t._raw.image_url || t.coverUrl || t.image_url || "",
               isrc: t._raw.isrc || t.isrc || null,
               spotify_url: t._raw.spotify_url || t.spotify_url || null,
-              // Giữ Apple ?i= — iPhone cần để phát (đừng drop khi merge _raw)
-              apple_music_url:
-                t.apple_music_url ||
-                t._raw.apple_music_url ||
-                t.appleMusicUrl ||
-                null,
               platform: t._raw.platform || t.platform || "spotify",
               source: t._raw.source || t.source || "spotify",
             };
@@ -295,24 +289,15 @@ export default function FormSpotifyPicker({
             artist: t.artist || "",
             image_url: t.image_url || t.coverUrl || "",
             preview_url: t.preview_url || t.audioUrl || "",
-            apple_music_url: t.apple_music_url || t.appleMusicUrl || null,
-            spotify_url: t.spotify_url || null,
-            isrc: t.isrc || null,
           };
         });
 
-        // Soft re-rank: khớp title + ISRC + Apple playable (iPhone)
+        // Soft re-rank: khớp title + ưu tiên bài có ISRC (đăng Locket được)
         const scored = normalized
           .map((t) => {
             let s = scoreTitleMatch(q, t);
             if (t.isrc) s += 500;
             if (t.spotify_url || t.apple_music_url) s += 80;
-            if (
-              t.apple_music_url &&
-              /[?&]i=\d{5,}/.test(String(t.apple_music_url))
-            ) {
-              s += 200;
-            }
             return { t, s };
           })
           .sort((a, b) => b.s - a.s)
@@ -765,7 +750,7 @@ export default function FormSpotifyPicker({
               <div className="flex-1 min-w-0">
                 <h3 className="text-lg font-bold leading-tight">Tìm nhạc</h3>
                 <p className="text-xs text-base-content/60 truncate">
-                  Gõ tên bài → chọn — tự lấy ISRC + Apple/Spotify (không cần dán link)
+                  Ưu tiên bản có ✓ (ISRC) — đăng app Locket mới hiện nhạc
                 </p>
               </div>
               <button

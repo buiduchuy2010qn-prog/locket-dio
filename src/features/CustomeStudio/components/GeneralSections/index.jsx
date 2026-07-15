@@ -7,9 +7,6 @@ import {
   normalizeIsrc,
   resolveMusicForLocket,
   searchMusicByQuery,
-  ensureIosAppleOnTrack,
-  isPlayableAppleMusicUrl,
-  lookupItunesForLocket,
 } from "@/services/ExtensionsServices/MusicServices";
 import {
   SonnerError,
@@ -384,15 +381,13 @@ export default function GeneralThemes({ title }) {
         return;
       }
 
-      // Resolve ISRC + Apple ?i= từ tìm web — không bắt dán link
+      // Resolve ISRC — ưu tiên ISRC sẵn; thiếu thì multi-step (Deezer/iTunes)
       let musicData = null;
       const rawIsrc = normalizeIsrc(raw.isrc);
       const hasPlatform = Boolean(raw.spotify_url || raw.apple_music_url);
-      // Chỉ skip resolve khi đã có ISRC + Spotify + Apple playable
       if (
         rawIsrc &&
         hasPlatform &&
-        isPlayableAppleMusicUrl(raw.apple_music_url) &&
         (raw.song_title || raw.song_name || raw.name || songFromTrack)
       ) {
         musicData = {
@@ -508,19 +503,21 @@ export default function GeneralThemes({ title }) {
       if (!finalSpotify && !apple_music_url) {
         SonnerError(
           "Thiếu link Apple Music / Spotify",
-          "Thử gõ đúng tên bài + ca sĩ, chọn bản khác trong list.",
+          "Chọn bài khác có preview — app Locket mới hiện nhạc.",
         );
         return;
       }
-      // Bù Apple từ search list rồi iTunes (trình duyệt) — tìm web là đủ, không dán link
-      if (!isPlayableAppleMusicUrl(apple_music_url)) {
+      // Bù Apple từ search nếu thiếu / không có ?i=
+      if (!apple_music_url || !/[?&]i=\d{5,}/.test(String(apple_music_url))) {
         try {
           const hits = await searchMusicByQuery(
             [song_title, artist].filter(Boolean).join(" "),
             15,
           );
-          const hit = (hits || []).find((h) =>
-            isPlayableAppleMusicUrl(h.apple_music_url),
+          const hit = (hits || []).find(
+            (h) =>
+              h.apple_music_url &&
+              /[?&]i=\d{5,}/.test(String(h.apple_music_url)),
           );
           if (hit) {
             apple_music_url = hit.apple_music_url;
@@ -530,50 +527,14 @@ export default function GeneralThemes({ title }) {
           /* keep */
         }
       }
-      if (!isPlayableAppleMusicUrl(apple_music_url)) {
-        const enriched = await ensureIosAppleOnTrack({
-          song_title,
-          artist,
-          isrc,
-          spotify_url: finalSpotify,
-          apple_music_url,
-          preview_url: preview,
-          image_url,
-        });
-        apple_music_url = enriched.apple_music_url || apple_music_url;
-        if (!preview && enriched.preview_url) {
-          /* preview filled below via musicData path — set local */
-        }
-        if (enriched.preview_url) {
-          musicData = { ...(musicData || {}), preview_url: enriched.preview_url };
-        }
-        if (enriched.image_url && !image_url) {
-          /* image handled via const — use enriched below */
-        }
-      }
-      // iTunes direct once more if still weak
-      if (!isPlayableAppleMusicUrl(apple_music_url)) {
-        const it = await lookupItunesForLocket(song_title, artist);
-        if (it?.apple_music_url) {
-          apple_music_url = it.apple_music_url;
-          if (it.preview_url) {
-            musicData = {
-              ...(musicData || {}),
-              preview_url: musicData?.preview_url || it.preview_url,
-            };
-          }
-        }
-      }
-      if (!isPlayableAppleMusicUrl(apple_music_url)) {
+      if (!apple_music_url || !/[?&]i=\d{5,}/.test(String(apple_music_url))) {
         SonnerError(
-          "Chưa lấy được bản iPhone (Apple Music)",
-          "Gõ rõ tên + ca sĩ (vd: Tìm Em Hngle), chọn bản có ✓. Không cần dán link — thử bài khác nếu vẫn lỗi.",
+          "Thiếu Apple Music cho iPhone",
+          "Không lấy được link Apple (?i=). Dán link Apple Music hoặc chọn bài khác — không đăng sẽ im trên iOS.",
         );
         return;
       }
-      const imageFinal =
-        image_url || musicData?.image_url || "";
-      if (!imageFinal) {
+      if (!image_url) {
         SonnerError("Thiếu ảnh bìa album", "Chọn lại bài có cover.");
         return;
       }
@@ -592,8 +553,7 @@ export default function GeneralThemes({ title }) {
       };
 
       // Ưu tiên preview iTunes (ổn định); Deezer signed hay chết giữa chừng
-      let webPreview =
-        musicData?.preview_url || preview || null;
+      let webPreview = preview;
       if (
         webPreview &&
         /dzcdn\.net|hdnea=|cdnt-preview/i.test(String(webPreview)) &&
@@ -603,16 +563,11 @@ export default function GeneralThemes({ title }) {
         webPreview = musicData.preview_url;
       }
 
-      // Cover ưu tiên Apple CDN (logo pill iOS); webPreview chỉ cho nghe thử trên web
-      const coverForLocket =
-        (/mzstatic\.com|scdn\.co/i.test(String(imageFinal)) && imageFinal) ||
-        imageFinal;
-
       applyOverlay({
         overlay_id: "caption:music",
         caption,
         text: caption,
-        icon: { data: coverForLocket, type: "image", source: "url" },
+        icon: { data: image_url, type: "image", source: "url" },
         type: "music",
         payload: {
           song_title,
@@ -620,27 +575,24 @@ export default function GeneralThemes({ title }) {
           name: song_title,
           artist,
           isrc,
-          // Web preview only — server KHÔNG forward preview_url lên Locket app
           preview_url: webPreview,
           audio: webPreview,
-          image_url: coverForLocket,
-          image: coverForLocket,
-          // Apple trước trong object (spread order: Apple then Spotify)
-          ...(apple_music_url ? { apple_music_url } : {}),
-          ...(finalSpotify ? { spotify_url: finalSpotify } : {}),
-          platform: apple_music_url ? "apple" : platform,
+          image_url,
+          image: image_url,
+          ...platformPayload,
+          platform,
           startTime: clipStart,
           endTime: clipEnd,
           volume: 1,
           originalVideoVolume: 1,
           duration: 30,
         },
-        platform: apple_music_url ? "apple" : platform,
+        platform,
       });
 
       setSpotifyPickerOpen(false);
       SonnerSuccess(
-        `Đã gắn · ISRC ${isrc} · logo+play iPhone`,
+        `Đã gắn nhạc · ISRC ${isrc}`,
         `${song_title}${artist ? ` · ${artist}` : ""}`,
       );
     } catch (e) {

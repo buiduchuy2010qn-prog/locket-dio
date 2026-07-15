@@ -10,7 +10,8 @@ import {
 import "./styles.css";
 
 /**
- * Pill nhạc trên moment — cover + tên + nút Play (web preview).
+ * Pill nhạc trên moment — bấm CẢ pill để phát (web).
+ * Resolve iTunes preview nếu thiếu preview_url trong payload Firestore.
  */
 const MusicOverlay = ({ overlayData, momentId }) => {
   const music = useMemo(() => {
@@ -20,7 +21,10 @@ const MusicOverlay = ({ overlayData, momentId }) => {
       (overlayData?.isrc || overlayData?.song_title ? overlayData : {}) ||
       {};
     const text =
-      overlayData?.text || overlayData?.caption || raw.title || "";
+      overlayData?.text ||
+      overlayData?.caption ||
+      raw.title ||
+      "";
     const parsed = parseSongCaption(text);
     const song_title =
       raw.song_title ||
@@ -61,19 +65,25 @@ const MusicOverlay = ({ overlayData, momentId }) => {
   const [src, setSrc] = useState(null);
   const [playing, setPlaying] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState("");
 
   useEffect(() => {
     return subscribeMusicAudio((s) => {
       const mine = s.key === trackKey;
       setPlaying(mine && s.playing);
       setLoading(mine && s.loading);
+      if (mine && s.error) setErr(s.error);
     });
   }, [trackKey]);
 
   useEffect(() => {
     let cancelled = false;
+    setErr("");
     resolvePlayablePreview(music).then((url) => {
-      if (!cancelled) setSrc(url || null);
+      if (!cancelled) {
+        setSrc(url || null);
+        if (!url) setErr("Chạm để thử tải nhạc");
+      }
     });
     return () => {
       cancelled = true;
@@ -95,6 +105,7 @@ const MusicOverlay = ({ overlayData, momentId }) => {
       }
 
       setLoading(true);
+      setErr("");
       let playSrc = src;
       if (!playSrc) {
         playSrc = await resolvePlayablePreview(music);
@@ -102,10 +113,12 @@ const MusicOverlay = ({ overlayData, momentId }) => {
       }
       if (!playSrc) {
         setLoading(false);
+        setErr("Không tìm thấy file nghe thử");
         return;
       }
-      await toggleMusicUrl(playSrc, trackKey);
+      const result = await toggleMusicUrl(playSrc, trackKey);
       setLoading(false);
+      if (result === "error") setErr("Chạm lại để nghe");
     },
     [playing, src, music, trackKey],
   );
@@ -113,17 +126,23 @@ const MusicOverlay = ({ overlayData, momentId }) => {
   if (!displayText && !urlImage && !music.isrc) return null;
 
   return (
-    <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex w-auto items-center gap-2 py-2 pl-2.5 pr-2 rounded-4xl text-white font-semibold bg-black/55 backdrop-blur-xl max-w-[92%] overflow-visible z-30 shadow-lg border border-white/20">
+    <button
+      type="button"
+      onClick={onToggle}
+      className="absolute bottom-4 left-1/2 -translate-x-1/2 flex w-auto items-center gap-2 py-2 pl-2.5 pr-2.5 rounded-4xl text-white font-semibold bg-black/55 backdrop-blur-xl max-w-[92%] overflow-visible z-30 shadow-lg border border-white/25 active:scale-[0.98] transition cursor-pointer"
+      aria-label={playing ? "Tạm dừng nhạc" : "Phát nhạc"}
+      title={err || (playing ? "Tạm dừng" : "Chạm để nghe nhạc")}
+    >
       {urlImage ? (
         <img
           src={urlImage}
           alt=""
-          className={`w-7 h-7 object-cover rounded-md shrink-0 no-select no-save ${playing ? "animate-pulse" : ""}`}
+          className={`w-8 h-8 object-cover rounded-md shrink-0 no-select no-save ${playing ? "animate-pulse" : ""}`}
           draggable={false}
         />
       ) : (
-        <span className="w-7 h-7 rounded-md bg-white/15 flex items-center justify-center shrink-0">
-          <Music2 className="w-3.5 h-3.5" />
+        <span className="w-8 h-8 rounded-md bg-white/15 flex items-center justify-center shrink-0">
+          <Music2 className="w-4 h-4" />
         </span>
       )}
 
@@ -144,14 +163,10 @@ const MusicOverlay = ({ overlayData, momentId }) => {
         </div>
       </div>
 
-      <button
-        type="button"
-        onClick={onToggle}
-        className={`shrink-0 w-8 h-8 rounded-full flex items-center justify-center border border-white/30 active:scale-95 transition ${
-          playing ? "bg-emerald-500/90" : "bg-white/20 hover:bg-white/30"
+      <span
+        className={`shrink-0 w-9 h-9 rounded-full flex items-center justify-center border border-white/30 ${
+          playing ? "bg-emerald-500/90" : "bg-white/20"
         }`}
-        aria-label={playing ? "Tạm dừng" : "Phát nhạc"}
-        title={playing ? "Tạm dừng" : "Phát nhạc"}
       >
         {loading ? (
           <Loader2 className="w-4 h-4 animate-spin" />
@@ -160,8 +175,8 @@ const MusicOverlay = ({ overlayData, momentId }) => {
         ) : (
           <Play className="w-4 h-4 fill-current ml-0.5" />
         )}
-      </button>
-    </div>
+      </span>
+    </button>
   );
 };
 
