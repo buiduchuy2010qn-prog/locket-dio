@@ -84,16 +84,23 @@ let spotifyApiBlockedUntil = 0;
 function markSpotifyApiBlocked(err) {
   const msg = String(err?.response?.data?.error?.message || err?.message || "");
   const status = err?.response?.status;
+  // Chỉ block khi token/app bị cấm hẳn — KHÔNG block vì market VN 403 (vẫn thử US)
   if (
-    status === 403 ||
-    /premium subscription required|insufficient client scope/i.test(msg)
+    /premium subscription required|insufficient client scope|invalid_client/i.test(
+      msg,
+    )
   ) {
-    // Short cool-down only — 6h was killing Android spotify_url for entire deploys
-    spotifyApiBlockedUntil = Date.now() + 15 * 60 * 1000; // 15 min
+    spotifyApiBlockedUntil = Date.now() + 15 * 60 * 1000;
     console.warn(
-      "getSpotifyAppToken: Spotify Web API 403 — cool-down 15m, using Deezer/iTunes + user token path",
+      "getSpotifyAppToken: Spotify app blocked — cool-down 15m:",
+      msg.slice(0, 80),
     );
     return true;
+  }
+  // 401 token hết hạn → xóa cache token, không cool-down dài
+  if (status === 401) {
+    spotifyAppToken = null;
+    spotifyAppTokenExp = 0;
   }
   return false;
 }
@@ -1347,8 +1354,9 @@ function cleanSpotifyFromAny(url = "") {
 }
 
 /**
- * Spotify Web API search — full catalog (primary).
- * Up to 50 tracks / market; merge VN + US for broader hits.
+ * Spotify Web API search — full catalog (server Client Credentials).
+ * User KHÔNG cần liên kết Spotify trên web.
+ * Market: US trước (ổn định), rồi no-market, rồi VN — market fail không block API.
  */
 async function fetchSpotifySearchFull(q, limit = 50) {
   try {
@@ -1365,26 +1373,38 @@ async function fetchSpotifySearchFull(q, limit = 50) {
     const lim = Math.min(50, Math.max(Number(limit) || 50, 20));
     const headers = { Authorization: `Bearer ${token}` };
 
-    // Parallel markets — VN (local) + US (global catalog)
-    const markets = ["VN", "US"];
+    // US first — VN market hay 403 với app credentials
+    const marketAttempts = ["US", null, "VN"];
     const results = await Promise.all(
-      markets.map(async (market) => {
+      marketAttempts.map(async (market) => {
         try {
+          const params = {
+            q,
+            type: "track",
+            limit: lim,
+            include_external: "audio",
+          };
+          if (market) params.market = market;
           const r = await axios.get("https://api.spotify.com/v1/search", {
-            params: {
-              q,
-              type: "track",
-              limit: lim,
-              market,
-              include_external: "audio",
-            },
+            params,
             headers,
             timeout: 10000,
+            validateStatus: (st) => st >= 200 && st < 500,
           });
+          if (r.status === 403 || r.status === 401) {
+            markSpotifyApiBlocked(r);
+            console.warn(
+              `searchMusic spotify market=${market || "global"}: HTTP ${r.status}`,
+            );
+            return [];
+          }
           return (r.data?.tracks?.items || []).filter(Boolean);
         } catch (e) {
-          markSpotifyApiBlocked(e);
-          console.warn(`searchMusic spotify market=${market}:`, e.message);
+          // Không cool-down toàn bộ API vì 1 market fail
+          console.warn(
+            `searchMusic spotify market=${market || "global"}:`,
+            e.message,
+          );
           return [];
         }
       }),
@@ -1402,7 +1422,6 @@ async function fetchSpotifySearchFull(q, limit = 50) {
       }
     }
 
-    // Sort by popularity (Spotify relevance already applied per market)
     return [...byId.values()]
       .sort((a, b) => (b.popularity || 0) - (a.popularity || 0))
       .map(mapSpotifyTrack);

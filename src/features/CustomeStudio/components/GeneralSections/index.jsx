@@ -835,15 +835,14 @@ export default function GeneralThemes({ title }) {
       ),
       label: t("custom_studio.color_label"),
     },
-    // Music caption (Tìm nhạc / Spotify / Apple) — ẨN tạm: app Locket official
-    // hay lỗi play (preview 30s / thiếu Spotify). Bật lại khi payload ổn.
-    // {
-    //   id: "music_spotify_live",
-    //   icon: <Music2 className="w-5 h-5 mr-1" />,
-    //   label: "Tìm nhạc",
-    //   background: ["#FE2C55", "#25F4EE"],
-    //   color: "#FFFFFF",
-    // },
+    // Tìm nhạc qua Spotify API server (Client Credentials) — user KHÔNG OAuth
+    {
+      id: "music_spotify_live",
+      icon: <Music2 className="w-5 h-5 mr-1" />,
+      label: "Tìm nhạc",
+      background: ["#FE2C55", "#25F4EE"],
+      color: "#FFFFFF",
+    },
     {
       id: "weather",
       icon: <IconRenderer icon={weatherInfo.icon} />,
