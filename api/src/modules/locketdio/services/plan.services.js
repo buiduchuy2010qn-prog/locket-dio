@@ -1,4 +1,7 @@
 const { supabase, isSupabaseConfigured } = require("../../../config/supabase");
+const {
+  getUserStats,
+} = require("../../../utils/cache/localUploadStats");
 
 /**
  * Full Premium for every user (Huy Locket free-for-all / self-host).
@@ -7,6 +10,7 @@ const { supabase, isSupabaseConfigured } = require("../../../config/supabase");
 function buildLocalFreePlan(uid, email, phone, name, picture) {
   const now = new Date().toISOString();
   const short = String(uid || "guest").slice(0, 6).toUpperCase();
+  const uploadStats = getUserStats(uid);
   return {
     user: {
       uid,
@@ -35,11 +39,7 @@ function buildLocalFreePlan(uid, email, phone, name, picture) {
       expires_at: null, // vĩnh viễn
       is_expired: false,
     },
-    upload_stats: {
-      total_uploads: 0,
-      image_uploads: 0,
-      video_uploads: 0,
-    },
+    upload_stats: uploadStats,
     features: {
       camera: true,
       upload: true,

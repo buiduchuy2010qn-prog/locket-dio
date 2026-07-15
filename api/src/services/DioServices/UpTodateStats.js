@@ -7,6 +7,10 @@ const {
   logSuccess,
   logTable,
 } = require("../../utils/logEventUtils");
+const {
+  incrementUserStats,
+  getUserStats,
+} = require("../../utils/cache/localUploadStats");
 
 //#region updateUploadStats
 /**
@@ -35,8 +39,20 @@ const updateUploadStats = async ({
       `${isError ? "❌ Upload Error" : "✅ Upload Success"} - User ${uid}`,
     );
 
+    // Always keep a local copy so Pricing stats work without Supabase
+    try {
+      incrementUserStats({
+        uid,
+        mediaType: isError ? null : mediaType,
+        sizeInBytes: isError ? 0 : sizeInBytes,
+        isError,
+      });
+    } catch (e) {
+      logError("updateUploadStats", `Local stats fail: ${e.message}`);
+    }
+
     if (!isSupabaseConfigured) {
-      logInfo("updateUploadStats", "Supabase off — skip upload stats RPC");
+      logInfo("updateUploadStats", "Local upload stats updated (no Supabase)");
       return true;
     }
 
@@ -60,6 +76,9 @@ const updateUploadStats = async ({
     return false;
   }
 };
+
+/** Read stats for plan response / Pricing UI */
+const getUploadStatsForUser = (uid) => getUserStats(uid);
 
 /**
  * Cập nhật error_count +1 cho user khi có lỗi upload
@@ -94,4 +113,5 @@ const updateUploadStatsErrorCode = async (uid) => {
 module.exports = {
   updateUploadStats,
   updateUploadStatsErrorCode,
+  getUploadStatsForUser,
 };

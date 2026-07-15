@@ -4,7 +4,8 @@ import { RefreshCw } from "lucide-react";
 import { getMaxUploads, FREE_FOR_ALL } from "@/hooks/useFeature";
 import { SonnerInfo } from "@/components/ui/SonnerToast";
 
-export const UserPlanCard = React.memo(({ userPlan, onRefresh, loading }) => {
+export const UserPlanCard = React.memo(
+  ({ userPlan, uploadStats: uploadStatsProp, onRefresh, loading }) => {
   const { maxImageSizeMB, maxVideoSizeMB, storage_limit_mb } = getMaxUploads();
   const [timeLeft, setTimeLeft] = useState("");
 
@@ -27,7 +28,31 @@ export const UserPlanCard = React.memo(({ userPlan, onRefresh, loading }) => {
       }
     : userPlan?.subscription;
   const limits = userPlan?.limits;
-  const uploadStats = userPlan?.upload_stats;
+  // Prefer explicit prop (auth store) then plan payload; normalize field names
+  const rawStats = uploadStatsProp || userPlan?.upload_stats || {};
+  const uploadStats = {
+    image_uploaded:
+      Number(
+        rawStats.image_uploaded ??
+          rawStats.image_uploads ??
+          rawStats.images ??
+          0,
+      ) || 0,
+    video_uploaded:
+      Number(
+        rawStats.video_uploaded ??
+          rawStats.video_uploads ??
+          rawStats.videos ??
+          0,
+      ) || 0,
+    total_storage_used_mb:
+      Number(
+        rawStats.total_storage_used_mb ??
+          rawStats.storage_used_mb ??
+          0,
+      ) || 0,
+    error_count: Number(rawStats.error_count ?? rawStats.errors ?? 0) || 0,
+  };
 
   const isFree = !FREE_FOR_ALL && plan?.id === "free";
   const isActive = FREE_FOR_ALL || subscription?.is_active;
@@ -216,7 +241,7 @@ export const UserPlanCard = React.memo(({ userPlan, onRefresh, loading }) => {
                 </div>
                 <p className="text-xs text-gray-500 mb-1">Ảnh đã tải</p>
                 <p className="font-bold text-blue-600 text-sm lg:text-base">
-                  {uploadStats?.image_uploaded || 0}
+                  {uploadStats.image_uploaded}
                 </p>
               </div>
 
@@ -226,7 +251,7 @@ export const UserPlanCard = React.memo(({ userPlan, onRefresh, loading }) => {
                 </div>
                 <p className="text-xs text-gray-500 mb-1">Video đã tải</p>
                 <p className="font-bold text-red-600 text-sm lg:text-base">
-                  {uploadStats?.video_uploaded || 0}
+                  {uploadStats.video_uploaded}
                 </p>
               </div>
 
@@ -236,7 +261,7 @@ export const UserPlanCard = React.memo(({ userPlan, onRefresh, loading }) => {
                 </div>
                 <p className="text-xs text-gray-500 mb-1">Dung lượng</p>
                 <p className="font-bold text-green-600 text-sm lg:text-base">
-                  {uploadStats?.total_storage_used_mb || 0} MB
+                  {uploadStats.total_storage_used_mb} MB
                 </p>
               </div>
 
@@ -248,7 +273,7 @@ export const UserPlanCard = React.memo(({ userPlan, onRefresh, loading }) => {
                 </div>
                 <p className="text-xs text-gray-500 mb-1">Bị lỗi</p>
                 <p className="font-bold text-yellow-600 text-sm lg:text-base">
-                  {uploadStats?.error_count || 0}
+                  {uploadStats.error_count}
                 </p>
               </div>
             </div>
