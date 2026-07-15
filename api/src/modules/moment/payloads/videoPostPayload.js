@@ -279,8 +279,7 @@ const videoPostPayloadReview = ({ videoUrl, thumbnailUrl, optionsData }) => {
 };
 
 /**
- * Video + music — cùng rule APP LOCKET CHÍNH HÃNG như imagePostPayloadMusic.
- * Không gửi preview_url; text = tên bài thuần; Apple /song/{id}?i={id}.
+ * Video + music — cùng format known-good như image (XOR 1 platform, title only).
  */
 const videoPostPayloadMusic = ({ videoUrl, thumbnailUrl, optionsData }) => {
   const payload = optionsData?.payload || optionsData?.music || {};
@@ -317,7 +316,7 @@ const videoPostPayloadMusic = ({ videoUrl, thumbnailUrl, optionsData }) => {
       : "";
   if (!isrc) {
     const err = new Error(
-      "Thiếu mã ISRC — app Locket không hiện / không phát nhạc.",
+      "Thiếu mã ISRC — app Locket không hiện nhạc.",
     );
     err.status = 400;
     throw err;
@@ -337,15 +336,12 @@ const videoPostPayloadMusic = ({ videoUrl, thumbnailUrl, optionsData }) => {
   if (apple_music_url) {
     try {
       const u = new URL(String(apple_music_url));
-      let trackId = u.searchParams.get("i");
-      if (!trackId) {
-        const m = u.pathname.match(/\/song\/(?:[^/]+\/)?(\d{5,})/i);
-        if (m) trackId = m[1];
-      }
+      const trackId = u.searchParams.get("i");
+      let path = decodeURIComponent(u.pathname || "");
+      if (!path.startsWith("/")) path = `/${path}`;
+      path = path.replace(/\/album\/_\//i, "/album/track/");
       if (trackId && /\d{5,}/.test(trackId)) {
-        const ccMatch = u.pathname.match(/^\/([a-z]{2})\//i);
-        const cc = (ccMatch?.[1] || "us").toLowerCase();
-        apple_music_url = `https://music.apple.com/${cc}/song/${trackId}?i=${trackId}`;
+        apple_music_url = `https://music.apple.com${path}?i=${trackId}`;
       } else {
         apple_music_url = null;
       }
@@ -354,22 +350,28 @@ const videoPostPayloadMusic = ({ videoUrl, thumbnailUrl, optionsData }) => {
     }
   }
 
-  if (!apple_music_url || !/[?&]i=\d{5,}/.test(String(apple_music_url))) {
+  if (!spotify_url && !apple_music_url) {
     const err = new Error(
-      "Thiếu Apple Music (?i=trackId) — iPhone chỉ hiện Music, không phát.",
+      "Thiếu link Spotify / Apple Music — app Locket không hiện nhạc.",
     );
     err.status = 400;
     throw err;
   }
 
   const musicPayload = {
-    isrc,
     song_title: songTitle,
     song_name: songTitle,
     artist,
-    apple_music_url,
+    isrc,
   };
-  if (spotify_url) musicPayload.spotify_url = spotify_url;
+  // XOR 1 URL
+  if (apple_music_url && /[?&]i=\d{5,}/.test(String(apple_music_url))) {
+    musicPayload.apple_music_url = apple_music_url;
+  } else if (spotify_url) {
+    musicPayload.spotify_url = spotify_url;
+  } else if (apple_music_url) {
+    musicPayload.apple_music_url = apple_music_url;
+  }
 
   let cover =
     (icon && icon.data) ||
@@ -379,18 +381,15 @@ const videoPostPayloadMusic = ({ videoUrl, thumbnailUrl, optionsData }) => {
     "";
   if (
     !cover ||
-    /cdn\.locket-dio\.com|caption-icon|spotify_music\.png|dzcdn\.net|hdnea=/i.test(
-      String(cover),
-    )
+    /cdn\.locket-dio\.com|caption-icon|spotify_music\.png/i.test(String(cover))
   ) {
     const err = new Error(
-      "Thiếu ảnh bìa album thật — app Locket hay chỉ hiện chữ Music.",
+      "Thiếu ảnh bìa album — app Locket hay chỉ hiện chữ Music.",
     );
     err.status = 400;
     throw err;
   }
 
-  data.caption = songTitle;
   data.overlays.push({
     data: {
       text: songTitle,

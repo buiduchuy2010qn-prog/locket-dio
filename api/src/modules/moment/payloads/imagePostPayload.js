@@ -268,14 +268,15 @@ const imagePostPayloadReview = ({ imageUrl, optionsData }) => {
 };
 
 /**
- * Music overlay cho APP LOCKET CHÍNH HÃNG (đồng bộ Firebase).
- * Web Huy Locket chỉ là client đăng — app official đọc payload này để hiện + phát.
+ * Music overlay — APP LOCKET CHÍNH HÃNG (format known-good 474aa184 / 28b98e58).
  *
- * Known-good (474aa184 / b7c3ad19 / da6daff6):
- * - text / caption = TÊN BÀI THUẦN (Locket tự ghép artist) — KHÔNG "title · artist"
- * - payload: isrc + song_title + song_name + artist + apple_music_url(?i=) + spotify_url?
- * - KHÔNG gửi preview_url (clip 30s → app im sau vài giây; full play = Spotify/MusicKit)
- * - Cover album thật (mzstatic/scdn) — icon generic → pill "Music" trống
+ * Locket native chỉ hiện pill khi:
+ * - isrc (12) + song_title + artist
+ * - ĐÚNG 1 platform URL (XOR): Spotify HOẶC Apple — dual URL hay làm app bỏ overlay
+ * - cover album (icon type image)
+ * - text = TÊN BÀI thuần (app tự ghép · artist)
+ * - max_lines: 1 (number)
+ * - KHÔNG gửi preview_url (clip 30s / reject)
  */
 const imagePostPayloadMusic = ({ imageUrl, optionsData }) => {
   const payload = optionsData?.payload || optionsData?.music || {};
@@ -290,15 +291,12 @@ const imagePostPayloadMusic = ({ imageUrl, optionsData }) => {
       "",
   )
     .trim()
-    // caption client đôi khi đã ghép "title · artist" — lấy phần title
     .split(/\s*[·|]\s*/)[0]
     .split(/\s+-\s+/)[0]
     .trim();
   const artist = String(payload?.artist || "").trim();
 
-  // text = TÊN BÀI THUẦN — ghép artist gây badge Music trống / không play
-  const text = songTitle;
-  if (!text || /^music$/i.test(text)) {
+  if (!songTitle || /^music$/i.test(songTitle)) {
     const err = new Error(
       "Thiếu tên bài hát — app Locket chỉ hiện Music. Chọn lại bài từ Tìm nhạc.",
     );
@@ -315,7 +313,7 @@ const imagePostPayloadMusic = ({ imageUrl, optionsData }) => {
       : "";
   if (!isrc) {
     const err = new Error(
-      "Thiếu mã ISRC — app Locket không hiện / không phát nhạc. Chọn lại bài từ tìm nhạc.",
+      "Thiếu mã ISRC — app Locket không hiện nhạc. Chọn lại bài từ tìm nhạc.",
     );
     err.status = 400;
     throw err;
@@ -330,22 +328,20 @@ const imagePostPayloadMusic = ({ imageUrl, optionsData }) => {
     else spotify_url = String(spotify_url).split("?")[0] || null;
   }
 
-  // Apple MusicKit: /{cc}/song/{id}?i={id} — ổn định hơn album path
+  // Apple: giữ path + ?i= (album path OK) — không ép /song/ (có thể lệch catalog)
   let apple_music_url =
     payload?.apple_music_url || payload?.appleMusicUrl || null;
   if (apple_music_url) {
     try {
       const u = new URL(String(apple_music_url));
-      let trackId = u.searchParams.get("i");
-      if (!trackId) {
-        const m = u.pathname.match(/\/song\/(?:[^/]+\/)?(\d{5,})/i);
-        if (m) trackId = m[1];
-      }
+      const trackId = u.searchParams.get("i");
+      let path = decodeURIComponent(u.pathname || "");
+      if (!path.startsWith("/")) path = `/${path}`;
+      path = path.replace(/\/album\/_\//i, "/album/track/");
       if (trackId && /\d{5,}/.test(trackId)) {
-        const ccMatch = u.pathname.match(/^\/([a-z]{2})\//i);
-        const cc = (ccMatch?.[1] || "us").toLowerCase();
-        apple_music_url = `https://music.apple.com/${cc}/song/${trackId}?i=${trackId}`;
+        apple_music_url = `https://music.apple.com${path}?i=${trackId}`;
       } else {
+        // Không ?i= → bỏ, tránh badge Music trống
         apple_music_url = null;
       }
     } catch {
@@ -353,23 +349,31 @@ const imagePostPayloadMusic = ({ imageUrl, optionsData }) => {
     }
   }
 
-  if (!apple_music_url || !/[?&]i=\d{5,}/.test(String(apple_music_url))) {
+  if (!spotify_url && !apple_music_url) {
     const err = new Error(
-      "Thiếu Apple Music (?i=trackId) — iPhone chỉ hiện Music, không phát. Chọn bài khác hoặc dán link Apple Music.",
+      "Thiếu link Spotify / Apple Music — app Locket không hiện nhạc.",
     );
     err.status = 400;
     throw err;
   }
 
-  // Dual OK: Spotify (Android) + Apple (iOS). Không gửi preview_url lên Locket.
+  // Payload tối giản — đúng field Locket native đọc
   const musicPayload = {
-    isrc,
     song_title: songTitle,
     song_name: songTitle,
     artist,
-    apple_music_url,
+    isrc,
   };
-  if (spotify_url) musicPayload.spotify_url = spotify_url;
+
+  // XOR 1 platform — dual URL hay khiến app bỏ overlay (28b98e58)
+  // Ưu tiên Apple (?i=) nếu có → iOS MusicKit; không thì Spotify (Android)
+  if (apple_music_url && /[?&]i=\d{5,}/.test(String(apple_music_url))) {
+    musicPayload.apple_music_url = apple_music_url;
+  } else if (spotify_url) {
+    musicPayload.spotify_url = spotify_url;
+  } else if (apple_music_url) {
+    musicPayload.apple_music_url = apple_music_url;
+  }
 
   let cover =
     (icon && icon.data) ||
@@ -377,20 +381,17 @@ const imagePostPayloadMusic = ({ imageUrl, optionsData }) => {
     payload?.image ||
     payload?.thumbnail_url ||
     "";
+  // Reject icon generic; cho phép mzstatic / scdn / iTunes
   if (
     !cover ||
-    /cdn\.locket-dio\.com|caption-icon|spotify_music\.png|dzcdn\.net|hdnea=/i.test(
-      String(cover),
-    )
+    /cdn\.locket-dio\.com|caption-icon|spotify_music\.png/i.test(String(cover))
   ) {
     const err = new Error(
-      "Thiếu ảnh bìa album thật — app Locket hay chỉ hiện chữ Music. Chọn lại bài có cover.",
+      "Thiếu ảnh bìa album — app Locket hay chỉ hiện chữ Music. Chọn lại bài có cover.",
     );
     err.status = 400;
     throw err;
   }
-
-  data.caption = songTitle;
 
   data.overlays.push({
     data: {
