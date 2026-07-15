@@ -158,6 +158,7 @@ export async function applyLocketStyleWatermark(blob, opts = {}) {
     const textW = ctx.measureText(label).width;
     const totalW = heartW + gap + textW;
     const startX = (w - totalW) / 2;
+    // Shared vertical center for heart + text (align baseline middle with heart)
     const y = h - bottomPad;
 
     // Soft shadow — pale white readable on light areas
@@ -168,15 +169,16 @@ export async function applyLocketStyleWatermark(blob, opts = {}) {
     // Soft white (~74%)
     ctx.fillStyle = "rgba(255,255,255,0.74)";
 
-    // Clean vector heart (not emoji — emoji fonts look chunky / misaligned)
-    // Nudge heart up a hair so it optically centers with "Locket" text
+    // Heart + text share the same vertical center so they look level
     const heartCx = startX + heartW / 2;
-    const heartCy = y - fontSize * 0.06;
+    const heartCy = y;
     drawSoftHeart(ctx, heartCx, heartCy, heartH);
 
-    // Brand label (synced from CONFIG.app)
+    // Brand label — nudged up slightly so optical middle matches the heart
+    // (canvas text with middle baseline often sits a touch low vs vector shapes)
+    const textY = y - fontSize * 0.08;
     ctx.font = `500 ${fontSize}px system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif`;
-    ctx.fillText(label, startX + heartW + gap, y);
+    ctx.fillText(label, startX + heartW + gap, textY);
 
     ctx.restore();
 
