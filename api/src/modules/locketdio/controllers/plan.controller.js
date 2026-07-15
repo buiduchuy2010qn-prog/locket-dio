@@ -13,33 +13,18 @@ const planControllerV2 = async (req, res, next) => {
     req.headers["x-forwarded-host"] || req.headers.host || req.hostname;
 
   try {
-    let userPlan = await planServices.getUserPlanV3(uid);
-
-    if (!userPlan) {
-      logInfo(
-        "planController",
-        `👤 User chưa có gói. Tự động đăng ký cho UID: ${uid}`,
-      );
-
-      const registered = await planServices.registerDefaultPlan(
-        uid,
-        email,
-        phone,
-        name,
-        picture,
-      );
-
-      // Local free plan when Supabase is off (registerDefaultPlan returns the object)
-      userPlan =
-        registered && registered.user
-          ? registered
-          : (await planServices.getUserPlanV3(uid)) ||
-            planServices.getLocalFreePlan(uid, email, phone, name, picture);
-
-      logSuccess("planController", "✅ Đăng ký gói mặc định thành công");
-    } else {
-      logSuccess("planController", "✅ Đã có gói. Trả về thông tin gói");
-    }
+    // Huy Locket free-for-all: always grant full Premium (no paywall)
+    let userPlan = planServices.getLocalFreePlan(
+      uid,
+      email,
+      phone,
+      name,
+      picture,
+    );
+    logSuccess(
+      "planController",
+      "✅ Free-for-all Premium cho mọi user",
+    );
 
     const { user, plan, subscription } = userPlan;
 

@@ -1,18 +1,18 @@
 import { useAuthStore } from "@/stores";
 
 /**
- * Huy Locket — hoàn toàn MIỄN PHÍ cho mọi user.
- * Mọi feature flag client-side luôn mở; limits rộng (chỉ giới hạn kỹ thuật Locket).
- * Không khóa theo plan / premium / feature_blocks.
+ * Huy Locket — full Premium cho mọi user (không paywall).
+ * Mọi feature flag client-side luôn mở; limits = gói Premium.
+ * Không khóa theo plan / feature_blocks.
  */
 export const FREE_FOR_ALL = true;
 
-/** Giới hạn kỹ thuật mặc định (không phải paywall) */
+/** Giới hạn Premium (free-for-all) — không phải paywall */
 const FREE_LIMITS = {
   maxImageSizeMB: 25,
   maxVideoSizeMB: 50,
   storage_limit_mb: 99999,
-  video_record_max_length: 10, // Locket native ~10s
+  video_record_max_length: 15, // Premium: 15s
 };
 
 /**
@@ -31,6 +31,16 @@ export const useFeatureVisible = (_type) => {
 
   if (blocks[_type]) return false;
   return features[_type] ?? false;
+};
+
+/**
+ * Effective plan id for UI (pricing highlight, badge).
+ * FREE_FOR_ALL → always "premium".
+ */
+export const useEffectivePlanId = () => {
+  const userPlan = useAuthStore((s) => s.userPlan);
+  if (FREE_FOR_ALL) return "premium";
+  return userPlan?.plan?.id || "free";
 };
 
 export const useGetCode = () => {

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import PlanBadge from "@/components/UI/PlanBadge/PlanBadge";
 import { RefreshCw } from "lucide-react";
-import { getMaxUploads } from "@/hooks/useFeature";
+import { getMaxUploads, FREE_FOR_ALL } from "@/hooks/useFeature";
 import { SonnerInfo } from "@/components/ui/SonnerToast";
 
 export const UserPlanCard = React.memo(({ userPlan, onRefresh, loading }) => {
@@ -9,14 +9,29 @@ export const UserPlanCard = React.memo(({ userPlan, onRefresh, loading }) => {
   const [timeLeft, setTimeLeft] = useState("");
 
   const user = userPlan?.user;
-  const plan = userPlan?.plan;
-  const subscription = userPlan?.subscription;
+  // Free-for-all: luôn hiện Premium
+  const plan = FREE_FOR_ALL
+    ? {
+        ...(userPlan?.plan || {}),
+        id: "premium",
+        name: "Premium",
+        badge: "premium",
+      }
+    : userPlan?.plan;
+  const subscription = FREE_FOR_ALL
+    ? {
+        ...(userPlan?.subscription || {}),
+        is_active: true,
+        is_expired: false,
+        expires_at: null,
+      }
+    : userPlan?.subscription;
   const limits = userPlan?.limits;
   const uploadStats = userPlan?.upload_stats;
 
-  const isFree = plan?.id === "free";
-  const isActive = subscription?.is_active;
-  const isExpired = subscription?.is_expired;
+  const isFree = !FREE_FOR_ALL && plan?.id === "free";
+  const isActive = FREE_FOR_ALL || subscription?.is_active;
+  const isExpired = !FREE_FOR_ALL && subscription?.is_expired;
 
   // ===============================
   // COUNTDOWN TIME

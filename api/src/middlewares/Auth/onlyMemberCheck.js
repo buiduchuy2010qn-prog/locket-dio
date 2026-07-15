@@ -1,18 +1,14 @@
 const { logInfo, logError } = require("../../utils/logEventUtils");
 
+/**
+ * Huy Locket free-for-all: mọi user = Premium — không chặn Member-only.
+ */
 const onlyMemberCheck = async (req, res, next) => {
   try {
-    const planId = (req.plan?.plan_id || "free").toLowerCase();
-
-    if (planId === "free") {
-      logInfo("onlyMemberCheck", "⚠️ Blocked: Free plan");
-      return res.status(400).json({
-        success: false,
-        message: "Member only",
-      });
-    }
-
-    logInfo("onlyMemberCheck", "✅ Passed");
+    logInfo(
+      "onlyMemberCheck",
+      `✅ Free-for-all pass (plan=${req.plan?.plan_id || "premium"})`,
+    );
     return next();
   } catch (error) {
     logError("onlyMemberCheck", "❌ Error", error.message);

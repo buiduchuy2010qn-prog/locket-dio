@@ -31,11 +31,13 @@ const logUserAction = async (req, action, count = 1) => {
   }
 };
 
-// utils/planUtils.js
-function isUploadAllowed(planData, sizeMb, limitMb = 12) {
-  const planId = planData?.plan_id || "free";
-  const isFree = planId.toLowerCase() === "free";
-  return !(isFree && sizeMb > limitMb);
+// utils/planUtils.js — free-for-all: always allow (size capped elsewhere)
+function isUploadAllowed(planData, sizeMb, limitMb = 50) {
+  void planData;
+  const size = Number(sizeMb) || 0;
+  const limit = Number(limitMb) || 50;
+  // Soft technical cap only — not a paywall
+  return size <= limit;
 }
 
 /**

@@ -6,7 +6,10 @@ const {
   logWarning,
 } = require("../../utils/logEventUtils");
 
-/** Free plan attached when member JWT missing/invalid (self-host without Supabase). */
+/**
+ * Full Premium for every request when member JWT missing/invalid.
+ * Huy Locket free-for-all — no paywall on self-host.
+ */
 function freePlan(req) {
   const uid = req.user?.localId || req.user?.uid || "guest";
   return {
@@ -14,11 +17,12 @@ function freePlan(req) {
     email: req.user?.email || null,
     name: req.user?.name || null,
     customer_code: `HL-${String(uid).slice(0, 6).toUpperCase()}`,
-    plan_id: "free",
+    plan_id: "premium",
     is_active: true,
     expire_at: null,
     type: "session",
     free_local: true,
+    free_for_all: true,
   };
 }
 

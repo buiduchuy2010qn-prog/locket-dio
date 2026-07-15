@@ -1,6 +1,9 @@
 const { supabase, isSupabaseConfigured } = require("../../../config/supabase");
 
-/** Free plan shape when Supabase is not configured (self-hosted / Huy Locket). */
+/**
+ * Full Premium for every user (Huy Locket free-for-all / self-host).
+ * No paywall — all premium features + high limits, never expires.
+ */
 function buildLocalFreePlan(uid, email, phone, name, picture) {
   const now = new Date().toISOString();
   const short = String(uid || "guest").slice(0, 6).toUpperCase();
@@ -18,14 +21,15 @@ function buildLocalFreePlan(uid, email, phone, name, picture) {
       updated_at: now,
     },
     plan: {
-      id: "free",
-      name: "Free",
-      badge: "free",
+      id: "premium",
+      name: "Premium",
+      badge: "premium",
     },
     subscription: {
       is_active: true,
       start_at: now,
-      expires_at: null,
+      expires_at: null, // vĩnh viễn
+      is_expired: false,
     },
     upload_stats: {
       total_uploads: 0,
@@ -33,17 +37,30 @@ function buildLocalFreePlan(uid, email, phone, name, picture) {
       video_uploads: 0,
     },
     features: {
-      // Enable basic camera features without paid plan DB
       camera: true,
       upload: true,
       moments: true,
+      unlimited_media: true,
+      unlimited_storage: true,
+      custom_theme: true,
+      high_quality: true,
+      priority_support: true,
+      early_access: true,
+      longer_video: true,
+      all_tools: true,
+      music: true,
+      caption: true,
+      friends: true,
+      widget: true,
     },
     feature_blocks: {},
     limits: {
-      image_storage_limit_mb: 10,
-      video_storage_limit_mb: 10,
-      storage_limit_mb: 50,
-      video_record_max_length: 10,
+      image_storage_limit_mb: 99999,
+      video_storage_limit_mb: 99999,
+      storage_limit_mb: 99999,
+      video_record_max_length: 15,
+      daily_image_limit: null,
+      daily_video_limit: null,
     },
   };
 }

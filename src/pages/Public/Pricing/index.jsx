@@ -10,6 +10,7 @@ import PlanListSection from "./PlanListSection";
 import MemberPlanIntro from "./MemberPlanIntro";
 import PlanEmptyNotice from "./PlanEmptyNotice";
 import { useAuthStore } from "@/stores";
+import { FREE_FOR_ALL } from "@/hooks/useFeature";
 import { SonnerInfo, SonnerSuccess } from "@/components/ui/SonnerToast";
 
 export default function PricingPage() {
@@ -18,7 +19,10 @@ export default function PricingPage() {
   const [tab, setTab] = useState("all");
   const [lastRefreshTime, setLastRefreshTime] = useState(0);
 
-  const subscription = userPlan?.plan;
+  // Free-for-all: mọi user = Premium (highlight đúng card)
+  const subscription = FREE_FOR_ALL
+    ? { ...(userPlan?.plan || {}), id: "premium", name: "Premium", badge: "premium" }
+    : userPlan?.plan;
 
   // Memoize the refresh handler with debouncing
   const handleRefreshPlan = useCallback(async () => {
