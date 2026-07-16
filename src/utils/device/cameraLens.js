@@ -153,12 +153,18 @@ let probeInFlight = null;
 // data/permission is cleared, so every read is validated against the current
 // enumerateDevices result.
 /** Bump when lens mapping semantics change — clears stale preferred-wide ids */
-export const CAMERA_LENS_MAP_VERSION = 2;
+export const CAMERA_LENS_MAP_VERSION = 3;
 const CAMERA_LENS_MAP_VERSION_KEY = "huy-locket:camera:lensMapVersion";
 const PREFERRED_WIDE_CAMERA_KEY =
-  "huy-locket:camera:preferred-wide-device:v2";
+  "huy-locket:camera:preferred-wide-device:v3";
+const ULTRA_BASE_ZOOM_KEY = "huy-locket:camera:ultra-base-zoom:v3";
 const PREFERRED_WIDE_CAMERA_KEY_LEGACY = [
   "huy-locket:camera:preferred-wide-device:v1",
+  "huy-locket:camera:preferred-wide-device:v2",
+];
+const ULTRA_BASE_ZOOM_KEY_LEGACY = [
+  "huy-locket:camera:ultra-base-zoom:v1",
+  "huy-locket:camera:ultra-base-zoom:v2",
 ];
 
 /**
@@ -178,8 +184,20 @@ export function ensureCameraLensMapVersion() {
         /* ignore */
       }
     }
+    for (const k of ULTRA_BASE_ZOOM_KEY_LEGACY) {
+      try {
+        ls.removeItem(k);
+      } catch {
+        /* ignore */
+      }
+    }
     try {
       ls.removeItem(PREFERRED_WIDE_CAMERA_KEY);
+    } catch {
+      /* ignore */
+    }
+    try {
+      ls.removeItem(ULTRA_BASE_ZOOM_KEY);
     } catch {
       /* ignore */
     }
@@ -187,6 +205,38 @@ export function ensureCameraLensMapVersion() {
   } catch {
     /* private mode */
   }
+}
+
+/** Persist measured ultra global base (0.5 / 0.6 …) per deviceId */
+export function rememberUltraBaseZoom(deviceId, baseZoom) {
+  if (!deviceId) return false;
+  const b = Number(baseZoom);
+  if (!Number.isFinite(b) || b <= 0.2 || b >= 0.98) return false;
+  ensureCameraLensMapVersion();
+  try {
+    const raw = globalThis?.localStorage?.getItem(ULTRA_BASE_ZOOM_KEY);
+    const map = raw ? JSON.parse(raw) : {};
+    map[String(deviceId)] = b;
+    globalThis?.localStorage?.setItem(ULTRA_BASE_ZOOM_KEY, JSON.stringify(map));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function getRememberedUltraBaseZoom(deviceId) {
+  if (!deviceId) return null;
+  ensureCameraLensMapVersion();
+  try {
+    const raw = globalThis?.localStorage?.getItem(ULTRA_BASE_ZOOM_KEY);
+    if (!raw) return null;
+    const map = JSON.parse(raw);
+    const b = Number(map?.[String(deviceId)]);
+    if (Number.isFinite(b) && b > 0.2 && b < 0.98) return b;
+  } catch {
+    /* ignore */
+  }
+  return null;
 }
 
 export function getPreferredWideCameraId(rearDevices = []) {

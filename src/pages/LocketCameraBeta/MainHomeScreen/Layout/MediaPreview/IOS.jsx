@@ -71,6 +71,8 @@ import {
   snapGlobalZoomOnRelease,
   isExactlyMainZoom,
   ensureCameraLensMapVersion,
+  probeUltraBaseZoom,
+  resolveUltraBaseZoom,
 } from "@/utils";
 const EditorCaption = lazy(() => import("@/features/EditorCaption"));
 import { useApp } from "@/context/AppContext";
@@ -162,7 +164,9 @@ const MediaPreviewIOS = () => {
   const stickyLensTypeRef = useRef("main");
   const lensSwitchInFlightRef = useRef(false);
   const pendingGlobalZoomRef = useRef(null);
+  const continuumInitGen = useRef(0);
   const [zoomMarkers, setZoomMarkers] = useState([]);
+  const [zoomRailReady, setZoomRailReady] = useState(false);
 
   const setDisplayZoomNow = useCallback(
     (z, modeHint) => {
@@ -189,16 +193,127 @@ const MediaPreviewIOS = () => {
       const cont = buildZoomContinuum(shape, stream, { facing });
       continuumRef.current = cont;
       if (cont.supported) {
-        boundsRef.current = continuumBounds(cont, boundsRef.current);
-        setMinZoom(cont.minZoom);
-        setMaxZoom(cont.maxZoom);
+        const next = continuumBounds(cont, boundsRef.current);
+        const prevMin = boundsRef.current?.minZoom;
+        const minZ =
+          Number.isFinite(prevMin) && cont.minZoom < 0.98
+            ? Math.min(prevMin, cont.minZoom)
+            : cont.minZoom;
+        boundsRef.current = {
+          minZoom: minZ,
+          maxZoom: Math.max(next.maxZoom, cont.maxZoom, 1),
+        };
+        setMinZoom(boundsRef.current.minZoom);
+        setMaxZoom(boundsRef.current.maxZoom);
         setZoomMarkers(cont.markers || []);
+        if (cont.ready !== false) setZoomRailReady(true);
       } else {
         setZoomMarkers([]);
       }
       return cont;
     },
     [setMinZoom, setMaxZoom],
+  );
+
+  const ensureContinuumCatalog = useCallback(
+    async (stream, cameras) => {
+      const gen = ++continuumInitGen.current;
+      ensureCameraLensMapVersion();
+      const shape = toDetectedShape(cameras);
+      let cont = rebuildContinuum(stream, cameras, "environment");
+      const ultraId = shape.ultrawide?.deviceId || null;
+      const needsProbe =
+        cont.needsUltraProbe ||
+        (ultraId &&
+          !resolveUltraBaseZoom(shape, stream, ultraId) &&
+          cont.minZoom >= 0.98);
+
+      if (needsProbe && ultraId && (cameraMode || "environment") !== "user") {
+        setZoomRailReady(false);
+        const freeze = captureVideoFreezeFrame(videoRef.current);
+        if (freeze) setFreezeFrame(freeze);
+        const mainId =
+          shape.main?.deviceId ||
+          shape.rear?.[0]?.deviceId ||
+          lastDeviceId.current ||
+          null;
+        const old = streamRef.current;
+        try {
+          if (old) {
+            clearTrackZoomCache(old);
+            stopCurrentCamera(old, null);
+            streamRef.current = null;
+          }
+          await probeUltraBaseZoom(ultraId, shape.ultrawide);
+          if (gen !== continuumInitGen.current) return;
+          const mainStream = await startCameraByDeviceId(mainId, {
+            facingMode: "environment",
+            highRes: false,
+            preferDeviceId: Boolean(mainId),
+          });
+          if (gen !== continuumInitGen.current) {
+            stopCurrentCamera(mainStream);
+            return;
+          }
+          if (!isLiveVideoStream(mainStream)) {
+            stopCurrentCamera(mainStream);
+            setFreezeFrame(null);
+            setZoomRailReady(true);
+            return;
+          }
+          streamRef.current = mainStream;
+          const mid =
+            getCurrentTrackSettings(mainStream)?.deviceId || mainId;
+          if (mid) {
+            lastDeviceId.current = mid;
+            setDeviceId(mid);
+          }
+          stickyLensTypeRef.current = "main";
+          setCurrentLensType("main");
+          attachStreamToVideo(mainStream, "environment");
+          try {
+            const range = readZoomRange(mainStream);
+            const one =
+              range.supported && range.minZoom <= 1 && range.maxZoom >= 1
+                ? 1
+                : range.minZoom || 1;
+            await applyCameraZoom(mainStream, one);
+          } catch {
+            /* ignore */
+          }
+          cont = rebuildContinuum(mainStream, cameras, "environment");
+        } catch (e) {
+          console.warn("[zoom-ios] continuum catalog probe", e);
+        } finally {
+          if (gen === continuumInitGen.current) {
+            setFreezeFrame(null);
+            currentZoomValue.current = 1;
+            appliedZoomRef.current = 1;
+            setCurrentZoom(1);
+            setActiveZoomMode("1x");
+            lastZoomLevel.current = "1x";
+            stickyLensTypeRef.current = "main";
+            setZoomRailReady(true);
+          }
+        }
+        return cont;
+      }
+      if (gen === continuumInitGen.current) {
+        currentZoomValue.current = 1;
+        setCurrentZoom(1);
+        setActiveZoomMode("1x");
+        setZoomRailReady(cont.ready !== false);
+      }
+      return cont;
+    },
+    [
+      cameraMode,
+      rebuildContinuum,
+      setActiveZoomMode,
+      setCurrentLensType,
+      setCurrentZoom,
+      setDeviceId,
+    ],
   );
 
   const switchPhysicalLensForZoom = useCallback(
@@ -442,61 +557,67 @@ const MediaPreviewIOS = () => {
       const minZ = bounds.minZoom;
       boundsRef.current = {
         minZoom: minZ,
-        maxZoom: bounds.maxZoom,
+        maxZoom: Math.max(bounds.maxZoom, 1),
       };
-      setMinZoom(minZ);
-      setMaxZoom(bounds.maxZoom);
+      setMinZoom(boundsRef.current.minZoom);
+      setMaxZoom(boundsRef.current.maxZoom);
       setZoomStep(bounds.step || 0.1);
 
       const settings = getCurrentTrackSettings(stream);
       const actualId = settings.deviceId || null;
       const device =
         cameras?.allCameras?.find((d) => d.deviceId === actualId) || null;
-      const lensType = classifyLensType(device, shape);
+      let lensType = classifyLensType(device, shape);
+      const ultraId = shape.ultrawide?.deviceId || null;
+      const onUltra = ultraId && actualId && actualId === ultraId;
+      if (!onUltra && (lastZoomLevel.current === "1x" || !lastZoomLevel.current)) {
+        lensType = "main";
+      }
       setCurrentLensType(lensType);
       if (lensType) stickyLensTypeRef.current = lensType;
 
-      const disp = getLiveZoomDisplay(stream, {
-        lensType,
-        detected: shape,
-        preferredMode: lastZoomLevel.current,
-        uiZoom: currentZoomValue.current,
-      });
-
       const modes = computeAvailableZoomModes(shape, stream);
       modes["1x"] = true;
-      modes["0.5x"] = Boolean(cont.markers?.some((m) => m.type === "ultrawide"));
+      modes["0.5x"] = Boolean(
+        cont.markers?.some((m) => m.type === "ultrawide") ||
+          cont.minZoom < 0.98 ||
+          ultraId,
+      );
       modes.ultraFactor =
-        disp.ultraFactor ??
-        modes.ultraFactor ??
-        getUltraWideFactor(stream, shape) ??
+        resolveUltraBaseZoom(shape, stream, ultraId) ||
+        modes.ultraFactor ||
+        getUltraWideFactor(stream, shape) ||
         null;
       setAvailableZoomModes(modes);
 
-      if (disp.value != null && Number.isFinite(disp.value)) {
-        currentZoomValue.current = disp.value;
-        setCurrentZoom(disp.value);
-      } else if (disp.label === "UW") {
-        const base =
-          typeof settings.zoom === "number" && Number.isFinite(settings.zoom)
-            ? settings.zoom
-            : minZ < 0.98
-              ? minZ
-              : 1;
-        currentZoomValue.current = base;
-        setCurrentZoom(base);
+      if (
+        !onUltra &&
+        (lastZoomLevel.current === "1x" ||
+          isExactlyMainZoom(currentZoomValue.current) ||
+          stickyLensTypeRef.current === "main")
+      ) {
+        currentZoomValue.current = 1;
+        setCurrentZoom(1);
+        setActiveZoomMode("1x");
+        lastZoomLevel.current = "1x";
+        stickyLensTypeRef.current = "main";
       } else {
-        const z =
-          typeof settings.zoom === "number" && Number.isFinite(settings.zoom)
-            ? settings.zoom
-            : currentZoomValue.current ?? 1;
-        currentZoomValue.current = z;
-        setCurrentZoom(z);
+        const disp = getLiveZoomDisplay(stream, {
+          lensType,
+          detected: shape,
+          preferredMode: lastZoomLevel.current,
+          uiZoom: currentZoomValue.current,
+        });
+        if (disp.value != null && Number.isFinite(disp.value)) {
+          currentZoomValue.current = disp.value;
+          setCurrentZoom(disp.value);
+        }
       }
       if (actualId) lastDeviceId.current = actualId;
     },
     [
       rebuildContinuum,
+      setActiveZoomMode,
       setAvailableZoomModes,
       setCurrentLensType,
       setCurrentZoom,
@@ -1441,10 +1562,16 @@ const MediaPreviewIOS = () => {
         }
       }
 
+      if (z === "1x" || !z) {
+        displayZoom = 1;
+        stickyLensTypeRef.current = "main";
+        lastZoomLevel.current = "1x";
+      }
       currentZoomValue.current = displayZoom;
       setCurrentZoom(displayZoom);
       setActiveZoomMode(z === "0.5x" || z === "2x" || z === "1x" ? z : "1x");
       syncZoomStateFromStream(stream, cameras, "environment");
+      void ensureContinuumCatalog(stream, cameras);
     } catch (err) {
       console.error("startCamera iOS:", err);
       cameraInitialized.current = false;
@@ -1785,7 +1912,7 @@ const MediaPreviewIOS = () => {
               />
             )}
 
-            {/* Single continuous zoom rail — no UW|1|2|3 pill row */}
+            {/* Single continuous zoom rail — disabled until catalog ready */}
             {showZoomUi && Number(maxZoom) > Number(minZoom) + 0.01 && (
               <ZoomSlider
                 min={minZoom}
@@ -1796,9 +1923,16 @@ const MediaPreviewIOS = () => {
                     ? [{ zoom: 1, type: "main", label: "1", emphasis: true }]
                     : zoomMarkers
                 }
-                disabled={false}
+                disabled={
+                  (cameraMode || "environment") !== "user" && !zoomRailReady
+                }
                 visible
                 onInputValue={(z) => {
+                  if (
+                    (cameraMode || "environment") !== "user" &&
+                    !zoomRailReady
+                  )
+                    return;
                   zoomGestureActiveRef.current = true;
                   requestUserZoom(z);
                 }}

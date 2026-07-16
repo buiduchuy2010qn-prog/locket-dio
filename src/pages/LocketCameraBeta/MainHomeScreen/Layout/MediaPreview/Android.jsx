@@ -72,6 +72,8 @@ import {
   snapGlobalZoomOnRelease,
   isExactlyMainZoom,
   ensureCameraLensMapVersion,
+  probeUltraBaseZoom,
+  resolveUltraBaseZoom,
 } from "@/utils";
 const EditorCaption = lazy(() => import("@/features/EditorCaption"));
 import { useApp } from "@/context/AppContext";
@@ -166,7 +168,10 @@ const MediaPreviewAndroid = () => {
   const stickyLensTypeRef = useRef("main");
   const lensSwitchInFlightRef = useRef(false);
   const pendingGlobalZoomRef = useRef(null);
+  const continuumInitGen = useRef(0);
   const [zoomMarkers, setZoomMarkers] = useState([]);
+  /** false until lens catalog ready — avoid min=1 temporary rail */
+  const [zoomRailReady, setZoomRailReady] = useState(false);
 
   /** Instant UI zoom (badge + slider thumb). Does not wait for camera. */
   const setDisplayZoomNow = useCallback(
@@ -194,16 +199,142 @@ const MediaPreviewAndroid = () => {
       const cont = buildZoomContinuum(shape, stream, { facing });
       continuumRef.current = cont;
       if (cont.supported) {
-        boundsRef.current = continuumBounds(cont, boundsRef.current);
-        setMinZoom(cont.minZoom);
-        setMaxZoom(cont.maxZoom);
+        // Full catalog bounds — never shrink min back to 1 after ultra discovered
+        const next = continuumBounds(cont, boundsRef.current);
+        const prevMin = boundsRef.current?.minZoom;
+        const minZ =
+          Number.isFinite(prevMin) && cont.minZoom < 0.98
+            ? Math.min(prevMin, cont.minZoom)
+            : cont.minZoom;
+        boundsRef.current = {
+          minZoom: minZ,
+          maxZoom: Math.max(next.maxZoom, cont.maxZoom, 1),
+        };
+        setMinZoom(boundsRef.current.minZoom);
+        setMaxZoom(boundsRef.current.maxZoom);
         setZoomMarkers(cont.markers || []);
+        if (cont.ready !== false) setZoomRailReady(true);
       } else {
         setZoomMarkers([]);
       }
       return cont;
     },
     [setMinZoom, setMaxZoom],
+  );
+
+  /**
+   * After main@1x is live: ensure ultra base is known so rail has 0.5/0.6→1 segment.
+   * Never leaves stream on ultrawide — always restore main@1x.
+   */
+  const ensureContinuumCatalog = useCallback(
+    async (stream, cameras) => {
+      const gen = ++continuumInitGen.current;
+      ensureCameraLensMapVersion();
+      const shape = toDetectedShape(cameras);
+      let cont = rebuildContinuum(stream, cameras, "environment");
+
+      const ultraId = shape.ultrawide?.deviceId || null;
+      const needsProbe =
+        cont.needsUltraProbe ||
+        (ultraId &&
+          !resolveUltraBaseZoom(shape, stream, ultraId) &&
+          cont.minZoom >= 0.98);
+
+      if (needsProbe && ultraId && (cameraMode || "environment") !== "user") {
+        setZoomRailReady(false);
+        const freeze = captureVideoFreezeFrame(videoRef.current);
+        if (freeze) setFreezeFrame(freeze);
+
+        const mainId =
+          shape.main?.deviceId ||
+          shape.rear?.[0]?.deviceId ||
+          lastDeviceId.current ||
+          null;
+        const old = streamRef.current;
+        try {
+          if (old) {
+            clearTrackZoomCache(old);
+            stopCurrentCamera(old, null);
+            streamRef.current = null;
+          }
+          await probeUltraBaseZoom(ultraId, shape.ultrawide);
+          if (gen !== continuumInitGen.current) return;
+
+          // Restore main @ 1x
+          const mainStream = await startCameraByDeviceId(mainId, {
+            facingMode: "environment",
+            highRes: false,
+            preferDeviceId: Boolean(mainId),
+          });
+          if (gen !== continuumInitGen.current) {
+            stopCurrentCamera(mainStream);
+            return;
+          }
+          if (!isLiveVideoStream(mainStream)) {
+            stopCurrentCamera(mainStream);
+            setFreezeFrame(null);
+            setZoomRailReady(true);
+            return;
+          }
+          streamRef.current = mainStream;
+          const mid =
+            getCurrentTrackSettings(mainStream)?.deviceId || mainId;
+          if (mid) {
+            lastDeviceId.current = mid;
+            setDeviceId(mid);
+          }
+          stickyLensTypeRef.current = "main";
+          setCurrentLensType("main");
+          attachStreamToVideo(mainStream, "environment");
+          try {
+            const range = readZoomRange(mainStream);
+            const one =
+              range.supported && range.minZoom <= 1 && range.maxZoom >= 1
+                ? 1
+                : range.minZoom || 1;
+            await applyCameraZoom(mainStream, one);
+          } catch {
+            /* ignore */
+          }
+          cont = rebuildContinuum(mainStream, cameras, "environment");
+        } catch (e) {
+          console.warn("[zoom] continuum catalog probe", e);
+        } finally {
+          if (gen === continuumInitGen.current) {
+            setFreezeFrame(null);
+            // Keep UI at main 1x after discovery
+            currentZoomValue.current = 1;
+            appliedZoomRef.current = 1;
+            setCurrentZoom(1);
+            setActiveZoomMode("1x");
+            lastZoomLevel.current = "1x";
+            stickyLensTypeRef.current = "main";
+            setZoomRailReady(true);
+          }
+        }
+        return cont;
+      }
+
+      // No probe needed
+      if (gen === continuumInitGen.current) {
+        // On main default: force 1x display
+        if (stickyLensTypeRef.current === "main" || !stickyLensTypeRef.current) {
+          currentZoomValue.current = 1;
+          setCurrentZoom(1);
+          setActiveZoomMode("1x");
+        }
+        setZoomRailReady(cont.ready !== false);
+      }
+      return cont;
+    },
+    [
+      cameraMode,
+      rebuildContinuum,
+      setActiveZoomMode,
+      setCurrentLensType,
+      setCurrentZoom,
+      setDeviceId,
+    ],
   );
 
   /**
@@ -470,60 +601,75 @@ const MediaPreviewAndroid = () => {
       const bounds = cont.supported
         ? { minZoom: cont.minZoom, maxZoom: cont.maxZoom, step: 0.01 }
         : getEffectiveZoomBounds(shape, stream);
+      // Catalog min (may be 0.5/0.6) — never force min=1 when ultra known
       const minZ = bounds.minZoom;
       boundsRef.current = {
         minZoom: minZ,
-        maxZoom: bounds.maxZoom,
+        maxZoom: Math.max(bounds.maxZoom, 1),
       };
-      setMinZoom(minZ);
-      setMaxZoom(bounds.maxZoom);
+      setMinZoom(boundsRef.current.minZoom);
+      setMaxZoom(boundsRef.current.maxZoom);
       setZoomStep(bounds.step || 0.1);
 
       const settings = getCurrentTrackSettings(stream);
       const actualId = settings.deviceId || null;
       const device =
         cameras?.allCameras?.find((d) => d.deviceId === actualId) || null;
-      const lensType = classifyLensType(device, shape);
+      let lensType = classifyLensType(device, shape);
+      // Prefer sticky/main when opening at 1x
+      const ultraId = shape.ultrawide?.deviceId || null;
+      const onUltra = ultraId && actualId && actualId === ultraId;
+      if (!onUltra && (lastZoomLevel.current === "1x" || !lastZoomLevel.current)) {
+        lensType = "main";
+      }
       setCurrentLensType(lensType);
       if (lensType) stickyLensTypeRef.current = lensType;
 
-      // Badge: global FOV from live track (never invent 0.5 / force 1x on UW)
-      const disp = getLiveZoomDisplay(stream, {
-        lensType,
-        detected: shape,
-        preferredMode: lastZoomLevel.current,
-        uiZoom: currentZoomValue.current,
-      });
-
       const modes = computeAvailableZoomModes(shape, stream);
       modes["1x"] = true;
-      modes["0.5x"] = Boolean(cont.markers?.some((m) => m.type === "ultrawide"));
+      modes["0.5x"] = Boolean(
+        cont.markers?.some((m) => m.type === "ultrawide") ||
+          cont.minZoom < 0.98 ||
+          ultraId,
+      );
       modes.ultraFactor =
-        disp.ultraFactor ??
-        modes.ultraFactor ??
-        getUltraWideFactor(stream, shape) ??
+        resolveUltraBaseZoom(shape, stream, ultraId) ||
+        modes.ultraFactor ||
+        getUltraWideFactor(stream, shape) ||
         null;
       setAvailableZoomModes(modes);
 
-      if (disp.value != null && Number.isFinite(disp.value)) {
-        currentZoomValue.current = disp.value;
-        setCurrentZoom(disp.value);
-      } else if (disp.label === "UW") {
-        const base =
-          typeof settings.zoom === "number" && Number.isFinite(settings.zoom)
-            ? settings.zoom
-            : minZ < 0.98
-              ? minZ
-              : 1;
-        currentZoomValue.current = base;
-        setCurrentZoom(base);
+      // Default open: keep global 1x on main — do not adopt ultra settings.zoom
+      if (
+        !onUltra &&
+        (lastZoomLevel.current === "1x" ||
+          lastZoomLevel.current === "custom" ||
+          !lastZoomLevel.current ||
+          isExactlyMainZoom(currentZoomValue.current))
+      ) {
+        // After catalog rebuild, stay at 1x (thumb not at rail start)
+        if (
+          lastZoomLevel.current === "1x" ||
+          isExactlyMainZoom(currentZoomValue.current) ||
+          stickyLensTypeRef.current === "main"
+        ) {
+          currentZoomValue.current = 1;
+          setCurrentZoom(1);
+          setActiveZoomMode("1x");
+          lastZoomLevel.current = "1x";
+          stickyLensTypeRef.current = "main";
+        }
       } else {
-        const z =
-          typeof settings.zoom === "number" && Number.isFinite(settings.zoom)
-            ? settings.zoom
-            : currentZoomValue.current ?? 1;
-        currentZoomValue.current = z;
-        setCurrentZoom(z);
+        const disp = getLiveZoomDisplay(stream, {
+          lensType,
+          detected: shape,
+          preferredMode: lastZoomLevel.current,
+          uiZoom: currentZoomValue.current,
+        });
+        if (disp.value != null && Number.isFinite(disp.value)) {
+          currentZoomValue.current = disp.value;
+          setCurrentZoom(disp.value);
+        }
       }
       if (actualId) lastDeviceId.current = actualId;
 
@@ -531,6 +677,7 @@ const MediaPreviewAndroid = () => {
     },
     [
       rebuildContinuum,
+      setActiveZoomMode,
       setAvailableZoomModes,
       setCurrentLensType,
       setCurrentZoom,
@@ -1537,10 +1684,18 @@ const MediaPreviewAndroid = () => {
         }
       }
 
+      // Default rear open is always main @ 1x (display + sticky)
+      if (z === "1x" || !z) {
+        displayZoom = 1;
+        stickyLensTypeRef.current = "main";
+        lastZoomLevel.current = "1x";
+      }
       currentZoomValue.current = displayZoom;
       setCurrentZoom(displayZoom);
       setActiveZoomMode(z === "0.5x" || z === "2x" || z === "1x" ? z : "1x");
       syncZoomStateFromStream(stream, cameras, "environment");
+      // Catalog discovery (ultra base) — keeps main@1x, expands rail left of 1x
+      void ensureContinuumCatalog(stream, cameras);
 
       if (torchEnabled) {
         applyTorchState(true, stream).catch(() => setTorchEnabled(false));
@@ -1933,7 +2088,7 @@ const MediaPreviewAndroid = () => {
               />
             )}
 
-            {/* Single continuous zoom rail (log scale + lens markers) — no UW|1|2|3 row */}
+            {/* Single continuous zoom rail — disabled until catalog ready */}
             {showZoomUi &&
               Number(maxZoom) > Number(minZoom) + 0.01 && (
                 <ZoomSlider
@@ -1945,15 +2100,21 @@ const MediaPreviewAndroid = () => {
                       ? [{ zoom: 1, type: "main", label: "1", emphasis: true }]
                       : zoomMarkers
                   }
-                  disabled={false}
+                  disabled={
+                    (cameraMode || "environment") !== "user" && !zoomRailReady
+                  }
                   visible
                   onInputValue={(z) => {
+                    if (
+                      (cameraMode || "environment") !== "user" &&
+                      !zoomRailReady
+                    )
+                      return;
                     zoomGestureActiveRef.current = true;
                     requestUserZoom(z);
                   }}
                   onGestureEnd={() => {
                     zoomGestureActiveRef.current = false;
-                    // Soft snap only on release (e.g. near 1x → main)
                     requestUserZoom(currentZoomValue.current, { snap: true });
                   }}
                 />

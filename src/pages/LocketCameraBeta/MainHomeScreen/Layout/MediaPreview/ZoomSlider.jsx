@@ -101,7 +101,9 @@ export default function ZoomSlider({
       data-no-focus
     >
       <div
-        className="pointer-events-auto w-full max-w-[280px] select-none"
+        className={`pointer-events-auto w-full max-w-[280px] select-none transition-opacity ${
+          disabled ? "opacity-45" : "opacity-100"
+        }`}
         style={{ touchAction: "none" }}
       >
         {/* ≥48px touch height; thin visual rail inside */}

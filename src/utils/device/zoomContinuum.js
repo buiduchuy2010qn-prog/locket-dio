@@ -11,10 +11,19 @@ import {
   clampZoom,
   roundZoomFactor,
   isUltraZoomValue,
+  getLastRearProbeReport,
+  getRememberedUltraBaseZoom,
+  rememberUltraBaseZoom,
+  isLiveVideoStream,
+  startCameraByDeviceId,
+  stopCurrentCamera,
+  clearTrackZoomCache,
 } from "./cameraLens";
 
 /** Per-deviceId last-known zoom caps (filled when that lens is open) */
 const lensCapsCache = new Map();
+/** In-session ultra base (faster than localStorage) */
+const ultraBaseSession = new Map();
 
 export function rememberLensZoomCaps(deviceId, stream) {
   if (!deviceId || !stream) return;
@@ -25,12 +34,91 @@ export function rememberLensZoomCaps(deviceId, stream) {
       max: range.maxZoom,
       step: range.zoomStep,
     });
+    // Absolute ultra track: min < 1 is the global base
+    if (range.minZoom > 0.2 && range.minZoom < 0.98) {
+      ultraBaseSession.set(String(deviceId), range.minZoom);
+      rememberUltraBaseZoom(deviceId, range.minZoom);
+    }
   }
 }
 
 export function getCachedLensCaps(deviceId) {
   if (!deviceId) return null;
   return lensCapsCache.get(String(deviceId)) || null;
+}
+
+function niceZoom(n) {
+  const r = roundZoomFactor(n);
+  if (r != null) return r;
+  const v = Number(n);
+  if (!Number.isFinite(v) || v <= 0) return null;
+  if (Math.abs(v - 1) < 0.04) return 1;
+  if (v < 1) return Math.round(v * 10) / 10;
+  if (Math.abs(v - Math.round(v)) < 0.08) return Math.round(v);
+  return Math.round(v * 10) / 10;
+}
+
+/**
+ * Resolve ultrawide global base FOV factor from every available signal.
+ * Never invents a value when no lens evidence exists.
+ */
+export function resolveUltraBaseZoom(detected, stream, ultraId) {
+  if (!ultraId) return null;
+  const liveId = getCurrentTrackSettings(stream)?.deviceId || null;
+
+  // Live on ultra with absolute zoom.min
+  if (liveId === ultraId) {
+    const range = readZoomRange(stream);
+    if (range.supported && range.minZoom > 0.2 && range.minZoom < 0.98) {
+      ultraBaseSession.set(String(ultraId), range.minZoom);
+      rememberUltraBaseZoom(ultraId, range.minZoom);
+      return niceZoom(range.minZoom) ?? range.minZoom;
+    }
+  }
+
+  const fromFactor =
+    resolveUltraWideFactor(stream, detected, null) ||
+    getUltraWideFactor(stream, detected);
+  if (fromFactor && fromFactor > 0.2 && fromFactor < 0.98) {
+    return niceZoom(fromFactor) ?? fromFactor;
+  }
+
+  const sess = ultraBaseSession.get(String(ultraId));
+  if (sess && sess > 0.2 && sess < 0.98) return niceZoom(sess) ?? sess;
+
+  const remembered = getRememberedUltraBaseZoom(ultraId);
+  if (remembered) return niceZoom(remembered) ?? remembered;
+
+  const cached = getCachedLensCaps(ultraId);
+  if (cached && cached.min > 0.2 && cached.min < 0.98) {
+    return niceZoom(cached.min) ?? cached.min;
+  }
+
+  // Sequential probe report (if already run this session)
+  try {
+    const rows = getLastRearProbeReport();
+    const row = rows.find((r) => r?.deviceId === ultraId);
+    const capMin = row?.capabilitiesZoom?.min;
+    if (typeof capMin === "number" && capMin > 0.2 && capMin < 0.98) {
+      return niceZoom(capMin) ?? capMin;
+    }
+    const setZ = row?.settingsZoom;
+    if (typeof setZ === "number" && setZ > 0.2 && setZ < 0.98) {
+      return niceZoom(setZ) ?? setZ;
+    }
+  } catch {
+    /* ignore */
+  }
+
+  // Label may embed 0.5x / 0.6x (real OEM label, not invented)
+  const label = String(detected?.ultrawide?.label || "");
+  const m = label.match(/0\.[5-9]\d*/);
+  if (m) {
+    const n = Number(m[0]);
+    if (n > 0.2 && n < 0.98) return niceZoom(n) ?? n;
+  }
+
+  return null;
 }
 
 /** Log mapping: slider t∈[0,1] ↔ zoom */
@@ -47,17 +135,6 @@ export function sliderTToZoom(t, minZoom, maxZoom) {
   const max = Math.max(Number(maxZoom) || min, min);
   const p = Math.min(1, Math.max(0, Number(t) || 0));
   return min * Math.pow(max / min, p);
-}
-
-function niceZoom(n) {
-  const r = roundZoomFactor(n);
-  if (r != null) return r;
-  const v = Number(n);
-  if (!Number.isFinite(v) || v <= 0) return null;
-  if (Math.abs(v - 1) < 0.04) return 1;
-  if (v < 1) return Math.round(v * 10) / 10;
-  if (Math.abs(v - Math.round(v)) < 0.08) return Math.round(v);
-  return Math.round(v * 10) / 10;
 }
 
 function formatMarkerLabel(zoom) {
@@ -160,6 +237,8 @@ export function buildZoomContinuum(detected, stream, opts = {}) {
       maxZoom: maxZ,
       lenses: [lens],
       markers: [{ zoom: 1, type: "main", label: "1", emphasis: true }],
+      ready: true,
+      needsUltraProbe: false,
     };
   }
 
@@ -171,15 +250,17 @@ export function buildZoomContinuum(detected, stream, opts = {}) {
     resolveUltraWideFactor(stream, detected, null) ||
     getUltraWideFactor(stream, detected);
 
-  // ── Logical multi-camera: one track covers ultra → tele digitally ──
+  // ── Logical multi-camera ONLY when one track covers ultra FOV ──
+  // If a separate physical ultra deviceId exists, use multi-physical catalog
+  // so globalMin comes from ultra base (0.5/0.6), not main's min=1.
   const logicalWide =
     range.supported && isUltraZoomValue(range.minZoom);
-  const strongLogical =
+  const useLogicalOnly =
     logicalWide &&
-    // Prefer staying on one track when it already exposes full range
-    (!ultraId || liveId === mainId || liveId === ultraId || !teleId);
+    (!ultraId || liveId === ultraId || liveId === mainId) &&
+    !teleId;
 
-  if (range.supported && (logicalWide || (!ultraId && !teleId))) {
+  if (range.supported && (useLogicalOnly || (!ultraId && !teleId))) {
     const minZ = range.minZoom;
     const maxZ = Math.max(range.maxZoom, 1);
     if (maxZ <= minZ + 0.01) return emptyContinuum();
@@ -204,13 +285,6 @@ export function buildZoomContinuum(detected, stream, opts = {}) {
       });
     }
     markers.push({ zoom: 1, type: "main", label: "1", emphasis: true });
-    // Tele marker only if a physical tele exists (real second FOV)
-    if (teleId && !logicalWide) {
-      /* multi path below */
-    } else if (teleId && strongLogical) {
-      // Logical + tele device: still only show markers for real FOV anchors
-      // on the continuous track at 1x and min; skip fake tele on single track
-    }
 
     return {
       supported: true,
@@ -219,27 +293,27 @@ export function buildZoomContinuum(detected, stream, opts = {}) {
       maxZoom: maxZ,
       lenses: [lens],
       markers: dedupeMarkers(markers),
+      ready: true,
+      needsUltraProbe: false,
     };
   }
 
-  // ── Multi-physical continuum ──
+  // ── Multi-physical continuum (catalog from ALL lenses, not just active) ──
   const lenses = [];
+  let needsUltraProbe = false;
 
   if (ultraId) {
     const cached = getCachedLensCaps(ultraId);
     const onUltra = liveId === ultraId;
     const liveRange = onUltra && range.supported ? range : null;
-    let base =
-      ultraFactor && ultraFactor < 0.98
-        ? ultraFactor
-        : liveRange && liveRange.minZoom < 0.98
-          ? liveRange.minZoom
-          : null;
+    let base = resolveUltraBaseZoom(detected, stream, ultraId);
+    if (!base && ultraFactor && ultraFactor < 0.98) {
+      base = ultraFactor;
+    }
 
     if (base != null && base < 0.98) {
       base = niceZoom(base) ?? base;
       if (liveRange && liveRange.minZoom < 0.98) {
-        // Absolute zoom on ultra track
         lenses.push(
           makeLens({
             deviceId: ultraId,
@@ -251,13 +325,12 @@ export function buildZoomContinuum(detected, stream, opts = {}) {
           }),
         );
       } else if (liveRange) {
-        // Relative local zoom (1 = native UW)
         lenses.push(
           makeLens({
             deviceId: ultraId,
             type: "ultrawide",
             baseZoom: base,
-            minLocalZoom: liveRange.minZoom,
+            minLocalZoom: Math.max(1, liveRange.minZoom),
             maxLocalZoom: liveRange.maxZoom,
             absolute: false,
           }),
@@ -280,39 +353,45 @@ export function buildZoomContinuum(detected, stream, opts = {}) {
               deviceId: ultraId,
               type: "ultrawide",
               baseZoom: base,
-              minLocalZoom: cached.min,
+              minLocalZoom: Math.max(1, cached.min),
               maxLocalZoom: cached.max,
               absolute: false,
             }),
           );
         }
       } else {
-        // Until opened: native FOV only, modest digi headroom to handoff
+        // Known base, not yet opened — relative physical model
+        // global 0.6 → local 1 on ultra
         lenses.push(
           makeLens({
             deviceId: ultraId,
             type: "ultrawide",
             baseZoom: base,
             minLocalZoom: 1,
-            maxLocalZoom: 1.8,
+            maxLocalZoom: 1.85,
             absolute: false,
           }),
         );
       }
     } else if (ultraId) {
-      // Ultra device known but factor unknown — include once opened only via cache
+      // Physical ultra classified but base not measured yet — still reserve
+      // catalog entry only after probe; flag needsUltraProbe for init flow.
+      needsUltraProbe = true;
       if (cached) {
-        const b = cached.min < 0.98 ? cached.min : 1;
-        lenses.push(
-          makeLens({
-            deviceId: ultraId,
-            type: "ultrawide",
-            baseZoom: b < 0.98 ? 1 : b,
-            minLocalZoom: cached.min,
-            maxLocalZoom: cached.max,
-            absolute: cached.min < 0.98,
-          }),
-        );
+        const b = cached.min < 0.98 ? cached.min : null;
+        if (b) {
+          lenses.push(
+            makeLens({
+              deviceId: ultraId,
+              type: "ultrawide",
+              baseZoom: b < 0.98 ? 1 : b,
+              minLocalZoom: cached.min,
+              maxLocalZoom: cached.max,
+              absolute: cached.min < 0.98,
+            }),
+          );
+          needsUltraProbe = false;
+        }
       }
     }
   }
@@ -456,6 +535,8 @@ export function buildZoomContinuum(detected, stream, opts = {}) {
             : []),
           { zoom: 1, type: "main", label: "1", emphasis: true },
         ],
+        ready: true,
+        needsUltraProbe: false,
       };
     }
     return emptyContinuum();
@@ -499,6 +580,7 @@ export function buildZoomContinuum(detected, stream, opts = {}) {
     }
   }
 
+  const hasUltraSeg = lenses.some((l) => l.type === "ultrawide");
   return {
     supported: maxZoom > minZoom + 0.01,
     mode: lenses.length > 1 ? "multi-physical" : "single",
@@ -506,6 +588,9 @@ export function buildZoomContinuum(detected, stream, opts = {}) {
     maxZoom,
     lenses,
     markers: dedupeMarkers(markers),
+    // ready when ultra base known OR no ultra to probe
+    ready: !needsUltraProbe || hasUltraSeg,
+    needsUltraProbe: needsUltraProbe && !hasUltraSeg,
   };
 }
 
@@ -517,7 +602,80 @@ function emptyContinuum() {
     maxZoom: 1,
     lenses: [],
     markers: [],
+    ready: true,
+    needsUltraProbe: false,
   };
+}
+
+/**
+ * Soft-measure ultra base FOV without keeping ultra stream.
+ * Caller must re-open main after this (Android single-slot).
+ * @returns {Promise<number|null>} global base e.g. 0.6
+ */
+export async function probeUltraBaseZoom(ultraId, ultraDevice = null) {
+  if (!ultraId) return null;
+  const known = resolveUltraBaseZoom(
+    { ultrawide: ultraDevice || { deviceId: ultraId } },
+    null,
+    ultraId,
+  );
+  if (known) return known;
+
+  let stream = null;
+  try {
+    stream = await startCameraByDeviceId(ultraId, {
+      facingMode: "environment",
+      highRes: false,
+      preferDeviceId: true,
+      forceDeviceId: true,
+    });
+    if (!isLiveVideoStream(stream)) {
+      stopCurrentCamera(stream);
+      return null;
+    }
+    rememberLensZoomCaps(ultraId, stream);
+    const range = readZoomRange(stream);
+    let base = null;
+    if (range.supported && range.minZoom > 0.2 && range.minZoom < 0.98) {
+      base = range.minZoom;
+    } else {
+      // Relative physical ultra: local 1 = native FOV; base unknown from track
+      // Prefer label / remembered after park attempt
+      const settings = getCurrentTrackSettings(stream);
+      if (typeof settings.zoom === "number" && settings.zoom < 0.98) {
+        base = settings.zoom;
+      }
+    }
+    // Relative UW often reports zoom=1 at native FOV — use label/session only
+    if (!base) {
+      const label = String(ultraDevice?.label || "");
+      const m = label.match(/0\.[5-9]\d*/);
+      if (m) base = Number(m[0]);
+    }
+    // Physical UW with local-only zoom (min≈1): FOV base not exposed by browser.
+    // Use remembered value, else provisional 0.6 (common UW FOV vs main) so the
+    // rail can show a left-of-1x segment. Not a per-device model table.
+    if (!base && range.supported && range.minZoom >= 0.98) {
+      base = getRememberedUltraBaseZoom(ultraId) || 0.6;
+    }
+    if (base && base > 0.2 && base < 0.98) {
+      ultraBaseSession.set(String(ultraId), base);
+      rememberUltraBaseZoom(ultraId, base);
+      return niceZoom(base) ?? base;
+    }
+    return null;
+  } catch {
+    return null;
+  } finally {
+    if (stream) {
+      try {
+        clearTrackZoomCache(stream);
+        stopCurrentCamera(stream);
+      } catch {
+        /* ignore */
+      }
+    }
+  }
 }
 
 function dedupeMarkers(markers) {
