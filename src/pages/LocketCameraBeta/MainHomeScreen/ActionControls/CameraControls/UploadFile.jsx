@@ -68,8 +68,13 @@ const UploadFile = () => {
         className="hidden"
         id="file-upload"
       />
-      <label htmlFor="file-upload" className="cursor-pointer active:scale-95">
-        <ImageUp size={35} />
+      <label
+        htmlFor="file-upload"
+        className="pillSideBtn"
+        aria-label={t("home.upload_library", { defaultValue: "Thư viện" })}
+        title={t("home.upload_library", { defaultValue: "Thư viện" })}
+      >
+        <ImageUp size={24} strokeWidth={2} />
       </label>
     </>
   );

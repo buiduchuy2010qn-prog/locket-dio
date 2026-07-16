@@ -51,12 +51,13 @@ const DelButton = () => {
     <>
       <button
         type="button"
-        className="cursor-pointer active:scale-95 p-2 -m-1 rounded-full"
+        className="pillSideBtn"
         aria-label="Xóa bài đang chỉnh"
+        title="Xóa bài đang chỉnh"
         onClick={() => setConfirmOpen(true)}
         disabled={sendLoading || uploadLoading || deleting}
       >
-        <X size={32} strokeWidth={2} />
+        <X size={24} strokeWidth={2} />
       </button>
 
       <ConfirmDeleteModal

@@ -39,13 +39,15 @@ const CameraToggleIOS = () => {
   return (
     <button
       type="button"
-      className="cursor-pointer touch-manipulation"
+      className="pillSideBtn"
       onClick={handleRotateCamera}
       aria-label="Đổi camera"
+      title="Đổi camera"
     >
       <RefreshCcw
-        size={35}
-        className="transition-transform duration-300 active:scale-95"
+        size={24}
+        strokeWidth={2}
+        className="transition-transform duration-300"
         style={{ transform: `rotate(${rotation}deg)` }}
       />
     </button>

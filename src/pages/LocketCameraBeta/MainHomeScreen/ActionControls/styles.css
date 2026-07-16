@@ -1,0 +1,122 @@
+/* Floating Locket-style control pill under camera preview */
+.cameraControlPill {
+  position: relative;
+  width: min(calc(100vw - 32px), 320px);
+  height: 76px;
+  margin-inline: auto;
+  margin-bottom: max(14px, env(safe-area-inset-bottom, 0px));
+  border-radius: 999px;
+  background: rgba(20, 20, 20, 0.82);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.24);
+  /* Fixed height reserves layout; capture is absolute inside */
+}
+
+.captureCenter {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 10;
+  width: 72px;
+  height: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.captureCenter > * {
+  pointer-events: auto;
+}
+
+.leftControls {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  z-index: 5;
+}
+
+.rightControls {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  z-index: 5;
+}
+
+/* Shared hit target for secondary icons inside the pill */
+.pillSideBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  border-radius: 999px;
+  color: rgba(255, 255, 255, 0.92);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.pillSideBtn:active {
+  transform: scale(0.94);
+  color: #fff;
+}
+
+.pillSideBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.pillSideBtn svg {
+  width: 24px;
+  height: 24px;
+  stroke-width: 2;
+  color: inherit;
+}
+
+/* Label/file input wrappers that use pillSideBtn */
+label.pillSideBtn {
+  margin: 0;
+}
+
+@media (max-width: 360px) {
+  .cameraControlPill {
+    width: min(calc(100vw - 24px), 320px);
+    height: 72px;
+  }
+  .leftControls {
+    left: 6px;
+    gap: 0;
+  }
+  .rightControls {
+    right: 6px;
+    gap: 0;
+  }
+  .pillSideBtn {
+    width: 40px;
+    height: 40px;
+    min-width: 40px;
+    min-height: 40px;
+  }
+  .pillSideBtn svg {
+    width: 22px;
+    height: 22px;
+  }
+}

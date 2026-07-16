@@ -7,17 +7,18 @@ const OverlayButton = () => {
   const { sendLoading, uploadLoading, setUploadLoading } = useloading;
 
   return (
-    <>
-      <button
-        className="cursor-pointer active:scale-95"
-        onClick={() => {
-          setIsFilterOpen(true);
-        }}
-        disabled={uploadLoading}
-      >
-        <Sparkles size={35} />
-      </button>
-    </>
+    <button
+      type="button"
+      className="pillSideBtn"
+      onClick={() => {
+        setIsFilterOpen(true);
+      }}
+      disabled={uploadLoading}
+      aria-label="Hiệu ứng"
+      title="Hiệu ứng"
+    >
+      <Sparkles size={24} strokeWidth={2} />
+    </button>
   );
 };
 

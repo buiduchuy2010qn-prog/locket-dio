@@ -4,7 +4,7 @@ import { useMomentDraftStore, usePostStore } from "@/stores";
 
 /**
  * Re-open dismissed unpublished draft ("Để sau").
- * Visible when a draft exists for this uid and studio is empty or user dismissed modal.
+ * Icon-only inside control pill — yellow badge, no text label.
  */
 export default function DraftButton() {
   const hasDraft = useMomentDraftStore((s) => s.hasDraft);
@@ -18,16 +18,18 @@ export default function DraftButton() {
   return (
     <button
       type="button"
-      className="cursor-pointer active:scale-95 flex flex-col items-center gap-0.5"
+      className="pillSideBtn"
       onClick={() => openRestoreModal()}
       aria-label="Bản nháp chưa đăng"
       title="Bản nháp chưa đăng"
     >
-      <span className="relative">
-        <FileText size={30} />
-        <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-amber-400" />
+      <span className="relative inline-flex">
+        <FileText size={24} strokeWidth={2} />
+        <span
+          className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-amber-400 ring-2 ring-black/40"
+          aria-hidden
+        />
       </span>
-      <span className="text-[9px] font-medium opacity-80">Bản nháp</span>
     </button>
   );
 }

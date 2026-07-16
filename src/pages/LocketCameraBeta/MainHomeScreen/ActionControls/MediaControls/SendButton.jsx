@@ -181,20 +181,26 @@ const SendButton = () => {
   return (
     <>
       <button
+        type="button"
         onClick={handleSubmit}
         disabled={uploadLoading}
-        className={`rounded-full w-24 h-24 duration-500 outline-base-300 backdrop-blur-4xl text-center flex items-center justify-center disabled:opacity-50 transition-all ease-in-out active:scale-95 ${
+        aria-label="Đăng bài"
+        className={`rounded-full duration-300 text-center flex items-center justify-center disabled:opacity-50 transition-transform ease-in-out active:scale-95 ${
           hasNoData
-            ? "bg-yellow-500/20"
+            ? "bg-yellow-400/90"
             : isTooBig
-              ? "bg-red-500/20"
+              ? "bg-red-500/90"
               : isSuccess
-                ? "bg-green-500/20"
+                ? "bg-green-500/90"
                 : uploadLoading
-                  ? "bg-blue-500/20"
-                  : "bg-base-300/50 hover:bg-base-300/70"
+                  ? "bg-blue-500/80"
+                  : "bg-white hover:bg-white/95"
         }`}
         style={{
+          width: 64,
+          height: 64,
+          minWidth: 64,
+          minHeight: 64,
           animation: isSuccess ? "success-pulse 1s ease-in-out" : "none",
         }}
       >

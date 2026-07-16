@@ -56,7 +56,7 @@ const UploadStatusIcon = ({
             : "opacity-0 scale-75 rotate-45"
         }`}
       >
-        <Send size={40} className="mr-1 mt-0.5" />
+        <Send size={28} className="mr-0.5 text-neutral-900" strokeWidth={2.25} />
       </div>
     </div>
   );

@@ -450,23 +450,31 @@ const CameraButton = () => {
       onPointerUp={endHold}
       onPointerCancel={endHold}
       onContextMenu={(e) => e.preventDefault()}
-      className="relative flex items-center justify-center w-24 h-24 active:scale-97"
+      aria-label="Chụp ảnh"
+      className="relative flex items-center justify-center rounded-full"
       style={{
+        width: 72,
+        height: 72,
+        minWidth: 64,
+        minHeight: 64,
         touchAction: "manipulation",
         userSelect: "none",
         WebkitUserSelect: "none",
         WebkitTouchCallout: "none",
       }}
     >
+      {/* Outer accent ring — scale animation on child only */}
       <div
-        className={`absolute w-20 h-20 border-camera-custome text-primary/80 rounded-full z-10 ${
+        className={`absolute rounded-full border-camera-custome text-white/90 z-10 ${
           isHolding ? "animate-borderExpand" : ""
         }`}
+        style={{ width: 64, height: 64 }}
       />
       <div
-        className={`absolute rounded-full btn w-19 h-19 camera-inner-circle z-0 transition-transform duration-150 ${
-          isHolding ? "scale-77 opacity-90" : "scale-100 opacity-100"
+        className={`absolute rounded-full bg-white z-0 transition-transform duration-150 ${
+          isHolding ? "scale-[0.78] opacity-90" : "scale-100 opacity-100"
         }`}
+        style={{ width: 54, height: 54 }}
       />
     </button>
   );
