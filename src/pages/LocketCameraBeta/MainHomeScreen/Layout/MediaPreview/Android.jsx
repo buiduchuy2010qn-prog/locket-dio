@@ -52,7 +52,7 @@ import {
   WIDE_ZOOM_MODE,
   parkAtWidestTrackZoom,
   isUltraZoomValue,
-  isConfidentUltraLabel,
+  rememberPreferredWideCameraId,
 } from "@/utils";
 const EditorCaption = lazy(() => import("@/features/EditorCaption"));
 import { useApp } from "@/context/AppContext";
@@ -509,6 +509,9 @@ const MediaPreviewAndroid = () => {
         // background getUserMedia probes that competed with this exact switch
         // for Samsung's single camera slot.
         const detShape = shape;
+        // Browser lens names are not standardized. Keep an accessible picker
+        // on every multi-rear phone so a wrong OEM/index guess is reversible.
+        setForceRearLensPicker((detShape.rear?.length || 0) >= 2);
         // Pick widest FOV (physical ultra or digital min from capabilities)
         const result = await switchToWidestLens({
           oldStream: streamRef.current,
@@ -544,29 +547,6 @@ const MediaPreviewAndroid = () => {
             result.currentZoom ??
             live.current ??
             live.min,
-        );
-        const openedDevice = detShape.rear?.find(
-          (item) => item?.deviceId === result.deviceId,
-        );
-        const verifiedByLiveZoom = [
-          factor,
-          result.digitalZoom,
-          live.min,
-        ].some(
-          (value) =>
-            Number.isFinite(Number(value)) &&
-            Number(value) > 0.15 &&
-            Number(value) < 0.98,
-        );
-        const verifiedWide =
-          isConfidentUltraLabel(openedDevice?.label || "") ||
-          verifiedByLiveZoom ||
-          (Number.isFinite(result.widestScore) && result.widestScore < 0.98);
-        // Generic camera2 labels cannot prove which physical lens is UW.
-        // Keep the manual picker available so S25/other Android users can
-        // choose the visibly widest lens without relying on an index guess.
-        setForceRearLensPicker(
-          (detShape.rear?.length || 0) >= 2 && !verifiedWide,
         );
         setZoomLevel(WIDE_ZOOM_MODE);
         lastZoomLevel.current = WIDE_ZOOM_MODE;
@@ -1334,8 +1314,9 @@ const MediaPreviewAndroid = () => {
                       throw new Error("wrong-device-opened");
                     }
                     streamRef.current = stream;
-                    lastDeviceId.current = actualId || id;
-                    setDeviceId(actualId || id);
+                    const selectedId = actualId || id;
+                    lastDeviceId.current = selectedId;
+                    setDeviceId(selectedId);
                     let applied = null;
                     try {
                       applied = await parkAtWidestTrackZoom(stream);
@@ -1368,6 +1349,10 @@ const MediaPreviewAndroid = () => {
                       detectedRef.current || detectedCameras,
                       "environment",
                     );
+                    // The user has visually identified this as the widest
+                    // lens. Prefer it on future UW taps for this origin/device.
+                    rememberPreferredWideCameraId(selectedId);
+                    return true;
                   } catch (e) {
                     console.warn("[lens-pick]", e?.message);
                     SonnerInfo(
@@ -1375,6 +1360,7 @@ const MediaPreviewAndroid = () => {
                         defaultValue: "Không mở được lens này",
                       }),
                     );
+                    return false;
                   } finally {
                     setIsSwitchingCamera(false);
                   }
