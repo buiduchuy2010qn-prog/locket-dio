@@ -540,8 +540,9 @@ const MediaPreviewAndroid = () => {
         if (result?.unavailable || !isLiveVideoStream(result?.stream)) {
           setForceRearLensPicker(multiRear);
           const msg =
+            result?.reason === "browser-hides-ultrawide" ||
             result?.reason === "browser-single-rear-1x"
-              ? "Trình duyệt chỉ cung cấp camera sau 1x, không công khai ống kính siêu rộng."
+              ? "Trình duyệt không công khai ống kính siêu rộng. Hãy thử Chrome hoặc Samsung Internet phiên bản mới."
               : "Trình duyệt không mở được camera siêu rộng.";
           SonnerInfo(
             t("home.zoom_05_unsupported", { defaultValue: msg }),

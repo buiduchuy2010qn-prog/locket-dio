@@ -524,12 +524,22 @@ export async function applyLiveZoom(stream, desiredZoom) {
 }
 
 /**
- * Structured PTZ logs — no tokens / full user media dumps.
+ * Structured PTZ logs — no photos / PII. W3C-aligned diagnostic shape.
  * @param {Record<string, unknown>} payload
  */
 export function logCameraPtz(payload = {}) {
   try {
-    console.info("[camera-ptz]", payload);
+    let visibilityState = null;
+    try {
+      visibilityState =
+        typeof document !== "undefined" ? document.visibilityState : null;
+    } catch {
+      /* ignore */
+    }
+    console.info("[camera-ptz]", {
+      visibilityState,
+      ...payload,
+    });
   } catch {
     /* ignore */
   }
@@ -545,52 +555,103 @@ export function isLiveVideoStream(stream) {
 }
 
 /**
- * Park current track at its **widest** FOV = capabilities.zoom.min.
- * This is how 0.5 / 0.6 / 0.7 devices all "go ultra" without hardcoding.
- * Success only if applyConstraints works and track stays live.
+ * Wait until page is visible (PTZ applyConstraints requires visibility).
+ * @param {number} [timeoutMs]
+ * @returns {Promise<boolean>}
+ */
+export function waitForPageVisible(timeoutMs = 8000) {
+  if (isPageVisibleForPtz()) return Promise.resolve(true);
+  if (typeof document === "undefined") return Promise.resolve(true);
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (ok) => {
+      if (done) return;
+      done = true;
+      try {
+        document.removeEventListener("visibilitychange", onVis);
+      } catch {
+        /* ignore */
+      }
+      clearTimeout(timer);
+      resolve(ok);
+    };
+    const onVis = () => {
+      if (isPageVisibleForPtz()) finish(true);
+    };
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    document.addEventListener("visibilitychange", onVis);
+  });
+}
+
+/**
+ * Park current track at capabilities.zoom.min (widest FOV this track reports).
+ * W3C: apply only when page visible; success only if live + actual settings near target.
+ * Note: standard min is often 1 — callers must not treat min≥0.98 as ultra-wide.
  *
  * @param {MediaStream|null} stream
  * @returns {Promise<number|null>} applied zoom or null
  */
 export async function parkAtWidestTrackZoom(stream) {
   if (!stream || !isLiveVideoStream(stream)) return null;
-  if (!supportsHardwareZoom(stream)) {
+  const range = readZoomRange(stream);
+  if (!range.supported) {
     logCameraPtz({
-      action: "park-widest",
+      path: "logical-zoom",
       applyResult: "no-zoom-caps",
       trackState: getActiveVideoTrack(stream)?.readyState || null,
+      zoomCapabilities: null,
     });
     return null;
   }
+  if (!isPageVisibleForPtz()) {
+    const ok = await waitForPageVisible(8000);
+    if (!ok) {
+      logCameraPtz({
+        path: "logical-zoom",
+        applyResult: "page-not-visible",
+        requestedZoom: range.minZoom,
+        trackState: getActiveVideoTrack(stream)?.readyState || null,
+      });
+      return null;
+    }
+  }
   clearTrackZoomCache(stream);
-  const range = readZoomRange(stream);
-  if (!range.supported) return null;
-  // Native widest on this sensor/logical cam — whatever OEM reports (0.5 / 0.6 / …)
   const target = Number(range.minZoom);
   const before = getCurrentTrackSettings(stream)?.zoom ?? null;
   const applied = await setCameraZoom(stream, target);
+  // Brief settle so getSettings reflects the constraint (Samsung HAL)
+  await new Promise((r) => setTimeout(r, 80));
   const track = getActiveVideoTrack(stream);
-  const settingsZoom = getCurrentTrackSettings(stream)?.zoom ?? null;
+  const after = getCurrentTrackSettings(stream)?.zoom ?? null;
   const live = Boolean(track && track.readyState === "live");
+  const closeEnough =
+    typeof after === "number" &&
+    Number.isFinite(after) &&
+    Math.abs(after - target) <= Math.max(0.15, (range.zoomStep || 0.1) * 2);
   logCameraPtz({
-    action: "park-widest",
-    capabilitiesZoom: {
+    path: "logical-zoom",
+    zoomCapabilities: {
       min: range.minZoom,
       max: range.maxZoom,
       step: range.zoomStep,
     },
-    settingsZoomBefore: before,
-    settingsZoom,
+    zoomBefore: before,
+    requestedZoom: target,
+    zoomAfter: after,
     selectedDeviceId: getCurrentTrackSettings(stream)?.deviceId || null,
     trackState: track?.readyState || null,
     applyResult:
       applied === false || !live
         ? "failed"
-        : typeof applied === "number"
-          ? applied
-          : target,
+        : closeEnough
+          ? after
+          : typeof after === "number"
+            ? after
+            : applied,
   });
   if (applied === false || !live) return null;
+  // Prefer measured settings; fall back to applied when UA omits settings.zoom
+  if (typeof after === "number" && Number.isFinite(after)) return after;
   return typeof applied === "number" ? applied : target;
 }
 
@@ -1125,20 +1186,48 @@ export function getCurrentTrackSettings(stream) {
   }
 }
 
+/**
+ * W3C PTZ: zoom caps only count when min/max are real numbers.
+ * Empty `{}` / missing numbers (no PTZ permission) → not supported.
+ * @param {unknown} zoomCaps
+ * @returns {{ min: number, max: number, step: number } | null}
+ */
+export function parseZoomCapability(zoomCaps) {
+  if (!zoomCaps || typeof zoomCaps !== "object") return null;
+  const min = Number(/** @type {{min?: unknown}} */ (zoomCaps).min);
+  const max = Number(/** @type {{max?: unknown}} */ (zoomCaps).max);
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return null;
+  if (!(max >= min)) return null;
+  const stepRaw = Number(/** @type {{step?: unknown}} */ (zoomCaps).step);
+  const step = Number.isFinite(stepRaw) && stepRaw > 0 ? stepRaw : 0.1;
+  return { min, max, step };
+}
+
+/** Page must be visible for applyConstraints PTZ (W3C SecurityError otherwise). */
+export function isPageVisibleForPtz() {
+  try {
+    if (typeof document === "undefined") return true;
+    return document.visibilityState === "visible";
+  } catch {
+    return true;
+  }
+}
+
 export function supportsHardwareZoom(stream) {
   const caps = getCurrentTrackCapabilities(stream);
-  return Boolean(caps?.zoom && typeof caps.zoom.max === "number");
+  return Boolean(parseZoomCapability(caps?.zoom));
 }
 
 export function readZoomRange(stream) {
   const caps = getCurrentTrackCapabilities(stream);
-  if (!caps?.zoom) {
+  const parsed = parseZoomCapability(caps?.zoom);
+  if (!parsed) {
     return { minZoom: 1, maxZoom: 1, zoomStep: 0.1, supported: false };
   }
   return {
-    minZoom: caps.zoom.min ?? 1,
-    maxZoom: caps.zoom.max ?? 1,
-    zoomStep: caps.zoom.step ?? 0.1,
+    minZoom: parsed.min,
+    maxZoom: parsed.max,
+    zoomStep: parsed.step,
     supported: true,
   };
 }
@@ -1201,47 +1290,79 @@ function canRequestBrowserZoomControl() {
 }
 
 /**
+ * Build video constraints; only add zoom:true when supported (never zoom:undefined).
+ * W3C: zoom:true requests PTZ permission without setting initial zoom value.
+ * Never put min/max/exact on zoom in basic getUserMedia constraints.
+ * @param {MediaTrackConstraints} base
+ * @param {{ requestZoomControl?: boolean }} [options]
+ */
+function withOptionalZoomTrue(base, options = {}) {
+  const video = { ...(base || {}) };
+  // Strip accidental zoom value constraints from callers
+  if (
+    video.zoom != null &&
+    typeof video.zoom === "object" &&
+    ("min" in video.zoom || "max" in video.zoom || "exact" in video.zoom)
+  ) {
+    delete video.zoom;
+  }
+  if (options.requestZoomControl && canRequestBrowserZoomControl()) {
+    video.zoom = true;
+  }
+  return video;
+}
+
+/**
  * getUserMedia OK → bump quality if track allows (safe no-op on fail).
  *
- * Chromium PTZ (web.dev camera-pan-tilt-zoom): request `zoom: true` on open so
- * track.getCapabilities().zoom is exposed. No exact/min/max zoom in first open
- * (except deviceId exact for a physical lens). Android: zoom only, not pan/tilt.
- * Fallback to regular getUserMedia if zoom:true is rejected.
+ * W3C / Chromium PTZ:
+ *  - zoom:true = request PTZ control without altering current zoom
+ *  - old camera permission does NOT auto-upgrade to PTZ
+ *  - if zoom:true fails → regular camera open
+ *  - Android: zoom only (no pan/tilt)
  */
 async function openAndUpgrade(videoConstraints, options = {}) {
   const supportedZoom = canRequestBrowserZoomControl();
   let stream = null;
   let openPath = "plain";
-  if (
+  const wantZoom =
     options.requestZoomControl === true &&
     supportedZoom &&
     videoConstraints &&
-    typeof videoConstraints === "object"
-  ) {
+    typeof videoConstraints === "object";
+
+  if (wantZoom) {
     try {
-      // Chrome docs: pass zoom:true without altering current zoom value
       stream = await navigator.mediaDevices.getUserMedia({
-        video: { ...videoConstraints, zoom: true },
+        video: withOptionalZoomTrue(videoConstraints, {
+          requestZoomControl: true,
+        }),
         audio: false,
       });
       openPath = "zoom-true";
     } catch (error) {
+      console.warn("[camera-ptz] zoom permission/open failed", {
+        name: error?.name,
+        message: error?.message,
+      });
       logCameraPtz({
-        action: "getUserMedia-zoom-true",
+        path: "open",
         supportedZoom,
-        applyResult: "rejected",
+        applyResult: "zoom-true-rejected",
         errorName: error?.name || null,
         errorMessage: error?.message || String(error),
       });
-      // Denied/unsupported PTZ must not block regular preview.
     }
   }
   if (!stream) {
+    // Plain open — no zoom key at all
+    const plain = { ...(videoConstraints || {}) };
+    if ("zoom" in plain) delete plain.zoom;
     stream = await navigator.mediaDevices.getUserMedia({
-      video: videoConstraints,
+      video: plain,
       audio: false,
     });
-    openPath = openPath === "zoom-true" ? "zoom-true" : "plain";
+    openPath = wantZoom ? "plain-fallback" : "plain";
   }
   try {
     await upgradeStreamQuality(stream);
@@ -1257,18 +1378,12 @@ async function openAndUpgrade(videoConstraints, options = {}) {
   } catch {
     /* ignore */
   }
+  const zoomParsed = parseZoomCapability(caps.zoom);
   logCameraPtz({
-    action: "open-stream",
-    openPath,
+    path: openPath,
     supportedZoom,
-    capabilitiesZoom: caps.zoom
-      ? {
-          min: caps.zoom.min,
-          max: caps.zoom.max,
-          step: caps.zoom.step,
-        }
-      : null,
-    settingsZoom: settings.zoom ?? null,
+    zoomCapabilities: zoomParsed,
+    zoomAfter: settings.zoom ?? null,
     selectedDeviceId: settings.deviceId || null,
     trackState: track?.readyState || null,
     applyResult: isLiveVideoStream(stream) ? "live" : "not-live",
@@ -1484,16 +1599,27 @@ export async function setCameraZoom(stream, value) {
   const track = getActiveVideoTrack(stream);
   if (!track || track.readyState !== "live") return false;
 
+  // W3C: applyConstraints PTZ fails with SecurityError if page not visible
+  if (!isPageVisibleForPtz()) {
+    const ok = await waitForPageVisible(4000);
+    if (!ok) {
+      logCameraPtz({
+        path: "apply-zoom",
+        applyResult: "page-not-visible",
+        requestedZoom: value,
+        trackState: track.readyState,
+      });
+      return false;
+    }
+  }
+
   // Fresh capabilities every apply — range can differ per lens after switch
   const caps = getCurrentTrackCapabilities(stream);
-  if (!caps?.zoom) return false;
-  const min = Number(caps.zoom.min);
-  const max = Number(caps.zoom.max);
-  if (!Number.isFinite(min) || !Number.isFinite(max) || !(max >= min)) {
-    return false;
-  }
-  const stepRaw = Number(caps.zoom.step);
-  const step = Number.isFinite(stepRaw) && stepRaw > 0 ? stepRaw : 0.1;
+  const parsed = parseZoomCapability(caps?.zoom);
+  if (!parsed) return false;
+  const min = parsed.min;
+  const max = parsed.max;
+  const step = parsed.step;
 
   let cached = trackZoomCache.get(track);
   if (!cached) {
@@ -2201,47 +2327,116 @@ export async function resetToMainCameraX1(options = {}) {
 }
 
 /**
- * Park current stream at live capabilities.zoom.min (widest on this track).
+ * Logical PTZ ultra-wide: only when zoom.min < 0.98 (OEM may report 0.5/0.6…).
+ * W3C: min is often 1 — that is NOT ultra-wide; never invent 0.6 success.
  * @returns {Promise<object|null>}
  */
 async function tryDigitalUltraWide(stream, detected, mainId) {
   if (!stream || !isLiveVideoStream(stream)) return null;
-  if (!supportsHardwareZoom(stream)) return null;
 
   const range = readZoomRange(stream);
-  // Only if track actually exposes a wide min (OEM-specific value: 0.5 / 0.6 / …)
+  // !zoomCaps or min >= 0.98 → PTZ is in-lens zoom only, not UW
+  if (!range.supported || Number(range.minZoom) >= 0.98) {
+    logCameraPtz({
+      path: "logical-zoom",
+      rearCameraCount: detected?.rear?.length ?? null,
+      zoomCapabilities: range.supported
+        ? {
+            min: range.minZoom,
+            max: range.maxZoom,
+            step: range.zoomStep,
+          }
+        : null,
+      applyResult: "not-ultra-band",
+      trackState: getActiveVideoTrack(stream)?.readyState || null,
+    });
+    return null;
+  }
   if (!isUltraZoomValue(range.minZoom)) return null;
 
   try {
-    const applied = await parkAtWidestTrackZoom(stream);
-    if (applied == null || !isLiveVideoStream(stream)) return null;
-    const settingsZ = getCurrentTrackSettings(stream)?.zoom;
-    const z = range.minZoom;
-    const ok =
-      typeof settingsZ !== "number" ||
-      settingsZ <= z + 0.2 ||
-      Math.abs(settingsZ - z) < 0.25;
-    if (!ok && typeof settingsZ === "number" && settingsZ >= 0.98) {
-      return null;
+    if (!isPageVisibleForPtz()) {
+      const vis = await waitForPageVisible(8000);
+      if (!vis) {
+        logCameraPtz({
+          path: "logical-zoom",
+          applyResult: "page-not-visible",
+          requestedZoom: range.minZoom,
+        });
+        return null;
+      }
     }
+
+    const track = getActiveVideoTrack(stream);
+    const zoomBefore = getCurrentTrackSettings(stream)?.zoom ?? null;
+    const requestedZoom = Number(range.minZoom);
+
+    // Direct W3C applyConstraints pattern
+    try {
+      await track.applyConstraints({
+        advanced: [{ zoom: requestedZoom }],
+      });
+    } catch {
+      // Fall back through setCameraZoom (multiple formats)
+      const applied = await setCameraZoom(stream, requestedZoom);
+      if (applied === false) return null;
+    }
+
+    await new Promise((r) => setTimeout(r, 100));
+    if (!isLiveVideoStream(stream)) return null;
+
+    const actualZoom = getCurrentTrackSettings(stream)?.zoom;
+    const ok =
+      typeof actualZoom === "number" &&
+      Number.isFinite(actualZoom) &&
+      Math.abs(actualZoom - requestedZoom) <=
+        Math.max(0.15, (range.zoomStep || 0.1) * 2);
+
+    if (!ok) {
+      logCameraPtz({
+        path: "logical-zoom",
+        zoomCapabilities: {
+          min: range.minZoom,
+          max: range.maxZoom,
+          step: range.zoomStep,
+        },
+        zoomBefore,
+        requestedZoom,
+        zoomAfter: actualZoom ?? null,
+        selectedDeviceId: getCurrentTrackSettings(stream)?.deviceId || mainId,
+        trackState: getActiveVideoTrack(stream)?.readyState || null,
+        applyResult: "actual-mismatch",
+      });
+      // Still accept if actual is in ultra band even if not exact match
+      if (
+        typeof actualZoom !== "number" ||
+        !isUltraZoomValue(actualZoom)
+      ) {
+        return null;
+      }
+    }
+
     const factor = resolveUltraWideFactor(
       stream,
       detected,
-      typeof settingsZ === "number" && settingsZ < 0.98
-        ? settingsZ
-        : applied || z,
+      typeof actualZoom === "number" && isUltraZoomValue(actualZoom)
+        ? actualZoom
+        : requestedZoom,
     );
     logCameraPtz({
-      action: "logical-uw",
-      capabilitiesZoom: {
+      path: "logical-zoom",
+      rearCameraCount: detected?.rear?.length ?? null,
+      zoomCapabilities: {
         min: range.minZoom,
         max: range.maxZoom,
         step: range.zoomStep,
       },
-      settingsZoom: settingsZ ?? null,
+      zoomBefore,
+      requestedZoom,
+      zoomAfter: actualZoom ?? null,
       selectedDeviceId: getCurrentTrackSettings(stream)?.deviceId || mainId,
       trackState: getActiveVideoTrack(stream)?.readyState || null,
-      applyResult: factor ?? applied ?? z,
+      applyResult: factor ?? actualZoom ?? requestedZoom,
     });
     return {
       stream,
@@ -2249,14 +2444,15 @@ async function tryDigitalUltraWide(stream, detected, mainId) {
       deviceId: getCurrentTrackSettings(stream).deviceId || mainId,
       lensType: "main",
       zoomMode: WIDE_ZOOM_MODE,
-      currentZoom: factor || roundZoomFactor(z),
-      digitalZoom: applied || z,
-      ultraFactor: factor || roundZoomFactor(z),
+      currentZoom: factor || roundZoomFactor(actualZoom ?? requestedZoom),
+      digitalZoom: actualZoom ?? requestedZoom,
+      ultraFactor: factor || roundZoomFactor(actualZoom ?? requestedZoom),
       switchedDevice: false,
+      selectionPath: "logical-zoom",
     };
   } catch (error) {
     logCameraPtz({
-      action: "logical-uw",
+      path: "logical-zoom",
       applyResult: "error",
       errorName: error?.name || null,
       errorMessage: error?.message || String(error),
@@ -2266,25 +2462,37 @@ async function tryDigitalUltraWide(stream, detected, mainId) {
 }
 
 /**
- * Open a specific rear lens deviceId for ultra-wide.
- * Android/Samsung: one camera slot — always stop old, wait 150–300ms, open
- * exact deviceId. Never parallel getUserMedia. Never return ended tracks.
+ * Open a specific rear lens deviceId (physical multi-cam).
+ * Samsung: stop old → clear srcObject → wait 150–300ms → open exact id.
+ * Never parallel getUserMedia. Never return ended tracks.
  */
 async function openPhysicalUltraDevice(id, oldStream, videoEl) {
-  const openExact = () =>
-    startCameraByDeviceId(id, {
-      facingMode: "environment",
-      highRes: false,
-      preferDeviceId: true,
-      forceDeviceId: true,
-      facingOnly: false,
-    });
+  const supportedZoom = canRequestBrowserZoomControl();
+  const quality = getCameraPreviewConstraints(
+    CONFIG?.app?.camera?.constraints?.default || {},
+  );
+
+  const openExact = async () => {
+    // deviceId exact + optional zoom:true only (no undefined keys)
+    const video = {
+      deviceId: { exact: id },
+      ...quality,
+    };
+    return openAndUpgrade(video, { requestZoomControl: supportedZoom });
+  };
 
   // Free previous stream first (Samsung Camera2 single-slot)
   if (oldStream) {
     try {
       clearTrackZoomCache(oldStream);
       stopCurrentCamera(oldStream, videoEl);
+    } catch {
+      /* ignore */
+    }
+  }
+  if (videoEl) {
+    try {
+      videoEl.srcObject = null;
     } catch {
       /* ignore */
     }
@@ -2304,7 +2512,7 @@ async function openPhysicalUltraDevice(id, oldStream, videoEl) {
     } catch (error) {
       lastError = error;
       logCameraPtz({
-        action: "open-physical",
+        path: "physical-device",
         selectedDeviceId: id,
         applyResult: "error",
         errorName: error?.name || null,
@@ -2315,7 +2523,7 @@ async function openPhysicalUltraDevice(id, oldStream, videoEl) {
 
   if (!stream) {
     logCameraPtz({
-      action: "open-physical",
+      path: "physical-device",
       selectedDeviceId: id,
       applyResult: "failed",
       errorName: lastError?.name || null,
@@ -2329,16 +2537,23 @@ async function openPhysicalUltraDevice(id, oldStream, videoEl) {
     // Browser silently remapped — try bare exact once more
     try {
       stopCurrentCamera(stream);
+      if (videoEl) {
+        try {
+          videoEl.srcObject = null;
+        } catch {
+          /* ignore */
+        }
+      }
       await new Promise((r) => setTimeout(r, 180));
-      const stream2 = await openAndUpgrade(
-        { deviceId: { exact: id } },
-        { requestZoomControl: true },
-      );
+      const bare = { deviceId: { exact: id } };
+      const stream2 = await openAndUpgrade(bare, {
+        requestZoomControl: supportedZoom,
+      });
       if (isLiveVideoStream(stream2)) {
         logCameraPtz({
-          action: "open-physical",
+          path: "physical-device",
           selectedDeviceId: id,
-          settingsZoom: getCurrentTrackSettings(stream2)?.zoom ?? null,
+          zoomAfter: getCurrentTrackSettings(stream2)?.zoom ?? null,
           trackState: getActiveVideoTrack(stream2)?.readyState || null,
           applyResult: "bare-exact-ok",
         });
@@ -2347,7 +2562,7 @@ async function openPhysicalUltraDevice(id, oldStream, videoEl) {
       stopCurrentCamera(stream2);
     } catch (error) {
       logCameraPtz({
-        action: "open-physical",
+        path: "physical-device",
         selectedDeviceId: id,
         applyResult: "wrong-device",
         errorName: error?.name || null,
@@ -2358,9 +2573,9 @@ async function openPhysicalUltraDevice(id, oldStream, videoEl) {
   }
 
   logCameraPtz({
-    action: "open-physical",
+    path: "physical-device",
     selectedDeviceId: openedId || id,
-    settingsZoom: getCurrentTrackSettings(stream)?.zoom ?? null,
+    zoomAfter: getCurrentTrackSettings(stream)?.zoom ?? null,
     trackState: getActiveVideoTrack(stream)?.readyState || null,
     applyResult: "ok",
   });
@@ -2437,20 +2652,20 @@ export async function switchToWidestLens(options = {}) {
   ].filter((id, i, arr) => id && arr.indexOf(id) === i && id !== mainId);
 
   const supportedZoom = canRequestBrowserZoomControl();
-  const liveCaps = getCurrentTrackCapabilities(oldStream);
+  const liveRange = readZoomRange(oldStream);
   logCameraPtz({
-    action: "switch-widest-start",
+    path: "switch-widest-start",
     supportedZoom,
-    rearCount,
-    labels: rearLabels,
-    capabilitiesZoom: liveCaps?.zoom
+    rearCameraCount: rearCount,
+    cameraLabels: rearLabels,
+    zoomCapabilities: liveRange.supported
       ? {
-          min: liveCaps.zoom.min,
-          max: liveCaps.zoom.max,
-          step: liveCaps.zoom.step,
+          min: liveRange.minZoom,
+          max: liveRange.maxZoom,
+          step: liveRange.zoomStep,
         }
       : null,
-    settingsZoom: getCurrentTrackSettings(oldStream)?.zoom ?? null,
+    zoomBefore: getCurrentTrackSettings(oldStream)?.zoom ?? null,
     selectedDeviceId: preferredWideId || ultraId || null,
     trackState: getActiveVideoTrack(oldStream)?.readyState || null,
     applyResult: "start",
@@ -2458,7 +2673,7 @@ export async function switchToWidestLens(options = {}) {
 
   let liveStream = isLiveVideoStream(oldStream) ? oldStream : null;
 
-  // 1) Logical zoom on current live stream (min < 1 → park at min)
+  // A) Logical PTZ first — only if min < 0.98
   const logicalWide = await tryDigitalUltraWide(
     liveStream,
     detected,
@@ -2468,7 +2683,7 @@ export async function switchToWidestLens(options = {}) {
     return { ...logicalWide, selectionPath: "logical-zoom" };
   }
 
-  // 2) Physical multi-rear — sequential only, first live winner wins
+  // B) Physical multi-rear — sequential only; first live winner (no ended best)
   for (const id of candidates) {
     try {
       const stream = await openPhysicalUltraDevice(
@@ -2476,16 +2691,25 @@ export async function switchToWidestLens(options = {}) {
         liveStream,
         videoEl,
       );
-      // After stop-first open, old stream is gone
+      // After stop-first open, previous stream is stopped — never reuse it
       liveStream = isLiveVideoStream(stream) ? stream : null;
       if (!liveStream) continue;
 
-      const applied = await parkAtWidestTrackZoom(liveStream);
+      // Optional: park at min only when this physical track has ultra-band min
+      let applied = null;
+      const rangePhys = readZoomRange(liveStream);
+      if (rangePhys.supported && isUltraZoomValue(rangePhys.minZoom)) {
+        applied = await parkAtWidestTrackZoom(liveStream);
+        if (!isLiveVideoStream(liveStream)) {
+          liveStream = null;
+          continue;
+        }
+      }
       if (!isLiveVideoStream(liveStream)) {
         liveStream = null;
         continue;
       }
-      const score = widestScoreFromStream(liveStream);
+
       const appliedZ = getCurrentTrackSettings(liveStream)?.zoom;
       const factor = resolveUltraWideFactor(
         liveStream,
@@ -2497,6 +2721,7 @@ export async function switchToWidestLens(options = {}) {
             : null,
       );
       const openedId = getCurrentTrackSettings(liveStream)?.deviceId || id;
+      // Physical may not expose ultra zoom number → ultraFactor null → UI "UW"
       const appliedValue =
         typeof applied === "number"
           ? applied
@@ -2504,26 +2729,26 @@ export async function switchToWidestLens(options = {}) {
             ? appliedZ
             : null;
 
-      // Remember only when user had already preferred this id (auto path)
       if (id === preferredWideId) {
         rememberPreferredWideCameraId(openedId);
       }
 
+      const rangeLog = readZoomRange(liveStream);
       logCameraPtz({
-        action: "switch-widest-ok",
-        selectionPath:
-          id === preferredWideId ? "remembered-device" : "physical-device",
+        path: "physical-device",
+        rearCameraCount: rearCount,
+        cameraLabels: rearLabels,
         selectedDeviceId: openedId,
-        capabilitiesZoom: readZoomRange(liveStream).supported
+        zoomCapabilities: rangeLog.supported
           ? {
-              min: readZoomRange(liveStream).minZoom,
-              max: readZoomRange(liveStream).maxZoom,
-              step: readZoomRange(liveStream).zoomStep,
+              min: rangeLog.minZoom,
+              max: rangeLog.maxZoom,
+              step: rangeLog.zoomStep,
             }
           : null,
-        settingsZoom: appliedZ ?? null,
+        zoomAfter: appliedZ ?? null,
         trackState: getActiveVideoTrack(liveStream)?.readyState || null,
-        applyResult: factor ?? appliedValue,
+        applyResult: factor ?? appliedValue ?? "live-physical",
       });
 
       return {
@@ -2535,19 +2760,19 @@ export async function switchToWidestLens(options = {}) {
         currentZoom:
           factor != null
             ? factor
-            : appliedValue != null
+            : appliedValue != null && isUltraZoomValue(appliedValue)
               ? roundZoomFactor(appliedValue)
               : null,
         digitalZoom: appliedValue,
+        // null → formatZoomModeLabel shows "UW" (never invent 0.6)
         ultraFactor: factor,
         switchedDevice: true,
-        widestScore: score,
         selectionPath:
           id === preferredWideId ? "remembered-device" : "physical-device",
       };
     } catch (e) {
       logCameraPtz({
-        action: "switch-widest-candidate",
+        path: "physical-device",
         selectedDeviceId: id,
         applyResult: "error",
         errorName: e?.name || null,
@@ -2556,7 +2781,7 @@ export async function switchToWidestLens(options = {}) {
     }
   }
 
-  // 3) Re-open main + digital if stream died during physical tries
+  // C) Re-open main if stream died; one more logical attempt — then unsupported
   let stream = isLiveVideoStream(liveStream) ? liveStream : null;
   if (!stream) {
     try {
@@ -2571,8 +2796,8 @@ export async function switchToWidestLens(options = {}) {
       }
     } catch (e) {
       logCameraPtz({
-        action: "switch-widest-main",
-        applyResult: "error",
+        path: "unsupported",
+        applyResult: "open-main-failed",
         errorName: e?.name || null,
         errorMessage: e?.message || String(e),
       });
@@ -2590,56 +2815,28 @@ export async function switchToWidestLens(options = {}) {
     return digitalRetry;
   }
 
-  // 4) Last resort: park live track at min if ultra band
-  if (stream && isLiveVideoStream(stream) && supportsHardwareZoom(stream)) {
-    const applied = await parkAtWidestTrackZoom(stream);
-    if (applied != null && isLiveVideoStream(stream)) {
-      const factor = resolveUltraWideFactor(stream, detected, applied);
-      const z =
-        typeof applied === "number"
-          ? applied
-          : getCurrentTrackSettings(stream)?.zoom;
-      if (typeof z === "number" && Number.isFinite(z) && isUltraZoomValue(z)) {
-        return {
-          stream,
-          detected,
-          deviceId: getCurrentTrackSettings(stream).deviceId || mainId,
-          lensType: "ultrawide",
-          zoomMode: WIDE_ZOOM_MODE,
-          currentZoom: factor || roundZoomFactor(z) || z,
-          digitalZoom: z,
-          ultraFactor: factor || roundZoomFactor(z),
-          switchedDevice: false,
-          selectionPath: "last-resort-park",
-        };
-      }
-    }
-  }
-
-  // Clear unavailable reasons for UI messaging (never invent 0.6 success)
+  // Unsupported — do not restart endlessly or fake success
   const range = readZoomRange(stream);
   const noLogicalWide =
-    !range.supported || !isUltraZoomValue(range.minZoom);
+    !range.supported || Number(range.minZoom) >= 0.98;
   const reason =
     rearCount <= 1 && noLogicalWide
-      ? "browser-single-rear-1x"
-      : noLogicalWide && candidates.length === 0
-        ? "browser-single-rear-1x"
-        : "ultra-unavailable";
+      ? "browser-hides-ultrawide"
+      : "ultra-unavailable";
 
   logCameraPtz({
-    action: "switch-widest-unavailable",
+    path: "unsupported",
     supportedZoom,
-    rearCount,
-    labels: rearLabels,
-    capabilitiesZoom: range.supported
+    rearCameraCount: rearCount,
+    cameraLabels: rearLabels,
+    zoomCapabilities: range.supported
       ? {
           min: range.minZoom,
           max: range.maxZoom,
           step: range.zoomStep,
         }
       : null,
-    settingsZoom: getCurrentTrackSettings(stream)?.zoom ?? null,
+    zoomAfter: getCurrentTrackSettings(stream)?.zoom ?? null,
     trackState: getActiveVideoTrack(stream)?.readyState || null,
     applyResult: reason,
   });
@@ -2649,7 +2846,6 @@ export async function switchToWidestLens(options = {}) {
     reason,
     detected,
     rearCount,
-    // Keep any still-live stream so UI does not go black
     stream: isLiveVideoStream(stream) ? stream : null,
   };
 }
