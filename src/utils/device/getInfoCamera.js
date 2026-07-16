@@ -9,7 +9,6 @@ import {
   isTeleLabel,
   detectAndClassifyCameras,
   clearDeviceProbeCache,
-  scheduleCameraCapabilityProbe,
 } from "./cameraLens";
 
 /** Cache enumerate — avoid enumerateDevices + permission every lens change */
@@ -17,11 +16,13 @@ let camerasCache = null;
 let camerasCacheAt = 0;
 const CAMERAS_CACHE_MS = 5 * 60 * 1000; // 5 phút — flip/zoom mượt
 let warmPromise = null;
+let camerasInFlight = null;
 
 export const invalidateCameraCache = () => {
   camerasCache = null;
   camerasCacheAt = 0;
   warmPromise = null;
+  camerasInFlight = null;
   clearDeviceProbeCache();
 };
 
@@ -50,38 +51,47 @@ export const getAvailableCameras = async (opts = {}) => {
     return camerasCache;
   }
 
-  const result = await detectAndClassifyCameras();
-  camerasCache = {
-    allCameras: result.allCameras,
-    frontCameras: result.frontCameras,
-    backCameras: result.backCameras,
-    backUltraWideCamera: result.backUltraWideCamera,
-    backNormalCamera: result.backNormalCamera,
-    backZoomCamera: result.backZoomCamera,
-    // Full rear list for manual lens pick — never hide hardware
-    rearOptions: result.rearOptions || result.backCameras || [],
-    ultraConfidence: result.ultraConfidence || "none",
-    needsManualLensPick: Boolean(result.needsManualLensPick),
-    ultraRanked: result.ultraRanked || [],
-    detected: result.detected || null,
-  };
-  camerasCacheAt = Date.now();
-
-  // Background probe (non-blocking) — improves ultra pick on multi-lens phones
-  // without slowing first open. Cache warms for next ultra tap / reclassify.
-  try {
-    const det = result.detected || {
-      rear: result.backCameras,
-      main: result.backNormalCamera,
-      ultrawide: result.backUltraWideCamera,
-      telephoto: result.backZoomCamera,
-    };
-    scheduleCameraCapabilityProbe(det);
-  } catch {
-    /* ignore */
+  // Mount + startCamera used to enumerate at the same time. On Samsung this
+  // can contend for the single camera slot before the preview even opens.
+  if (camerasInFlight) {
+    try {
+      const current = await camerasInFlight;
+      if (!force) return current;
+    } catch {
+      // A forced refresh may retry after the current request failed.
+    }
   }
 
-  return camerasCache;
+  const request = (async () => {
+    const result = await detectAndClassifyCameras();
+    const next = {
+      allCameras: result.allCameras,
+      frontCameras: result.frontCameras,
+      backCameras: result.backCameras,
+      backUltraWideCamera: result.backUltraWideCamera,
+      backNormalCamera: result.backNormalCamera,
+      backZoomCamera: result.backZoomCamera,
+      // Full rear list for manual lens pick — never hide hardware
+      rearOptions: result.rearOptions || result.backCameras || [],
+      ultraConfidence: result.ultraConfidence || "none",
+      needsManualLensPick: Boolean(result.needsManualLensPick),
+      ultraRanked: result.ultraRanked || [],
+      detected: result.detected || null,
+    };
+    camerasCache = next;
+    camerasCacheAt = Date.now();
+
+    // Do not open capability-probe streams here. This function is called while
+    // the live preview and physical lens switch need exclusive camera access.
+    return next;
+  })();
+
+  camerasInFlight = request;
+  try {
+    return await request;
+  } finally {
+    if (camerasInFlight === request) camerasInFlight = null;
+  }
 };
 
 /**
@@ -189,4 +199,3 @@ export const getMainBackCameraId = async () => {
     null
   );
 };
-

@@ -176,7 +176,7 @@
     "unknown_error": "Unknown error",
     "payload_creation_failed": "Failed to create payload!",
     "camera_no_zoom": "No suitable camera found to switch zoom",
-    "zoom_05_unsupported": "0.5x is not supported on this device",
+    "zoom_05_unsupported": "The browser could not open the ultra-wide camera",
     "zoom_2x_unsupported": "2x is not supported on this device",
     "zoom_max_unsupported": "Max zoom is not supported on this device",
 

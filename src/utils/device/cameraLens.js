@@ -164,7 +164,10 @@ export async function probeDeviceCapabilities(deviceId, deviceInfo = null) {
   if (deviceProbeCache.has(deviceId)) return deviceProbeCache.get(deviceId);
 
   const meta = await probeDeviceSignals(deviceId, deviceInfo);
-  if (meta) deviceProbeCache.set(deviceId, meta);
+  // A busy Samsung camera often reports a temporary probe failure while the
+  // preview owns the hardware. Do not make that transient failure permanent
+  // for the rest of the session.
+  if (meta && !meta.failed) deviceProbeCache.set(deviceId, meta);
   return meta;
 }
 
@@ -644,13 +647,14 @@ export async function detectCameraDevices(opts = {}) {
 }
 
 /**
- * Fire-and-forget capability probes — updates probe cache without blocking UI.
- * Safe to call after first camera list is shown.
+ * Fire-and-forget capability probes. Opening probe streams is only safe while
+ * no preview/lens switch owns the camera, so callers must opt in explicitly.
  */
-export function scheduleCameraCapabilityProbe(detected) {
+export function scheduleCameraCapabilityProbe(detected, options = {}) {
+  if (options.cameraIdle !== true) return;
   if (!detected?.rear || detected.rear.length < 2) return;
   if (isConfidentUltraLabel(detected.ultrawide?.label || "")) return;
-  // Don't await — warm cache for next ultra switch / reclassify
+  // Don't await. The caller has confirmed that no live stream is active.
   Promise.resolve()
     .then(() => enrichDetectedWithCapabilityProbes(detected))
     .catch(() => {});
@@ -938,11 +942,14 @@ export async function enrichDetectedWithCapabilityProbes(detected) {
     .slice(0, 4);
 
   if (toProbe.length) {
-    // Deduplicate concurrent enrich calls
+    // Deduplicate enrich calls and probe one camera at a time. Promise.all here
+    // races multiple getUserMedia calls for Samsung's single camera slot.
     if (!probeInFlight) {
-      probeInFlight = Promise.all(
-        toProbe.map((id) => probeDeviceCapabilities(id)),
-      ).finally(() => {
+      probeInFlight = (async () => {
+        for (const id of toProbe) {
+          await probeDeviceCapabilities(id);
+        }
+      })().finally(() => {
         probeInFlight = null;
       });
     }
@@ -2088,9 +2095,20 @@ async function openPhysicalUltraDevice(id, oldStream, videoEl) {
         clearTrackZoomCache(oldStream);
         stopCurrentCamera(oldStream, videoEl);
       }
-      // Brief yield so HAL releases camera2 0 before opening camera2 2
-      await new Promise((r) => setTimeout(r, 80));
-      const stream = await openExact();
+      // Camera2 release is asynchronous on Samsung. One short retry prevents a
+      // temporary NotReadableError from being reported as "unsupported".
+      let stream = null;
+      let releaseError = null;
+      for (const releaseDelay of [120, 260]) {
+        await new Promise((r) => setTimeout(r, releaseDelay));
+        try {
+          stream = await openExact();
+          break;
+        } catch (error) {
+          releaseError = error;
+        }
+      }
+      if (!stream) throw releaseError || new Error("camera-release-timeout");
       const openedId = getCurrentTrackSettings(stream)?.deviceId || null;
       if (openedId && openedId !== id) {
         // Last resort: bare exact without quality extras

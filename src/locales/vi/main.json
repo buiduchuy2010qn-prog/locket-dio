@@ -176,7 +176,7 @@
     "unknown_error": "Lỗi không xác định",
     "payload_creation_failed": "Tạo payload thất bại!",
     "camera_no_zoom": "Không tìm thấy camera phù hợp để chuyển zoom",
-    "zoom_05_unsupported": "0.5x không được hỗ trợ trên thiết bị này",
+    "zoom_05_unsupported": "Trình duyệt không mở được camera siêu rộng",
     "zoom_2x_unsupported": "2x không được hỗ trợ trên thiết bị này",
     "zoom_max_unsupported": "Max zoom không được hỗ trợ trên thiết bị này",
     "feature_coming_soon": "Chức năng này sẽ sớm có mặt!",
