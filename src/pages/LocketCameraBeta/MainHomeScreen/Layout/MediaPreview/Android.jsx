@@ -55,6 +55,8 @@ import {
   rememberPreferredWideCameraId,
   applyTapToFocus,
   pointerToFocusPoint,
+  isLiveVideoStream,
+  logCameraPtz,
 } from "@/utils";
 const EditorCaption = lazy(() => import("@/features/EditorCaption"));
 import { useApp } from "@/context/AppContext";
@@ -520,35 +522,56 @@ const MediaPreviewAndroid = () => {
         // background getUserMedia probes that competed with this exact switch
         // for Samsung's single camera slot.
         const detShape = shape;
-        // Browser lens names are not standardized. Keep an accessible picker
-        // on every multi-rear phone so a wrong OEM/index guess is reversible.
-        setForceRearLensPicker((detShape.rear?.length || 0) >= 2);
-        // Pick widest FOV (physical ultra or digital min from capabilities)
+        // Browser lens names are not standardized. Keep Lens picker on every
+        // multi-rear phone so a wrong OEM/index guess is reversible.
+        const multiRear = (detShape.rear?.length || 0) >= 2;
+        setForceRearLensPicker(multiRear);
         const result = await switchToWidestLens({
           oldStream: streamRef.current,
           videoEl: videoRef.current,
           detected: detShape,
         });
-        if (result?.unavailable || !result?.stream) {
-          setForceRearLensPicker((detShape.rear?.length || 0) >= 2);
+
+        // Preserve any live stream returned even on "unavailable"
+        if (result?.stream && isLiveVideoStream(result.stream)) {
+          streamRef.current = result.stream;
+        }
+
+        if (result?.unavailable || !isLiveVideoStream(result?.stream)) {
+          setForceRearLensPicker(multiRear);
+          const msg =
+            result?.reason === "browser-single-rear-1x"
+              ? "Trình duyệt chỉ cung cấp camera sau 1x, không công khai ống kính siêu rộng."
+              : "Trình duyệt không mở được camera siêu rộng.";
           SonnerInfo(
-            t("home.zoom_05_unsupported", {
-              defaultValue:
-                "Trình duyệt không mở được camera siêu rộng",
-            }),
+            t("home.zoom_05_unsupported", { defaultValue: msg }),
           );
+          if (isLiveVideoStream(streamRef.current)) {
+            attachStreamToVideo(streamRef.current, "environment");
+          }
           return;
         }
+
         streamRef.current = result.stream;
         if (result.deviceId) {
           lastDeviceId.current = result.deviceId;
           setDeviceId(result.deviceId);
         }
-        // Re-park at live min in case open path skipped apply
+        // Re-park at live min (OEM 0.5 / 0.6 / 0.7…) if open path skipped apply
         try {
           await parkAtWidestTrackZoom(result.stream);
         } catch {
           /* ignore */
+        }
+        if (!isLiveVideoStream(result.stream)) {
+          setForceRearLensPicker(multiRear);
+          SonnerInfo(
+            t("home.zoom_05_unsupported", {
+              defaultValue:
+                "Trình duyệt không mở được camera siêu rộng.",
+            }),
+          );
+          return;
         }
         const live = readLiveZoomFromCamera(result.stream);
         const factor = resolveUltraWideFactor(
@@ -559,17 +582,24 @@ const MediaPreviewAndroid = () => {
             live.current ??
             live.min,
         );
+        // Label from real caps only — never invent 0.5/0.6
         setZoomLevel(WIDE_ZOOM_MODE);
         lastZoomLevel.current = WIDE_ZOOM_MODE;
         setActiveZoomMode(WIDE_ZOOM_MODE);
         currentZoomValue.current =
-          factor != null ? factor : live.current ?? live.min ?? 1;
+          factor != null
+            ? factor
+            : isUltraZoomValue(live.current)
+              ? live.current
+              : isUltraZoomValue(live.min)
+                ? live.min
+                : live.current ?? live.min ?? 1;
         setCurrentZoom(currentZoomValue.current);
         setCurrentLensType(result.lensType || "ultrawide");
         setAvailableZoomModes((prev) => ({
           ...(prev || {}),
           "0.5x": true,
-          ultraFactor: factor,
+          ultraFactor: factor, // null → ZoomPresets shows "UW"
         }));
         attachStreamToVideo(result.stream, "environment");
         syncZoomStateFromStream(
@@ -577,12 +607,23 @@ const MediaPreviewAndroid = () => {
           detectedRef.current || cameras,
           "environment",
         );
+        logCameraPtz({
+          action: "ui-uw-applied",
+          selectedDeviceId: result.deviceId || null,
+          settingsZoom: live.current,
+          capabilitiesZoom: live.supported
+            ? { min: live.min, max: live.max }
+            : null,
+          trackState: "live",
+          applyResult: factor,
+        });
       } catch (e) {
-        console.error("[widest]", e);
+        console.error("[camera-ptz]", e?.name, e?.message, e);
         setForceRearLensPicker((shape.rear?.length || 0) >= 2);
         SonnerInfo(
           t("home.zoom_05_unsupported", {
-            defaultValue: "Trình duyệt không mở được camera siêu rộng",
+            defaultValue:
+              "Trình duyệt không mở được camera siêu rộng.",
           }),
         );
       } finally {
@@ -632,7 +673,9 @@ const MediaPreviewAndroid = () => {
       (mode === "0.5x"
         ? availableZoomModes?.ultraFactor ||
           getUltraWideFactor(streamRef.current, shape) ||
-          0.6
+          // No invented 0.5/0.6 — fall back to live settings or 1
+          readLiveZoomFromCamera(streamRef.current).current ||
+          1
         : mode === "2x"
           ? 2
           : 1);
@@ -1430,8 +1473,8 @@ const MediaPreviewAndroid = () => {
                 )}
                 disabled={isSwitchingCamera || isPinching}
                 onSelect={async (id) => {
-                  // Manual lens: stop main first (Samsung 1-cam), open exact id
-                  if (!id || isSwitchingCamera) return;
+                  // Manual lens: stop first (Samsung 1-cam), open deviceId exact
+                  if (!id || isSwitchingCamera) return false;
                   setIsSwitchingCamera(true);
                   try {
                     const prev = streamRef.current;
@@ -1439,17 +1482,22 @@ const MediaPreviewAndroid = () => {
                       clearTrackZoomCache(prev);
                       stopCurrentCamera(prev, videoRef.current);
                     }
-                    await new Promise((r) => setTimeout(r, 160));
+                    await new Promise((r) => setTimeout(r, 200));
                     const stream = await startCameraByDeviceId(id, {
                       facingMode: "environment",
                       forceDeviceId: true,
                       preferDeviceId: true,
                     });
+                    if (!isLiveVideoStream(stream)) {
+                      stopCurrentCamera(stream);
+                      throw new Error("track-not-live");
+                    }
                     const actualId = getCurrentTrackSettings(stream)?.deviceId;
                     if (actualId && actualId !== id) {
                       stopCurrentCamera(stream);
                       throw new Error("wrong-device-opened");
                     }
+                    // Update UI only after live stream confirmed
                     streamRef.current = stream;
                     const selectedId = actualId || id;
                     lastDeviceId.current = selectedId;
@@ -1460,9 +1508,12 @@ const MediaPreviewAndroid = () => {
                     } catch {
                       /* physical lens may not expose track zoom */
                     }
-                    setZoomLevel("0.5x");
-                    lastZoomLevel.current = "0.5x";
-                    setActiveZoomMode("0.5x");
+                    if (!isLiveVideoStream(stream)) {
+                      throw new Error("track-ended-after-park");
+                    }
+                    setZoomLevel(WIDE_ZOOM_MODE);
+                    lastZoomLevel.current = WIDE_ZOOM_MODE;
+                    setActiveZoomMode(WIDE_ZOOM_MODE);
                     const live = readLiveZoomFromCamera(stream);
                     const factor = resolveUltraWideFactor(
                       stream,
@@ -1486,12 +1537,24 @@ const MediaPreviewAndroid = () => {
                       detectedRef.current || detectedCameras,
                       "environment",
                     );
-                    // The user has visually identified this as the widest
-                    // lens. Prefer it on future UW taps for this origin/device.
+                    // User-identified widest lens → prefer on next UW tap
                     rememberPreferredWideCameraId(selectedId);
+                    logCameraPtz({
+                      action: "manual-lens-pick",
+                      selectedDeviceId: selectedId,
+                      settingsZoom: live.current,
+                      trackState: "live",
+                      applyResult: factor ?? applied,
+                    });
                     return true;
                   } catch (e) {
-                    console.warn("[lens-pick]", e?.message);
+                    logCameraPtz({
+                      action: "manual-lens-pick",
+                      selectedDeviceId: id,
+                      applyResult: "error",
+                      errorName: e?.name || null,
+                      errorMessage: e?.message || String(e),
+                    });
                     SonnerInfo(
                       t("home.zoom_05_unsupported", {
                         defaultValue: "Không mở được lens này",
