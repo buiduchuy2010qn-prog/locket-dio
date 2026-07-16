@@ -52,6 +52,8 @@ import {
   WIDE_ZOOM_MODE,
   parkAtWidestTrackZoom,
   isUltraZoomValue,
+  applyTapToFocus,
+  pointerToFocusPoint,
 } from "@/utils";
 const EditorCaption = lazy(() => import("@/features/EditorCaption"));
 import { useApp } from "@/context/AppContext";
@@ -61,6 +63,7 @@ import { usePostStore, useUIStore } from "@/stores";
 import { useTranslation } from "react-i18next";
 import ZoomPresets from "./ZoomPresets";
 import RearLensPicker from "./RearLensPicker";
+import FocusReticle from "./FocusReticle";
 
 const PINCH_THROTTLE_MS = 33;
 const BADGE_THROTTLE_MS = 50;
@@ -128,6 +131,12 @@ const MediaPreviewIOS = () => {
   );
   const [freezeFrame, setFreezeFrame] = useState(null);
   const [videoEpoch, setVideoEpoch] = useState(0);
+  const [focusReticle, setFocusReticle] = useState(null);
+  const frameRef = useRef(null);
+  const tapStateRef = useRef(null);
+  const focusInFlightRef = useRef(false);
+  const focusSeqRef = useRef(0);
+  const lastTouchFocusAt = useRef(0);
   const [pageVisible, setPageVisible] = useState(
     () =>
       typeof document === "undefined" ||
@@ -628,20 +637,94 @@ const MediaPreviewIOS = () => {
     setDeviceId(target.deviceId || null);
   };
 
+  const runTapFocus = useCallback(
+    async (clientX, clientY) => {
+      if (preview || selectedFile || !cameraActive) return;
+      if (isSwitchingCamera || pinchingRef.current) return;
+      if (focusInFlightRef.current) return;
+
+      const point = pointerToFocusPoint(
+        frameRef.current,
+        videoRef.current,
+        clientX,
+        clientY,
+        { mirrored: previewMirror },
+      );
+      if (!point) return;
+
+      const seq = ++focusSeqRef.current;
+      setFocusReticle({
+        x: point.px,
+        y: point.py,
+        key: seq,
+        success: true,
+      });
+
+      focusInFlightRef.current = true;
+      try {
+        // Best-effort HW focus/metering — reticle always shows (native-cam UX).
+        await applyTapToFocus(streamRef.current, point.x, point.y);
+      } finally {
+        focusInFlightRef.current = false;
+      }
+    },
+    [
+      preview,
+      selectedFile,
+      cameraActive,
+      isSwitchingCamera,
+      previewMirror,
+      streamRef,
+      videoRef,
+    ],
+  );
+
   const onTouchStart = (event) => {
     if (preview || selectedFile) return;
-    if (event.touches.length !== 2) return;
-    event.preventDefault();
-    pinchingRef.current = true;
-    const isFront = (cameraMode || "user") === "user";
-    const state = isFront
-      ? handleFrontCameraPinchStart(event.touches, currentZoomValue.current)
-      : handlePinchZoomStart(event.touches, currentZoomValue.current);
-    pinchState.current = state;
-    setIsPinching(true);
+
+    if (event.touches.length === 2) {
+      tapStateRef.current = null;
+      event.preventDefault();
+      pinchingRef.current = true;
+      const isFront = (cameraMode || "user") === "user";
+      const state = isFront
+        ? handleFrontCameraPinchStart(event.touches, currentZoomValue.current)
+        : handlePinchZoomStart(event.touches, currentZoomValue.current);
+      pinchState.current = state;
+      setIsPinching(true);
+      return;
+    }
+
+    if (event.touches.length === 1) {
+      const t = event.touches[0];
+      const el = t.target;
+      if (
+        el?.closest?.(
+          "button, a, input, [data-no-focus], [data-zoom-badge]",
+        )
+      ) {
+        tapStateRef.current = null;
+        return;
+      }
+      tapStateRef.current = {
+        x: t.clientX,
+        y: t.clientY,
+        t: Date.now(),
+        moved: false,
+      };
+    }
   };
 
   const onTouchMove = (event) => {
+    if (tapStateRef.current && event.touches.length === 1) {
+      const t = event.touches[0];
+      const dx = t.clientX - tapStateRef.current.x;
+      const dy = t.clientY - tapStateRef.current.y;
+      if (dx * dx + dy * dy > 14 * 14) {
+        tapStateRef.current.moved = true;
+      }
+    }
+
     if (!pinchState.current.active || event.touches.length !== 2) return;
     if (isSwitchingCamera) return;
     event.preventDefault();
@@ -709,7 +792,24 @@ const MediaPreviewIOS = () => {
     applyDisplayZoom(nextZoom, { allowLensSwitch: false }).catch(() => {});
   };
 
-  const onTouchEnd = () => {
+  const onTouchEnd = (event) => {
+    const tap = tapStateRef.current;
+    if (
+      tap &&
+      !tap.moved &&
+      !pinchingRef.current &&
+      !pinchState.current.active &&
+      Date.now() - tap.t < 450
+    ) {
+      tapStateRef.current = null;
+      if (!event?.touches?.length) {
+        lastTouchFocusAt.current = Date.now();
+        runTapFocus(tap.x, tap.y);
+      }
+    } else {
+      tapStateRef.current = null;
+    }
+
     if (!pinchState.current.active && !isPinching) return;
     const isFront = (cameraMode || "user") === "user";
     pinchingRef.current = false;
@@ -1102,13 +1202,27 @@ const MediaPreviewIOS = () => {
   const showCameraUi = !preview && !selectedFile && cameraActive;
   const showZoomUi = showCameraUi;
 
+  const onFrameClick = (event) => {
+    if (preview || selectedFile || !cameraActive) return;
+    if (Date.now() - lastTouchFocusAt.current < 700) return;
+    if (event.detail === 0) return;
+    const el = event.target;
+    if (el?.closest?.("button, a, input, [data-no-focus]")) return;
+    runTapFocus(event.clientX, event.clientY);
+  };
+
   return (
     <>
       <div
+        ref={frameRef}
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
-        onTouchCancel={onTouchEnd}
+        onTouchCancel={(e) => {
+          tapStateRef.current = null;
+          onTouchEnd(e);
+        }}
+        onClick={onFrameClick}
         className="relative w-full max-w-md aspect-square bg-gray-800 rounded-[65px] overflow-hidden transition-transform duration-500"
         style={{
           touchAction: preview || selectedFile ? "auto" : "none",
@@ -1150,11 +1264,22 @@ const MediaPreviewIOS = () => {
           />
         )}
 
+        {showCameraUi && focusReticle && (
+          <FocusReticle
+            key={focusReticle.key}
+            x={focusReticle.x}
+            y={focusReticle.y}
+            show
+            success={focusReticle.success !== false}
+          />
+        )}
+
         {showCameraUi && (
           <>
             <div className="absolute top-7 left-7 z-30 pointer-events-none flex items-center gap-2">
               <button
                 onClick={() => SonnerInfo(t("home.feature_coming_soon"))}
+                data-no-focus
                 className="pointer-events-auto w-7 h-7 p-1.5 rounded-full bg-white/30 backdrop-blur-md flex items-center justify-center"
               >
                 <img src="/icons/bolt.fill.png" alt="Flash" />
