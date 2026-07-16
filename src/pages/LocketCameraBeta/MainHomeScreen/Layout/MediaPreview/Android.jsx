@@ -65,6 +65,10 @@ import {
   shouldOfferLensPicker,
   ZOOM_APPLY_THROTTLE_MS,
   clampZoom,
+  buildZoomContinuum,
+  mapGlobalZoomToLens,
+  continuumBounds,
+  rememberLensZoomCaps,
 } from "@/utils";
 const EditorCaption = lazy(() => import("@/features/EditorCaption"));
 import { useApp } from "@/context/AppContext";
@@ -72,7 +76,6 @@ import BorderProgress from "../../Widgets/SquareProgress";
 import { SonnerInfo } from "@/components/uikit/SonnerToast";
 import { usePostStore, useUIStore } from "@/stores";
 import { useTranslation } from "react-i18next";
-import ZoomPresets from "./ZoomPresets";
 import ZoomSlider from "./ZoomSlider";
 import RearLensPicker from "./RearLensPicker";
 import FocusReticle from "./FocusReticle";
@@ -155,6 +158,12 @@ const MediaPreviewAndroid = () => {
       },
     );
   }
+  /** Continuous FOV continuum (logical or multi-physical) */
+  const continuumRef = useRef(null);
+  const stickyLensTypeRef = useRef("main");
+  const lensSwitchInFlightRef = useRef(false);
+  const pendingGlobalZoomRef = useRef(null);
+  const [zoomMarkers, setZoomMarkers] = useState([]);
 
   /** Instant UI zoom (badge + slider thumb). Does not wait for camera. */
   const setDisplayZoomNow = useCallback(
@@ -172,18 +181,182 @@ const MediaPreviewAndroid = () => {
     [setCurrentZoom, setActiveZoomMode],
   );
 
+  const rebuildContinuum = useCallback(
+    (stream, cameras, facing = "environment") => {
+      const shape = toDetectedShape(cameras);
+      if (stream) {
+        const id = getCurrentTrackSettings(stream)?.deviceId;
+        if (id) rememberLensZoomCaps(id, stream);
+      }
+      const cont = buildZoomContinuum(shape, stream, { facing });
+      continuumRef.current = cont;
+      if (cont.supported) {
+        boundsRef.current = continuumBounds(cont, boundsRef.current);
+        setMinZoom(cont.minZoom);
+        setMaxZoom(cont.maxZoom);
+        setZoomMarkers(cont.markers || []);
+      } else {
+        setZoomMarkers([]);
+      }
+      return cont;
+    },
+    [setMinZoom, setMaxZoom],
+  );
+
   /**
-   * User gesture zoom: update display immediately, queue latest HW apply.
-   * Never await applyConstraints here.
+   * Switch physical rear lens without black flash (freeze frame → open → play).
+   * After ready, apply latest pending global zoom (skip stale).
+   */
+  const switchPhysicalLensForZoom = useCallback(
+    async (targetDeviceId, targetType) => {
+      if (!targetDeviceId) return false;
+      if (lensSwitchInFlightRef.current) return false;
+      const curId =
+        getCurrentTrackSettings(streamRef.current)?.deviceId ||
+        lastDeviceId.current ||
+        deviceId;
+      if (curId && curId === targetDeviceId) return true;
+
+      lensSwitchInFlightRef.current = true;
+      setIsSwitchingCamera(true);
+      try {
+        const freeze = captureVideoFreezeFrame(videoRef.current);
+        if (freeze) setFreezeFrame(freeze);
+
+        const oldStream = streamRef.current;
+        // Stop old first when dual-cam not allowed (common Android)
+        if (oldStream) {
+          clearTrackZoomCache(oldStream);
+          stopCurrentCamera(oldStream, null);
+          streamRef.current = null;
+        }
+
+        const stream = await startCameraByDeviceId(targetDeviceId, {
+          facingMode: "environment",
+          highRes: false,
+          preferDeviceId: true,
+        });
+        if (!isLiveVideoStream(stream)) {
+          stopCurrentCamera(stream);
+          setFreezeFrame(null);
+          return false;
+        }
+
+        streamRef.current = stream;
+        lastDeviceId.current = targetDeviceId;
+        setDeviceId(targetDeviceId);
+        stickyLensTypeRef.current = targetType || "main";
+        setCurrentLensType(targetType || "main");
+        attachStreamToVideo(stream, "environment");
+
+        // Wait for video to actually play before dropping freeze
+        const v = videoRef.current;
+        if (v) {
+          await Promise.race([
+            new Promise((resolve) => {
+              const done = () => {
+                v.removeEventListener("playing", done);
+                v.removeEventListener("loadeddata", done);
+                resolve();
+              };
+              v.addEventListener("playing", done);
+              v.addEventListener("loadeddata", done);
+            }),
+            new Promise((r) => setTimeout(r, 700)),
+          ]);
+        }
+
+        rebuildContinuum(
+          stream,
+          detectedRef.current || detectedCameras,
+          "environment",
+        );
+
+        // Apply latest global zoom after lens ready
+        const latest =
+          pendingGlobalZoomRef.current ?? currentZoomValue.current;
+        pendingGlobalZoomRef.current = null;
+        const cont = continuumRef.current;
+        const mapped = mapGlobalZoomToLens(
+          latest,
+          cont,
+          targetDeviceId,
+          stickyLensTypeRef.current,
+        );
+        if (mapped.localZoom != null) {
+          zoomApplierRef.current?.request(mapped.localZoom);
+          appliedZoomRef.current = mapped.localZoom;
+        }
+        setFreezeFrame(null);
+        return true;
+      } catch (e) {
+        console.warn("[zoom] physical lens switch failed", e);
+        setFreezeFrame(null);
+        return false;
+      } finally {
+        lensSwitchInFlightRef.current = false;
+        setIsSwitchingCamera(false);
+      }
+    },
+    [
+      deviceId,
+      detectedCameras,
+      rebuildContinuum,
+      setCurrentLensType,
+      setDeviceId,
+      setIsSwitchingCamera,
+    ],
+  );
+
+  /**
+   * User gesture zoom: display immediate; HW apply latest-wins;
+   * multi-physical handoff with freeze frame + hysteresis.
    */
   const requestUserZoom = useCallback(
     (raw, { modeHint } = {}) => {
-      const { minZoom: mn, maxZoom: mx } = boundsRef.current;
+      const cont = continuumRef.current;
+      const { minZoom: mn, maxZoom: mx } = continuumBounds(
+        cont,
+        boundsRef.current,
+      );
       const clamped = clampZoom(raw, mn ?? 1, mx ?? 1);
       setDisplayZoomNow(clamped, modeHint);
-      zoomApplierRef.current?.request(clamped);
+      pendingGlobalZoomRef.current = clamped;
+
+      const liveId =
+        getCurrentTrackSettings(streamRef.current)?.deviceId ||
+        lastDeviceId.current ||
+        deviceId;
+      const mapped = mapGlobalZoomToLens(
+        clamped,
+        cont,
+        liveId,
+        stickyLensTypeRef.current,
+      );
+
+      if (
+        mapped.switchDevice &&
+        mapped.deviceId &&
+        mapped.deviceId !== liveId &&
+        (cameraMode || "environment") !== "user"
+      ) {
+        stickyLensTypeRef.current = mapped.type || stickyLensTypeRef.current;
+        void switchPhysicalLensForZoom(mapped.deviceId, mapped.type);
+        return;
+      }
+
+      if (mapped.type) stickyLensTypeRef.current = mapped.type;
+      // Local track zoom (not global) for multi-physical relative lenses
+      zoomApplierRef.current?.request(
+        mapped.localZoom != null ? mapped.localZoom : clamped,
+      );
     },
-    [setDisplayZoomNow],
+    [
+      cameraMode,
+      deviceId,
+      setDisplayZoomNow,
+      switchPhysicalLensForZoom,
+    ],
   );
 
   const [pageVisible, setPageVisible] = useState(
@@ -249,6 +422,15 @@ const MediaPreviewAndroid = () => {
           "2x": caps.supported && caps.maxZoom >= 1.8,
         });
         setCurrentLensType("front");
+        stickyLensTypeRef.current = "main";
+        rebuildContinuum(stream, cameras, "user");
+        if (!caps.supported || caps.maxZoom <= caps.minZoom + 0.01) {
+          setZoomMarkers([]);
+        } else {
+          setZoomMarkers([
+            { zoom: 1, type: "main", label: "1", emphasis: true },
+          ]);
+        }
         const z = Math.max(
           1,
           settingsZoomOr(stream, currentZoomValue.current),
@@ -263,8 +445,10 @@ const MediaPreviewAndroid = () => {
         return;
       }
 
-      const bounds = getEffectiveZoomBounds(shape, stream);
-      // min = factor thật (0.5/0.6/0.7) — không ép 0.5
+      const cont = rebuildContinuum(stream, cameras, "environment");
+      const bounds = cont.supported
+        ? { minZoom: cont.minZoom, maxZoom: cont.maxZoom, step: 0.01 }
+        : getEffectiveZoomBounds(shape, stream);
       const minZ = bounds.minZoom;
       boundsRef.current = {
         minZoom: minZ,
@@ -280,8 +464,9 @@ const MediaPreviewAndroid = () => {
         cameras?.allCameras?.find((d) => d.deviceId === actualId) || null;
       const lensType = classifyLensType(device, shape);
       setCurrentLensType(lensType);
+      if (lensType) stickyLensTypeRef.current = lensType;
 
-      // Badge / pill: always from live track (never invent 0.5 / force 1x on UW)
+      // Badge: global FOV from live track (never invent 0.5 / force 1x on UW)
       const disp = getLiveZoomDisplay(stream, {
         lensType,
         detected: shape,
@@ -291,8 +476,7 @@ const MediaPreviewAndroid = () => {
 
       const modes = computeAvailableZoomModes(shape, stream);
       modes["1x"] = true;
-      // Cam sau: luôn bật nút góc rộng — thử physical ultra + digital min
-      modes["0.5x"] = true;
+      modes["0.5x"] = Boolean(cont.markers?.some((m) => m.type === "ultrawide"));
       modes.ultraFactor =
         disp.ultraFactor ??
         modes.ultraFactor ??
@@ -304,11 +488,12 @@ const MediaPreviewAndroid = () => {
         currentZoomValue.current = disp.value;
         setCurrentZoom(disp.value);
       } else if (disp.label === "UW") {
-        // Physical UW without numeric zoom — keep pinch base, label via badge helper
         const base =
           typeof settings.zoom === "number" && Number.isFinite(settings.zoom)
             ? settings.zoom
-            : 1;
+            : minZ < 0.98
+              ? minZ
+              : 1;
         currentZoomValue.current = base;
         setCurrentZoom(base);
       } else {
@@ -324,6 +509,7 @@ const MediaPreviewAndroid = () => {
       setTorchSupported(Boolean(getCurrentTrackCapabilities(stream)?.torch));
     },
     [
+      rebuildContinuum,
       setAvailableZoomModes,
       setCurrentLensType,
       setCurrentZoom,
@@ -1774,15 +1960,19 @@ const MediaPreviewAndroid = () => {
               />
             )}
 
-            {/* Continuous zoom slider — thumb follows finger via displayZoom */}
+            {/* Single continuous zoom rail (log scale + lens markers) — no UW|1|2|3 row */}
             {showZoomUi &&
-              (cameraMode || "environment") !== "user" &&
               Number(maxZoom) > Number(minZoom) + 0.01 && (
                 <ZoomSlider
                   min={minZoom}
                   max={maxZoom}
                   value={currentZoom}
-                  disabled={isSwitchingCamera}
+                  markers={
+                    (cameraMode || "environment") === "user"
+                      ? [{ zoom: 1, type: "main", label: "1", emphasis: true }]
+                      : zoomMarkers
+                  }
+                  disabled={false}
                   visible
                   onInputValue={(z) => {
                     zoomGestureActiveRef.current = true;
@@ -1790,42 +1980,24 @@ const MediaPreviewAndroid = () => {
                     const wideSnap =
                       uf != null && uf < 0.98 ? (Number(uf) + 1) / 2 : 0.92;
                     const modeHint =
-                      z < wideSnap
-                        ? WIDE_ZOOM_MODE
-                        : Math.abs(z - 1) < 0.12
+                      (cameraMode || "environment") === "user"
+                        ? Math.abs(z - 1) < 0.12
                           ? "1x"
-                          : "custom";
+                          : "custom"
+                        : z < wideSnap
+                          ? WIDE_ZOOM_MODE
+                          : Math.abs(z - 1) < 0.12
+                            ? "1x"
+                            : "custom";
                     requestUserZoom(z, { modeHint });
                   }}
                   onGestureEnd={() => {
                     zoomGestureActiveRef.current = false;
-                    // Final flush of display value only — no getSettings
-                    zoomApplierRef.current?.request(currentZoomValue.current);
+                    // Flush latest GLOBAL → map to local once more
+                    requestUserZoom(currentZoomValue.current);
                   }}
                 />
               )}
-
-            {/* Hàng nút zoom ấn — cam trước (1x·2x) + cam sau (UW·1x·2x) */}
-            {showZoomUi && (
-              <ZoomPresets
-                activeMode={activeZoomMode}
-                currentZoom={currentZoom}
-                available={
-                  (cameraMode || "environment") === "user"
-                    ? {
-                        "0.5x": false,
-                        "1x": true,
-                        "2x": true,
-                        ultraFactor: null,
-                      }
-                    : availableZoomModes
-                }
-                facing={cameraMode || "environment"}
-                disabled={isSwitchingCamera || isPinching}
-                onSelect={handleSelectZoomMode}
-                visible
-              />
-            )}
           </>
         )}
 

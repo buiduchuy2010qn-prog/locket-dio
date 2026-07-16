@@ -1,5 +1,6 @@
 export * from "./getInfoCamera";
 export * from "./cameraLens";
+export * from "./zoomContinuum";
 // Selective export — avoid clashing label helpers re-exported from cameraLens
 export {
   classifyCameras,
