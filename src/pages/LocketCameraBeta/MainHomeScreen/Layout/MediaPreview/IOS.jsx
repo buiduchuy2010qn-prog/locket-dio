@@ -46,6 +46,7 @@ import {
   getUltraWideFactor,
   resolveUltraWideFactor,
   readLiveZoomFromCamera,
+  getLiveZoomDisplay,
   wideBandThreshold,
   applyLiveZoom,
   isWideZoomMode,
@@ -88,6 +89,7 @@ const MediaPreviewIOS = () => {
     setDeviceId,
     currentZoom,
     setCurrentZoom,
+    currentLensType,
     setCurrentLensType,
     setMinZoom,
     setMaxZoom,
@@ -204,36 +206,49 @@ const MediaPreviewIOS = () => {
       setMaxZoom(bounds.maxZoom);
       setZoomStep(bounds.step || 0.1);
 
+      const settings = getCurrentTrackSettings(stream);
+      const actualId = settings.deviceId || null;
+      const device =
+        cameras?.allCameras?.find((d) => d.deviceId === actualId) || null;
+      const lensType = classifyLensType(device, shape);
+      setCurrentLensType(lensType);
+
+      const disp = getLiveZoomDisplay(stream, {
+        lensType,
+        detected: shape,
+        preferredMode: lastZoomLevel.current,
+        uiZoom: currentZoomValue.current,
+      });
+
       const modes = computeAvailableZoomModes(shape, stream);
       modes["1x"] = true;
       // Cam sau: luôn bật nút góc rộng — thử physical ultra + digital min
       modes["0.5x"] = true;
       modes.ultraFactor =
-        modes.ultraFactor ||
-        getUltraWideFactor(stream, shape) ||
+        disp.ultraFactor ??
+        modes.ultraFactor ??
+        getUltraWideFactor(stream, shape) ??
         null;
       setAvailableZoomModes(modes);
 
-      const settings = getCurrentTrackSettings(stream);
-      const actualId = settings.deviceId || null;
-      const device =
-        cameras?.allCameras?.find((d) => d.deviceId === actualId) || null;
-      setCurrentLensType(classifyLensType(device, shape));
-
-      const z = settings.zoom ?? currentZoomValue.current ?? 1;
-      let display = z;
-      // Live factor only — never invent 0.5 when API omits zoom
-      const uf = modes.ultraFactor || getUltraWideFactor(stream, shape);
-      if (
-        shape.ultrawide?.deviceId &&
-        actualId === shape.ultrawide.deviceId &&
-        z <= 1.1 &&
-        uf != null
-      ) {
-        display = uf;
+      if (disp.value != null && Number.isFinite(disp.value)) {
+        currentZoomValue.current = disp.value;
+        setCurrentZoom(disp.value);
+      } else if (disp.label === "UW") {
+        const base =
+          typeof settings.zoom === "number" && Number.isFinite(settings.zoom)
+            ? settings.zoom
+            : 1;
+        currentZoomValue.current = base;
+        setCurrentZoom(base);
+      } else {
+        const z =
+          typeof settings.zoom === "number" && Number.isFinite(settings.zoom)
+            ? settings.zoom
+            : currentZoomValue.current ?? 1;
+        currentZoomValue.current = z;
+        setCurrentZoom(z);
       }
-      currentZoomValue.current = display;
-      setCurrentZoom(display);
       if (actualId) lastDeviceId.current = actualId;
     },
     [
@@ -531,26 +546,38 @@ const MediaPreviewIOS = () => {
         } catch {
           /* ignore */
         }
+        await new Promise((r) => setTimeout(r, 120));
         const live = readLiveZoomFromCamera(result.stream);
-        const factor = resolveUltraWideFactor(
-          result.stream,
-          detShape,
-          result.ultraFactor ??
-            result.currentZoom ??
-            live.current ??
-            live.min,
-        );
+        const lensType = result.lensType || "ultrawide";
         setZoomLevel(WIDE_ZOOM_MODE);
         lastZoomLevel.current = WIDE_ZOOM_MODE;
         setActiveZoomMode(WIDE_ZOOM_MODE);
-        currentZoomValue.current =
-          factor != null ? factor : live.current ?? live.min ?? 1;
-        setCurrentZoom(currentZoomValue.current);
-        setCurrentLensType(result.lensType || "ultrawide");
+        setCurrentLensType(lensType);
+        const disp = getLiveZoomDisplay(result.stream, {
+          lensType,
+          detected: detShape,
+          preferredMode: WIDE_ZOOM_MODE,
+          uiZoom:
+            result.ultraFactor ??
+            result.currentZoom ??
+            live.current ??
+            live.min,
+        });
+        if (disp.value != null && Number.isFinite(disp.value)) {
+          currentZoomValue.current = disp.value;
+          setCurrentZoom(disp.value);
+        } else {
+          const base =
+            typeof live.current === "number" && Number.isFinite(live.current)
+              ? live.current
+              : 1;
+          currentZoomValue.current = base;
+          setCurrentZoom(base);
+        }
         setAvailableZoomModes((prev) => ({
           ...(prev || {}),
           "0.5x": true,
-          ultraFactor: factor,
+          ultraFactor: disp.ultraFactor,
         }));
         attachStreamToVideo(result.stream, "environment");
         syncZoomStateFromStream(
@@ -1297,10 +1324,21 @@ const MediaPreviewIOS = () => {
                   style={{ textShadow: "0 1px 2px rgba(0,0,0,0.35)" }}
                 >
                   {(() => {
-                    const n = Number(currentZoom);
-                    // Front never shows ultra
-                    if ((cameraMode || "user") === "user" && n < 1) return "1x";
-                    return updateZoomBadge(n);
+                    if ((cameraMode || "environment") === "user") {
+                      const n = Number(currentZoom);
+                      return updateZoomBadge(
+                        Number.isFinite(n) && n >= 1 ? n : 1,
+                      );
+                    }
+                    const disp = getLiveZoomDisplay(streamRef.current, {
+                      lensType: currentLensType,
+                      detected: toDetectedShape(
+                        detectedRef.current || detectedCameras,
+                      ),
+                      preferredMode: activeZoomMode || lastZoomLevel.current,
+                      uiZoom: currentZoom,
+                    });
+                    return disp.label;
                   })()}
                 </div>
               </div>

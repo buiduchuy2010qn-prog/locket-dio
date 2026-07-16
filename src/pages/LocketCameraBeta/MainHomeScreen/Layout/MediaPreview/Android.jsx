@@ -46,6 +46,7 @@ import {
   getUltraWideFactor,
   resolveUltraWideFactor,
   readLiveZoomFromCamera,
+  getLiveZoomDisplay,
   wideBandThreshold,
   applyLiveZoom,
   isWideZoomMode,
@@ -86,6 +87,7 @@ const MediaPreviewAndroid = () => {
     setDeviceId,
     currentZoom,
     setCurrentZoom,
+    currentLensType,
     setCurrentLensType,
     setMinZoom,
     setMaxZoom,
@@ -216,36 +218,51 @@ const MediaPreviewAndroid = () => {
       setMaxZoom(bounds.maxZoom);
       setZoomStep(bounds.step || 0.1);
 
+      const settings = getCurrentTrackSettings(stream);
+      const actualId = settings.deviceId || null;
+      const device =
+        cameras?.allCameras?.find((d) => d.deviceId === actualId) || null;
+      const lensType = classifyLensType(device, shape);
+      setCurrentLensType(lensType);
+
+      // Badge / pill: always from live track (never invent 0.5 / force 1x on UW)
+      const disp = getLiveZoomDisplay(stream, {
+        lensType,
+        detected: shape,
+        preferredMode: lastZoomLevel.current,
+        uiZoom: currentZoomValue.current,
+      });
+
       const modes = computeAvailableZoomModes(shape, stream);
       modes["1x"] = true;
       // Cam sau: luôn bật nút góc rộng — thử physical ultra + digital min
       modes["0.5x"] = true;
       modes.ultraFactor =
-        modes.ultraFactor ||
-        getUltraWideFactor(stream, shape) ||
+        disp.ultraFactor ??
+        modes.ultraFactor ??
+        getUltraWideFactor(stream, shape) ??
         null;
       setAvailableZoomModes(modes);
 
-      const settings = getCurrentTrackSettings(stream);
-      const actualId = settings.deviceId || null;
-      const device =
-        cameras?.allCameras?.find((d) => d.deviceId === actualId) || null;
-      setCurrentLensType(classifyLensType(device, shape));
-
-      const z = settings.zoom ?? currentZoomValue.current ?? 1;
-      let display = z;
-      // Live factor only — never invent 0.5/0.6 when API omits zoom
-      const uf = modes.ultraFactor || getUltraWideFactor(stream, shape);
-      if (
-        shape.ultrawide?.deviceId &&
-        actualId === shape.ultrawide.deviceId &&
-        z <= 1.1 &&
-        uf != null
-      ) {
-        display = uf;
+      if (disp.value != null && Number.isFinite(disp.value)) {
+        currentZoomValue.current = disp.value;
+        setCurrentZoom(disp.value);
+      } else if (disp.label === "UW") {
+        // Physical UW without numeric zoom — keep pinch base, label via badge helper
+        const base =
+          typeof settings.zoom === "number" && Number.isFinite(settings.zoom)
+            ? settings.zoom
+            : 1;
+        currentZoomValue.current = base;
+        setCurrentZoom(base);
+      } else {
+        const z =
+          typeof settings.zoom === "number" && Number.isFinite(settings.zoom)
+            ? settings.zoom
+            : currentZoomValue.current ?? 1;
+        currentZoomValue.current = z;
+        setCurrentZoom(z);
       }
-      currentZoomValue.current = display;
-      setCurrentZoom(display);
       if (actualId) lastDeviceId.current = actualId;
 
       setTorchSupported(Boolean(getCurrentTrackCapabilities(stream)?.torch));
@@ -564,6 +581,8 @@ const MediaPreviewAndroid = () => {
         } catch {
           /* ignore */
         }
+        // Let HAL publish getSettings().zoom before we read the badge number
+        await new Promise((r) => setTimeout(r, 120));
         if (!isLiveVideoStream(result.stream)) {
           setForceRearLensPicker(multiRear);
           SonnerInfo(
@@ -575,32 +594,38 @@ const MediaPreviewAndroid = () => {
           return;
         }
         const live = readLiveZoomFromCamera(result.stream);
-        const factor = resolveUltraWideFactor(
-          result.stream,
-          detShape,
-          result.ultraFactor ??
-            result.currentZoom ??
-            live.current ??
-            live.min,
-        );
-        // Label from real caps only — never invent 0.5/0.6
+        const lensType = result.lensType || "ultrawide";
         setZoomLevel(WIDE_ZOOM_MODE);
         lastZoomLevel.current = WIDE_ZOOM_MODE;
         setActiveZoomMode(WIDE_ZOOM_MODE);
-        currentZoomValue.current =
-          factor != null
-            ? factor
-            : isUltraZoomValue(live.current)
+        setCurrentLensType(lensType);
+
+        const disp = getLiveZoomDisplay(result.stream, {
+          lensType,
+          detected: detShape,
+          preferredMode: WIDE_ZOOM_MODE,
+          uiZoom:
+            result.ultraFactor ??
+            result.currentZoom ??
+            live.current ??
+            live.min,
+        });
+        // Number from track (0.5/0.6…) or null → badge shows "UW"
+        if (disp.value != null && Number.isFinite(disp.value)) {
+          currentZoomValue.current = disp.value;
+          setCurrentZoom(disp.value);
+        } else {
+          const base =
+            typeof live.current === "number" && Number.isFinite(live.current)
               ? live.current
-              : isUltraZoomValue(live.min)
-                ? live.min
-                : live.current ?? live.min ?? 1;
-        setCurrentZoom(currentZoomValue.current);
-        setCurrentLensType(result.lensType || "ultrawide");
+              : 1;
+          currentZoomValue.current = base;
+          setCurrentZoom(base);
+        }
         setAvailableZoomModes((prev) => ({
           ...(prev || {}),
           "0.5x": true,
-          ultraFactor: factor, // null → ZoomPresets shows "UW"
+          ultraFactor: disp.ultraFactor, // null → ZoomPresets shows "UW"
         }));
         attachStreamToVideo(result.stream, "environment");
         syncZoomStateFromStream(
@@ -616,7 +641,7 @@ const MediaPreviewAndroid = () => {
             ? { min: live.min, max: live.max }
             : null,
           trackState: "live",
-          applyResult: factor,
+          applyResult: disp.ultraFactor ?? disp.label,
         });
       } catch (e) {
         console.error("[camera-ptz]", e?.name, e?.message, e);
@@ -891,6 +916,18 @@ const MediaPreviewAndroid = () => {
     if (!pinchState.current.active && !isPinching) return;
     const isFront = (cameraMode || "user") === "user";
     pinchingRef.current = false;
+
+    // Re-read track zoom so badge matches hardware after pinch settles
+    try {
+      const liveZ = getCurrentTrackSettings(streamRef.current)?.zoom;
+      if (typeof liveZ === "number" && Number.isFinite(liveZ)) {
+        currentZoomValue.current = liveZ;
+        setCurrentZoom(liveZ);
+      }
+    } catch {
+      /* ignore */
+    }
+
     pinchState.current = {
       ...(isFront ? handleFrontCameraPinchEnd() : handlePinchZoomEnd()),
       zoom: currentZoomValue.current,
@@ -1430,14 +1467,22 @@ const MediaPreviewAndroid = () => {
                   style={{ textShadow: "0 1px 2px rgba(0,0,0,0.35)" }}
                 >
                   {(() => {
-                    const n = Number(currentZoom);
-                    // Front never shows ultra
-                    if (
-                      (cameraMode || "environment") === "user" &&
-                      n < 1
-                    )
-                      return "1x";
-                    return updateZoomBadge(n);
+                    // Front never shows ultra-wide numbers
+                    if ((cameraMode || "environment") === "user") {
+                      const n = Number(currentZoom);
+                      return updateZoomBadge(
+                        Number.isFinite(n) && n >= 1 ? n : 1,
+                      );
+                    }
+                    const disp = getLiveZoomDisplay(streamRef.current, {
+                      lensType: currentLensType,
+                      detected: toDetectedShape(
+                        detectedRef.current || detectedCameras,
+                      ),
+                      preferredMode: activeZoomMode || lastZoomLevel.current,
+                      uiZoom: currentZoom,
+                    });
+                    return disp.label;
                   })()}
                 </div>
               </div>
@@ -1515,22 +1560,35 @@ const MediaPreviewAndroid = () => {
                     setZoomLevel(WIDE_ZOOM_MODE);
                     lastZoomLevel.current = WIDE_ZOOM_MODE;
                     setActiveZoomMode(WIDE_ZOOM_MODE);
+                    await new Promise((r) => setTimeout(r, 80));
                     const live = readLiveZoomFromCamera(stream);
-                    const factor = resolveUltraWideFactor(
-                      stream,
-                      toDetectedShape(
-                        detectedRef.current || detectedCameras,
-                      ),
-                      applied ?? live.current ?? live.min,
+                    const detShape = toDetectedShape(
+                      detectedRef.current || detectedCameras,
                     );
-                    currentZoomValue.current =
-                      factor ?? live.current ?? live.min ?? 1;
-                    setCurrentZoom(currentZoomValue.current);
+                    const disp = getLiveZoomDisplay(stream, {
+                      lensType: "ultrawide",
+                      detected: detShape,
+                      preferredMode: WIDE_ZOOM_MODE,
+                      uiZoom: applied ?? live.current ?? live.min,
+                    });
+                    if (disp.value != null && Number.isFinite(disp.value)) {
+                      currentZoomValue.current = disp.value;
+                      setCurrentZoom(disp.value);
+                    } else {
+                      const base =
+                        typeof live.current === "number" &&
+                        Number.isFinite(live.current)
+                          ? live.current
+                          : 1;
+                      currentZoomValue.current = base;
+                      setCurrentZoom(base);
+                    }
                     setCurrentLensType("ultrawide");
                     setAvailableZoomModes((prev) => ({
                       ...(prev || {}),
                       "0.5x": true,
-                      ultraFactor: factor ?? prev?.ultraFactor ?? null,
+                      ultraFactor:
+                        disp.ultraFactor ?? prev?.ultraFactor ?? null,
                     }));
                     attachStreamToVideo(stream, "environment");
                     syncZoomStateFromStream(
@@ -1545,7 +1603,7 @@ const MediaPreviewAndroid = () => {
                       selectedDeviceId: selectedId,
                       settingsZoom: live.current,
                       trackState: "live",
-                      applyResult: factor ?? applied,
+                      applyResult: disp.ultraFactor ?? disp.label ?? applied,
                     });
                     return true;
                   } catch (e) {

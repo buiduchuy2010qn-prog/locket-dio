@@ -1695,14 +1695,17 @@ export function clearTrackZoomCache(stream) {
   if (track) trackZoomCache.delete(track);
 }
 
-/** Format badge text: 0.5x, 0.6x, 1x, 1.4x, 2x… */
+/** Format badge text: 0.5x, 0.6x, 1x, 1.4x, 2x… — never invent numbers. */
 export function updateZoomBadge(value) {
+  if (value === "UW" || value === "uw") return "UW";
   const n = Number(value);
-  if (!Number.isFinite(n)) return "1x";
+  // Unknown / missing → blank marker (callers prefer getLiveZoomDisplay)
+  if (!Number.isFinite(n) || n <= 0) return "—";
   if (Math.abs(n - 1) < 0.05) return "1x";
   // góc rộng: hiện 1 chữ số thập phân (0.5 / 0.6 / 0.7)
   if (n > 0.2 && n < 0.95) {
-    return `${Number(n.toFixed(1))}x`;
+    const r = roundZoomFactor(n);
+    return `${r != null ? r : Number(n.toFixed(1))}x`;
   }
   if (Number.isInteger(n) || Math.abs(n - Math.round(n)) < 0.05) {
     return `${Math.round(n)}x`;
@@ -1716,6 +1719,163 @@ export function updateZoomBadge(value) {
  */
 export function getUltraWideFactor(stream, detected = null) {
   return resolveUltraWideFactor(stream, detected, null);
+}
+
+/**
+ * Live zoom label for badge / presets — single source of truth.
+ * Prefers track getSettings().zoom + capabilities.min; never invents 0.5/0.6.
+ *
+ * @param {MediaStream|null} stream
+ * @param {{
+ *   lensType?: string|null,
+ *   detected?: object|null,
+ *   preferredMode?: string|null,
+ *   uiZoom?: number|null,
+ * }} [options]
+ * @returns {{
+ *   value: number|null,
+ *   label: string,
+ *   ultraFactor: number|null,
+ *   inUltraBand: boolean,
+ *   onPhysicalUltra: boolean,
+ * }}
+ */
+export function getLiveZoomDisplay(stream = null, options = {}) {
+  const {
+    lensType = null,
+    detected = null,
+    preferredMode = null,
+    uiZoom = null,
+  } = options;
+
+  const live = readLiveZoomFromCamera(stream);
+  let settingsId = null;
+  try {
+    settingsId = getCurrentTrackSettings(stream)?.deviceId || null;
+  } catch {
+    /* ignore */
+  }
+  const ultraId = detected?.ultrawide?.deviceId || null;
+  const onPhysicalUltra =
+    lensType === "ultrawide" ||
+    Boolean(ultraId && settingsId && settingsId === ultraId);
+
+  const liveCurrent =
+    typeof live.current === "number" && Number.isFinite(live.current)
+      ? live.current
+      : null;
+  const liveMin =
+    typeof live.min === "number" && Number.isFinite(live.min)
+      ? live.min
+      : null;
+  const ui =
+    typeof uiZoom === "number" && Number.isFinite(uiZoom) ? uiZoom : null;
+
+  // Prefer live settings; keep UI only when HAL lags at 1x after logical UW park
+  let numeric = liveCurrent;
+  if (liveCurrent != null && isUltraZoomValue(liveCurrent)) {
+    numeric = liveCurrent;
+  } else if (
+    ui != null &&
+    isUltraZoomValue(ui) &&
+    (liveCurrent == null || Math.abs(liveCurrent - 1) < 0.08)
+  ) {
+    numeric = ui;
+  } else if (numeric == null && ui != null) {
+    numeric = ui;
+  } else if (
+    numeric == null &&
+    liveMin != null &&
+    isUltraZoomValue(liveMin) &&
+    (preferredMode == null || isWideZoomMode(preferredMode) || onPhysicalUltra)
+  ) {
+    numeric = liveMin;
+  }
+
+  const factor = resolveUltraWideFactor(
+    stream,
+    detected,
+    isUltraZoomValue(numeric)
+      ? numeric
+      : isUltraZoomValue(liveMin)
+        ? liveMin
+        : null,
+  );
+
+  const wideMode = preferredMode != null && isWideZoomMode(preferredMode);
+  const minIsMainOnly =
+    liveMin == null || !Number.isFinite(liveMin) || Number(liveMin) >= 0.98;
+
+  // Physical UW (or UW mode) at native FOV with no ultra-band zoom number → "UW"
+  // Do NOT show "1x" (that reads as main lens).
+  if (
+    (onPhysicalUltra || wideMode) &&
+    minIsMainOnly &&
+    !isUltraZoomValue(numeric) &&
+    !isUltraZoomValue(factor)
+  ) {
+    if (numeric != null && Number(numeric) > 1.15) {
+      const r = roundZoomFactor(numeric) ?? Number(numeric.toFixed(1));
+      return {
+        value: r,
+        label: updateZoomBadge(r),
+        ultraFactor: factor,
+        inUltraBand: false,
+        onPhysicalUltra,
+      };
+    }
+    return {
+      value: null,
+      label: "UW",
+      ultraFactor: factor,
+      inUltraBand: true,
+      onPhysicalUltra,
+    };
+  }
+
+  if (numeric != null && Number.isFinite(numeric)) {
+    const r =
+      isUltraZoomValue(numeric) || numeric < 0.98
+        ? roundZoomFactor(numeric) ?? Math.round(numeric * 10) / 10
+        : Math.abs(numeric - 1) < 0.05
+          ? 1
+          : roundZoomFactor(numeric) ?? Math.round(numeric * 10) / 10;
+    return {
+      value: r,
+      label: updateZoomBadge(r),
+      ultraFactor: factor ?? (isUltraZoomValue(r) ? r : null),
+      inUltraBand: isUltraZoomValue(r),
+      onPhysicalUltra,
+    };
+  }
+
+  if (factor != null) {
+    return {
+      value: factor,
+      label: updateZoomBadge(factor),
+      ultraFactor: factor,
+      inUltraBand: true,
+      onPhysicalUltra,
+    };
+  }
+
+  if (onPhysicalUltra || wideMode) {
+    return {
+      value: null,
+      label: "UW",
+      ultraFactor: null,
+      inUltraBand: true,
+      onPhysicalUltra,
+    };
+  }
+
+  return {
+    value: 1,
+    label: "1x",
+    ultraFactor: null,
+    inUltraBand: false,
+    onPhysicalUltra: false,
+  };
 }
 
 /**
