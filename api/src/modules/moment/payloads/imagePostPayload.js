@@ -283,12 +283,15 @@ const imagePostPayloadMusic = ({ imageUrl, optionsData }) => {
     payload?.title ||
     "";
   const artist = payload?.artist || "";
-  // Caption pill: "Tên · Nghệ sĩ" (Locket Dio dùng text = caption)
-  const text =
+  const fallbackText =
     (caption || optText || "").trim() ||
     [songTitle, artist].filter(Boolean).join(" · ") ||
     songTitle ||
     "Music";
+  // Shape native đã chạy ổn: text chỉ là tên bài; app tự ghép artist từ payload.
+  const text = songTitle || fallbackText;
+  const altText =
+    [songTitle, artist].filter(Boolean).join(" · ") || fallbackText;
 
   // ISRC 12 ký tự — app Locket bắt buộc để hiện caption nhạc
   const isrcRaw = payload?.isrc
@@ -340,6 +343,7 @@ const imagePostPayloadMusic = ({ imageUrl, optionsData }) => {
   const musicPayload = {
     isrc,
     song_title: songTitle,
+    song_name: songTitle,
     artist,
   };
 
@@ -390,9 +394,6 @@ const imagePostPayloadMusic = ({ imageUrl, optionsData }) => {
         source: "url",
       };
 
-  // Top-level caption (một số client Locket đọc)
-  data.caption = text;
-
   data.overlays.push({
     data: {
       text,
@@ -403,7 +404,7 @@ const imagePostPayloadMusic = ({ imageUrl, optionsData }) => {
       icon: musicIcon,
       background: { material_blur: "ultra_thin", colors: [] },
     },
-    alt_text: text,
+    alt_text: altText,
     overlay_id: "caption:music",
     overlay_type: "caption",
   });

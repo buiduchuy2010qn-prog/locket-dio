@@ -290,11 +290,14 @@ const videoPostPayloadMusic = ({ videoUrl, thumbnailUrl, optionsData }) => {
     payload?.title ||
     "";
   const artist = payload?.artist || "";
-  const text =
+  const fallbackText =
     (caption || optText || "").trim() ||
     [songTitle, artist].filter(Boolean).join(" · ") ||
     songTitle ||
     "Music";
+  const text = songTitle || fallbackText;
+  const altText =
+    [songTitle, artist].filter(Boolean).join(" · ") || fallbackText;
 
   const isrcRaw = payload?.isrc
     ? String(payload.isrc).trim().toUpperCase().replace(/[^A-Z0-9]/g, "")
@@ -342,6 +345,7 @@ const videoPostPayloadMusic = ({ videoUrl, thumbnailUrl, optionsData }) => {
   const musicPayload = {
     isrc,
     song_title: songTitle,
+    song_name: songTitle,
     artist,
   };
 
@@ -377,8 +381,6 @@ const videoPostPayloadMusic = ({ videoUrl, thumbnailUrl, optionsData }) => {
         source: "url",
       };
 
-  data.caption = text;
-
   data.overlays.push({
     data: {
       text,
@@ -392,7 +394,7 @@ const videoPostPayloadMusic = ({ videoUrl, thumbnailUrl, optionsData }) => {
         colors: [],
       },
     },
-    alt_text: text,
+    alt_text: altText,
     overlay_id: "caption:music",
     overlay_type: "caption",
   });
