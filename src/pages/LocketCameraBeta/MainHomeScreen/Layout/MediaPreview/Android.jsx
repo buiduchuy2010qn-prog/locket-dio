@@ -69,6 +69,9 @@ import {
   mapGlobalZoomToLens,
   continuumBounds,
   rememberLensZoomCaps,
+  snapGlobalZoomOnRelease,
+  isExactlyMainZoom,
+  ensureCameraLensMapVersion,
 } from "@/utils";
 const EditorCaption = lazy(() => import("@/features/EditorCaption"));
 import { useApp } from "@/context/AppContext";
@@ -311,24 +314,37 @@ const MediaPreviewAndroid = () => {
   /**
    * User gesture zoom: display immediate; HW apply latest-wins;
    * multi-physical handoff with freeze frame + hysteresis.
+   * @param {{ modeHint?: string, snap?: boolean }} [opts]
+   *   snap=true only on pointerup (soft snap to 1x / markers)
    */
   const requestUserZoom = useCallback(
-    (raw, { modeHint } = {}) => {
+    (raw, { modeHint, snap = false } = {}) => {
       const cont = continuumRef.current;
       const { minZoom: mn, maxZoom: mx } = continuumBounds(
         cont,
         boundsRef.current,
       );
-      const clamped = clampZoom(raw, mn ?? 1, mx ?? 1);
-      setDisplayZoomNow(clamped, modeHint);
-      pendingGlobalZoomRef.current = clamped;
+      let next = clampZoom(raw, mn ?? 1, mx ?? 1);
+      if (snap) {
+        next = clampZoom(snapGlobalZoomOnRelease(next, cont), mn ?? 1, mx ?? 1);
+      }
+      // Display first — never await camera
+      const hint =
+        modeHint ||
+        (isExactlyMainZoom(next)
+          ? "1x"
+          : next < 0.92
+            ? WIDE_ZOOM_MODE
+            : "custom");
+      setDisplayZoomNow(next, hint);
+      pendingGlobalZoomRef.current = next;
 
       const liveId =
         getCurrentTrackSettings(streamRef.current)?.deviceId ||
         lastDeviceId.current ||
         deviceId;
       const mapped = mapGlobalZoomToLens(
-        clamped,
+        next,
         cont,
         liveId,
         stickyLensTypeRef.current,
@@ -341,19 +357,24 @@ const MediaPreviewAndroid = () => {
         (cameraMode || "environment") !== "user"
       ) {
         stickyLensTypeRef.current = mapped.type || stickyLensTypeRef.current;
+        if (mapped.type) setCurrentLensType(mapped.type);
         void switchPhysicalLensForZoom(mapped.deviceId, mapped.type);
         return;
       }
 
-      if (mapped.type) stickyLensTypeRef.current = mapped.type;
-      // Local track zoom (not global) for multi-physical relative lenses
+      if (mapped.type) {
+        stickyLensTypeRef.current = mapped.type;
+        setCurrentLensType(mapped.type);
+      }
+      // Local track zoom (global / baseZoom) — latest-wins throttle ~40ms
       zoomApplierRef.current?.request(
-        mapped.localZoom != null ? mapped.localZoom : clamped,
+        mapped.localZoom != null ? mapped.localZoom : next,
       );
     },
     [
       cameraMode,
       deviceId,
+      setCurrentLensType,
       setDisplayZoomNow,
       switchPhysicalLensForZoom,
     ],
@@ -544,9 +565,8 @@ const MediaPreviewAndroid = () => {
    * Apply zoom on the CURRENT track.
    * allowLensSwitch=false khi đang pinch / đã ở ultra → không restart stream.
    *
-   * Sticky ultra-wide: once actualId === ultraId, NEVER setDeviceId(main)
-   * just because zoom crossed 0.92. Leaving UW is only via preset 1x
-   * (handleSelectZoomMode). Continuous zoom = applyCameraZoom only.
+   * Continuous zoom + lens handoff via mapGlobalZoomToLens.
+   * At ~1x always force main (never leave stream on ultrawide).
    */
   const applyDisplayZoom = useCallback(
     async (displayZoom, { force = false, allowLensSwitch = true } = {}) => {
@@ -593,90 +613,57 @@ const MediaPreviewAndroid = () => {
       }
 
       const cameras = detectedRef.current;
-      const shape = toDetectedShape(cameras);
-      // Prefer live track range (UW often has lower min than main)
-      const liveRange = supportsHardwareZoom(stream)
-        ? readZoomRange(stream)
-        : null;
-      const bounds = boundsRef.current;
-      const minZ =
-        liveRange?.supported && Number.isFinite(liveRange.minZoom)
-          ? liveRange.minZoom
-          : (bounds.minZoom ?? 1);
-      const maxZ =
-        liveRange?.supported && Number.isFinite(liveRange.maxZoom)
-          ? liveRange.maxZoom
-          : (bounds.maxZoom ?? 1);
-      // Keep boundsRef in sync with active lens so pinch uses UW range
-      boundsRef.current = { minZoom: minZ, maxZoom: maxZ };
-      const clamped = Math.max(
-        minZ,
-        Math.min(Number(displayZoom) || minZ, maxZ),
+      // Global continuum bounds (not live-track-only — that clamps 1x onto UW)
+      const cont =
+        continuumRef.current ||
+        rebuildContinuum(stream, cameras, "environment");
+      const { minZoom: mn, maxZoom: mx } = continuumBounds(
+        cont,
+        boundsRef.current,
       );
+      boundsRef.current = { minZoom: mn, maxZoom: mx };
+      const clamped = clampZoom(Number(displayZoom) || 1, mn, mx);
 
-      const thr = wideBandThreshold(
-        stream,
-        availableZoomModes?.ultraFactor ??
-          resolveUltraWideFactor(stream, shape, null),
-      );
       currentZoomValue.current = clamped;
       let mode = "custom";
-      if (clamped < thr) mode = WIDE_ZOOM_MODE;
-      else if (Math.abs(clamped - 1) < 0.15) mode = "1x";
+      if (isExactlyMainZoom(clamped)) mode = "1x";
+      else if (clamped < 0.92) mode = WIDE_ZOOM_MODE;
       else if (clamped >= 1.7) mode = "2x";
       scheduleBadge(clamped, mode);
       if (mode === WIDE_ZOOM_MODE || mode === "1x") lastZoomLevel.current = mode;
 
-      const mapped = mapDisplayZoomToLens(clamped, shape, stream);
+      // Continuum mapping — 1x forces main deviceId
       const settings = getCurrentTrackSettings(stream);
       const actualId =
         settings.deviceId || lastDeviceId.current || deviceId || null;
-      const ultraId = shape.ultrawide?.deviceId || null;
-      const onPhysicalUltra = Boolean(
-        ultraId && actualId && actualId === ultraId,
+      const mapped = mapGlobalZoomToLens(
+        clamped,
+        cont,
+        actualId,
+        stickyLensTypeRef.current,
       );
 
-      // Lens switch — only hop ONTO ultra/tele, never auto-leave ultra on zoom
-      if (canSwitchLens && !onPhysicalUltra) {
-        if (
-          clamped < thr &&
-          ultraId &&
-          actualId !== ultraId &&
-          mapped.lensType === "ultrawide"
-        ) {
-          const factor =
-            mapped.displayZoom ??
-            availableZoomModes?.ultraFactor ??
-            getUltraWideFactor(stream, shape) ??
-            null;
-          setZoomLevel(WIDE_ZOOM_MODE);
-          lastZoomLevel.current = WIDE_ZOOM_MODE;
-          setActiveZoomMode(WIDE_ZOOM_MODE);
-          currentZoomValue.current =
-            factor != null ? factor : currentZoomValue.current || 1;
-          setCurrentZoom(currentZoomValue.current);
-          setIsSwitchingCamera(true);
-          setDeviceId(ultraId);
-          return true;
+      if (
+        canSwitchLens &&
+        mapped.switchDevice &&
+        mapped.deviceId &&
+        mapped.deviceId !== actualId
+      ) {
+        stickyLensTypeRef.current = mapped.type || stickyLensTypeRef.current;
+        setCurrentLensType(mapped.type || "main");
+        if (isExactlyMainZoom(clamped)) {
+          setZoomLevel("1x");
+          setActiveZoomMode("1x");
+          lastZoomLevel.current = "1x";
         }
-
-        if (
-          mapped.lensType === "telephoto" &&
-          mapped.deviceId &&
-          actualId !== mapped.deviceId &&
-          clamped >= 1.9
-        ) {
-          setZoomLevel("2x");
-          setDeviceId(mapped.deviceId);
-          return true;
-        }
+        setIsSwitchingCamera(true);
+        setDeviceId(mapped.deviceId);
+        return true;
       }
 
-      // HW zoom on CURRENT lens — clamp via live getCapabilities only
+      // HW zoom on CURRENT lens — local = global/base (or absolute)
       const digi =
-        mapped.digitalZoom != null
-          ? mapped.digitalZoom
-          : Math.max(minZ, Math.min(clamped, maxZ));
+        mapped.localZoom != null ? mapped.localZoom : clamped;
       if (supportsHardwareZoom(stream)) {
         if (applyInFlight.current && !force) {
           pendingZoom.current = digi;
@@ -686,9 +673,8 @@ const MediaPreviewAndroid = () => {
         try {
           const applied = await applyLiveZoom(stream, digi);
           if (applied !== false) {
-            if (onPhysicalUltra || mapped.lensType === "ultrawide") {
-              setCurrentLensType("ultrawide");
-            }
+            if (mapped.type) setCurrentLensType(mapped.type);
+            stickyLensTypeRef.current = mapped.type || stickyLensTypeRef.current;
             return true;
           }
         } finally {
@@ -714,7 +700,7 @@ const MediaPreviewAndroid = () => {
       setDeviceId,
       setIsSwitchingCamera,
       setZoomLevel,
-      availableZoomModes?.ultraFactor,
+      rebuildContinuum,
     ],
   );
 
@@ -1306,6 +1292,7 @@ const MediaPreviewAndroid = () => {
   };
 
   const startCamera = async () => {
+    ensureCameraLensMapVersion();
     const requestId = startRequestId.current + 1;
     startRequestId.current = requestId;
     startingRef.current = true;
@@ -1780,8 +1767,10 @@ const MediaPreviewAndroid = () => {
               </div>
             )}
 
-            {/* Manual rear lens pick — multi-cam fallback (W3C: no focalLength) */}
-            {showZoomUi && (cameraMode || "environment") !== "user" && (
+            {/* Manual rear lens pick — PRODUCTION HIDDEN; only ?cameraDebug=1 */}
+            {showZoomUi &&
+              cameraDebug &&
+              (cameraMode || "environment") !== "user" && (
               <RearLensPicker
                 rearOptions={
                   availableZoomModes?.rearOptions ||
@@ -1797,23 +1786,7 @@ const MediaPreviewAndroid = () => {
                   null
                 }
                 activeDeviceId={deviceId || lastDeviceId.current}
-                visible={Boolean(
-                  forceRearLensPicker ||
-                    cameraDebug ||
-                    availableZoomModes?.needsManualLensPick ||
-                    detectedCameras?.needsManualLensPick ||
-                    detectedRef.current?.needsManualLensPick ||
-                    shouldOfferLensPicker(
-                      (
-                        availableZoomModes?.rearOptions ||
-                        detectedCameras?.rearOptions ||
-                        detectedCameras?.backCameras ||
-                        detectedRef.current?.rearOptions ||
-                        detectedRef.current?.backCameras ||
-                        []
-                      ).length,
-                    ),
-                )}
+                visible
                 disabled={isSwitchingCamera || isPinching}
                 onSelectAuto={async () => {
                   if (isSwitchingCamera) return false;
@@ -1976,25 +1949,12 @@ const MediaPreviewAndroid = () => {
                   visible
                   onInputValue={(z) => {
                     zoomGestureActiveRef.current = true;
-                    const uf = availableZoomModes?.ultraFactor;
-                    const wideSnap =
-                      uf != null && uf < 0.98 ? (Number(uf) + 1) / 2 : 0.92;
-                    const modeHint =
-                      (cameraMode || "environment") === "user"
-                        ? Math.abs(z - 1) < 0.12
-                          ? "1x"
-                          : "custom"
-                        : z < wideSnap
-                          ? WIDE_ZOOM_MODE
-                          : Math.abs(z - 1) < 0.12
-                            ? "1x"
-                            : "custom";
-                    requestUserZoom(z, { modeHint });
+                    requestUserZoom(z);
                   }}
                   onGestureEnd={() => {
                     zoomGestureActiveRef.current = false;
-                    // Flush latest GLOBAL → map to local once more
-                    requestUserZoom(currentZoomValue.current);
+                    // Soft snap only on release (e.g. near 1x → main)
+                    requestUserZoom(currentZoomValue.current, { snap: true });
                   }}
                 />
               )}

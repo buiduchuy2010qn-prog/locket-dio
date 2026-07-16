@@ -152,10 +152,45 @@ let probeInFlight = null;
 // deviceId and prefer it on later UW taps. Device ids can rotate after site
 // data/permission is cleared, so every read is validated against the current
 // enumerateDevices result.
+/** Bump when lens mapping semantics change — clears stale preferred-wide ids */
+export const CAMERA_LENS_MAP_VERSION = 2;
+const CAMERA_LENS_MAP_VERSION_KEY = "huy-locket:camera:lensMapVersion";
 const PREFERRED_WIDE_CAMERA_KEY =
-  "huy-locket:camera:preferred-wide-device:v1";
+  "huy-locket:camera:preferred-wide-device:v2";
+const PREFERRED_WIDE_CAMERA_KEY_LEGACY = [
+  "huy-locket:camera:preferred-wide-device:v1",
+];
+
+/**
+ * Drop stale lens mapping cache (wrong UW↔1x bindings on S25 FE etc.).
+ * Safe to call on every camera init.
+ */
+export function ensureCameraLensMapVersion() {
+  try {
+    const ls = globalThis?.localStorage;
+    if (!ls) return;
+    const cur = Number(ls.getItem(CAMERA_LENS_MAP_VERSION_KEY));
+    if (cur === CAMERA_LENS_MAP_VERSION) return;
+    for (const k of PREFERRED_WIDE_CAMERA_KEY_LEGACY) {
+      try {
+        ls.removeItem(k);
+      } catch {
+        /* ignore */
+      }
+    }
+    try {
+      ls.removeItem(PREFERRED_WIDE_CAMERA_KEY);
+    } catch {
+      /* ignore */
+    }
+    ls.setItem(CAMERA_LENS_MAP_VERSION_KEY, String(CAMERA_LENS_MAP_VERSION));
+  } catch {
+    /* private mode */
+  }
+}
 
 export function getPreferredWideCameraId(rearDevices = []) {
+  ensureCameraLensMapVersion();
   try {
     const id = globalThis?.localStorage?.getItem(PREFERRED_WIDE_CAMERA_KEY);
     if (!id) return null;
@@ -173,6 +208,7 @@ export function getPreferredWideCameraId(rearDevices = []) {
 
 export function rememberPreferredWideCameraId(deviceId) {
   if (!deviceId) return false;
+  ensureCameraLensMapVersion();
   try {
     globalThis?.localStorage?.setItem(
       PREFERRED_WIDE_CAMERA_KEY,

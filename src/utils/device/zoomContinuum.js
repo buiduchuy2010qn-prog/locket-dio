@@ -537,16 +537,79 @@ function dedupeMarkers(markers) {
 
 function localFromGlobal(globalZoom, lens) {
   if (!lens) return globalZoom;
+  // Absolute tracks (logical / main digital): global FOV == track zoom
   if (lens.absolute) {
     return clampZoom(globalZoom, lens.minLocalZoom, lens.maxLocalZoom);
   }
+  // Relative physical: localZoom = requestedGlobalZoom / baseZoom
   const base = lens.baseZoom > 0 ? lens.baseZoom : 1;
   return clampZoom(globalZoom / base, lens.minLocalZoom, lens.maxLocalZoom);
 }
 
+/** Exact / near 1x → always main (not display-only). */
+export const MAIN_ZOOM_EPS = 0.02;
+
+export function isExactlyMainZoom(z) {
+  return Math.abs(Number(z) - 1) <= MAIN_ZOOM_EPS;
+}
+
 /**
- * Map global display zoom → active lens + local track zoom.
- * Hysteresis prevents flapping near boundaries (derived from baseZoom, not models).
+ * Soft snap only on pointerup (not during drag).
+ */
+export function snapGlobalZoomOnRelease(z, continuum) {
+  const cont = continuum || emptyContinuum();
+  const v = Number(z);
+  if (!Number.isFinite(v)) return 1;
+  // Prefer exact 1x
+  if (Math.abs(v - 1) <= 0.06) return 1;
+  const markers = Array.isArray(cont.markers) ? cont.markers : [];
+  let best = null;
+  let bestD = Infinity;
+  for (const m of markers) {
+    const mz = Number(m.zoom);
+    if (!Number.isFinite(mz)) continue;
+    const d = Math.abs(v - mz);
+    if (d < bestD && d <= 0.05) {
+      bestD = d;
+      best = mz;
+    }
+  }
+  return best != null ? best : v;
+}
+
+function findLensByType(lenses, type) {
+  return (lenses || []).find((l) => l?.type === type && l?.deviceId) || null;
+}
+
+function resultForLens(lens, z, currentDeviceId) {
+  if (!lens) {
+    return {
+      deviceId: currentDeviceId,
+      localZoom: z,
+      globalZoom: z,
+      switchDevice: false,
+      type: "unknown",
+      lens: null,
+    };
+  }
+  const switchDevice = Boolean(
+    lens.deviceId && currentDeviceId && lens.deviceId !== currentDeviceId,
+  );
+  return {
+    deviceId: lens.deviceId || currentDeviceId,
+    localZoom: localFromGlobal(z, lens),
+    globalZoom: z,
+    switchDevice,
+    type: lens.type,
+    lens,
+  };
+}
+
+/**
+ * Map global requested zoom → physical/logical lens + local track zoom.
+ *
+ * HARD RULE: |z - 1| <= 0.02 → always main (never ultrawide/tele stream).
+ * Hysteresis elsewhere is derived from baseZoom only (no device models).
  */
 export function mapGlobalZoomToLens(
   globalZoom,
@@ -555,20 +618,52 @@ export function mapGlobalZoomToLens(
   stickyType = null,
 ) {
   const cont = continuum || emptyContinuum();
-  const z = Number(globalZoom);
+  let z = Number(globalZoom);
   const lenses = Array.isArray(cont.lenses) ? cont.lenses.slice() : [];
 
-  if (!lenses.length || !Number.isFinite(z)) {
+  if (!Number.isFinite(z)) z = 1;
+
+  if (!lenses.length) {
     return {
       deviceId: currentDeviceId,
-      localZoom: Number.isFinite(z) ? z : 1,
-      globalZoom: Number.isFinite(z) ? z : 1,
+      localZoom: z,
+      globalZoom: z,
       switchDevice: false,
       type: stickyType || "unknown",
       lens: null,
     };
   }
 
+  const mainLens =
+    findLensByType(lenses, "main") ||
+    lenses.find((l) => l.absolute && l.baseZoom === 1) ||
+    null;
+  const ultraLens = findLensByType(lenses, "ultrawide");
+  const teleLens = findLensByType(lenses, "tele");
+
+  // ── A) Exact 1x → main always (overrides hysteresis) ──
+  if (isExactlyMainZoom(z)) {
+    z = 1;
+    // Logical / single track: apply zoom=1 on that track
+    if (cont.mode === "logical" || cont.mode === "single" || lenses.length === 1) {
+      const lens = mainLens || lenses[0];
+      return {
+        deviceId: lens.deviceId || currentDeviceId,
+        localZoom: localFromGlobal(1, lens),
+        globalZoom: 1,
+        switchDevice: Boolean(
+          lens.deviceId && currentDeviceId && lens.deviceId !== currentDeviceId,
+        ),
+        type: lens.type === "ultrawide" ? "main" : lens.type,
+        lens,
+      };
+    }
+    if (mainLens) {
+      return resultForLens(mainLens, 1, currentDeviceId);
+    }
+  }
+
+  // ── Logical / single physical track ──
   if (cont.mode === "logical" || cont.mode === "single" || lenses.length === 1) {
     const lens = lenses[0];
     return {
@@ -581,103 +676,78 @@ export function mapGlobalZoomToLens(
     };
   }
 
-  const sorted = lenses
-    .filter((l) => l?.deviceId)
-    .sort((a, b) => a.globalMin - b.globalMin);
-
-  if (!sorted.length) {
-    const lens = lenses[0];
-    return {
-      deviceId: lens?.deviceId || currentDeviceId,
-      localZoom: localFromGlobal(z, lens),
-      globalZoom: z,
-      switchDevice: false,
-      type: lens?.type || "unknown",
-      lens,
-    };
-  }
-
-  const current =
-    sorted.find((l) => l.deviceId === currentDeviceId) ||
-    sorted.find((l) => l.type === stickyType) ||
+  // ── Multi-physical continuum ──
+  const sticky =
+    lenses.find((l) => l.deviceId === currentDeviceId) ||
+    findLensByType(lenses, stickyType) ||
     null;
 
-  if (current) {
-    const idx = sorted.indexOf(current);
-    const prev = sorted[idx - 1] || null;
-    const next = sorted[idx + 1] || null;
+  // Tele band: at/above tele base
+  const teleBase = teleLens
+    ? teleLens.absolute
+      ? teleLens.globalMin
+      : teleLens.baseZoom
+    : null;
 
-    // Own coverage
-    let stayMin = current.globalMin;
-    let stayMax = current.globalMax;
+  // Ultra leave/enter thresholds from baseZoom (not model names)
+  const ultraBase = ultraLens
+    ? ultraLens.absolute
+      ? ultraLens.globalMin
+      : ultraLens.baseZoom
+    : null;
+  // Midpoint between ultra base and 1x
+  const midUltraMain =
+    ultraBase != null && ultraBase > 0 && ultraBase < 1
+      ? Math.sqrt(ultraBase * 1)
+      : 0.85;
+  // From main → ultra: must go clearly below midpoint
+  const enterUltraFromMain = midUltraMain * 0.92;
+  // From ultra → main: leave when clearly above midpoint (1x handled above)
+  const leaveUltraToMain = midUltraMain * 1.08;
 
-    // Hysteresis from adjacent baseZoom / segment edges (no device model names)
-    if (prev) {
-      const b0 = prev.baseZoom || prev.globalMin;
-      const b1 = current.baseZoom || current.globalMin;
-      const mid = Math.sqrt(Math.max(1e-6, b0) * Math.max(1e-6, b1));
-      // Leave current toward prev only when clearly below midpoint band
-      const lowExit = mid * 0.9;
-      stayMin = Math.min(stayMin, lowExit);
-    }
-    if (next) {
-      const b0 = current.baseZoom || current.globalMax;
-      const b1 = next.baseZoom || next.globalMin;
-      const mid = Math.sqrt(Math.max(1e-6, b0) * Math.max(1e-6, b1));
-      const highExit = mid * 1.1;
-      stayMax = Math.max(stayMax, highExit);
-    }
+  // Tele enter/leave
+  const enterTele =
+    teleBase != null ? teleBase * 0.95 : Number.POSITIVE_INFINITY;
+  const leaveTeleToMain =
+    teleBase != null ? teleBase * 0.88 : Number.POSITIVE_INFINITY;
 
-    if (z >= stayMin && z <= stayMax) {
-      return {
-        deviceId: current.deviceId,
-        localZoom: localFromGlobal(z, current),
-        globalZoom: z,
-        switchDevice: false,
-        type: current.type,
-        lens: current,
-      };
-    }
-  }
+  let target = mainLens || sticky || lenses[0];
 
-  // Pick lens whose segment best covers z (prefer containing range)
-  let best = sorted[0];
-  let bestScore = -Infinity;
-  for (const lens of sorted) {
-    let score = 0;
-    if (z >= lens.globalMin * 0.98 && z <= lens.globalMax * 1.02) {
-      score += 100;
-      // Prefer tighter fit
-      score -= Math.abs(
-        Math.log((z + 0.01) / (lens.baseZoom || lens.globalMin || 1)),
-      );
-    } else if (z < lens.globalMin) {
-      score = -Math.abs(lens.globalMin - z) - 10;
+  if (sticky?.type === "ultrawide" && ultraLens) {
+    // Stay on ultra until clearly past leave threshold toward 1x/main
+    if (z < leaveUltraToMain) {
+      target = ultraLens;
+    } else if (teleLens && z >= enterTele) {
+      target = teleLens;
     } else {
-      score = -Math.abs(z - lens.globalMax) - 5;
+      target = mainLens || ultraLens;
     }
-    // Prefer main near 1x
-    if (lens.type === "main" && z >= 0.85 && z <= 1.4) score += 8;
-    if (lens.type === "ultrawide" && z < 0.95) score += 6;
-    if (lens.type === "tele" && z >= (lens.baseZoom || 2) * 0.9) score += 6;
-    if (score > bestScore) {
-      bestScore = score;
-      best = lens;
+  } else if (sticky?.type === "tele" && teleLens) {
+    if (z >= leaveTeleToMain) {
+      target = teleLens;
+    } else if (ultraLens && z < enterUltraFromMain) {
+      target = ultraLens;
+    } else {
+      target = mainLens || teleLens;
+    }
+  } else {
+    // Sticky main / unknown
+    if (teleLens && z >= enterTele) {
+      target = teleLens;
+    } else if (ultraLens && z < enterUltraFromMain) {
+      target = ultraLens;
+    } else {
+      target = mainLens || sticky || lenses[0];
     }
   }
 
-  const switchDevice = Boolean(
-    best.deviceId && currentDeviceId && best.deviceId !== currentDeviceId,
-  );
+  // Final safety: never keep ultra/tele at ~1x
+  if (isExactlyMainZoom(z) && mainLens) {
+    target = mainLens;
+    z = 1;
+  }
 
-  return {
-    deviceId: best.deviceId,
-    localZoom: localFromGlobal(z, best),
-    globalZoom: z,
-    switchDevice,
-    type: best.type,
-    lens: best,
-  };
+  return resultForLens(target, z, currentDeviceId);
 }
 
 /** Bounds helper for pinch / slider */
