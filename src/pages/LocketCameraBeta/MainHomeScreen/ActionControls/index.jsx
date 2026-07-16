@@ -6,14 +6,19 @@ import CameraToggle from "./CameraControls/CameraToggle";
 import SendButton from "./MediaControls/SendButton";
 import DelButton from "./MediaControls/DelButton";
 import OverlayButton from "./MediaControls/OverlayButton";
-import { usePostStore } from "@/stores";
+import DraftButton from "./MediaControls/DraftButton";
+import { useMomentDraftStore, usePostStore } from "@/stores";
 
 const ActionControls = () => {
   const selectedFile = usePostStore((s) => s.selectedFile);
   const preview = usePostStore((s) => s.preview);
+  const hasDraft = useMomentDraftStore((s) => s.hasDraft);
+  const showRestoreModal = useMomentDraftStore((s) => s.showRestoreModal);
 
   // Có preview = đã chụp (kể cả lúc file blob chưa encode xong)
   const hasFile = !!(selectedFile || preview);
+  // "Bản nháp" when draft exists and modal not open (incl. after "Để sau")
+  const showDraftChip = !hasFile && hasDraft && !showRestoreModal;
 
   const baseBtn =
     "transition-all duration-300 ease-in-out transform active:scale-95";
@@ -28,9 +33,12 @@ const ActionControls = () => {
       <div className="relative w-full flex justify-evenly items-center">
         {/* SLOT 1 */}
         <div className="relative flex items-center justify-center">
-          {/* Upload */}
-          <div className={`${baseBtn} ${!hasFile ? showClass : hideClass}`}>
+          {/* Upload + optional draft entry when user chose "Để sau" */}
+          <div
+            className={`${baseBtn} ${!hasFile ? showClass : hideClass} flex items-center gap-3`}
+          >
             <UploadFile />
+            {showDraftChip ? <DraftButton /> : null}
           </div>
 
           {/* Delete */}

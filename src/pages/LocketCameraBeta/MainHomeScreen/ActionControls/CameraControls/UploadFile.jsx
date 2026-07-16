@@ -2,7 +2,7 @@ import React, { useCallback } from "react";
 import { useApp } from "@/context/AppContext";
 import { ImageUp } from "lucide-react";
 import { SonnerInfo } from "@/components/uikit/SonnerToast";
-import { usePostStore } from "@/stores";
+import { useMomentDraftStore, usePostStore } from "@/stores";
 import { useTranslation } from "react-i18next";
 
 const UploadFile = () => {
@@ -14,14 +14,13 @@ const UploadFile = () => {
   const setVideoToCrop = usePostStore((s) => s.setVideoToCrop);
 
   const setMediaFromFile = usePostStore((s) => s.setMediaFromFile);
+  const applyNewMediaFile = useMomentDraftStore((s) => s.applyNewMediaFile);
 
   const { cameraActive, setCameraActive } = camera;
 
   //Handle tải file
   const handleFileChange = useCallback(async (event) => {
     setCameraActive(false);
-
-    resetMedia();
 
     const rawFile = event.target.files[0];
     if (!rawFile) return;
@@ -36,15 +35,28 @@ const UploadFile = () => {
       return;
     }
 
+    // Gate replace-draft before wiping studio
+    const proceed = await useMomentDraftStore
+      .getState()
+      .requestReplaceOrContinue(rawFile);
+    if (!proceed) {
+      // Prompt open — do not reset yet
+      event.target.value = "";
+      return;
+    }
+
+    resetMedia();
+
     if (fileType === "image") {
       setImageToCrop(rawFile);
+      // Crop flow will setMediaFromFile later → autosave via store subscribe
       return;
     }
     if (fileType === "video") {
       setVideoToCrop(rawFile);
       return;
     }
-    setMediaFromFile(rawFile); // Lưu file đã chọn
+    await applyNewMediaFile(rawFile);
   }, []);
 
   return (

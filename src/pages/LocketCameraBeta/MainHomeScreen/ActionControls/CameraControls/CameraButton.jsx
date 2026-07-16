@@ -93,6 +93,22 @@ const CameraButton = () => {
   } = camera;
 
   const setMediaFromFile = usePostStore((s) => s.setMediaFromFile);
+  // Dynamic import store to avoid circular deps at module init
+  const applyMedia = async (file) => {
+    try {
+      const { useMomentDraftStore } = await import("@/stores");
+      const ok = await useMomentDraftStore
+        .getState()
+        .applyNewMediaFile(file);
+      if (!ok) return false;
+      setCameraActive(false);
+      return true;
+    } catch {
+      setMediaFromFile(file);
+      setCameraActive(false);
+      return true;
+    }
+  };
 
   const holdStartTimeRef = useRef(null);
   const holdTimeoutRef = useRef(null);
@@ -226,8 +242,7 @@ const CameraButton = () => {
       const blob = new Blob(chunks, { type: finalMime });
       const file = new File([blob], `locket_dio.${ext}`, { type: finalMime });
 
-      setMediaFromFile(file);
-      setCameraActive(false);
+      void applyMedia(file);
       setLoading?.(false);
       isRecordingRef.current = false;
       setIsHolding(false);
@@ -401,8 +416,7 @@ const CameraButton = () => {
         if (import.meta.env?.DEV) {
           console.info("[capture]", method, file?.size);
         }
-        setMediaFromFile(file);
-        setCameraActive(false);
+        return applyMedia(file);
       })
       .catch((err) => {
         console.warn("[capture] failed:", err?.message || err);

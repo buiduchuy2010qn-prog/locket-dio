@@ -308,6 +308,16 @@ export const useUploadQueueStore = create((set, get) => ({
         status: STATUS_UPLOAD_MOMENT.DONE,
       });
 
+      // Draft only cleared after confirmed API success
+      try {
+        const { useMomentDraftStore } = await import(
+          "@/stores/PostStores/useMomentDraftStore"
+        );
+        await useMomentDraftStore.getState().clearAfterSuccessfulPost();
+      } catch {
+        /* draft optional */
+      }
+
       SonnerSuccess(
         "Đăng tải thành công!",
         `${
@@ -320,7 +330,18 @@ export const useUploadQueueStore = create((set, get) => ({
     } catch (err) {
       const retries = Number(item.retryCount) || 0;
 
-      // ⚠️ Bài đăng đã tồn tại
+      const markDraftEditing = async () => {
+        try {
+          const { useMomentDraftStore } = await import(
+            "@/stores/PostStores/useMomentDraftStore"
+          );
+          await useMomentDraftStore.getState().markEditing();
+        } catch {
+          /* draft optional */
+        }
+      };
+
+      // ⚠️ Bài đăng đã tồn tại → coi như xong, xóa draft
       if (err?.response?.status === 409) {
         get().updateUploadItem(item.id, {
           status: STATUS_UPLOAD_MOMENT.DONE,
@@ -328,18 +349,28 @@ export const useUploadQueueStore = create((set, get) => ({
 
         await deleteUploadItemFromDB(item.id);
         get().removeUploadItemById(item.id);
+        try {
+          const { useMomentDraftStore } = await import(
+            "@/stores/PostStores/useMomentDraftStore"
+          );
+          await useMomentDraftStore.getState().clearAfterSuccessfulPost();
+        } catch {
+          /* ignore */
+        }
         SonnerWarning("Bài đăng đã tồn tại!");
         return;
       }
 
-      // Media temp hết hạn / 404 → xóa luôn (retry vô ích)
+      // Media temp hết hạn / 404 → xóa queue item nhưng GIỮ draft để thử lại
       if (
         err?.response?.status === 404 ||
         err?.message === "INVALID_UPLOAD_RESPONSE"
       ) {
+        await markDraftEditing();
         SonnerError(
           "Đăng tải thất bại!",
-          err?.response?.data?.message || "Media không còn, hãy chụp lại.",
+          err?.response?.data?.message ||
+            "Media không còn — mở Bản nháp để thử đăng lại.",
         );
         await get().removeUploadItemById(item.id);
         return;
@@ -348,6 +379,8 @@ export const useUploadQueueStore = create((set, get) => ({
       // Lỗi khác: failed + auto-retry sau vài giây (nếu còn lượt)
       const msg =
         err?.response?.data?.message || "Đăng tải thất bại, vui lòng thử lại";
+
+      await markDraftEditing();
 
       get().updateUploadItem(item.id, {
         status: STATUS_UPLOAD_MOMENT.FAILED,
@@ -364,8 +397,11 @@ export const useUploadQueueStore = create((set, get) => ({
           }
         }, 4000);
       } else {
-        SonnerError("Đăng tải thất bại!", msg);
-        // Xóa sau 12s để UI gọn
+        SonnerError(
+          "Đăng tải thất bại!",
+          `${msg} — mở Bản nháp để thử đăng lại.`,
+        );
+        // Xóa queue item sau 12s; draft vẫn giữ
         setTimeout(() => {
           const still = get().uploadItems.find((i) => i.id === item.id);
           if (still?.status === STATUS_UPLOAD_MOMENT.FAILED) {

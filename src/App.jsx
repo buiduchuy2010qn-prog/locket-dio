@@ -28,6 +28,10 @@ import LoadingPageMain from "./components/pages/LoadPageMain";
 import LayoutWithSidebar from "./layouts/baseLayout";
 import { useOverlayDataStore } from "./stores/OverlayStores";
 import GlobalThemeEffects from "./components/Effects/GlobalThemeEffects";
+import { useMomentDraftLifecycle } from "./hooks/useMomentDraftLifecycle";
+import RestoreDraftModal, {
+  ReplaceDraftPrompt,
+} from "./components/MomentDraft/RestoreDraftModal";
 
 function App() {
   return (
@@ -37,6 +41,8 @@ function App() {
           <Router>
             <GlobalThemeEffects />
             <AppContent />
+            <RestoreDraftModal />
+            <ReplaceDraftPrompt />
           </Router>
           <Toaster />
         </AppProvider>
@@ -62,6 +68,9 @@ function AppContent() {
   const fetchConversations = useConversationsStore((s) => s.fetchConversations);
   const fetchAndSyncGroups = useGroupChatStore((s) => s.fetchAndSyncGroups);
   const location = useLocation();
+
+  // Unpublished moment draft: autosave + restore modal (IndexedDB)
+  useMomentDraftLifecycle();
 
   const allRoutes = [...publicRoutes, ...authRoutes, ...locketRoutes];
   const privateRoutes = [...authRoutes, ...locketRoutes];

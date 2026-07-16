@@ -9,7 +9,12 @@ import {
   SonnerSuccess,
   SonnerWarning,
 } from "@/components/uikit/SonnerToast";
-import { useAuthStore, usePostStore, useUploadQueueStore } from "@/stores";
+import {
+  useAuthStore,
+  useMomentDraftStore,
+  usePostStore,
+  useUploadQueueStore,
+} from "@/stores";
 import { useNavigate } from "react-router-dom";
 import { resetAllPostData } from "@/utils";
 import { useTranslation } from "react-i18next";
@@ -125,6 +130,14 @@ const SendButton = () => {
       setUploadLoading(true);
       setIsSuccess(false);
 
+      // Flush draft meta + mark posting (do NOT delete draft yet)
+      try {
+        await useMomentDraftStore.getState().flushMetaSave();
+        await useMomentDraftStore.getState().markPosting();
+      } catch {
+        /* draft optional */
+      }
+
       // Tạo payload
       const payload = await services.createRequestPayloadV6();
 
@@ -143,7 +156,7 @@ const SendButton = () => {
         t("home.added_to_queue"), // Title
         t("home.processing_post"), // Body
       );
-      // Reset success state sau 1 giây
+      // Reset studio UI — draft stays until API post succeeds
       setTimeout(() => {
         setIsSuccess(false);
         handleDelete();
@@ -151,6 +164,11 @@ const SendButton = () => {
     } catch (error) {
       setUploadLoading(false);
       setIsSuccess(false);
+      try {
+        await useMomentDraftStore.getState().markEditing();
+      } catch {
+        /* ignore */
+      }
 
       const errorMessage =
         error?.response?.data?.message || error.message || t("home.unknown_error");
