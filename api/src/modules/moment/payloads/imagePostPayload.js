@@ -320,23 +320,11 @@ const imagePostPayloadMusic = ({ imageUrl, optionsData }) => {
     try {
       const u = new URL(String(apple_music_url));
       const host = u.hostname.replace(/^geo\./i, "");
-      let trackId = (u.searchParams.get("i") || "").replace(/\D/g, "");
-      if (!trackId) {
-        trackId =
-          u.pathname.match(/\/song\/(?:[^/]+\/)?(\d{5,})(?:\/)?$/i)?.[1] ||
-          "";
-      }
-      const store =
-        u.pathname.match(/^\/([a-z]{2})\//i)?.[1]?.toLowerCase() || "us";
-
-      // iOS MusicKit nhận ổn định nhất dạng /song/{trackId}?i={trackId}.
-      // Bỏ album slug và toàn bộ query tracking để Locket bind đúng track.
-      apple_music_url =
-        /apple\.com$/i.test(host) && trackId.length >= 5
-          ? `https://music.apple.com/${store}/song/${trackId}?i=${trackId}`
-          : null;
+      const trackId = u.searchParams.get("i");
+      apple_music_url = `https://music.apple.com${u.pathname}${trackId ? `?i=${trackId}` : ""}`;
+      if (!/apple\.com/i.test(host)) apple_music_url = String(payload.apple_music_url);
     } catch {
-      apple_music_url = null;
+      /* keep raw */
     }
   }
 
@@ -348,15 +336,26 @@ const imagePostPayloadMusic = ({ imageUrl, optionsData }) => {
     throw err;
   }
 
-  // Payload chính hãng: Apple MusicKit (iOS) + Spotify (Android).
-  // Không đưa preview_url/audio vào đây: preview chỉ dành cho web; trên iOS
-  // field này khiến Locket rơi về pill chữ và không khởi tạo MusicKit.
+  // Payload — iOS MusicKit + Android Spotify + preview iTunes (web)
   const musicPayload = {
     isrc,
     song_title: songTitle,
-    song_name: songTitle,
     artist,
   };
+
+  // Preview ổn định (iTunes / m4a) — web nghe; app Locket bỏ qua field này
+  const preview =
+    payload?.preview_url || payload?.audio || payload?.previewUrl || null;
+  if (
+    preview &&
+    (/audio-ssl\.itunes\.apple\.com|mzstatic\.com|\.m4a(\?|$)/i.test(
+      String(preview),
+    ) ||
+      (!/dzcdn\.net|hdnea=|p\.scdn\.co/i.test(String(preview)) &&
+        /^https?:\/\//i.test(String(preview))))
+  ) {
+    musicPayload.preview_url = preview;
+  }
 
   if (apple_music_url) {
     if (/[?&]i=\d{5,}/.test(String(apple_music_url))) {
