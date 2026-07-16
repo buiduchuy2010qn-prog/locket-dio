@@ -49,6 +49,7 @@ import {
   getLiveZoomDisplay,
   wideBandThreshold,
   applyLiveZoom,
+  applyPinchZoom,
   isWideZoomMode,
   WIDE_ZOOM_MODE,
   parkAtWidestTrackZoom,
@@ -73,9 +74,10 @@ import RearLensPicker from "./RearLensPicker";
 import FocusReticle from "./FocusReticle";
 import CameraDebugPanel from "./CameraDebugPanel";
 
-/** Pinch: ~30fps UI, zoom HW coalesce — mượt không await block */
-const PINCH_THROTTLE_MS = 33;
-const BADGE_THROTTLE_MS = 50;
+/** Pinch: ~15–18fps HW apply — Android HAL janks if applyConstraints is denser */
+const PINCH_THROTTLE_MS = 56;
+/** Badge UI can update a bit more often than HW without re-reading track caps */
+const BADGE_THROTTLE_MS = 48;
 
 const MediaPreviewAndroid = () => {
   const { camera, navigation } = useApp();
@@ -917,8 +919,9 @@ const MediaPreviewAndroid = () => {
     if (isFront && nextZoom < 1) nextZoom = 1;
 
     currentZoomValue.current = nextZoom;
-    // Badge throttle — threshold from live factor / caps
-    const wideSnap = wideBandThreshold(streamRef.current, uf);
+    // Badge only (cheap) — avoid getLiveZoomDisplay / lens mapping mid-pinch
+    const wideSnap =
+      uf != null && uf < 0.98 ? (Number(uf) + 1) / 2 : 0.92;
     scheduleBadge(
       nextZoom,
       isFront
@@ -930,8 +933,56 @@ const MediaPreviewAndroid = () => {
           : "custom",
     );
 
-    // KHÔNG await — zoom HW chạy nền, UI không khựng
-    applyDisplayZoom(nextZoom, { allowLensSwitch: false }).catch(() => {});
+    // Fast pinch path: single applyConstraints, no lens switch / getSettings
+    if (applyInFlight.current) {
+      pendingZoom.current = nextZoom;
+      return;
+    }
+    applyInFlight.current = true;
+    const stream = streamRef.current;
+    const target = nextZoom;
+    (async () => {
+      try {
+        if (!stream) return;
+        if (isFront) {
+          await applyFrontCameraZoom(stream, Math.max(1, target));
+        } else {
+          await applyPinchZoom(stream, target);
+        }
+      } catch {
+        /* ignore */
+      } finally {
+        applyInFlight.current = false;
+        if (pendingZoom.current != null && streamRef.current) {
+          const p = pendingZoom.current;
+          pendingZoom.current = null;
+          applyInFlight.current = true;
+          try {
+            if (isFront) {
+              await applyFrontCameraZoom(streamRef.current, Math.max(1, p));
+            } else {
+              await applyPinchZoom(streamRef.current, p);
+            }
+          } catch {
+            /* ignore */
+          } finally {
+            applyInFlight.current = false;
+            // Drop intermediate pendings — only latest matters
+            if (pendingZoom.current != null) {
+              const last = pendingZoom.current;
+              pendingZoom.current = null;
+              if (isFront) {
+                applyFrontCameraZoom(streamRef.current, Math.max(1, last)).catch(
+                  () => {},
+                );
+              } else {
+                applyPinchZoom(streamRef.current, last).catch(() => {});
+              }
+            }
+          }
+        }
+      }
+    })();
   };
 
   const onTouchEnd = (event) => {
@@ -958,17 +1009,6 @@ const MediaPreviewAndroid = () => {
     const isFront = (cameraMode || "user") === "user";
     pinchingRef.current = false;
 
-    // Re-read track zoom so badge matches hardware after pinch settles
-    try {
-      const liveZ = getCurrentTrackSettings(streamRef.current)?.zoom;
-      if (typeof liveZ === "number" && Number.isFinite(liveZ)) {
-        currentZoomValue.current = liveZ;
-        setCurrentZoom(liveZ);
-      }
-    } catch {
-      /* ignore */
-    }
-
     pinchState.current = {
       ...(isFront ? handleFrontCameraPinchEnd() : handlePinchZoomEnd()),
       zoom: currentZoomValue.current,
@@ -976,25 +1016,46 @@ const MediaPreviewAndroid = () => {
     setIsPinching(false);
 
     const z = currentZoomValue.current;
-    // After pinch: stay on current lens (esp. physical ultra).
-    // Auto leave-UW on zoom≥0.92 was restarting stream → broken UW zoom.
-    // Hop onto ultra only if still on main and user pinched into wide band.
-    const liveId =
-      getCurrentTrackSettings(streamRef.current)?.deviceId ||
-      lastDeviceId.current ||
-      deviceId;
-    const ultraId = toDetectedShape(detectedRef.current)?.ultrawide?.deviceId;
-    const onUltra = Boolean(ultraId && liveId && liveId === ultraId);
-    const thr = wideBandThreshold(
-      streamRef.current,
-      availableZoomModes?.ultraFactor,
-    );
-    const wantHopToUltra =
-      !onUltra && z < thr && Boolean(ultraId) && liveId !== ultraId;
-    applyDisplayZoom(z, {
-      force: true,
-      allowLensSwitch: wantHopToUltra,
-    }).catch(() => {});
+    setCurrentZoom(z);
+
+    // Final settle: one precise apply on current track only (no lens hop mid-gesture)
+    // Stay on physical ultra — leaving UW is only via preset 1x.
+    const stream = streamRef.current;
+    if (stream) {
+      if (isFront) {
+        applyFrontCameraZoom(stream, Math.max(1, z)).catch(() => {});
+      } else {
+        applyLiveZoom(stream, z, { forceCaps: false }).catch(() => {});
+      }
+    }
+
+    // Optional hop onto ultra only after pinch ends (rare) — never during move
+    try {
+      const liveId =
+        getCurrentTrackSettings(stream)?.deviceId ||
+        lastDeviceId.current ||
+        deviceId;
+      const ultraId = toDetectedShape(detectedRef.current)?.ultrawide?.deviceId;
+      const onUltra = Boolean(ultraId && liveId && liveId === ultraId);
+      const thr = wideBandThreshold(
+        stream,
+        availableZoomModes?.ultraFactor,
+      );
+      const wantHopToUltra =
+        !isFront &&
+        !onUltra &&
+        z < thr &&
+        Boolean(ultraId) &&
+        liveId !== ultraId;
+      if (wantHopToUltra) {
+        applyDisplayZoom(z, {
+          force: true,
+          allowLensSwitch: true,
+        }).catch(() => {});
+      }
+    } catch {
+      /* ignore */
+    }
 
     if (isFront) {
       if (Math.abs(z - 1) < 0.15) {
@@ -1508,6 +1569,18 @@ const MediaPreviewAndroid = () => {
                   style={{ textShadow: "0 1px 2px rgba(0,0,0,0.35)" }}
                 >
                   {(() => {
+                    // During pinch: cheap label from UI value only (no getCapabilities)
+                    if (isPinching || pinchingRef.current) {
+                      const n = Number(currentZoom);
+                      if ((cameraMode || "environment") === "user") {
+                        return updateZoomBadge(
+                          Number.isFinite(n) && n >= 1 ? n : 1,
+                        );
+                      }
+                      return updateZoomBadge(
+                        Number.isFinite(n) && n > 0 ? n : 1,
+                      );
+                    }
                     // Front never shows ultra-wide numbers
                     if ((cameraMode || "environment") === "user") {
                       const n = Number(currentZoom);

@@ -611,14 +611,32 @@ export function wideBandThreshold(stream = null, ultraFactor = null) {
  * @param {number} desiredZoom
  * @returns {Promise<number|false>}
  */
-export async function applyLiveZoom(stream, desiredZoom) {
+/**
+ * @param {MediaStream|null} stream
+ * @param {number} desiredZoom
+ * @param {{ fast?: boolean, forceCaps?: boolean }} [options]
+ */
+export async function applyLiveZoom(stream, desiredZoom, options = {}) {
   if (!stream || !supportsHardwareZoom(stream)) return false;
-  // Always re-read caps (don't trust stale UI numbers)
-  clearTrackZoomCache(stream);
+  // Do NOT clearTrackZoomCache on every pinch frame — that forces getCapabilities
+  // and multi-format applyConstraints (major Android lag source).
+  if (options.forceCaps) clearTrackZoomCache(stream);
   const range = readZoomRange(stream);
   if (!range.supported) return false;
   const target = clampZoom(desiredZoom, range.minZoom, range.maxZoom);
-  return setCameraZoom(stream, target);
+  return setCameraZoom(stream, target, {
+    fast: options.fast === true,
+    forceCaps: options.forceCaps === true,
+  });
+}
+
+/**
+ * Pinch-only path: one applyConstraints, cached caps/style, no getSettings.
+ * Does not call readZoomRange/supportsHardwareZoom every frame.
+ * @returns {Promise<number|false>}
+ */
+export async function applyPinchZoom(stream, desiredZoom) {
+  return setCameraZoom(stream, desiredZoom, { fast: true });
 }
 
 /**
@@ -1677,28 +1695,47 @@ export function clampZoom(value, minZoom = 1, maxZoom = 1) {
 }
 
 /**
- * Apply digital / hardware zoom (required API).
- * @returns {Promise<number|false>}
+ * Cache min/max/last zoom + which constraint shape worked on this track.
+ * Avoid getCapabilities / multi-format fallback every pinch frame (Android lag).
  */
-/** Cache min/max/last zoom theo track — tránh getCapabilities mỗi frame pinch */
 const trackZoomCache = new WeakMap();
 
-export async function applyCameraZoom(stream, zoomValue) {
-  return setCameraZoom(stream, zoomValue);
+/** Refresh caps from track at most this often during continuous zoom */
+const ZOOM_CAPS_TTL_MS = 2500;
+/** Skip applyConstraints if delta smaller than this (pinch) */
+const ZOOM_FAST_EPS = 0.035;
+/** Skip applyConstraints if delta smaller than this (presets / deliberate) */
+const ZOOM_PRECISE_EPS = 0.01;
+
+/**
+ * Apply digital / hardware zoom (required API).
+ * @param {MediaStream|null} stream
+ * @param {number} zoomValue
+ * @param {{ fast?: boolean, forceCaps?: boolean }} [options]
+ * @returns {Promise<number|false>}
+ */
+export async function applyCameraZoom(stream, zoomValue, options = {}) {
+  return setCameraZoom(stream, zoomValue, options);
 }
 
 /**
  * Continuous zoom on the CURRENT track only.
- * Always clamps against **live** getCapabilities().zoom (OEM 0.5/0.6/0.7…).
  * Never getUserMedia / never change deviceId — safe while on ultra-wide.
- * (Lens hops belong in switchToWidestLens / startCameraByDeviceId / UI presets.)
+ *
+ * @param {MediaStream|null} stream
+ * @param {number} value
+ * @param {{ fast?: boolean, forceCaps?: boolean }} [options]
+ *   fast: pinch path — no getSettings verify, reuse constraint style, coarser eps
+ * @returns {Promise<number|false>}
  */
-export async function setCameraZoom(stream, value) {
+export async function setCameraZoom(stream, value, options = {}) {
+  const { fast = false, forceCaps = false } = options;
   const track = getActiveVideoTrack(stream);
   if (!track || track.readyState !== "live") return false;
 
   // W3C: applyConstraints PTZ fails with SecurityError if page not visible
   if (!isPageVisibleForPtz()) {
+    if (fast) return false; // pinch: don't block waiting for visibility
     const ok = await waitForPageVisible(4000);
     if (!ok) {
       logCameraPtz({
@@ -1711,71 +1748,98 @@ export async function setCameraZoom(stream, value) {
     }
   }
 
-  // Fresh capabilities every apply — range can differ per lens after switch
-  const caps = getCurrentTrackCapabilities(stream);
-  const parsed = parseZoomCapability(caps?.zoom);
-  if (!parsed) return false;
-  const min = parsed.min;
-  const max = parsed.max;
-  const step = parsed.step;
-
+  const now = Date.now();
   let cached = trackZoomCache.get(track);
-  if (!cached) {
-    cached = { min, max, step, last: null };
+  const capsStale =
+    forceCaps ||
+    !cached ||
+    !Number.isFinite(cached.min) ||
+    now - (cached.capsAt || 0) > ZOOM_CAPS_TTL_MS;
+
+  if (capsStale) {
+    const caps = getCurrentTrackCapabilities(stream);
+    const parsed = parseZoomCapability(caps?.zoom);
+    if (!parsed) return false;
+    cached = {
+      min: parsed.min,
+      max: parsed.max,
+      step: parsed.step,
+      last: cached?.last ?? null,
+      style: cached?.style ?? null,
+      capsAt: now,
+    };
     trackZoomCache.set(track, cached);
-  } else {
-    cached.min = min;
-    cached.max = max;
-    cached.step = step;
   }
 
+  const step = cached.step;
   let next = clampZoom(value, cached.min, cached.max);
   // Snap theo step (Samsung hay báo step 0.1 — khớp 0.6/0.7… OEM)
   if (Number.isFinite(step) && step > 0 && step < 1) {
     const snapped =
       Math.round((next - cached.min) / step) * step + cached.min;
     next = clampZoom(snapped, cached.min, cached.max);
-    // Làm tròn float lỗi 0.6000001
     next = Math.round(next * 1000) / 1000;
   }
 
-  // Bỏ qua apply nếu gần như không đổi — giảm jank
-  if (cached.last != null && Math.abs(cached.last - next) < 0.01) {
+  const eps = fast ? ZOOM_FAST_EPS : ZOOM_PRECISE_EPS;
+  if (cached.last != null && Math.abs(cached.last - next) < eps) {
     return cached.last;
   }
 
-  // Chrome PTZ: advanced [{ zoom }] first (web.dev applyConstraints pattern)
-  const attempts = [
-    { advanced: [{ zoom: next }] },
-    { zoom: next },
-    // Một số WebView Samsung chỉ nhận ideal
-    { advanced: [{ zoom: { ideal: next } }] },
-  ];
+  // Prefer the constraint shape that already worked on this track
+  const advanced = { advanced: [{ zoom: next }] };
+  const bare = /** @type {MediaTrackConstraints} */ ({ zoom: next });
+  const ideal = { advanced: [{ zoom: { ideal: next } }] };
+  /** @type {Array<{ style: string, c: MediaTrackConstraints }>} */
+  let attempts;
+  if (cached.style === "bare") {
+    attempts = [
+      { style: "bare", c: bare },
+      { style: "advanced", c: advanced },
+      { style: "ideal", c: ideal },
+    ];
+  } else if (cached.style === "ideal") {
+    attempts = [
+      { style: "ideal", c: ideal },
+      { style: "advanced", c: advanced },
+      { style: "bare", c: bare },
+    ];
+  } else {
+    attempts = [
+      { style: "advanced", c: advanced },
+      { style: "bare", c: bare },
+      { style: "ideal", c: ideal },
+    ];
+  }
+  // Pinch: only try one style after warm-up — no serial 3× await
+  if (fast && cached.style) {
+    attempts = attempts.slice(0, 1);
+  } else if (fast) {
+    attempts = attempts.slice(0, 2);
+  }
 
   let lastError = null;
-  for (const c of attempts) {
+  for (const { style, c } of attempts) {
     try {
       await track.applyConstraints(c);
-      if (track.readyState !== "live") {
-        logCameraPtz({
-          action: "apply-zoom",
-          applyResult: "track-ended",
-          trackState: track.readyState,
-          settingsZoom: null,
-        });
-        return false;
+      if (track.readyState !== "live") return false;
+      cached.style = style;
+      // Pinch: trust requested value (getSettings every frame is slow on Samsung)
+      if (fast) {
+        cached.last = next;
+        return next;
       }
-      // Xác nhận settings thật (Samsung đôi khi nuốt constraint im lặng)
       const applied = getCurrentTrackSettings(stream)?.zoom;
       cached.last =
         typeof applied === "number" && Number.isFinite(applied) ? applied : next;
       return cached.last;
     } catch (error) {
       lastError = error;
-      /* thử format tiếp */
+      if (fast) cached.style = null;
     }
   }
-  if (lastError) {
+
+  if (lastError && !fast) {
     logCameraPtz({
       action: "apply-zoom",
       applyResult: "error",
