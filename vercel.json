@@ -5,14 +5,9 @@
   "buildCommand": "echo prebuilt-static-ok",
   "outputDirectory": "vercel-static",
   "trailingSlash": false,
-  "cleanUrls": true,
   "rewrites": [
     {
       "source": "/dio-api",
-      "destination": "https://huy-locket-api-production.up.railway.app/"
-    },
-    {
-      "source": "/dio-api/",
       "destination": "https://huy-locket-api-production.up.railway.app/"
     },
     {
@@ -24,19 +19,11 @@
       "destination": "https://huy-locket-api-production.up.railway.app/"
     },
     {
-      "source": "/dio-auth/",
-      "destination": "https://huy-locket-api-production.up.railway.app/"
-    },
-    {
       "source": "/dio-auth/:path*",
       "destination": "https://huy-locket-api-production.up.railway.app/:path*"
     },
     {
       "source": "/dio-data",
-      "destination": "https://data.locket-dio.com/"
-    },
-    {
-      "source": "/dio-data/",
       "destination": "https://data.locket-dio.com/"
     },
     {
@@ -48,19 +35,11 @@
       "destination": "https://storage.locket-dio.com/"
     },
     {
-      "source": "/dio-storage/",
-      "destination": "https://storage.locket-dio.com/"
-    },
-    {
       "source": "/dio-storage/:path*",
       "destination": "https://storage.locket-dio.com/:path*"
     },
     {
       "source": "/dio-media",
-      "destination": "https://media.locket-dio.com/"
-    },
-    {
-      "source": "/dio-media/",
       "destination": "https://media.locket-dio.com/"
     },
     {
@@ -72,10 +51,6 @@
       "destination": "https://export.locket-dio.com/"
     },
     {
-      "source": "/dio-export/",
-      "destination": "https://export.locket-dio.com/"
-    },
-    {
       "source": "/dio-export/:path*",
       "destination": "https://export.locket-dio.com/:path*"
     },
@@ -84,19 +59,11 @@
       "destination": "https://cdn.locket-dio.com/"
     },
     {
-      "source": "/dio-cdn/",
-      "destination": "https://cdn.locket-dio.com/"
-    },
-    {
       "source": "/dio-cdn/:path*",
       "destination": "https://cdn.locket-dio.com/:path*"
     },
     {
       "source": "/dio-payment",
-      "destination": "https://payment.locket-dio.com/"
-    },
-    {
-      "source": "/dio-payment/",
       "destination": "https://payment.locket-dio.com/"
     },
     {
@@ -128,7 +95,7 @@
       "destination": "https://huy-locket-production.up.railway.app/api/media-download"
     },
     {
-      "source": "/((?!dio-|api/|assets/).*)",
+      "source": "/:path*",
       "destination": "/index.html"
     }
   ],
@@ -139,6 +106,24 @@
         {
           "key": "Cache-Control",
           "value": "public, max-age=31536000, immutable"
+        }
+      ]
+    },
+    {
+      "source": "/sw.js",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=0, must-revalidate"
+        }
+      ]
+    },
+    {
+      "source": "/index.html",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=0, must-revalidate"
         }
       ]
     }
