@@ -5,6 +5,7 @@ import { useSelectedStore, useUploadQueueStore } from "@/stores";
 import { SonnerWarning } from "@/components/uikit/SonnerToast";
 import { OverlayRenderer } from "@/components/Overlay";
 import { useTranslation } from "react-i18next";
+import ConfirmDeleteModal from "@/components/uikit/ConfirmDeleteModal";
 
 const QueueViewer = () => {
   const { t } = useTranslation("main");
@@ -24,6 +25,8 @@ const QueueViewer = () => {
   const [isAnimating, setIsAnimating] = useState(false);
   const [isMediaLoading, setIsMediaLoading] = useState(true);
   const [mediaFailed, setMediaFailed] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   // Mở hiệu ứng khi có selectedQueue
   const removeUploadItemById = useUploadQueueStore((s) => s.removeUploadItemById);
 
@@ -139,10 +142,7 @@ const QueueViewer = () => {
                 <button
                   type="button"
                   className="btn btn-sm btn-error btn-outline rounded-full"
-                  onClick={async () => {
-                    if (queueInfo?.id) await removeUploadItemById(queueInfo.id);
-                    handleClose();
-                  }}
+                  onClick={() => setConfirmOpen(true)}
                 >
                   Xóa
                 </button>
@@ -193,6 +193,7 @@ const QueueViewer = () => {
         </div>
         <div className="flex justify-center z-30">
           <button
+            type="button"
             onClick={handleRetry}
             className="flex items-center gap-1 px-6 py-3 rounded-2xl font-semibold text-error"
           >
@@ -201,6 +202,32 @@ const QueueViewer = () => {
           </button>
         </div>
       </div>
+
+      <ConfirmDeleteModal
+        open={confirmOpen}
+        onClose={() => {
+          if (!deleting) setConfirmOpen(false);
+        }}
+        onConfirm={async () => {
+          if (deleting || !queueInfo?.id) return;
+          setDeleting(true);
+          try {
+            await removeUploadItemById(queueInfo.id);
+            setConfirmOpen(false);
+            handleClose();
+          } finally {
+            setDeleting(false);
+          }
+        }}
+        loading={deleting}
+        title="Bạn chắc chắn muốn xóa bài này?"
+        description="Hành động này có thể không hoàn tác được."
+        keepLabel="Giữ lại"
+        deleteLabel="Xóa bài"
+        loadingLabel="Đang xóa…"
+        previewUrl={mediaUrl || null}
+        mediaType={mediaType === "video" ? "video" : "image"}
+      />
     </div>
   );
 };

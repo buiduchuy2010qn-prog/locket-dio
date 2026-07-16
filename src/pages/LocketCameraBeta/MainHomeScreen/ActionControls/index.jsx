@@ -29,11 +29,14 @@ const ActionControls = () => {
   const hideMainClass = "opacity-0 scale-75 pointer-events-none absolute";
 
   return (
-    <div className="relative flex justify-center items-center w-full max-w-md">
-      <div className="relative w-full flex justify-evenly items-center">
-        {/* SLOT 1 */}
-        <div className="relative flex items-center justify-center">
-          {/* Upload + optional draft entry when user chose "Để sau" */}
+    <div className="relative flex justify-center items-center w-full max-w-md px-2">
+      {/*
+        Three evenly spaced slots so Delete (left) is never flush against
+        Send / Post (center). Extra horizontal padding helps fat-finger safety.
+      */}
+      <div className="relative w-full flex justify-between items-center gap-6 sm:gap-10">
+        {/* SLOT 1 — left: Upload or Delete (far from center Send) */}
+        <div className="relative flex items-center justify-center min-w-[3rem] shrink-0">
           <div
             className={`${baseBtn} ${!hasFile ? showClass : hideClass} flex items-center gap-3`}
           >
@@ -41,33 +44,28 @@ const ActionControls = () => {
             {showDraftChip ? <DraftButton /> : null}
           </div>
 
-          {/* Delete */}
           <div className={`${baseBtn} ${hasFile ? showClass : hideClass}`}>
             <DelButton />
           </div>
         </div>
 
-        {/* SLOT 2 (Center main button) */}
-        <div className="relative flex items-center justify-center">
-          {/* Camera */}
+        {/* SLOT 2 — center main button */}
+        <div className="relative flex items-center justify-center min-w-[4.5rem] shrink-0">
           <div className={`${baseBtn} ${!hasFile ? showClass : hideMainClass}`}>
             <CameraButton />
           </div>
 
-          {/* Send */}
           <div className={`${baseBtn} ${hasFile ? showClass : hideMainClass}`}>
             <SendButton />
           </div>
         </div>
 
-        {/* SLOT 3 */}
-        <div className="relative flex items-center justify-center">
-          {/* Toggle camera */}
+        {/* SLOT 3 — right */}
+        <div className="relative flex items-center justify-center min-w-[3rem] shrink-0">
           <div className={`${baseBtn} ${!hasFile ? showClass : hideClass}`}>
             <CameraToggle />
           </div>
 
-          {/* Overlay */}
           <div className={`${baseBtn} ${hasFile ? showClass : hideClass}`}>
             <OverlayButton />
           </div>

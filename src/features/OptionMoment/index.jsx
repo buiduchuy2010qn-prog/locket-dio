@@ -1,12 +1,13 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { Download, Repeat, Share, Trash2, X } from "lucide-react";
 import PlanBadge from "@/components/uikit/PlanBadge/PlanBadge";
 import {
   SonnerSuccess,
   SonnerWarning,
   SonnerInfo,
+  SonnerError,
 } from "@/components/uikit/SonnerToast";
-import Modal from "@/components/uikit/Modal";
+import ConfirmDeleteModal from "@/components/uikit/ConfirmDeleteModal";
 import {
   DeleteMoment,
   downloadFileToDevice,
@@ -45,7 +46,7 @@ function resolveMomentMedia(data, idFallback = "moment") {
   const id = data.id || idFallback || "moment";
 
   if (video && typeof video === "string" && video.startsWith("http")) {
-    return { url: video, filename: `huylocket_${id}.mp4` };
+    return { url: video, filename: `huylocket_${id}.mp4`, mediaType: "video" };
   }
   if (image && typeof image === "string" && image.startsWith("http")) {
     const ext = /\.png(\?|$)/i.test(image)
@@ -53,14 +54,18 @@ function resolveMomentMedia(data, idFallback = "moment") {
       : /\.webp(\?|$)/i.test(image)
         ? "webp"
         : "jpg";
-    return { url: image, filename: `huylocket_${id}.${ext}` };
+    return {
+      url: image,
+      filename: `huylocket_${id}.${ext}`,
+      mediaType: "image",
+    };
   }
   // blob: / data: (queue local)
   if (video && typeof video === "string") {
-    return { url: video, filename: `huylocket_${id}.mp4` };
+    return { url: video, filename: `huylocket_${id}.mp4`, mediaType: "video" };
   }
   if (image && typeof image === "string") {
-    return { url: image, filename: `huylocket_${id}.jpg` };
+    return { url: image, filename: `huylocket_${id}.jpg`, mediaType: "image" };
   }
   return null;
 }
@@ -82,8 +87,10 @@ const OptionMoment = ({ setOptionModalOpen, isOptionModalOpen }) => {
   const selectedFriendUid = useSelectedStore((s) => s.selectedFriendUid);
 
   const [openModal, setOpenModal] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [sharing, setSharing] = useState(false);
+  const [previewInfo, setPreviewInfo] = useState(null);
   const removeMoment = useMomentsStoreV2((s) => s.removeMoment);
 
   const selectedKey = selectedFriendUid ?? "all";
@@ -91,7 +98,7 @@ const OptionMoment = ({ setOptionModalOpen, isOptionModalOpen }) => {
     useMomentsStoreV2((s) => s.momentsByUser[selectedKey]?.moments) ?? [];
 
   const { removeUploadItemById } = useUploadQueueStore();
-  // Lock scroll khi mở modal
+
   useEffect(() => {
     document.body.style.overflow = isOptionModalOpen ? "hidden" : "";
     return () => {
@@ -99,38 +106,128 @@ const OptionMoment = ({ setOptionModalOpen, isOptionModalOpen }) => {
     };
   }, [isOptionModalOpen]);
 
-  const handleClose = () => {
+  const handleClose = useCallback(() => {
     setSelectedMoment(null);
     setSelectedQueue(null);
     setSelectedQueueId(null);
     setSelectedMomentId(null);
     setOptionModalOpen(false);
-  };
+  }, [
+    setOptionModalOpen,
+    setSelectedMoment,
+    setSelectedMomentId,
+    setSelectedQueue,
+    setSelectedQueueId,
+  ]);
 
-  const handleDelete = async () => {
-    if (selectedMomentId !== null) {
-      try {
-        //Call API xoá ảnh
-        const deletedMoment = await DeleteMoment(selectedMomentId);
-        if (deletedMoment === selectedMomentId) {
-          //Xoá ảnh trong local nếu id đã xoá trùng id chọn
-          await removeMoment(selectedMomentId, selectedFriendUid);
-          SonnerSuccess(t("option_moment.delete_success"));
-          handleClose();
-        } else {
-          SonnerWarning(t("option_moment.delete_failed"));
-        }
-      } catch (error) {
-        SonnerWarning(t("option_moment.delete_failed"));
-        console.warn("❌ Failed", error);
-      }
+  // Load preview for confirm modal when opening delete
+  useEffect(() => {
+    if (!openModal) {
+      setPreviewInfo(null);
       return;
     }
+    let cancelled = false;
+    (async () => {
+      try {
+        if (selectedQueueId != null) {
+          const data = await getUploadItemFromDB(selectedQueueId);
+          const info = data?.mediaInfo || data?.media || {};
+          const mediaUrl =
+            info.publicUrl ||
+            info.publicURL ||
+            info.url ||
+            info.thumbnailUrl ||
+            info.thumbnail_url ||
+            data?.publicUrl ||
+            data?.url;
+          const type =
+            info.type ||
+            data?.type ||
+            (String(mediaUrl || "").includes(".mp4") ? "video" : "image");
+          if (!cancelled && mediaUrl) {
+            setPreviewInfo({ url: mediaUrl, mediaType: type });
+          }
+          return;
+        }
+        if (selectedMomentId != null) {
+          const fromStore =
+            moments.find((m) => m?.id === selectedMomentId) ||
+            (typeof selectedMoment === "number"
+              ? moments[selectedMoment]
+              : null) ||
+            (selectedMoment && typeof selectedMoment === "object"
+              ? selectedMoment
+              : null);
+          const resolved =
+            resolveMomentMedia(fromStore, selectedMomentId) ||
+            resolveMomentMedia(
+              await getMomentById(selectedMomentId),
+              selectedMomentId,
+            );
+          if (!cancelled && resolved) {
+            setPreviewInfo({
+              url: resolved.url,
+              mediaType: resolved.mediaType || "image",
+            });
+          }
+        }
+      } catch {
+        /* preview optional */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [openModal, selectedMomentId, selectedQueueId, moments, selectedMoment]);
 
-    if (selectedQueueId !== null) {
-      await removeUploadItemById(selectedQueueId);
-      SonnerSuccess(t("option_moment.delete_queue_success"));
-      handleClose();
+  /**
+   * Only call delete API / remove after user confirms red button.
+   * Keep modal open + show loading until server succeeds.
+   * Do NOT remove post from UI on failure. No Undo for posted moments.
+   */
+  const handleDelete = async () => {
+    if (deleting) return;
+    setDeleting(true);
+
+    try {
+      if (selectedMomentId !== null) {
+        try {
+          const deletedMoment = await DeleteMoment(selectedMomentId);
+          if (deletedMoment === selectedMomentId) {
+            await removeMoment(selectedMomentId, selectedFriendUid);
+            SonnerSuccess(
+              t("option_moment.delete_success", {
+                defaultValue: "Đã xóa",
+              }),
+            );
+            setOpenModal(false);
+            handleClose();
+          } else {
+            SonnerError(
+              t("option_moment.delete_failed_retry", {
+                defaultValue: "Không thể xóa bài. Vui lòng thử lại.",
+              }),
+            );
+          }
+        } catch (error) {
+          SonnerError(
+            t("option_moment.delete_failed_retry", {
+              defaultValue: "Không thể xóa bài. Vui lòng thử lại.",
+            }),
+          );
+          console.warn("❌ Failed", error);
+        }
+        return;
+      }
+
+      if (selectedQueueId !== null) {
+        await removeUploadItemById(selectedQueueId);
+        SonnerSuccess(t("option_moment.delete_queue_success"));
+        setOpenModal(false);
+        handleClose();
+      }
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -161,7 +258,7 @@ const OptionMoment = ({ setOptionModalOpen, isOptionModalOpen }) => {
       }
     }
 
-    // 2) Live feed store (selectedMoment is often an index number)
+    // 2) Live feed store
     if (selectedMomentId != null) {
       const fromStore =
         moments.find((m) => m?.id === selectedMomentId) ||
@@ -170,13 +267,9 @@ const OptionMoment = ({ setOptionModalOpen, isOptionModalOpen }) => {
           ? selectedMoment
           : null);
 
-      const resolvedStore = resolveMomentMedia(
-        fromStore,
-        selectedMomentId,
-      );
+      const resolvedStore = resolveMomentMedia(fromStore, selectedMomentId);
       if (resolvedStore) return resolvedStore;
 
-      // 3) IndexedDB cache
       const data = await getMomentById(selectedMomentId);
       const resolvedDb = resolveMomentMedia(data, selectedMomentId);
       if (resolvedDb) return resolvedDb;
@@ -197,7 +290,6 @@ const OptionMoment = ({ setOptionModalOpen, isOptionModalOpen }) => {
         return;
       }
 
-      // Nút tải → lưu thẳng về máy (không share sheet)
       await downloadFileToDevice(media.url, media.filename, () =>
         setDownloading(false),
       );
@@ -226,7 +318,6 @@ const OptionMoment = ({ setOptionModalOpen, isOptionModalOpen }) => {
         return;
       }
 
-      // Nút chia sẻ → share sheet
       await shareFile(media.url, media.filename, () => setSharing(false));
     } catch (err) {
       SonnerWarning(t("option_moment.share_error"));
@@ -267,6 +358,7 @@ const OptionMoment = ({ setOptionModalOpen, isOptionModalOpen }) => {
               <PlanBadge />
             </div>
             <button
+              type="button"
               onClick={() => setOptionModalOpen(false)}
               className="btn btn-circle cursor-pointer hover:bg-base-200 p-1"
             >
@@ -278,6 +370,7 @@ const OptionMoment = ({ setOptionModalOpen, isOptionModalOpen }) => {
           </p>
           <div className="w-full grid grid-cols-2 md:grid-cols-3 gap-3 mt-6">
             <button
+              type="button"
               onClick={handleDownload}
               disabled={downloading}
               className="btn btn-neutral rounded-3xl flex items-center justify-center gap-2"
@@ -295,15 +388,16 @@ const OptionMoment = ({ setOptionModalOpen, isOptionModalOpen }) => {
             </button>
 
             <button
+              type="button"
               onClick={() => SonnerInfo(t("option_moment.feature_coming_soon"))}
               className="btn btn-secondary rounded-3xl w-full flex items-center justify-center gap-2"
             >
-              {/* Icon repost */}
               <Repeat size={20} />
               {t("option_moment.repost")}
             </button>
 
             <button
+              type="button"
               onClick={handleSharing}
               disabled={sharing}
               className="btn btn-info rounded-3xl flex items-center justify-center gap-2"
@@ -321,12 +415,14 @@ const OptionMoment = ({ setOptionModalOpen, isOptionModalOpen }) => {
               )}
             </button>
 
+            {/* Delete separated from primary actions — opens confirm only */}
             <button
+              type="button"
               onClick={() => {
                 setOptionModalOpen(false);
                 setOpenModal(true);
               }}
-              className="btn btn-error rounded-3xl w-full flex items-center justify-center gap-2"
+              className="btn btn-error rounded-3xl w-full flex items-center justify-center gap-2 col-span-2 md:col-span-1 md:col-start-auto"
             >
               <Trash2 size={20} /> {t("option_moment.delete")}
             </button>
@@ -334,33 +430,41 @@ const OptionMoment = ({ setOptionModalOpen, isOptionModalOpen }) => {
         </div>
       </div>
 
-      {/* Modal xoá giữ nguyên */}
-      <Modal
+      <ConfirmDeleteModal
         open={openModal}
-        onClose={() => setOpenModal(false)}
-        title={t("option_moment.delete_modal_title")}
-        actions={
-          <>
-            <button
-              onClick={() => setOpenModal(false)}
-              className="btn btn-soft px-4 py-2 rounded-xl transition-colors"
-            >
-              {t("option_moment.delete_modal_cancel")}
-            </button>
-            <button
-              onClick={() => {
-                handleDelete();
-                setOpenModal(false);
-              }}
-              className="btn btn-error px-4 py-2 rounded-xl transition-colors"
-            >
-              {t("option_moment.delete_modal_confirm")}
-            </button>
-          </>
+        onClose={() => {
+          if (!deleting) setOpenModal(false);
+        }}
+        onConfirm={handleDelete}
+        loading={deleting}
+        title={
+          t("option_moment.delete_confirm_title", {
+            defaultValue: "Bạn chắc chắn muốn xóa bài này?",
+          })
         }
-      >
-        {t("option_moment.delete_modal_content")}
-      </Modal>
+        description={
+          t("option_moment.delete_confirm_desc", {
+            defaultValue: "Hành động này có thể không hoàn tác được.",
+          })
+        }
+        keepLabel={
+          t("option_moment.delete_keep", {
+            defaultValue: "Giữ lại",
+          })
+        }
+        deleteLabel={
+          t("option_moment.delete_confirm_btn", {
+            defaultValue: "Xóa bài",
+          })
+        }
+        loadingLabel={
+          t("option_moment.deleting", {
+            defaultValue: "Đang xóa…",
+          })
+        }
+        previewUrl={previewInfo?.url || null}
+        mediaType={previewInfo?.mediaType || "image"}
+      />
     </>
   );
 };

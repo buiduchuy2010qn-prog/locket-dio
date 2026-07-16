@@ -80,8 +80,9 @@
     "save_crop": "Lưu vùng cắt"
   },
   "option_moment": {
-    "delete_success": "Đã xoá ảnh thành công!",
+    "delete_success": "Đã xóa",
     "delete_failed": "Xoá không thành công, vui lòng thử lại!",
+    "delete_failed_retry": "Không thể xóa bài. Vui lòng thử lại.",
     "delete_queue_success": "Đã xoá khỏi hàng chờ!",
     "preparing_download": "Đang chuẩn bị tải xuống...",
     "no_media_to_download": "Không tìm thấy ảnh/video để tải. Thử mở lại moment rồi tải lại.",
@@ -99,7 +100,12 @@
     "delete_modal_title": "Xoá ảnh?",
     "delete_modal_cancel": "Huỷ",
     "delete_modal_confirm": "Xoá",
-    "delete_modal_content": "Việc này sẽ xoá ảnh khỏi lịch sử của bạn và không thể hoàn tác."
+    "delete_modal_content": "Việc này sẽ xoá ảnh khỏi lịch sử của bạn và không thể hoàn tác.",
+    "delete_confirm_title": "Bạn chắc chắn muốn xóa bài này?",
+    "delete_confirm_desc": "Hành động này có thể không hoàn tác được.",
+    "delete_keep": "Giữ lại",
+    "delete_confirm_btn": "Xóa bài",
+    "deleting": "Đang xóa…"
   },
   "history_select_friend": {
     "everyone": "Mọi người",

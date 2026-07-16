@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { toast } from "sonner";
 import {
   deleteMomentDraft,
   getMomentDraftMeta,
@@ -13,6 +14,12 @@ import {
   isRestoreInProgress,
   setRestoreInProgress,
   formatDraftSavedAt,
+  markDraftPendingDeletion,
+  cancelDraftPendingDeletion,
+  isDraftPendingDeletion,
+  isDraftPendingDeletionExpired,
+  remainingDraftUndoMs,
+  DRAFT_UNDO_MS,
 } from "@/utils/momentDraft";
 import { usePostStore } from "./usePostStore";
 import { useOverlayEditorStore } from "./useOverlayEditorStore";
@@ -20,6 +27,27 @@ import { SonnerError, SonnerInfo, SonnerSuccess } from "@/components/uikit/Sonne
 
 let metaSaveTimer = null;
 let mediaSaveChain = Promise.resolve();
+/** Soft-delete finalize timer (hard-delete after undo window) */
+let pendingDeleteTimer = null;
+let pendingDeleteToastId = null;
+
+function clearPendingDeleteTimer() {
+  if (pendingDeleteTimer) {
+    clearTimeout(pendingDeleteTimer);
+    pendingDeleteTimer = null;
+  }
+}
+
+function dismissPendingDeleteToast() {
+  if (pendingDeleteToastId != null) {
+    try {
+      toast.dismiss(pendingDeleteToastId);
+    } catch {
+      /* ignore */
+    }
+    pendingDeleteToastId = null;
+  }
+}
 
 export const useMomentDraftStore = create((set, get) => ({
   /** meta without blob */
@@ -68,12 +96,43 @@ export const useMomentDraftStore = create((set, get) => ({
 
   /**
    * After login: load draft for this uid and offer restore modal.
+   * Also resumes / finalizes soft-delete (pendingDeletion).
    */
   checkAndOfferRestore: async (user) => {
     const uid = resolveDraftUid(user);
     if (!uid) return;
     set({ loading: true });
     try {
+      const metaOnly = await getMomentDraftMeta(uid);
+      // Soft-delete still in progress after reload → resume undo window
+      if (metaOnly && isDraftPendingDeletion(metaOnly)) {
+        if (isDraftPendingDeletionExpired(metaOnly)) {
+          await deleteMomentDraft(uid);
+          get().clearThumbnail();
+          set({
+            hasDraft: false,
+            draftMeta: null,
+            showRestoreModal: false,
+            loading: false,
+          });
+          return;
+        }
+        // Not expired: keep data, hide as active draft, re-offer Undo toast
+        set({
+          hasDraft: false,
+          draftMeta: metaOnly,
+          showRestoreModal: false,
+          loading: false,
+        });
+        get().clearThumbnail();
+        get()._schedulePendingDeletionFinalize(
+          uid,
+          remainingDraftUndoMs(metaOnly),
+        );
+        get()._showUndoToast();
+        return;
+      }
+
       const loaded = await loadMomentDraft(uid);
       if (!loaded?.meta?.mediaKey) {
         set({
@@ -130,6 +189,10 @@ export const useMomentDraftStore = create((set, get) => ({
     const uid = resolveDraftUid();
     if (!uid) return { error: "no-uid" };
 
+    // New capture supersedes any soft-delete undo window
+    clearPendingDeleteTimer();
+    dismissPendingDeleteToast();
+
     mediaSaveChain = mediaSaveChain.then(async () => {
       const post = usePostStore.getState();
       const overlay = useOverlayEditorStore.getState().overlayData;
@@ -141,7 +204,11 @@ export const useMomentDraftStore = create((set, get) => ({
         videoCropData: post.videoCropData,
         restoreStreakData: post.restoreStreakData,
       });
-      const result = await saveMomentDraftMedia(uid, file, metaPatch);
+      const result = await saveMomentDraftMedia(uid, file, {
+        ...metaPatch,
+        status: "editing",
+        pendingDeletionAt: null,
+      });
       if (result.error === "quota" || result.error === "too-large") {
         SonnerError(
           result.message ||
@@ -290,19 +357,104 @@ export const useMomentDraftStore = create((set, get) => ({
     }
   },
 
-  confirmDeleteDraft: async () => {
+  /**
+   * Soft-delete draft: mark pendingDeletion, toast Undo 8s, hard-delete after.
+   * Does NOT remove IndexedDB until the undo window ends.
+   */
+  softDeleteDraft: async () => {
     const uid = resolveDraftUid();
     if (!uid) return false;
-    const ok = await deleteMomentDraft(uid);
+    const meta = await getMomentDraftMeta(uid);
+    if (!meta?.mediaKey) {
+      // Nothing in IDB — still clear UI flags
+      get().clearThumbnail();
+      set({
+        hasDraft: false,
+        draftMeta: null,
+        showRestoreModal: false,
+        dismissedRestore: false,
+      });
+      return true;
+    }
+
+    const result = await markDraftPendingDeletion(uid);
+    if (result?.error) {
+      SonnerError("Không thể xóa bản nháp. Vui lòng thử lại.");
+      return false;
+    }
+
+    get().clearThumbnail();
+    set({
+      hasDraft: false,
+      draftMeta: {
+        ...meta,
+        status: "pendingDeletion",
+        pendingDeletionAt: Date.now(),
+      },
+      showRestoreModal: false,
+      dismissedRestore: false,
+    });
+
+    get()._schedulePendingDeletionFinalize(uid, DRAFT_UNDO_MS);
+    get()._showUndoToast();
+    return true;
+  },
+
+  /** @deprecated use softDeleteDraft — kept as alias for callers */
+  confirmDeleteDraft: async () => get().softDeleteDraft(),
+
+  undoSoftDeleteDraft: async () => {
+    const uid = resolveDraftUid();
+    clearPendingDeleteTimer();
+    dismissPendingDeleteToast();
+    if (!uid) return false;
+    const result = await cancelDraftPendingDeletion(uid);
+    if (result?.error) {
+      SonnerError("Không khôi phục được bản nháp.");
+      return false;
+    }
+    await get().refreshDraftPresence(uid);
+    SonnerSuccess("Đã khôi phục bản nháp");
+    return true;
+  },
+
+  _schedulePendingDeletionFinalize: (uid, delayMs = DRAFT_UNDO_MS) => {
+    clearPendingDeleteTimer();
+    const wait = Math.max(0, Number(delayMs) || 0);
+    pendingDeleteTimer = setTimeout(() => {
+      pendingDeleteTimer = null;
+      void get()._finalizePendingDeletion(uid);
+    }, wait);
+  },
+
+  _finalizePendingDeletion: async (uid) => {
+    const id = uid || resolveDraftUid();
+    if (!id) return;
+    const meta = await getMomentDraftMeta(id);
+    if (!meta || !isDraftPendingDeletion(meta)) return;
+    // Only hard-delete if still pending (user may have undone)
+    await deleteMomentDraft(id);
+    dismissPendingDeleteToast();
     get().clearThumbnail();
     set({
       hasDraft: false,
       draftMeta: null,
       showRestoreModal: false,
-      dismissedRestore: false,
     });
-    if (ok) SonnerSuccess("Đã xóa bản nháp");
-    return ok;
+  },
+
+  _showUndoToast: () => {
+    dismissPendingDeleteToast();
+    pendingDeleteToastId = toast("Đã xóa bản nháp — Hoàn tác", {
+      duration: DRAFT_UNDO_MS,
+      position: "top-center",
+      action: {
+        label: "Hoàn tác",
+        onClick: () => {
+          void get().undoSoftDeleteDraft();
+        },
+      },
+    });
   },
 
   markPosting: async () => {
@@ -322,6 +474,8 @@ export const useMomentDraftStore = create((set, get) => ({
   clearAfterSuccessfulPost: async () => {
     const uid = resolveDraftUid();
     if (!uid) return;
+    clearPendingDeleteTimer();
+    dismissPendingDeleteToast();
     await deleteMomentDraft(uid);
     get().clearThumbnail();
     set({
@@ -366,6 +520,8 @@ export const useMomentDraftStore = create((set, get) => ({
     const file = get().pendingNewFile;
     const uid = resolveDraftUid();
     set({ showReplacePrompt: false, pendingNewFile: null });
+    clearPendingDeleteTimer();
+    dismissPendingDeleteToast();
     if (uid) await deleteMomentDraft(uid);
     get().clearThumbnail();
     set({ hasDraft: false, draftMeta: null, dismissedRestore: false });

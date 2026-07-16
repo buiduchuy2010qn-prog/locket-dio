@@ -4,6 +4,8 @@ import { getMyLocalId } from "@/utils/auth/getMyLocalId";
 export const MOMENT_DRAFT_VERSION = 1;
 export const MAX_DRAFT_IMAGE_MB = 20;
 export const MAX_DRAFT_VIDEO_MB = 90;
+/** Soft-delete undo window (ms) before IndexedDB is hard-deleted */
+export const DRAFT_UNDO_MS = 8000;
 
 /** In-memory: skip replace-prompt while restoring a draft into studio */
 let restoreInProgress = false;
@@ -202,16 +204,18 @@ export async function saveMomentDraftMedia(uid, file, extras = {}) {
       status: "editing",
     };
 
+    // New media write always becomes an active editing draft (clears soft-delete)
     await momentDraftDB.momentDraftMeta.put({
       ...baseMeta,
+      ...extras,
       id: metaId,
       version: MOMENT_DRAFT_VERSION,
       uid: String(uid),
       mediaKey,
       mediaType,
       updatedAt: now,
-      status: baseMeta.status === "posting" ? "editing" : baseMeta.status || "editing",
-      ...extras,
+      status: "editing",
+      pendingDeletionAt: null,
     });
 
     lastSavedMediaKey = mediaKey;
@@ -279,6 +283,52 @@ export async function setMomentDraftStatus(uid, status) {
   return updateMomentDraftMeta(uid, { status });
 }
 
+/**
+ * Soft-delete: keep media in IDB, mark pendingDeletion for undo window.
+ */
+export async function markDraftPendingDeletion(uid) {
+  if (!uid) return { error: "missing-uid" };
+  return updateMomentDraftMeta(uid, {
+    status: "pendingDeletion",
+    pendingDeletionAt: Date.now(),
+  });
+}
+
+/**
+ * Cancel soft-delete (user tapped Hoàn tác).
+ */
+export async function cancelDraftPendingDeletion(uid) {
+  if (!uid) return { error: "missing-uid" };
+  return updateMomentDraftMeta(uid, {
+    status: "editing",
+    pendingDeletionAt: null,
+  });
+}
+
+export function isDraftPendingDeletion(meta) {
+  return Boolean(
+    meta?.mediaKey &&
+      (meta.status === "pendingDeletion" || meta.pendingDeletionAt),
+  );
+}
+
+export function isDraftPendingDeletionExpired(
+  meta,
+  windowMs = DRAFT_UNDO_MS,
+) {
+  if (!isDraftPendingDeletion(meta)) return false;
+  const at = Number(meta.pendingDeletionAt) || 0;
+  if (!at) return true;
+  return Date.now() - at >= windowMs;
+}
+
+export function remainingDraftUndoMs(meta, windowMs = DRAFT_UNDO_MS) {
+  if (!isDraftPendingDeletion(meta)) return 0;
+  const at = Number(meta.pendingDeletionAt) || 0;
+  if (!at) return 0;
+  return Math.max(0, windowMs - (Date.now() - at));
+}
+
 export async function getMomentDraftMeta(uid) {
   if (!uid) return null;
   try {
@@ -309,7 +359,22 @@ export async function loadMomentDraft(uid) {
 
 export async function hasMomentDraft(uid) {
   const meta = await getMomentDraftMeta(uid);
-  return Boolean(meta?.mediaKey);
+  if (!meta?.mediaKey) return false;
+  // Soft-deleted drafts are hidden from normal "has draft" until undone
+  if (isDraftPendingDeletion(meta) && !isDraftPendingDeletionExpired(meta)) {
+    return false;
+  }
+  if (isDraftPendingDeletion(meta) && isDraftPendingDeletionExpired(meta)) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Raw presence including pendingDeletion (for resume/cleanup on open).
+ */
+export async function getMomentDraftMetaRaw(uid) {
+  return getMomentDraftMeta(uid);
 }
 
 export async function deleteMomentDraft(uid) {
