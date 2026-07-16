@@ -13,6 +13,7 @@ export {
   parseCamera2Index,
   isVirtualOrDesktopCamera,
   isPhoneLikeCameraEnv,
+  shouldOfferLensPicker,
 } from "./cameraClassification";
 export * from "./batteryUtils";
 export * from "./onlyIOS";

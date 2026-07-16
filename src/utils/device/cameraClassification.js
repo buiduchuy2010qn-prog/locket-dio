@@ -79,16 +79,41 @@ export function isVirtualOrDesktopCamera(label = "") {
   return VIRTUAL_DESKTOP_RE.test(String(label || ""));
 }
 
+/**
+ * Best-effort "mobile-ish" env for UX density only.
+ * Lens selection / zoom MUST use feature detection (enumerateDevices, caps.zoom),
+ * not this helper. Prefer shouldOfferLensPicker(rearCount).
+ */
 export function isPhoneLikeCameraEnv() {
   try {
-    const ua = String(navigator.userAgent || "");
-    if (/Android|iPhone|iPad|iPod/i.test(ua)) return true;
+    // Touch + coarse pointer is stronger than UA for tablets/phones
+    const coarse =
+      typeof window !== "undefined" &&
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(pointer: coarse)").matches;
+    const touch = (navigator.maxTouchPoints || 0) > 0;
+    if (coarse && touch) return true;
+    // iPadOS desktop-mode Safari: MacIntel + multi-touch
     if (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
       return true;
+    // Fallback UA only when media queries unavailable
+    const ua = String(navigator.userAgent || "");
+    if (/Android|iPhone|iPad|iPod/i.test(ua)) return true;
     return false;
   } catch {
     return false;
   }
+}
+
+/**
+ * Feature-based: show manual lens UI when the browser exposes multiple rears
+ * (or caller forces single-device try-list). Not userAgent-gated.
+ * @param {number} rearCount
+ * @param {{ force?: boolean }} [opts]
+ */
+export function shouldOfferLensPicker(rearCount = 0, opts = {}) {
+  if (opts.force) return true;
+  return Number(rearCount) >= 2;
 }
 
 // ─── Browser metadata (diagnostic only) ───────────────────────────

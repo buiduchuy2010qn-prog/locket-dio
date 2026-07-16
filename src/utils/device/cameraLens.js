@@ -40,7 +40,6 @@ import {
   getBrowserCameraEnv,
   classifyLiveTrack,
   parseCamera2Index,
-  isPhoneLikeCameraEnv,
   isVirtualOrDesktopCamera,
 } from "./cameraClassification";
 
@@ -2170,7 +2169,6 @@ export function removeCaptionZoomControls(root = document) {
 export function computeAvailableZoomModes(detected, stream) {
   const range = readZoomRange(stream);
   const multiRear = (detected?.rear?.length || 0) >= 2;
-  const phoneEnv = isPhoneLikeCameraEnv();
   // Display factor ONLY from live stream — never a fixed 0.5 assumption
   const ultraFactor = resolveUltraWideFactor(stream, detected, null);
   const ultraCandidates = listUltraWideCandidates(
@@ -2192,11 +2190,9 @@ export function computeAvailableZoomModes(detected, stream) {
     Number.isFinite(range.maxZoom) &&
     range.maxZoom > range.minZoom + 0.05;
 
-  // Enable UW pill aggressively on phones:
-  // - physical ultra · multi-rear · digital min<1 · any zoomable rear
-  // User can always tap; switchToWidestLens tries every candidate.
+  // Feature detection only (enumerate multi-rear · live zoom caps · labels).
+  // No hard-coded 0.5/0.6. UI may still force the UW pill on rear cameras.
   const canWide =
-    phoneEnv ||
     hasClassifiedUltra ||
     multiRear ||
     hasUltraCandidates ||
@@ -2951,7 +2947,12 @@ export async function probeRearCamerasSequential(options = {}) {
     // (best is updated after compare; hold "trial" separately)
     let trialStream = null;
     try {
-      await new Promise((r) => setTimeout(r, 160));
+      // Brief HAL release between exclusive camera opens (Android single-slot;
+      // also helps Safari / desktop when switching deviceId exact).
+      await new Promise((r) =>
+        setTimeout(r, ordered.length > 2 ? 140 : 100),
+      );
+      // zoom:true only when getSupportedConstraints().zoom — openAndUpgrade handles it
       trialStream = await openRearDeviceExact(id, { requestZoom: true });
       if (!isLiveVideoStream(trialStream)) {
         if (trialStream) stopCurrentCamera(trialStream);

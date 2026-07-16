@@ -1,19 +1,18 @@
 import React, { useState } from "react";
 import {
-  isPhoneLikeCameraEnv,
   isVirtualOrDesktopCamera,
   isConfidentUltraLabel,
+  shouldOfferLensPicker,
 } from "@/utils";
 
 /**
- * Rear lens picker — Android multi-cam fallback.
- * Labels are not standardized (W3C focalLength not available), so the user
- * must be able to try every rear device the browser exposes.
+ * Cross-platform rear lens picker (Android / iOS Safari / desktop multi-cam).
+ * Visibility is feature-based (multiple rear deviceIds), not userAgent.
  *
  * Options:
- *  - Tự động (auto / preferred widest)
+ *  - Tự động
  *  - Camera sau 1..N
- *  - Siêu rộng (only when classification is relatively confident)
+ *  - Siêu rộng (when relatively confident)
  */
 export default function RearLensPicker({
   rearOptions = [],
@@ -28,25 +27,26 @@ export default function RearLensPicker({
   const [expanded, setExpanded] = useState(false);
 
   if (!visible) return null;
-  if (!isPhoneLikeCameraEnv()) return null;
 
   const options = (Array.isArray(rearOptions) ? rearOptions : []).filter(
     (d) => d?.deviceId && !isVirtualOrDesktopCamera(d.label || ""),
   );
 
-  // Show with 1+ rear when forced (debug / unsupported), normally 2+
+  // Need 2+ public rears unless parent forced visible with a useful list
+  if (!shouldOfferLensPicker(options.length) && options.length < 1) return null;
   if (options.length < 1) return null;
 
   const confidentUltra =
-    ultraDeviceId &&
-    options.some((d) => d.deviceId === ultraDeviceId);
+    ultraDeviceId && options.some((d) => d.deviceId === ultraDeviceId);
 
   const shortLabel = (device, index) => {
     const raw = String(device?.label || "").trim();
     if (!raw) return `Camera sau ${index + 1}`;
     const m = raw.match(/camera2\s*(\d+)/i);
-    if (m) return `Camera sau ${Number(m[1]) + 1 <= 9 ? Number(m[1]) + 1 : m[1]}`;
+    if (m) return `Camera sau ${Number(m[1]) + 1}`;
     if (isConfidentUltraLabel(raw)) return "Siêu rộng";
+    // Desktop webcams: keep a short real name
+    if (raw.length <= 14) return raw;
     return `Camera sau ${index + 1}`;
   };
 
@@ -70,7 +70,6 @@ export default function RearLensPicker({
     });
   });
   if (confidentUltra) {
-    // Dedicated Siêu rộng entry (same deviceId — clearer for users)
     const already = items.some(
       (it) => it.deviceId === ultraDeviceId && it.kind === "ultra",
     );

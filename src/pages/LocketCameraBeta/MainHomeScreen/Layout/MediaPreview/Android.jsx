@@ -62,6 +62,7 @@ import {
   BROWSER_HIDES_ULTRAWIDE_MSG,
   isCameraDebugEnabled,
   getLastRearProbeReport,
+  shouldOfferLensPicker,
 } from "@/utils";
 const EditorCaption = lazy(() => import("@/features/EditorCaption"));
 import { useApp } from "@/context/AppContext";
@@ -1636,8 +1637,16 @@ const MediaPreviewAndroid = () => {
                     availableZoomModes?.needsManualLensPick ||
                     detectedCameras?.needsManualLensPick ||
                     detectedRef.current?.needsManualLensPick ||
-                    (detectedCameras?.backCameras?.length || 0) >= 2 ||
-                    (detectedRef.current?.backCameras?.length || 0) >= 2,
+                    shouldOfferLensPicker(
+                      (
+                        availableZoomModes?.rearOptions ||
+                        detectedCameras?.rearOptions ||
+                        detectedCameras?.backCameras ||
+                        detectedRef.current?.rearOptions ||
+                        detectedRef.current?.backCameras ||
+                        []
+                      ).length,
+                    ),
                 )}
                 disabled={isSwitchingCamera || isPinching}
                 onSelectAuto={async () => {
