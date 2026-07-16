@@ -216,21 +216,41 @@ function resolveIconColor() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function transformWeatherToOverlay(apiResponse, twilight) {
-  const { current } = apiResponse;
-  const isDaylight = current.is_day === 1;
+  const current = apiResponse?.current;
+  if (!current || current.temp_c == null) return null;
 
-  const wkCondition = CODE_TO_WK_CONDITION[current.condition.code] || "cloudy";
+  const isDaylight =
+    current.is_day === 1 ||
+    current.is_day === true ||
+    current.is_daylight === true;
+
+  const conditionCode = Number(
+    current.condition?.code ?? current.condition_code ?? 1000,
+  );
+  const wkCondition = CODE_TO_WK_CONDITION[conditionCode] || "cloudy";
 
   const gradientKey = resolveGradientKey(wkCondition, isDaylight, twilight);
 
-  const backgroundColors = BACKGROUND_CONFIG[gradientKey];
+  const backgroundColors =
+    BACKGROUND_CONFIG[gradientKey] || BACKGROUND_CONFIG.clearDay;
 
   const sfSymbolKey = resolveSFSymbolKey(wkCondition, isDaylight);
   const sfSymbol = SF_SYMBOL_MAPPING[sfSymbolKey] || "cloud.fill";
 
   const iconColor = resolveIconColor();
 
-  const tempText = `${Math.round(current.temp_c)}°C`;
+  const tempNum = Number(current.temp_c);
+  if (!Number.isFinite(tempNum)) return null;
+  const tempText = `${Math.round(tempNum)}°C`;
+
+  const cloudRaw =
+    typeof current.cloud === "number"
+      ? current.cloud
+      : typeof current.cloud_cover === "number"
+        ? current.cloud_cover <= 1
+          ? current.cloud_cover * 100
+          : current.cloud_cover
+        : 50;
 
   return {
     background: {
@@ -243,12 +263,13 @@ export function transformWeatherToOverlay(apiResponse, twilight) {
     },
     max_lines: 1,
     payload: {
-      cloud_cover: current.cloud / 100,
-      is_daylight: isDaylight,
-      temperature: current.temp_c,
+      cloud_cover: Math.min(1, Math.max(0, cloudRaw / 100)),
+      is_daylight: Boolean(isDaylight),
+      temperature: tempNum,
       wk_condition: wkCondition,
     },
     text: tempText,
+    caption: tempText,
     text_color: "#FFFFFFE6",
     type: "weather",
   };

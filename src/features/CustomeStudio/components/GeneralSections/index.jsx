@@ -640,13 +640,18 @@ export default function GeneralThemes({ title }) {
 
     weather: () => {
       if (!weatherInfo || !weatherInfo.payload || !weatherInfo.text) {
-        SonnerInfo(t("custom_studio.weather_no_data"));
+        SonnerInfo(
+          t("custom_studio.weather_no_data", {
+            defaultValue:
+              "Chưa có nhiệt độ vị trí hiện tại. Hãy cho phép định vị (GPS) rồi thử lại.",
+          }),
+        );
         return;
       }
 
       applyOverlay({
         overlay_id: "weather",
-        caption: weatherInfo?.text || {},
+        caption: weatherInfo?.text || "",
         type: "weather",
         ...weatherInfo,
       });
