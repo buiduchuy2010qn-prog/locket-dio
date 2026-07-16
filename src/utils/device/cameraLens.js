@@ -1795,8 +1795,8 @@ const ZOOM_CAPS_TTL_MS = 2500;
 const ZOOM_FAST_EPS = 0.008;
 /** Skip applyConstraints if delta smaller than this (presets / deliberate) */
 const ZOOM_PRECISE_EPS = 0.01;
-/** Default min gap between hardware applies during continuous zoom (~30fps HW) */
-export const ZOOM_APPLY_THROTTLE_MS = 32;
+/** Default min gap between hardware applies during continuous zoom (~20fps HW — smoother main thread on mobile) */
+export const ZOOM_APPLY_THROTTLE_MS = 50;
 
 /**
  * Apply digital / hardware zoom (required API).

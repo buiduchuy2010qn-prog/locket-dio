@@ -777,7 +777,8 @@ export function mapGlobalZoomToLens(
 ) {
   const cont = continuum || emptyContinuum();
   let z = Number(globalZoom);
-  const lenses = Array.isArray(cont.lenses) ? cont.lenses.slice() : [];
+  // Read-only — never copy on hot path (called every pointermove)
+  const lenses = Array.isArray(cont.lenses) ? cont.lenses : [];
 
   if (!Number.isFinite(z)) z = 1;
 

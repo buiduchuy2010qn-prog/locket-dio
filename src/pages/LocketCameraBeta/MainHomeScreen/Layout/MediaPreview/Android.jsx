@@ -444,8 +444,8 @@ const MediaPreviewAndroid = () => {
 
   /**
    * User gesture zoom — UI paints in ZoomSlider (DOM).
-   * During drag: no React setState (avoids MediaPreview re-render lag).
-   * HW: latest-wins only; lens switch only when deviceId actually changes.
+   * During drag: no React setState + no physical lens switch (gUM restart = lag).
+   * Lens handoff only on snap/end. HW: latest-wins digital on current track.
    */
   const requestUserZoom = useCallback(
     (raw, { modeHint, snap = false } = {}) => {
@@ -473,9 +473,8 @@ const MediaPreviewAndroid = () => {
               ? WIDE_ZOOM_MODE
               : "custom");
         setDisplayZoomNow(next, hint);
-      } else {
-        // Still track mode hint without full badge path
-        if (isExactlyMainZoom(next)) lastZoomLevel.current = "1x";
+      } else if (isExactlyMainZoom(next)) {
+        lastZoomLevel.current = "1x";
       }
 
       // Avoid getSettings every pointermove — use last known id
@@ -486,6 +485,17 @@ const MediaPreviewAndroid = () => {
         liveId,
         stickyLensTypeRef.current,
       );
+
+      // Mid-drag: digital zoom on current track only — never gUM restart.
+      // If map wants another lens, skip HW until snap/end (UI already painted).
+      if (gesturing) {
+        if (!mapped.switchDevice) {
+          zoomApplierRef.current?.request(
+            mapped.localZoom != null ? mapped.localZoom : next,
+          );
+        }
+        return;
+      }
 
       if (
         mapped.switchDevice &&
@@ -501,8 +511,7 @@ const MediaPreviewAndroid = () => {
 
       if (mapped.type && mapped.type !== stickyLensTypeRef.current) {
         stickyLensTypeRef.current = mapped.type;
-        // Defer React lens label update off the hot path
-        if (!gesturing) setCurrentLensType(mapped.type);
+        setCurrentLensType(mapped.type);
       }
 
       zoomApplierRef.current?.request(

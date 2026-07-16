@@ -7,8 +7,9 @@ import {
 
 /**
  * High-performance zoom rail.
- * During drag: paint thumb/fill/badge via DOM (no React re-render).
- * Parent only receives zoom values for camera apply (latest-wins).
+ * - Paint via compositor transforms (no React re-render on drag).
+ * - rAF-coalesce pointer moves (≤1 paint+emit per frame).
+ * - Parent only gets zoom for HW; mid-gesture parent must not setState.
  */
 export default function ZoomSlider({
   min = 1,
@@ -22,13 +23,21 @@ export default function ZoomSlider({
 }) {
   const trackRef = useRef(null);
   const fillRef = useRef(null);
-  const thumbRef = useRef(null);
+  const thumbRailRef = useRef(null);
   const badgeRef = useRef(null);
   const draggingRef = useRef(false);
   const localZoomRef = useRef(Number(value) || 1);
   const rectCacheRef = useRef(null);
   const loRef = useRef(Number(min));
   const hiRef = useRef(Number(max));
+  const onInputRef = useRef(onInputValue);
+  const onEndRef = useRef(onGestureEnd);
+  const rafRef = useRef(0);
+  const pendingXRef = useRef(null);
+  const lastPaintTRef = useRef(-1);
+
+  onInputRef.current = onInputValue;
+  onEndRef.current = onGestureEnd;
 
   const lo = Number(min);
   const hi = Number(max);
@@ -47,20 +56,39 @@ export default function ZoomSlider({
     return Math.min(hi, Math.max(lo, v));
   }, [value, lo, hi]);
 
-  // Sync controlled value → DOM when not dragging
+  /**
+   * thumbRail is full track width → translateX(t%) is compositor-only
+   * and percentage is relative to rail width (= track).
+   */
+  const paint = useCallback((t, zoom) => {
+    const clamped = Math.min(1, Math.max(0, t));
+    const badge = updateZoomBadge(zoom);
+    if (Math.abs(clamped - lastPaintTRef.current) < 0.0005) {
+      if (badgeRef.current) badgeRef.current.textContent = badge;
+      return;
+    }
+    lastPaintTRef.current = clamped;
+    if (fillRef.current) {
+      fillRef.current.style.transform = `scaleX(${clamped})`;
+    }
+    if (thumbRailRef.current) {
+      thumbRailRef.current.style.transform = `translate3d(${clamped * 100}%, 0, 0)`;
+    }
+    if (badgeRef.current) badgeRef.current.textContent = badge;
+  }, []);
+
   useEffect(() => {
     if (draggingRef.current || !ok) return;
     localZoomRef.current = safeZoom;
-    const t = zoomToSliderT(safeZoom, lo, hi);
-    paint(t, safeZoom);
-  }, [safeZoom, lo, hi, ok]);
+    paint(zoomToSliderT(safeZoom, lo, hi), safeZoom);
+  }, [safeZoom, lo, hi, ok, paint]);
 
-  const paint = (t, zoom) => {
-    const pct = `${Math.min(100, Math.max(0, t * 100))}%`;
-    if (fillRef.current) fillRef.current.style.width = pct;
-    if (thumbRef.current) thumbRef.current.style.left = pct;
-    if (badgeRef.current) badgeRef.current.textContent = updateZoomBadge(zoom);
-  };
+  useEffect(
+    () => () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    },
+    [],
+  );
 
   const markerItems = useMemo(() => {
     if (!ok || !Array.isArray(markers)) return [];
@@ -79,25 +107,33 @@ export default function ZoomSlider({
       .filter(Boolean);
   }, [markers, lo, hi, ok]);
 
-  const emitFromClientX = useCallback(
+  const flushPendingX = useCallback(() => {
+    rafRef.current = 0;
+    const clientX = pendingXRef.current;
+    pendingXRef.current = null;
+    if (clientX == null) return;
+    const el = trackRef.current;
+    if (!el) return;
+    let rect = rectCacheRef.current;
+    if (!rect) {
+      rect = el.getBoundingClientRect();
+      rectCacheRef.current = rect;
+    }
+    if (rect.width < 1) return;
+    const p = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+    const zoom = sliderTToZoom(p, loRef.current, hiRef.current);
+    localZoomRef.current = zoom;
+    paint(p, zoom);
+    onInputRef.current?.(zoom);
+  }, [paint]);
+
+  const queueFromClientX = useCallback(
     (clientX) => {
-      const el = trackRef.current;
-      if (!el) return;
-      // Cache rect during drag — avoid layout thrash every move
-      let rect = rectCacheRef.current;
-      if (!rect) {
-        rect = el.getBoundingClientRect();
-        rectCacheRef.current = rect;
-      }
-      if (rect.width < 1) return;
-      const p = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
-      const zoom = sliderTToZoom(p, loRef.current, hiRef.current);
-      localZoomRef.current = zoom;
-      // Instant paint — no setState
-      paint(p, zoom);
-      onInputValue?.(zoom);
+      pendingXRef.current = clientX;
+      if (rafRef.current) return;
+      rafRef.current = requestAnimationFrame(flushPendingX);
     },
-    [onInputValue],
+    [flushPendingX],
   );
 
   const endDrag = useCallback(
@@ -105,6 +141,11 @@ export default function ZoomSlider({
       if (!draggingRef.current) return;
       draggingRef.current = false;
       rectCacheRef.current = null;
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = 0;
+      }
+      if (pendingXRef.current != null) flushPendingX();
       try {
         if (e?.currentTarget && e.pointerId != null) {
           e.currentTarget.releasePointerCapture(e.pointerId);
@@ -112,9 +153,9 @@ export default function ZoomSlider({
       } catch {
         /* ignore */
       }
-      onGestureEnd?.(localZoomRef.current);
+      onEndRef.current?.(localZoomRef.current);
     },
-    [onGestureEnd],
+    [flushPendingX],
   );
 
   if (!ok) return null;
@@ -154,27 +195,33 @@ export default function ZoomSlider({
             e.preventDefault();
             e.stopPropagation();
             draggingRef.current = true;
+            lastPaintTRef.current = -1;
             rectCacheRef.current = e.currentTarget.getBoundingClientRect();
             try {
               e.currentTarget.setPointerCapture(e.pointerId);
             } catch {
               /* ignore */
             }
-            emitFromClientX(e.clientX);
+            pendingXRef.current = e.clientX;
+            flushPendingX();
           }}
           onPointerMove={(e) => {
             if (!draggingRef.current || disabled) return;
             e.preventDefault();
-            emitFromClientX(e.clientX);
+            queueFromClientX(e.clientX);
           }}
           onPointerUp={endDrag}
           onPointerCancel={endDrag}
           onLostPointerCapture={() => {
-            if (draggingRef.current) {
-              draggingRef.current = false;
-              rectCacheRef.current = null;
-              onGestureEnd?.(localZoomRef.current);
+            if (!draggingRef.current) return;
+            draggingRef.current = false;
+            rectCacheRef.current = null;
+            if (rafRef.current) {
+              cancelAnimationFrame(rafRef.current);
+              rafRef.current = 0;
             }
+            if (pendingXRef.current != null) flushPendingX();
+            onEndRef.current?.(localZoomRef.current);
           }}
           onKeyDown={(e) => {
             if (disabled) return;
@@ -189,14 +236,14 @@ export default function ZoomSlider({
             } else return;
             localZoomRef.current = z;
             paint(zoomToSliderT(z, lo, hi), z);
-            onInputValue?.(z);
+            onInputRef.current?.(z);
           }}
         >
           <div className="absolute inset-x-0 h-[3px] rounded-full bg-white/35 pointer-events-none" />
           <div
             ref={fillRef}
-            className="absolute left-0 h-[3px] rounded-full bg-white/90 pointer-events-none will-change-[width]"
-            style={{ width: `${t0 * 100}%` }}
+            className="absolute left-0 h-[3px] w-full rounded-full bg-white/90 pointer-events-none origin-left will-change-transform"
+            style={{ transform: `scaleX(${t0})` }}
           />
 
           {markerItems.map((m) => (
@@ -217,8 +264,8 @@ export default function ZoomSlider({
                 const z = Math.min(hi, Math.max(lo, m.zoom));
                 localZoomRef.current = z;
                 paint(zoomToSliderT(z, lo, hi), z);
-                onInputValue?.(z);
-                onGestureEnd?.(z);
+                onInputRef.current?.(z);
+                onEndRef.current?.(z);
               }}
               onPointerDown={(e) => e.stopPropagation()}
             >
@@ -242,24 +289,30 @@ export default function ZoomSlider({
             </button>
           ))}
 
+          {/* Full-width rail: translateX(%) = fraction of track (compositor) */}
           <div
-            ref={thumbRef}
-            className="absolute top-1/2 z-[3] -translate-y-1/2 -translate-x-1/2 pointer-events-none flex flex-col items-center will-change-[left]"
-            style={{ left: `${t0 * 100}%` }}
+            ref={thumbRailRef}
+            className="absolute left-0 top-1/2 z-[3] w-full pointer-events-none will-change-transform"
+            style={{
+              height: 0,
+              transform: `translate3d(${t0 * 100}%, 0, 0)`,
+            }}
           >
-            <div
-              className={`rounded-full bg-white shadow-lg border border-black/15 ${
-                disabled ? "opacity-50" : ""
-              }`}
-              style={{ width: 26, height: 26 }}
-            />
-            <div
-              ref={badgeRef}
-              className="absolute -top-7 left-1/2 -translate-x-1/2 whitespace-nowrap
-                text-[11px] font-semibold text-white px-1.5 py-0.5 rounded-md
-                bg-black/50 backdrop-blur-sm"
-            >
-              {updateZoomBadge(safeZoom)}
+            <div className="absolute left-0 top-0 flex flex-col items-center -translate-x-1/2 -translate-y-1/2">
+              <div
+                className={`rounded-full bg-white shadow-lg border border-black/15 ${
+                  disabled ? "opacity-50" : ""
+                }`}
+                style={{ width: 26, height: 26 }}
+              />
+              <div
+                ref={badgeRef}
+                className="absolute -top-7 left-1/2 -translate-x-1/2 whitespace-nowrap
+                  text-[11px] font-semibold text-white px-1.5 py-0.5 rounded-md
+                  bg-black/70"
+              >
+                {updateZoomBadge(safeZoom)}
+              </div>
             </div>
           </div>
         </div>

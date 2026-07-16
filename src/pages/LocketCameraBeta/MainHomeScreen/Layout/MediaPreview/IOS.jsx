@@ -412,6 +412,10 @@ const MediaPreviewIOS = () => {
     ],
   );
 
+  /**
+   * During drag: no React setState + no physical lens switch (gUM = lag).
+   * Lens handoff only on snap/end. HW: latest-wins on current track.
+   */
   const requestUserZoom = useCallback(
     (raw, { modeHint, snap = false } = {}) => {
       const cont = continuumRef.current;
@@ -448,6 +452,17 @@ const MediaPreviewIOS = () => {
         stickyLensTypeRef.current,
       );
 
+      // Mid-drag: digital zoom on current track only — never gUM restart.
+      // If map wants another lens, skip HW until snap/end (UI already painted).
+      if (gesturing) {
+        if (!mapped.switchDevice) {
+          zoomApplierRef.current?.request(
+            mapped.localZoom != null ? mapped.localZoom : next,
+          );
+        }
+        return;
+      }
+
       if (
         mapped.switchDevice &&
         mapped.deviceId &&
@@ -462,7 +477,7 @@ const MediaPreviewIOS = () => {
 
       if (mapped.type && mapped.type !== stickyLensTypeRef.current) {
         stickyLensTypeRef.current = mapped.type;
-        if (!gesturing) setCurrentLensType(mapped.type);
+        setCurrentLensType(mapped.type);
       }
 
       zoomApplierRef.current?.request(
