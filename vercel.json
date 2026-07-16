@@ -103,6 +103,26 @@
       "destination": "https://payment.locket-dio.com/:path*"
     },
     {
+      "source": "/api/drive-status",
+      "destination": "https://huy-locket-production.up.railway.app/api/drive-status"
+    },
+    {
+      "source": "/api/drive-config",
+      "destination": "https://huy-locket-production.up.railway.app/api/drive-config"
+    },
+    {
+      "source": "/api/drive-oauth-start",
+      "destination": "https://huy-locket-production.up.railway.app/api/drive-oauth-start"
+    },
+    {
+      "source": "/api/drive-oauth-callback",
+      "destination": "https://huy-locket-production.up.railway.app/api/drive-oauth-callback"
+    },
+    {
+      "source": "/api/drive-backup",
+      "destination": "https://huy-locket-production.up.railway.app/api/drive-backup"
+    },
+    {
       "source": "/((?!dio-|api/).*)",
       "destination": "/index.html"
     }
