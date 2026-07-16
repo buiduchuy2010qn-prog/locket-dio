@@ -1,17 +1,29 @@
 import React, { useState } from "react";
-import { isPhoneLikeCameraEnv, isVirtualOrDesktopCamera } from "@/utils";
+import {
+  isPhoneLikeCameraEnv,
+  isVirtualOrDesktopCamera,
+  isConfidentUltraLabel,
+} from "@/utils";
 
 /**
- * Compact rear-camera picker for multi-lens Android phones.
- * Collapsed = small "Lens" button; expand to C0/C2/… or real labels.
- * Does not cover the full frame.
+ * Rear lens picker — Android multi-cam fallback.
+ * Labels are not standardized (W3C focalLength not available), so the user
+ * must be able to try every rear device the browser exposes.
+ *
+ * Options:
+ *  - Tự động (auto / preferred widest)
+ *  - Camera sau 1..N
+ *  - Siêu rộng (only when classification is relatively confident)
  */
 export default function RearLensPicker({
   rearOptions = [],
   activeDeviceId = null,
   visible = false,
   disabled = false,
+  ultraDeviceId = null,
+  showAuto = true,
   onSelect,
+  onSelectAuto,
 }) {
   const [expanded, setExpanded] = useState(false);
 
@@ -22,21 +34,55 @@ export default function RearLensPicker({
     (d) => d?.deviceId && !isVirtualOrDesktopCamera(d.label || ""),
   );
 
-  // Need 2+ public rear cameras for manual pick to be useful
-  if (options.length < 2) return null;
+  // Show with 1+ rear when forced (debug / unsupported), normally 2+
+  if (options.length < 1) return null;
+
+  const confidentUltra =
+    ultraDeviceId &&
+    options.some((d) => d.deviceId === ultraDeviceId);
 
   const shortLabel = (device, index) => {
     const raw = String(device?.label || "").trim();
-    if (!raw) return `C${index}`;
-    // Prefer camera2 index for Samsung-style labels
+    if (!raw) return `Camera sau ${index + 1}`;
     const m = raw.match(/camera2\s*(\d+)/i);
-    if (m) return `C${m[1]}`;
-    const cleaned = raw
-      .replace(/camera2\s*/gi, "C")
-      .replace(/\s+/g, " ")
-      .slice(0, 12);
-    return cleaned || `C${index}`;
+    if (m) return `Camera sau ${Number(m[1]) + 1 <= 9 ? Number(m[1]) + 1 : m[1]}`;
+    if (isConfidentUltraLabel(raw)) return "Siêu rộng";
+    return `Camera sau ${index + 1}`;
   };
+
+  const items = [];
+  if (showAuto) {
+    items.push({
+      key: "auto",
+      label: "Tự động",
+      kind: "auto",
+      deviceId: null,
+    });
+  }
+  options.forEach((device, index) => {
+    items.push({
+      key: device.deviceId,
+      label: shortLabel(device, index),
+      kind: "device",
+      deviceId: device.deviceId,
+      device,
+      title: device.label || device.deviceId,
+    });
+  });
+  if (confidentUltra) {
+    // Dedicated Siêu rộng entry (same deviceId — clearer for users)
+    const already = items.some(
+      (it) => it.deviceId === ultraDeviceId && it.kind === "ultra",
+    );
+    if (!already) {
+      items.push({
+        key: `ultra-${ultraDeviceId}`,
+        label: "Siêu rộng",
+        kind: "ultra",
+        deviceId: ultraDeviceId,
+      });
+    }
+  }
 
   return (
     <div
@@ -62,34 +108,44 @@ export default function RearLensPicker({
         </button>
 
         {expanded &&
-          options.map((device, index) => {
-            const id = device?.deviceId;
-            if (!id) return null;
-            const active = activeDeviceId === id;
+          items.map((item) => {
+            const active =
+              item.kind === "auto"
+                ? false
+                : item.deviceId && activeDeviceId === item.deviceId;
             return (
               <button
-                key={id}
+                key={item.key}
                 type="button"
                 data-no-focus
                 disabled={disabled}
                 onClick={async () => {
                   if (disabled) return;
-                  const ok = await onSelect?.(id, device);
+                  let ok = true;
+                  if (item.kind === "auto") {
+                    ok = await onSelectAuto?.();
+                  } else {
+                    ok = await onSelect?.(item.deviceId, item.device || null);
+                  }
                   if (ok !== false) setExpanded(false);
                 }}
-                className={`max-w-[5.5rem] truncate h-6 px-2 rounded-full text-[10px] font-semibold transition-all
+                className={`max-w-[6.5rem] truncate h-6 px-2 rounded-full text-[10px] font-semibold transition-all
                   ${
                     active
                       ? "bg-white text-black scale-105"
-                      : "bg-white/15 text-white active:scale-95"
+                      : item.kind === "ultra"
+                        ? "bg-emerald-500/30 text-emerald-100 active:scale-95"
+                        : item.kind === "auto"
+                          ? "bg-amber-400/25 text-amber-50 active:scale-95"
+                          : "bg-white/15 text-white active:scale-95"
                   }
                   ${disabled ? "opacity-40 cursor-not-allowed" : ""}
                 `}
-                title={device.label || id}
-                aria-label={`Camera ${index + 1}: ${device.label || id}`}
+                title={item.title || item.label}
+                aria-label={item.label}
                 aria-pressed={active}
               >
-                {shortLabel(device, index)}
+                {item.label}
               </button>
             );
           })}

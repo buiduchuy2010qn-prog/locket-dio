@@ -41,6 +41,7 @@ import {
   classifyLiveTrack,
   parseCamera2Index,
   isPhoneLikeCameraEnv,
+  isVirtualOrDesktopCamera,
 } from "./cameraClassification";
 
 // ─── Label matchers ───────────────────────────────────────────────
@@ -159,10 +160,11 @@ export function getPreferredWideCameraId(rearDevices = []) {
   try {
     const id = globalThis?.localStorage?.getItem(PREFERRED_WIDE_CAMERA_KEY);
     if (!id) return null;
-    const valid = (Array.isArray(rearDevices) ? rearDevices : []).some(
-      (device) => device?.deviceId === id,
-    );
+    // No list yet — return stored id without wiping (caller validates later)
+    if (!Array.isArray(rearDevices) || rearDevices.length === 0) return id;
+    const valid = rearDevices.some((device) => device?.deviceId === id);
     if (valid) return id;
+    // Id rotated after permission/site-data clear
     globalThis?.localStorage?.removeItem(PREFERRED_WIDE_CAMERA_KEY);
   } catch {
     /* localStorage may be blocked in private/embedded browsing */
@@ -181,6 +183,102 @@ export function rememberPreferredWideCameraId(deviceId) {
   } catch {
     return false;
   }
+}
+
+/**
+ * Exact copy for UI when Chrome only exposes one rear + zoom.min ≥ 1.
+ * Do not claim “không hỗ trợ 0.5x” — that is the wrong failure mode.
+ */
+export const BROWSER_HIDES_ULTRAWIDE_MSG =
+  "Chrome chưa cung cấp ống kính siêu rộng của thiết bị này cho website. Hãy thử Samsung Internet/Chrome mới nhất hoặc chọn camera trong danh sách ống kính.";
+
+/** Last sequential rear probe rows (for ?cameraDebug=1). No photos / PII beyond labels. */
+let lastRearProbeReport = [];
+
+export function getLastRearProbeReport() {
+  return Array.isArray(lastRearProbeReport) ? lastRearProbeReport.slice() : [];
+}
+
+export function isCameraDebugEnabled() {
+  try {
+    if (typeof window === "undefined") return false;
+    return (
+      new URLSearchParams(window.location.search || "").get("cameraDebug") ===
+      "1"
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Snapshot one live track for logs / debug table.
+ * Does NOT read focalLength (W3C proposal only — not stable in browsers).
+ * @param {MediaStream|null} stream
+ * @param {MediaDeviceInfo|null} [deviceInfo]
+ */
+export function snapshotTrackCameraInfo(stream, deviceInfo = null) {
+  const track = getActiveVideoTrack(stream);
+  let caps = {};
+  let settings = {};
+  try {
+    caps = track?.getCapabilities?.() || {};
+  } catch {
+    caps = {};
+  }
+  try {
+    settings = track?.getSettings?.() || {};
+  } catch {
+    settings = {};
+  }
+  const zoomParsed = parseZoomCapability(caps.zoom);
+  return {
+    label: deviceInfo?.label || track?.label || "",
+    deviceId: settings.deviceId || deviceInfo?.deviceId || null,
+    groupId: deviceInfo?.groupId || null,
+    capabilitiesZoom: zoomParsed
+      ? { min: zoomParsed.min, max: zoomParsed.max, step: zoomParsed.step }
+      : caps.zoom && typeof caps.zoom === "object"
+        ? { empty: true }
+        : null,
+    settingsZoom:
+      typeof settings.zoom === "number" && Number.isFinite(settings.zoom)
+        ? settings.zoom
+        : null,
+    width: settings.width ?? null,
+    height: settings.height ?? null,
+    facingMode: settings.facingMode || null,
+    trackState: track?.readyState || null,
+    // Explicit: never depend on focalLength (W3C issue #20 — not shipped stably)
+    focalLengthUsed: false,
+  };
+}
+
+/**
+ * All rear videoinputs after permission + enumerateDevices.
+ * Never drop a rear camera only because label lacks "0.5" / "ultra" / "wide".
+ * (W3C: multi-rear has no standard focalLength API yet — labels are unreliable.)
+ * @returns {Promise<MediaDeviceInfo[]>}
+ */
+export async function listAllRearVideoInputs() {
+  // 1) Permission first so labels + deviceIds are populated
+  const devices = await ensureLabeledVideoDevices();
+  const classified = detectRearCameras(devices);
+  let rear = Array.isArray(classified.rear) ? classified.rear.slice() : [];
+
+  // Safety: any non-front, non-virtual videoinput must remain selectable
+  const rearIds = new Set(rear.map((d) => d?.deviceId).filter(Boolean));
+  for (const d of devices) {
+    if (!d?.deviceId || d.kind !== "videoinput") continue;
+    if (rearIds.has(d.deviceId)) continue;
+    const label = d.label || "";
+    if (isFrontLabel(label)) continue;
+    if (isVirtualOrDesktopCamera(label)) continue;
+    // Unlabeled after permission often = rear on Android — keep it
+    rear.push(d);
+    rearIds.add(d.deviceId);
+  }
+  return rear;
 }
 
 /** Clear probe cache (call with invalidateCameraCache). */
@@ -2622,6 +2720,384 @@ async function tryDigitalUltraWide(stream, detected, mainId) {
 }
 
 /**
+ * Open one rear camera by exact deviceId (sequential multi-cam only).
+ * Optional zoom:true for PTZ permission — never min/max/exact on zoom in GUM.
+ * @param {string} deviceId
+ * @param {{ requestZoom?: boolean }} [opts]
+ * @returns {Promise<MediaStream|null>}
+ */
+async function openRearDeviceExact(deviceId, opts = {}) {
+  if (!deviceId || !navigator.mediaDevices?.getUserMedia) return null;
+  const supportedZoom = canRequestBrowserZoomControl();
+  const quality = getCameraPreviewConstraints(
+    CONFIG?.app?.camera?.constraints?.default || {},
+  );
+  const video = {
+    deviceId: { exact: deviceId },
+    ...quality,
+  };
+  try {
+    return await openAndUpgrade(video, {
+      requestZoomControl: opts.requestZoom !== false && supportedZoom,
+    });
+  } catch {
+    try {
+      // Bare exact — max compatibility when quality constraints fail
+      return await openAndUpgrade(
+        { deviceId: { exact: deviceId } },
+        {
+          requestZoomControl: opts.requestZoom !== false && supportedZoom,
+        },
+      );
+    } catch {
+      return null;
+    }
+  }
+}
+
+/**
+ * Apply capabilities.zoom.min when min < 0.98 (logical ultra on this track).
+ * Never hard-code 0.5 — S25 FE may report 0.6. On failure keep stream live.
+ * @param {MediaStream} stream
+ * @returns {Promise<{ ok: boolean, requested: number|null, actual: number|null }>}
+ */
+async function tryApplyTrackZoomMin(stream) {
+  const track = getActiveVideoTrack(stream);
+  if (!track || track.readyState !== "live") {
+    return { ok: false, requested: null, actual: null };
+  }
+  const caps = track.getCapabilities?.() || {};
+  const parsed = parseZoomCapability(caps.zoom);
+  if (!parsed || Number(parsed.min) >= 0.98) {
+    return {
+      ok: false,
+      requested: null,
+      actual: getCurrentTrackSettings(stream)?.zoom ?? null,
+    };
+  }
+  const requested = Number(parsed.min);
+  if (!isPageVisibleForPtz()) {
+    const vis = await waitForPageVisible(6000);
+    if (!vis) {
+      return {
+        ok: false,
+        requested,
+        actual: getCurrentTrackSettings(stream)?.zoom ?? null,
+      };
+    }
+  }
+  try {
+    await track.applyConstraints({ advanced: [{ zoom: requested }] });
+  } catch {
+    try {
+      await track.applyConstraints(/** @type {MediaTrackConstraints} */ ({
+        zoom: requested,
+      }));
+    } catch {
+      // Keep stream alive — fall through to physical / next device
+      return {
+        ok: false,
+        requested,
+        actual: getCurrentTrackSettings(stream)?.zoom ?? null,
+      };
+    }
+  }
+  await new Promise((r) => setTimeout(r, 90));
+  if (track.readyState !== "live") {
+    return { ok: false, requested, actual: null };
+  }
+  const actual = getCurrentTrackSettings(stream)?.zoom ?? null;
+  const ok =
+    typeof actual === "number" &&
+    Number.isFinite(actual) &&
+    (isUltraZoomValue(actual) ||
+      Math.abs(actual - requested) <=
+        Math.max(0.15, (parsed.step || 0.1) * 2));
+  return { ok, requested, actual };
+}
+
+/**
+ * Sequential rear probe — permission → enumerate → open one device at a time.
+ * W3C multi-rear: no stable focalLength; measure zoom.min / keep physical list.
+ * Stops previous trial stream before opening the next. Never returns ended best.
+ *
+ * @param {{
+ *   oldStream?: MediaStream|null,
+ *   videoEl?: HTMLVideoElement|null,
+ *   preferredId?: string|null,
+ *   stopOld?: boolean,
+ * }} [options]
+ * @returns {Promise<{
+ *   rows: object[],
+ *   rear: MediaDeviceInfo[],
+ *   best: object|null,
+ *   logicalBest: object|null,
+ * }>}
+ */
+export async function probeRearCamerasSequential(options = {}) {
+  const {
+    oldStream = null,
+    videoEl = null,
+    preferredId = null,
+    stopOld = true,
+  } = options;
+
+  const rear = await listAllRearVideoInputs();
+  const rows = [];
+  lastRearProbeReport = rows;
+
+  if (stopOld && oldStream) {
+    try {
+      clearTrackZoomCache(oldStream);
+      stopCurrentCamera(oldStream, videoEl);
+    } catch {
+      /* ignore */
+    }
+  }
+  if (videoEl) {
+    try {
+      videoEl.srcObject = null;
+    } catch {
+      /* ignore */
+    }
+  }
+
+  // Order: preferred first, then remaining (do not drop tele/macro forever)
+  const ordered = [];
+  if (preferredId && rear.some((d) => d.deviceId === preferredId)) {
+    ordered.push(preferredId);
+  }
+  for (const d of rear) {
+    if (d?.deviceId && !ordered.includes(d.deviceId)) ordered.push(d.deviceId);
+  }
+
+  /** @type {object|null} */
+  let best = null;
+  /** @type {object|null} */
+  let logicalBest = null;
+
+  for (const id of ordered) {
+    const deviceInfo = rear.find((d) => d.deviceId === id) || null;
+
+    // Always free previous trial before next open (Samsung single camera slot)
+    if (best?.stream && isLiveVideoStream(best.stream)) {
+      // Keep best until we know next is better — stop if we're about to open another
+    }
+    // Stop non-winning live stream from previous iteration
+    // (best is updated after compare; hold "trial" separately)
+    let trialStream = null;
+    try {
+      await new Promise((r) => setTimeout(r, 160));
+      trialStream = await openRearDeviceExact(id, { requestZoom: true });
+      if (!isLiveVideoStream(trialStream)) {
+        if (trialStream) stopCurrentCamera(trialStream);
+        const failRow = {
+          label: deviceInfo?.label || "",
+          deviceId: id,
+          groupId: deviceInfo?.groupId || null,
+          capabilitiesZoom: null,
+          settingsZoom: null,
+          width: null,
+          height: null,
+          facingMode: null,
+          trackState: "ended",
+          path: "open-failed",
+          appliedZoom: null,
+        };
+        rows.push(failRow);
+        logCameraPtz({
+          path: "sequential-probe",
+          ...failRow,
+          applyResult: "open-failed",
+        });
+        continue;
+      }
+
+      const snap = snapshotTrackCameraInfo(trialStream, deviceInfo);
+      let appliedZoom = null;
+      let applyOk = false;
+      const zoomMin = snap.capabilitiesZoom?.min;
+      if (
+        snap.capabilitiesZoom &&
+        typeof zoomMin === "number" &&
+        zoomMin < 0.98
+      ) {
+        const applied = await tryApplyTrackZoomMin(trialStream);
+        applyOk = applied.ok;
+        appliedZoom = applied.actual ?? applied.requested;
+        // Re-snapshot after apply
+        const after = snapshotTrackCameraInfo(trialStream, deviceInfo);
+        Object.assign(snap, after);
+        snap.appliedZoom = appliedZoom;
+        snap.applyOk = applyOk;
+      } else {
+        snap.appliedZoom = null;
+        snap.applyOk = false;
+      }
+
+      if (!isLiveVideoStream(trialStream)) {
+        rows.push({
+          ...snap,
+          trackState: "ended",
+          path: "died-after-apply",
+        });
+        logCameraPtz({
+          path: "sequential-probe",
+          ...snap,
+          applyResult: "track-ended",
+        });
+        trialStream = null;
+        continue;
+      }
+
+      const row = {
+        ...snap,
+        path: applyOk
+          ? "logical-zoom"
+          : snap.capabilitiesZoom?.min != null &&
+              Number(snap.capabilitiesZoom.min) < 0.98
+            ? "logical-apply-failed"
+            : "physical-device",
+      };
+      rows.push(row);
+      logCameraPtz({
+        path: "sequential-probe",
+        label: row.label,
+        selectedDeviceId: row.deviceId,
+        groupId: row.groupId,
+        zoomCapabilities: row.capabilitiesZoom,
+        zoomAfter: row.settingsZoom,
+        width: row.width,
+        height: row.height,
+        facingMode: row.facingMode,
+        trackState: row.trackState,
+        applyResult: row.path,
+        requestedZoom: appliedZoom,
+      });
+
+      const entry = {
+        stream: trialStream,
+        deviceId: row.deviceId || id,
+        deviceInfo,
+        snap: row,
+        zoomMin:
+          typeof row.capabilitiesZoom?.min === "number"
+            ? row.capabilitiesZoom.min
+            : 99,
+        settingsZoom: row.settingsZoom,
+        logicalUltra: Boolean(
+          applyOk ||
+            (typeof row.settingsZoom === "number" &&
+              isUltraZoomValue(row.settingsZoom)) ||
+            (typeof row.capabilitiesZoom?.min === "number" &&
+              row.capabilitiesZoom.min < 0.98),
+        ),
+      };
+
+      // Prefer lowest zoom.min among logical-ultra tracks
+      if (entry.logicalUltra) {
+        if (
+          !logicalBest ||
+          entry.zoomMin < logicalBest.zoomMin - 0.01 ||
+          (Math.abs(entry.zoomMin - logicalBest.zoomMin) < 0.01 &&
+            id === preferredId)
+        ) {
+          if (
+            logicalBest?.stream &&
+            logicalBest.stream !== trialStream &&
+            isLiveVideoStream(logicalBest.stream)
+          ) {
+            stopCurrentCamera(logicalBest.stream);
+          }
+          if (
+            best?.stream &&
+            best.stream !== trialStream &&
+            best.stream !== logicalBest?.stream &&
+            isLiveVideoStream(best.stream)
+          ) {
+            stopCurrentCamera(best.stream);
+          }
+          logicalBest = entry;
+          best = entry;
+          trialStream = null; // ownership transferred
+        }
+      } else if (
+        !best ||
+        (!best.logicalUltra &&
+          (id === preferredId ||
+            isConfidentUltraLabel(deviceInfo?.label || "") ||
+            parseCamera2Index(deviceInfo?.label || "") === 2))
+      ) {
+        // Physical candidate when no logical ultra yet — keep preferred / camera2-2
+        if (
+          !best?.logicalUltra &&
+          (!best ||
+            id === preferredId ||
+            isConfidentUltraLabel(deviceInfo?.label || "") ||
+            parseCamera2Index(deviceInfo?.label || "") === 2)
+        ) {
+          if (
+            best?.stream &&
+            best.stream !== trialStream &&
+            isLiveVideoStream(best.stream)
+          ) {
+            stopCurrentCamera(best.stream);
+          }
+          best = entry;
+          trialStream = null;
+        }
+      }
+
+      // Discard non-winning trial
+      if (trialStream && isLiveVideoStream(trialStream)) {
+        stopCurrentCamera(trialStream);
+        trialStream = null;
+      }
+    } catch (error) {
+      if (trialStream) {
+        try {
+          stopCurrentCamera(trialStream);
+        } catch {
+          /* ignore */
+        }
+      }
+      const errRow = {
+        label: deviceInfo?.label || "",
+        deviceId: id,
+        groupId: deviceInfo?.groupId || null,
+        capabilitiesZoom: null,
+        settingsZoom: null,
+        width: null,
+        height: null,
+        facingMode: null,
+        trackState: "error",
+        path: "error",
+        errorName: error?.name || null,
+        errorMessage: error?.message || String(error),
+      };
+      rows.push(errRow);
+      logCameraPtz({
+        path: "sequential-probe",
+        ...errRow,
+        applyResult: "error",
+      });
+    }
+  }
+
+  lastRearProbeReport = rows.slice();
+
+  // Ensure best is still live
+  if (best && !isLiveVideoStream(best.stream)) {
+    best = null;
+  }
+  if (logicalBest && !isLiveVideoStream(logicalBest.stream)) {
+    logicalBest = null;
+  }
+
+  return { rows, rear, best, logicalBest };
+}
+
+/**
  * Open a specific rear lens deviceId (physical multi-cam).
  * Samsung: stop old → clear srcObject → wait 150–300ms → open exact id.
  * Never parallel getUserMedia. Never return ended tracks.
@@ -2763,56 +3239,39 @@ export async function switchToUltraWide05(options = {}) {
 }
 
 /**
+ * Switch to widest FOV available on this device.
+ *
+ * Two independent paths (do not conflate):
+ *  A) PTZ/logical zoom — applyConstraints zoom.min when min < 0.98 (e.g. 0.6 on S25 FE)
+ *  B) Physical deviceId — sequential open of every rear videoinput
+ *
+ * Never uses focalLength (W3C proposal only; not stable in browsers).
+ * Never hard-codes 0.5x. Never returns ended tracks.
+ *
  * @param {{ oldStream?: MediaStream|null, videoEl?: HTMLVideoElement|null, detected?: object|null }} [options]
  */
 export async function switchToWidestLens(options = {}) {
   const { oldStream = null, videoEl = null, detected: detIn = null } = options;
-  let detected = detIn || (await detectCameraDevices({ probe: false }));
-  // Re-classify labels only (no getUserMedia probe) — probing steals the
-  // single Android camera slot and breaks the subsequent ultra open.
-  if (!detected?.ultrawide?.deviceId && (detected?.rear?.length || 0) >= 2) {
-    try {
-      const devices =
-        detected.all?.length > 0
-          ? detected.all
-          : await ensureLabeledVideoDevices();
-      const refreshed = detectRearCameras(devices);
-      detected = { ...detected, ...refreshed };
-    } catch {
-      /* keep */
-    }
-  }
 
-  const rearList = detected.rear || [];
+  // Permission → enumerateDevices (labels + deviceIds)
+  const rearList = await listAllRearVideoInputs();
+  let detected = detIn || (await detectCameraDevices({ probe: false }));
+  // Merge full rear list (never drop unlabeled / non-"ultra" rears)
+  detected = {
+    ...detected,
+    rear: rearList,
+    rearOptions: rearList.slice(),
+    needsManualLensPick:
+      Boolean(detected?.needsManualLensPick) || rearList.length >= 2,
+  };
+
   const rearCount = rearList.length;
   const rearLabels = rearList.map((d) => d?.label || "(unlabeled)");
   const mainId = detected.main?.deviceId || rearList[0]?.deviceId || null;
-  const ultraId = detected.ultrawide?.deviceId || null;
   const preferredWideId = getPreferredWideCameraId(rearList);
-  const camera2UltraId = rearList.find(
-    (device) =>
-      device?.deviceId && parseCamera2Index(device.label || "") === 2,
-  )?.deviceId;
-
-  // Order: remembered → confident ultra label → camera2 index 2 → scored rest
-  // Include ALL non-main rears (heuristic sorts only — never drop tele forever).
-  const allRearIds = rearList
-    .map((d) => d?.deviceId)
-    .filter((id) => id && id !== mainId);
-  const candidates = [
-    preferredWideId,
-    ultraId,
-    camera2UltraId,
-    ...listUltraWideCandidates(
-      rearList,
-      detected.main || null,
-      detected.telephoto || null,
-    ),
-    ...allRearIds,
-  ].filter((id, i, arr) => id && arr.indexOf(id) === i && id !== mainId);
-
   const supportedZoom = canRequestBrowserZoomControl();
   const liveRange = readZoomRange(oldStream);
+
   logCameraPtz({
     path: "switch-widest-start",
     supportedZoom,
@@ -2826,123 +3285,101 @@ export async function switchToWidestLens(options = {}) {
         }
       : null,
     zoomBefore: getCurrentTrackSettings(oldStream)?.zoom ?? null,
-    selectedDeviceId: preferredWideId || ultraId || null,
+    selectedDeviceId: preferredWideId || null,
     trackState: getActiveVideoTrack(oldStream)?.readyState || null,
     applyResult: "start",
   });
 
   let liveStream = isLiveVideoStream(oldStream) ? oldStream : null;
 
-  // A) Logical PTZ first — only if min < 0.98
+  // ── A) Logical PTZ on current live track (no device switch) ──
   const logicalWide = await tryDigitalUltraWide(
     liveStream,
     detected,
     mainId,
   );
   if (logicalWide && isLiveVideoStream(logicalWide.stream)) {
-    return { ...logicalWide, selectionPath: "logical-zoom" };
+    return {
+      ...logicalWide,
+      selectionPath: "logical-zoom",
+      probeRows: getLastRearProbeReport(),
+      forceLensPicker: rearCount >= 2,
+    };
   }
 
-  // B) Physical multi-rear — sequential only; first live winner (no ended best)
-  for (const id of candidates) {
-    try {
-      const stream = await openPhysicalUltraDevice(
-        id,
-        liveStream,
-        videoEl,
-      );
-      // After stop-first open, previous stream is stopped — never reuse it
-      liveStream = isLiveVideoStream(stream) ? stream : null;
-      if (!liveStream) continue;
+  // ── B) Sequential physical probe of ALL rear videoinputs ──
+  // Stops old stream; opens deviceId exact one-by-one; applies zoom.min when < 0.98
+  const probe = await probeRearCamerasSequential({
+    oldStream: liveStream,
+    videoEl,
+    preferredId: preferredWideId,
+    stopOld: true,
+  });
+  liveStream = null;
 
-      // Optional: park at min only when this physical track has ultra-band min
-      let applied = null;
-      const rangePhys = readZoomRange(liveStream);
-      if (rangePhys.supported && isUltraZoomValue(rangePhys.minZoom)) {
-        applied = await parkAtWidestTrackZoom(liveStream);
-        if (!isLiveVideoStream(liveStream)) {
-          liveStream = null;
-          continue;
-        }
-      }
-      if (!isLiveVideoStream(liveStream)) {
-        liveStream = null;
-        continue;
-      }
+  const winner = probe.logicalBest || probe.best;
+  if (winner && isLiveVideoStream(winner.stream)) {
+    const stream = winner.stream;
+    const openedId =
+      getCurrentTrackSettings(stream)?.deviceId || winner.deviceId;
+    const settingsZ = getCurrentTrackSettings(stream)?.zoom;
+    const factor = resolveUltraWideFactor(
+      stream,
+      detected,
+      typeof settingsZ === "number" ? settingsZ : winner.settingsZoom,
+    );
+    const isLogical = Boolean(winner.logicalUltra);
+    // Remember user-preferred or confirmed logical ultra device
+    if (preferredWideId === openedId || isLogical) {
+      rememberPreferredWideCameraId(openedId);
+    }
 
-      const appliedZ = getCurrentTrackSettings(liveStream)?.zoom;
-      const factor = resolveUltraWideFactor(
-        liveStream,
-        detected,
-        typeof appliedZ === "number"
-          ? appliedZ
-          : typeof applied === "number"
-            ? applied
-            : null,
-      );
-      const openedId = getCurrentTrackSettings(liveStream)?.deviceId || id;
-      // Physical may not expose ultra zoom number → ultraFactor null → UI "UW"
-      const appliedValue =
-        typeof applied === "number"
-          ? applied
-          : typeof appliedZ === "number"
-            ? appliedZ
-            : null;
+    logCameraPtz({
+      path: isLogical ? "logical-zoom" : "physical-device",
+      rearCameraCount: rearCount,
+      cameraLabels: rearLabels,
+      selectedDeviceId: openedId,
+      zoomCapabilities: winner.snap?.capabilitiesZoom || null,
+      zoomAfter: settingsZ ?? null,
+      trackState: getActiveVideoTrack(stream)?.readyState || null,
+      applyResult: factor ?? settingsZ ?? "live",
+    });
 
-      if (id === preferredWideId) {
-        rememberPreferredWideCameraId(openedId);
-      }
-
-      const rangeLog = readZoomRange(liveStream);
-      logCameraPtz({
-        path: "physical-device",
-        rearCameraCount: rearCount,
-        cameraLabels: rearLabels,
-        selectedDeviceId: openedId,
-        zoomCapabilities: rangeLog.supported
-          ? {
-              min: rangeLog.minZoom,
-              max: rangeLog.maxZoom,
-              step: rangeLog.zoomStep,
-            }
-          : null,
-        zoomAfter: appliedZ ?? null,
-        trackState: getActiveVideoTrack(liveStream)?.readyState || null,
-        applyResult: factor ?? appliedValue ?? "live-physical",
-      });
-
+    // Success if logical ultra OR multi-rear physical pick (user can refine via Lens)
+    if (isLogical || rearCount >= 2) {
       return {
-        stream: liveStream,
-        detected,
+        stream,
+        detected: {
+          ...detected,
+          rear: probe.rear,
+          rearOptions: probe.rear,
+        },
         deviceId: openedId,
-        lensType: "ultrawide",
+        lensType: isLogical ? "main" : "ultrawide",
         zoomMode: WIDE_ZOOM_MODE,
         currentZoom:
           factor != null
             ? factor
-            : appliedValue != null && isUltraZoomValue(appliedValue)
-              ? roundZoomFactor(appliedValue)
+            : typeof settingsZ === "number" && isUltraZoomValue(settingsZ)
+              ? roundZoomFactor(settingsZ)
               : null,
-        digitalZoom: appliedValue,
-        // null → formatZoomModeLabel shows "UW" (never invent 0.6)
+        digitalZoom: settingsZ ?? null,
         ultraFactor: factor,
         switchedDevice: true,
-        selectionPath:
-          id === preferredWideId ? "remembered-device" : "physical-device",
+        selectionPath: isLogical
+          ? "logical-zoom"
+          : preferredWideId === openedId
+            ? "remembered-device"
+            : "physical-device",
+        probeRows: probe.rows,
+        forceLensPicker: rearCount >= 2 && !isLogical,
       };
-    } catch (e) {
-      logCameraPtz({
-        path: "physical-device",
-        selectedDeviceId: id,
-        applyResult: "error",
-        errorName: e?.name || null,
-        errorMessage: e?.message || String(e),
-      });
     }
   }
 
-  // C) Re-open main if stream died; one more logical attempt — then unsupported
-  let stream = isLiveVideoStream(liveStream) ? liveStream : null;
+  // ── C) Restore a live main stream if probe left nothing ──
+  let stream =
+    winner && isLiveVideoStream(winner.stream) ? winner.stream : null;
   if (!stream) {
     try {
       stream = await startCameraByDeviceId(mainId, {
@@ -2966,23 +3403,30 @@ export async function switchToWidestLens(options = {}) {
         reason: "open-failed",
         detected,
         rearCount,
+        probeRows: probe.rows,
+        message: BROWSER_HIDES_ULTRAWIDE_MSG,
       };
     }
   }
 
   const digitalRetry = await tryDigitalUltraWide(stream, detected, mainId);
   if (digitalRetry && isLiveVideoStream(digitalRetry.stream)) {
-    return digitalRetry;
+    return {
+      ...digitalRetry,
+      probeRows: probe.rows,
+      forceLensPicker: rearCount >= 2,
+    };
   }
 
-  // Unsupported — do not restart endlessly or fake success
   const range = readZoomRange(stream);
   const noLogicalWide =
     !range.supported || Number(range.minZoom) >= 0.98;
   const reason =
     rearCount <= 1 && noLogicalWide
       ? "browser-hides-ultrawide"
-      : "ultra-unavailable";
+      : rearCount >= 2
+        ? "needs-manual-lens"
+        : "ultra-unavailable";
 
   logCameraPtz({
     path: "unsupported",
@@ -3004,9 +3448,17 @@ export async function switchToWidestLens(options = {}) {
   return {
     unavailable: true,
     reason,
-    detected,
+    detected: {
+      ...detected,
+      rear: probe.rear?.length ? probe.rear : rearList,
+      rearOptions: probe.rear?.length ? probe.rear : rearList,
+      needsManualLensPick: rearCount >= 2,
+    },
     rearCount,
     stream: isLiveVideoStream(stream) ? stream : null,
+    probeRows: probe.rows,
+    forceLensPicker: rearCount >= 2,
+    message: BROWSER_HIDES_ULTRAWIDE_MSG,
   };
 }
 
