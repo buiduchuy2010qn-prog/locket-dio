@@ -22,6 +22,49 @@ import { getUploadItemFromDB } from "@/cache/uploadMomentDB";
 import clsx from "clsx";
 import { useTranslation } from "react-i18next";
 
+/** Resolve media URL from moment object (snake_case + camelCase + legacy). */
+function resolveMomentMedia(data, idFallback = "moment") {
+  if (!data || typeof data !== "object") return null;
+
+  const video =
+    data.video_url ||
+    data.videoUrl ||
+    data.video ||
+    data.media?.video_url ||
+    null;
+  const image =
+    data.image_url ||
+    data.imageUrl ||
+    data.thumbnail_url ||
+    data.thumbnailUrl ||
+    data.thumbnail ||
+    data.media?.image_url ||
+    data.media?.thumbnail_url ||
+    null;
+
+  const id = data.id || idFallback || "moment";
+
+  if (video && typeof video === "string" && video.startsWith("http")) {
+    return { url: video, filename: `huylocket_${id}.mp4` };
+  }
+  if (image && typeof image === "string" && image.startsWith("http")) {
+    const ext = /\.png(\?|$)/i.test(image)
+      ? "png"
+      : /\.webp(\?|$)/i.test(image)
+        ? "webp"
+        : "jpg";
+    return { url: image, filename: `huylocket_${id}.${ext}` };
+  }
+  // blob: / data: (queue local)
+  if (video && typeof video === "string") {
+    return { url: video, filename: `huylocket_${id}.mp4` };
+  }
+  if (image && typeof image === "string") {
+    return { url: image, filename: `huylocket_${id}.jpg` };
+  }
+  return null;
+}
+
 const OptionMoment = ({ setOptionModalOpen, isOptionModalOpen }) => {
   const { t } = useTranslation("features");
   const selectedMoment = useSelectedStore((s) => s.selectedMoment);
@@ -37,12 +80,15 @@ const OptionMoment = ({ setOptionModalOpen, isOptionModalOpen }) => {
   const setSelectedQueueId = useSelectedStore((s) => s.setSelectedQueueId);
 
   const selectedFriendUid = useSelectedStore((s) => s.selectedFriendUid);
-  const setSelectedFriendUid = useSelectedStore((s) => s.setSelectedFriendUid);
 
   const [openModal, setOpenModal] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [sharing, setSharing] = useState(false);
   const removeMoment = useMomentsStoreV2((s) => s.removeMoment);
+
+  const selectedKey = selectedFriendUid ?? "all";
+  const moments =
+    useMomentsStoreV2((s) => s.momentsByUser[selectedKey]?.moments) ?? [];
 
   const { removeUploadItemById } = useUploadQueueStore();
   // Lock scroll khi mở modal
@@ -58,6 +104,7 @@ const OptionMoment = ({ setOptionModalOpen, isOptionModalOpen }) => {
     setSelectedQueue(null);
     setSelectedQueueId(null);
     setSelectedMomentId(null);
+    setOptionModalOpen(false);
   };
 
   const handleDelete = async () => {
@@ -88,38 +135,51 @@ const OptionMoment = ({ setOptionModalOpen, isOptionModalOpen }) => {
   };
 
   const getMediaInfo = async () => {
+    // 1) Upload queue item
     if (selectedQueueId !== null) {
       const data = await getUploadItemFromDB(selectedQueueId);
-      if (!data) return null;
-
-      const { url, publicUrl, publicURL, type } = data.mediaInfo || {};
-      const mediaUrl = publicUrl || publicURL || url;
-
-      if (!mediaUrl) return null;
-
-      return {
-        url: mediaUrl,
-        filename: `moment_${selectedQueueId}.${type === "video" ? "mp4" : "jpg"}`,
-      };
+      if (data) {
+        const info = data.mediaInfo || data.media || {};
+        const mediaUrl =
+          info.publicUrl ||
+          info.publicURL ||
+          info.url ||
+          info.thumbnailUrl ||
+          info.thumbnail_url ||
+          data.publicUrl ||
+          data.url;
+        const type =
+          info.type ||
+          data.type ||
+          (String(mediaUrl || "").includes(".mp4") ? "video" : "image");
+        if (mediaUrl) {
+          return {
+            url: mediaUrl,
+            filename: `huylocket_queue_${selectedQueueId}.${type === "video" ? "mp4" : "jpg"}`,
+          };
+        }
+      }
     }
 
-    if (selectedMomentId !== null) {
+    // 2) Live feed store (selectedMoment is often an index number)
+    if (selectedMomentId != null) {
+      const fromStore =
+        moments.find((m) => m?.id === selectedMomentId) ||
+        (typeof selectedMoment === "number" ? moments[selectedMoment] : null) ||
+        (selectedMoment && typeof selectedMoment === "object"
+          ? selectedMoment
+          : null);
+
+      const resolvedStore = resolveMomentMedia(
+        fromStore,
+        selectedMomentId,
+      );
+      if (resolvedStore) return resolvedStore;
+
+      // 3) IndexedDB cache
       const data = await getMomentById(selectedMomentId);
-      if (!data) return null;
-
-      if (data.videoUrl) {
-        return {
-          url: data.videoUrl,
-          filename: `moment_${selectedMomentId}.mp4`,
-        };
-      }
-
-      if (data.thumbnailUrl) {
-        return {
-          url: data.thumbnailUrl,
-          filename: `moment_${selectedMomentId}.jpg`,
-        };
-      }
+      const resolvedDb = resolveMomentMedia(data, selectedMomentId);
+      if (resolvedDb) return resolvedDb;
     }
 
     return null;
@@ -132,8 +192,8 @@ const OptionMoment = ({ setOptionModalOpen, isOptionModalOpen }) => {
 
     try {
       const media = await getMediaInfo();
-      if (!media) {
-        SonnerInfo(t("option_moment.no_media_to_download"));
+      if (!media?.url) {
+        SonnerWarning(t("option_moment.no_media_to_download"));
         return;
       }
 
@@ -141,9 +201,14 @@ const OptionMoment = ({ setOptionModalOpen, isOptionModalOpen }) => {
       await downloadFileToDevice(media.url, media.filename, () =>
         setDownloading(false),
       );
+      SonnerSuccess(
+        t("option_moment.download_success", {
+          defaultValue: "Đã tải xuống thành công!",
+        }),
+      );
     } catch (err) {
       SonnerWarning(t("option_moment.download_error"));
-      console.error(err);
+      console.error("[OptionMoment] download failed:", err);
     } finally {
       setDownloading(false);
     }
@@ -156,8 +221,8 @@ const OptionMoment = ({ setOptionModalOpen, isOptionModalOpen }) => {
 
     try {
       const media = await getMediaInfo();
-      if (!media) {
-        SonnerInfo(t("option_moment.no_media_to_download"));
+      if (!media?.url) {
+        SonnerWarning(t("option_moment.no_media_to_download"));
         return;
       }
 
@@ -181,7 +246,7 @@ const OptionMoment = ({ setOptionModalOpen, isOptionModalOpen }) => {
             "opacity-0 pointer-events-none": !isOptionModalOpen,
           },
         )}
-        onClick={() => onClose(false)}
+        onClick={handleClose}
       >
         <div
           onClick={(e) => e.stopPropagation()}

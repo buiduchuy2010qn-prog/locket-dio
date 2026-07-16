@@ -1499,6 +1499,153 @@ function isAllowedR2UploadUrl(urlStr) {
   }
 }
 
+/**
+ * Browser media download proxy — GET/POST /api/media-download?url=
+ * Fetches remote image/video server-side to avoid CORS (Firebase CDN, etc.)
+ */
+function isAllowedMediaDownloadUrl(urlStr) {
+  try {
+    const u = new URL(urlStr);
+    if (u.protocol !== "https:" && u.protocol !== "http:") return false;
+    const h = u.hostname.toLowerCase();
+    // Block obvious SSRF to loopback / private
+    if (
+      h === "localhost" ||
+      h === "127.0.0.1" ||
+      h === "0.0.0.0" ||
+      h === "::1" ||
+      h.endsWith(".local") ||
+      h.startsWith("10.") ||
+      h.startsWith("192.168.") ||
+      /^172\.(1[6-9]|2\d|3[0-1])\./.test(h)
+    ) {
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function handleMediaDownload(req, res) {
+  if (req.method === "OPTIONS") {
+    return send(res, 204, "", {
+      "Access-Control-Allow-Origin": req.headers.origin || "*",
+      "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+      "Access-Control-Allow-Headers":
+        req.headers["access-control-request-headers"] || "content-type",
+      "Access-Control-Max-Age": "86400",
+    });
+  }
+
+  if (req.method !== "GET" && req.method !== "POST") {
+    return send(res, 405, "Method not allowed");
+  }
+
+  let mediaUrl = "";
+  try {
+    const u = new URL(req.url || "/", "http://localhost");
+    mediaUrl = u.searchParams.get("url") || "";
+  } catch {
+    /* ignore */
+  }
+
+  if (!mediaUrl && req.method === "POST") {
+    try {
+      const raw = await readBody(req);
+      const parsed = JSON.parse(raw.toString("utf8") || "{}");
+      mediaUrl = parsed.url || parsed.mediaUrl || "";
+    } catch {
+      /* ignore */
+    }
+  }
+
+  if (!mediaUrl || !isAllowedMediaDownloadUrl(mediaUrl)) {
+    return send(res, 400, "Invalid or missing url", {
+      "Content-Type": "text/plain; charset=utf-8",
+    });
+  }
+
+  const fetchOnce = (url) =>
+    new Promise((resolve, reject) => {
+      let target;
+      try {
+        target = new URL(url);
+      } catch (e) {
+        reject(e);
+        return;
+      }
+      const lib = target.protocol === "http:" ? http : https;
+      const r = lib.request(
+        url,
+        {
+          method: "GET",
+          headers: {
+            "User-Agent":
+              "HuyLocketMediaProxy/1.0 (+https://huy-locket-production.up.railway.app)",
+            Accept: "*/*",
+          },
+          timeout: 45000,
+        },
+        (resp) => resolve(resp),
+      );
+      r.on("error", reject);
+      r.on("timeout", () => {
+        r.destroy();
+        reject(new Error("upstream timeout"));
+      });
+      r.end();
+    });
+
+  try {
+    let upstream = await fetchOnce(mediaUrl);
+
+    // Follow up to 3 redirects
+    let hops = 0;
+    while (
+      hops < 3 &&
+      upstream.statusCode >= 300 &&
+      upstream.statusCode < 400 &&
+      upstream.headers.location
+    ) {
+      const redir = new URL(
+        upstream.headers.location,
+        mediaUrl,
+      ).toString();
+      upstream.resume();
+      if (!isAllowedMediaDownloadUrl(redir)) {
+        return send(res, 502, "Redirect blocked");
+      }
+      mediaUrl = redir;
+      hops += 1;
+      upstream = await fetchOnce(mediaUrl);
+    }
+
+    if (upstream.statusCode !== 200) {
+      upstream.resume();
+      return send(res, 502, `Upstream ${upstream.statusCode}`);
+    }
+
+    const ct =
+      upstream.headers["content-type"] || "application/octet-stream";
+    const cl = upstream.headers["content-length"];
+    const headers = {
+      "Content-Type": ct,
+      "Access-Control-Allow-Origin": req.headers.origin || "*",
+      "Cache-Control": "private, max-age=300",
+    };
+    if (cl) headers["Content-Length"] = cl;
+
+    res.writeHead(200, headers);
+    upstream.pipe(res);
+  } catch (e) {
+    console.error("[media-download]", e?.message || e);
+    if (!res.headersSent) {
+      send(res, 502, "Failed to fetch media");
+    }
+  }
+}
+
 async function proxyR2Put(req, res) {
   if (req.method === "OPTIONS") {
     return send(res, 204, "", {
@@ -1888,6 +2035,11 @@ function wakeApiUpstream() {
 const server = http.createServer((req, res) => {
   try {
     const urlPath = (req.url || "/").split("?")[0];
+
+    // Media download proxy (CORS-safe for Option Moment / share)
+    if (urlPath === "/api/media-download") {
+      return handleMediaDownload(req, res);
+    }
 
     // Shared Google Drive (admin) — OAuth + backup
     if (urlPath === "/api/drive-status") {

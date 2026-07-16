@@ -123,6 +123,10 @@
       "destination": "https://huy-locket-production.up.railway.app/api/drive-backup"
     },
     {
+      "source": "/api/media-download",
+      "destination": "https://huy-locket-production.up.railway.app/api/media-download"
+    },
+    {
       "source": "/((?!dio-|api/).*)",
       "destination": "/index.html"
     }

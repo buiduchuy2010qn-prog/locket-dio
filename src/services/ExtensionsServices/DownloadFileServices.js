@@ -7,30 +7,147 @@ import {
   isSaveWatermarkEnabled,
 } from "@/utils/imageUtils/applyWatermark";
 
-export async function fetchFileBlob(fileUrl) {
-  // Prefer media proxy (avoids CORS / auth on Firebase URLs)
+/**
+ * Same-origin media download proxy (Railway web / server.mjs).
+ * Avoids browser CORS on Firebase / CDN hosts.
+ */
+function sameOriginProxyUrl(fileUrl) {
   try {
-    const res = await fetch("https://media-service.locket-dio.com/download", {
+    const base =
+      typeof window !== "undefined" ? window.location.origin : "";
+    return `${base}/api/media-download?url=${encodeURIComponent(fileUrl)}`;
+  } catch {
+    return null;
+  }
+}
+
+async function tryFetchBlob(url, init = {}) {
+  const res = await fetch(url, init);
+  if (!res.ok) {
+    throw new Error(`HTTP ${res.status}`);
+  }
+  const blob = await res.blob();
+  if (!blob || blob.size === 0) {
+    throw new Error("Empty blob");
+  }
+  return blob;
+}
+
+/**
+ * Last-resort: load remote image into canvas (needs CORS on image host).
+ */
+async function fetchImageViaCanvas(fileUrl) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      try {
+        const w = img.naturalWidth || img.width;
+        const h = img.naturalHeight || img.height;
+        if (!w || !h) {
+          reject(new Error("Image has zero size"));
+          return;
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          reject(new Error("No canvas context"));
+          return;
+        }
+        ctx.drawImage(img, 0, 0);
+        canvas.toBlob(
+          (b) => (b ? resolve(b) : reject(new Error("toBlob failed"))),
+          "image/jpeg",
+          0.95,
+        );
+      } catch (e) {
+        reject(e);
+      }
+    };
+    img.onerror = () => reject(new Error("Image load failed"));
+    img.src = fileUrl;
+  });
+}
+
+/**
+ * Fetch remote media as Blob with multiple fallbacks.
+ * Order: same-origin proxy → media-service → direct CORS → canvas (images).
+ */
+export async function fetchFileBlob(fileUrl) {
+  if (!fileUrl || typeof fileUrl !== "string") {
+    throw new Error("Missing media URL");
+  }
+
+  // Local / inline — no network
+  if (
+    fileUrl.startsWith("blob:") ||
+    fileUrl.startsWith("data:") ||
+    fileUrl.startsWith("inline://")
+  ) {
+    if (fileUrl.startsWith("inline://")) {
+      throw new Error("Inline media cannot be downloaded");
+    }
+    const res = await fetch(fileUrl);
+    if (!res.ok) throw new Error("Local fetch failed");
+    return res.blob();
+  }
+
+  const errors = [];
+
+  // 1) Same-origin proxy (Railway web / Vercel rewrite → Railway)
+  const proxy = sameOriginProxyUrl(fileUrl);
+  if (proxy) {
+    try {
+      return await tryFetchBlob(proxy, {
+        method: "GET",
+        credentials: "omit",
+        cache: "no-store",
+      });
+    } catch (e) {
+      errors.push(`proxy: ${e?.message || e}`);
+    }
+  }
+
+  // 2) Official Dio media-service (POST)
+  try {
+    return await tryFetchBlob("https://media-service.locket-dio.com/download", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ url: fileUrl }),
     });
-
-    if (res.ok) {
-      return await res.blob();
-    }
   } catch (e) {
-    console.warn("[download] media-service failed, direct fetch:", e?.message);
+    errors.push(`media-service: ${e?.message || e}`);
   }
 
-  // Fallback: direct fetch (may fail CORS for some hosts)
-  const direct = await fetch(fileUrl, { mode: "cors", credentials: "omit" });
-  if (!direct.ok) {
-    throw new Error("Download failed");
+  // 3) Direct CORS fetch
+  try {
+    return await tryFetchBlob(fileUrl, {
+      mode: "cors",
+      credentials: "omit",
+      cache: "no-store",
+    });
+  } catch (e) {
+    errors.push(`direct: ${e?.message || e}`);
   }
-  return await direct.blob();
+
+  // 4) Image via canvas (if URL looks like image)
+  const looksImage =
+    isImageFileName(fileUrl) ||
+    /\/(image|img|thumb|photo)/i.test(fileUrl) ||
+    !/\.mp4(\?|$)/i.test(fileUrl);
+
+  if (looksImage && typeof document !== "undefined") {
+    try {
+      return await fetchImageViaCanvas(fileUrl);
+    } catch (e) {
+      errors.push(`canvas: ${e?.message || e}`);
+    }
+  }
+
+  console.error("[download] all strategies failed:", errors.join(" | "));
+  throw new Error("Download failed");
 }
 
 /**
