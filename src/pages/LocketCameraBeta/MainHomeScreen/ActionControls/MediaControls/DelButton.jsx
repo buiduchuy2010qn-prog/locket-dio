@@ -57,7 +57,7 @@ const DelButton = () => {
         onClick={() => setConfirmOpen(true)}
         disabled={sendLoading || uploadLoading || deleting}
       >
-        <X size={24} strokeWidth={2} />
+        <X size={27} strokeWidth={2} />
       </button>
 
       <ConfirmDeleteModal

@@ -69,6 +69,9 @@ const SendButton = () => {
 
   // Hàm submit được cải tiến
   const handleSubmit = async () => {
+    // Chặn double-tap / double-enqueue
+    if (uploadLoading || isSuccess) return;
+
     // Chờ blob encode xong nếu vừa chụp (preview dataURL trước, file sau)
     let file = selectedFile || usePostStore.getState().selectedFile;
     if (!file && preview?.data?.startsWith("data:")) {
@@ -178,39 +181,32 @@ const SendButton = () => {
     }
   };
 
+  const toneClass = hasNoData
+    ? "sendButton--warn"
+    : isTooBig
+      ? "sendButton--overLimit"
+      : isSuccess
+        ? "sendButton--success"
+        : uploadLoading
+          ? "sendButton--loading"
+          : "";
+
   return (
-    <>
-      <button
-        type="button"
-        onClick={handleSubmit}
-        disabled={uploadLoading}
-        aria-label="Đăng bài"
-        className={`rounded-full duration-300 text-center flex items-center justify-center disabled:opacity-50 transition-transform ease-in-out active:scale-95 ${
-          hasNoData
-            ? "bg-yellow-400/90"
-            : isTooBig
-              ? "bg-red-500/90"
-              : isSuccess
-                ? "bg-green-500/90"
-                : uploadLoading
-                  ? "bg-blue-500/80"
-                  : "bg-white hover:bg-white/95"
-        }`}
-        style={{
-          width: 64,
-          height: 64,
-          minWidth: 64,
-          minHeight: 64,
-          animation: isSuccess ? "success-pulse 1s ease-in-out" : "none",
-        }}
-      >
-        <UploadStatusIcon
-          loading={uploadLoading}
-          success={isSuccess}
-          overLimit={isTooBig}
-        />
-      </button>
-    </>
+    <button
+      type="button"
+      onClick={handleSubmit}
+      disabled={uploadLoading || isSuccess}
+      aria-label="Đăng bài"
+      aria-busy={uploadLoading || undefined}
+      className={`sendButton ${toneClass}`.trim()}
+      data-send-button="true"
+    >
+      <UploadStatusIcon
+        loading={uploadLoading}
+        success={isSuccess}
+        overLimit={isTooBig}
+      />
+    </button>
   );
 };
 

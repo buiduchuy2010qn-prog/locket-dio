@@ -11,8 +11,8 @@ import DraftButton from "./MediaControls/DraftButton";
 import { useMomentDraftStore, usePostStore } from "@/stores";
 
 /**
- * Locket-style floating control pill.
- * Capture/Send is absolute-centered — side icons never shift it.
+ * Floating control pill — 3-column grid (1fr | auto | 1fr).
+ * Center column is always true horizontal center of the bar.
  */
 const ActionControls = () => {
   const selectedFile = usePostStore((s) => s.selectedFile);
@@ -23,66 +23,64 @@ const ActionControls = () => {
   const hasFile = !!(selectedFile || preview);
   const showDraftChip = !hasFile && hasDraft && !showRestoreModal;
 
-  const fade = "transition-opacity duration-300 ease-in-out";
-
   return (
     <div
       className="w-full flex justify-center px-2"
       data-action-controls="true"
     >
-      <div className="cameraControlPill" data-camera-control-pill="true">
-        {/* Center capture — independent of left/right */}
-        <div className="captureCenter" data-capture-center="true">
+      <div
+        className="cameraControlPill"
+        data-camera-control-pill="true"
+        data-action-bar="true"
+        data-has-media={hasFile ? "true" : "false"}
+      >
+        {/* Left: library (+ draft)  |  delete after capture */}
+        <div className="actionBarCol actionBarColLeft" data-action-left="true">
           <div
-            className={`${fade} absolute inset-0 flex items-center justify-center ${
-              !hasFile ? "opacity-100" : "opacity-0 pointer-events-none"
-            }`}
+            className={`actionBarSlot ${!hasFile ? "is-active" : "is-idle"}`}
+            aria-hidden={hasFile}
+          >
+            <UploadFile />
+            {showDraftChip ? <DraftButton /> : null}
+          </div>
+          <div
+            className={`actionBarSlot ${hasFile ? "is-active" : "is-idle"}`}
+            aria-hidden={!hasFile}
+          >
+            <DelButton />
+          </div>
+        </div>
+
+        {/* Center: shutter  |  send — grid auto column keeps true center */}
+        <div
+          className="actionBarCol actionBarColCenter"
+          data-capture-center="true"
+        >
+          <div
+            className={`actionBarSlot ${!hasFile ? "is-active" : "is-idle"}`}
             aria-hidden={hasFile}
           >
             <CameraButton />
           </div>
           <div
-            className={`${fade} absolute inset-0 flex items-center justify-center ${
-              hasFile ? "opacity-100" : "opacity-0 pointer-events-none"
-            }`}
+            className={`actionBarSlot ${hasFile ? "is-active" : "is-idle"}`}
             aria-hidden={!hasFile}
           >
             <SendButton />
           </div>
         </div>
 
-        {/* Left: library + draft  |  delete after capture */}
-        <div className="leftControls" data-action-left="true">
+        {/* Right: flip  |  effects after capture */}
+        <div className="actionBarCol actionBarColRight" data-action-right="true">
           <div
-            className={`${fade} flex items-center ${
-              !hasFile ? "opacity-100" : "opacity-0 pointer-events-none absolute"
-            }`}
-          >
-            <UploadFile />
-            {showDraftChip ? <DraftButton /> : null}
-          </div>
-          <div
-            className={`${fade} ${
-              hasFile ? "opacity-100" : "opacity-0 pointer-events-none absolute"
-            }`}
-          >
-            <DelButton />
-          </div>
-        </div>
-
-        {/* Right: flip  |  overlay after capture */}
-        <div className="rightControls" data-action-right="true">
-          <div
-            className={`${fade} ${
-              !hasFile ? "opacity-100" : "opacity-0 pointer-events-none absolute"
-            }`}
+            className={`actionBarSlot ${!hasFile ? "is-active" : "is-idle"}`}
+            aria-hidden={hasFile}
           >
             <CameraToggle />
           </div>
           <div
-            className={`${fade} ${
-              hasFile ? "opacity-100" : "opacity-0 pointer-events-none absolute"
-            }`}
+            className={`actionBarSlot ${hasFile ? "is-active" : "is-idle"}`}
+            aria-hidden={!hasFile}
           >
             <OverlayButton />
           </div>

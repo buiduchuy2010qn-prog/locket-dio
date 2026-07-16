@@ -17,7 +17,7 @@ const OverlayButton = () => {
       aria-label="Hiệu ứng"
       title="Hiệu ứng"
     >
-      <Sparkles size={24} strokeWidth={2} />
+      <Sparkles size={27} strokeWidth={2} />
     </button>
   );
 };

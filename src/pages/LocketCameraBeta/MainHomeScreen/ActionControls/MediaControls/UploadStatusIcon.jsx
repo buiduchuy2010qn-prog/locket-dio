@@ -1,62 +1,96 @@
-import { Send, Check, AlertTriangle } from "lucide-react";
+import { Check, AlertTriangle } from "lucide-react";
 import LoadingRing from "@/components/uikit/Loading/ring";
 import "./styles.css";
+
+/**
+ * Paper plane — tight viewBox, geometric center ≈ (12,12).
+ * Stroke only; no emoji/PNG. Optical nudge applied via .sendButtonIcon CSS.
+ */
+function PaperPlaneIcon({ className = "sendButtonIcon" }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      width={30}
+      height={30}
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+      focusable="false"
+    >
+      {/* Fuselage + wings as one path, fold crease as second */}
+      <path
+        d="M3.6 10.9 19.9 4.4c.85-.34 1.66.47 1.22 1.28L14.6 20.5c-.4.85-1.62.8-1.95-.08l-2.55-6.55-6.55-2.55c-.88-.34-.93-1.55-.05-1.92z"
+        stroke="currentColor"
+        strokeWidth="1.9"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="m10.2 13.5 10.1-8.7"
+        stroke="currentColor"
+        strokeWidth="1.9"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
 
 const UploadStatusIcon = ({
   loading = false,
   success = false,
   overLimit = false,
 }) => {
+  const showSend = !loading && !success && !overLimit;
+
   return (
-    <div className="relative w-10 h-10 flex items-center justify-center">
+    <div className="sendIconCenter" data-send-icon-center="true">
+      {/* Over-limit */}
       <div
-        className={`absolute inset-0 transition-all duration-500 ease-in-out ${
-          overLimit
-            ? "opacity-100 scale-100 rotate-0"
-            : "opacity-0 scale-75 rotate-180"
+        className={`sendStatusLayer ${
+          overLimit ? "is-visible" : "is-hidden"
         }`}
+        aria-hidden={!overLimit}
       >
-        <AlertTriangle size={40} className="text-red-500" />
+        <AlertTriangle size={28} strokeWidth={2} color="#fff" />
       </div>
 
-      {/* Loading Ring */}
+      {/* Loading — spinner dead-center in circle */}
       <div
-        className={`absolute inset-0 transition-all duration-500 ease-in-out ${
-          loading && !overLimit
-            ? "opacity-100 scale-100 rotate-0"
-            : "opacity-0 scale-75 rotate-180"
+        className={`sendStatusLayer ${
+          loading && !overLimit ? "is-visible" : "is-hidden"
         }`}
+        aria-hidden={!(loading && !overLimit)}
       >
-        <LoadingRing size={40} stroke={3} />
+        <LoadingRing size={30} stroke={3} color="#ffffff" />
       </div>
 
-      {/* Success Check Icon */}
+      {/* Success */}
       <div
-        className={`absolute inset-0 transition-all duration-500 ease-in-out ${
-          success && !overLimit
-            ? "opacity-100 scale-100 rotate-0"
-            : "opacity-0 scale-75 -rotate-90"
+        className={`sendStatusLayer ${
+          success && !overLimit ? "is-visible" : "is-hidden"
         }`}
+        aria-hidden={!(success && !overLimit)}
       >
         <Check
-          size={40}
-          className="text-green-500"
+          size={30}
+          strokeWidth={2.25}
+          color="#fff"
           style={{
-            // filter: "drop-shadow(0 0 8px rgba(34, 197, 94, 0.4))",
             animation: success ? "checkmark-draw 0.6s ease-in-out" : "none",
           }}
         />
       </div>
 
-      {/* Default Send Icon */}
+      {/* Default send */}
       <div
-        className={`absolute inset-0 transition-all duration-500 ease-in-out ${
-          !loading && !success && !overLimit
-            ? "opacity-100 scale-100 rotate-0"
-            : "opacity-0 scale-75 rotate-45"
+        className={`sendStatusLayer ${
+          showSend ? "is-visible" : "is-hidden"
         }`}
+        aria-hidden={!showSend}
       >
-        <Send size={28} className="mr-0.5 text-neutral-900" strokeWidth={2.25} />
+        <PaperPlaneIcon />
       </div>
     </div>
   );
