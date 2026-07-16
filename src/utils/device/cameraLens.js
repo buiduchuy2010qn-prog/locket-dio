@@ -632,10 +632,14 @@ export async function applyLiveZoom(stream, desiredZoom, options = {}) {
 /**
  * Pinch-only path: one applyConstraints, cached caps/style, no getSettings.
  * Does not call readZoomRange/supportsHardwareZoom every frame.
+ * Prefer createLatestZoomApplier for continuous gestures.
  * @returns {Promise<number|false>}
  */
 export async function applyPinchZoom(stream, desiredZoom) {
-  return setCameraZoom(stream, desiredZoom, { fast: true });
+  return setCameraZoom(stream, desiredZoom, {
+    fast: true,
+    continuous: true,
+  });
 }
 
 /**
@@ -1701,16 +1705,18 @@ const trackZoomCache = new WeakMap();
 
 /** Refresh caps from track at most this often during continuous zoom */
 const ZOOM_CAPS_TTL_MS = 2500;
-/** Skip applyConstraints if delta smaller than this (pinch) */
-const ZOOM_FAST_EPS = 0.035;
+/** Skip applyConstraints if nearly identical (continuous / pinch) */
+const ZOOM_FAST_EPS = 0.008;
 /** Skip applyConstraints if delta smaller than this (presets / deliberate) */
 const ZOOM_PRECISE_EPS = 0.01;
+/** Default min gap between hardware applies during continuous zoom */
+export const ZOOM_APPLY_THROTTLE_MS = 40;
 
 /**
  * Apply digital / hardware zoom (required API).
  * @param {MediaStream|null} stream
  * @param {number} zoomValue
- * @param {{ fast?: boolean, forceCaps?: boolean }} [options]
+ * @param {{ fast?: boolean, forceCaps?: boolean, continuous?: boolean }} [options]
  * @returns {Promise<number|false>}
  */
 export async function applyCameraZoom(stream, zoomValue, options = {}) {
@@ -1723,18 +1729,19 @@ export async function applyCameraZoom(stream, zoomValue, options = {}) {
  *
  * @param {MediaStream|null} stream
  * @param {number} value
- * @param {{ fast?: boolean, forceCaps?: boolean }} [options]
- *   fast: pinch path — no getSettings verify, reuse constraint style, coarser eps
+ * @param {{ fast?: boolean, forceCaps?: boolean, continuous?: boolean }} [options]
+ *   fast: no getSettings verify, reuse constraint style
+ *   continuous: do NOT snap to step (UI rounds for display only)
  * @returns {Promise<number|false>}
  */
 export async function setCameraZoom(stream, value, options = {}) {
-  const { fast = false, forceCaps = false } = options;
+  const { fast = false, forceCaps = false, continuous = false } = options;
   const track = getActiveVideoTrack(stream);
   if (!track || track.readyState !== "live") return false;
 
   // W3C: applyConstraints PTZ fails with SecurityError if page not visible
   if (!isPageVisibleForPtz()) {
-    if (fast) return false; // pinch: don't block waiting for visibility
+    if (fast || continuous) return false;
     const ok = await waitForPageVisible(4000);
     if (!ok) {
       logCameraPtz({
@@ -1770,17 +1777,23 @@ export async function setCameraZoom(stream, value, options = {}) {
     trackZoomCache.set(track, cached);
   }
 
-  const step = cached.step;
   let next = clampZoom(value, cached.min, cached.max);
-  // Snap theo step (Samsung hay báo step 0.1 — khớp 0.6/0.7… OEM)
-  if (Number.isFinite(step) && step > 0 && step < 1) {
+  // Snap to OEM step only for discrete presets — continuous pinch/slider
+  // sends the raw clamped value (display layer rounds separately).
+  if (
+    !continuous &&
+    Number.isFinite(cached.step) &&
+    cached.step > 0 &&
+    cached.step < 1
+  ) {
     const snapped =
-      Math.round((next - cached.min) / step) * step + cached.min;
+      Math.round((next - cached.min) / cached.step) * cached.step +
+      cached.min;
     next = clampZoom(snapped, cached.min, cached.max);
     next = Math.round(next * 1000) / 1000;
   }
 
-  const eps = fast ? ZOOM_FAST_EPS : ZOOM_PRECISE_EPS;
+  const eps = fast || continuous ? ZOOM_FAST_EPS : ZOOM_PRECISE_EPS;
   if (cached.last != null && Math.abs(cached.last - next) < eps) {
     return cached.last;
   }
@@ -1810,10 +1823,10 @@ export async function setCameraZoom(stream, value, options = {}) {
       { style: "ideal", c: ideal },
     ];
   }
-  // Pinch: only try one style after warm-up — no serial 3× await
-  if (fast && cached.style) {
+  // Continuous: one style only after warm-up
+  if ((fast || continuous) && cached.style) {
     attempts = attempts.slice(0, 1);
-  } else if (fast) {
+  } else if (fast || continuous) {
     attempts = attempts.slice(0, 2);
   }
 
@@ -1823,8 +1836,8 @@ export async function setCameraZoom(stream, value, options = {}) {
       await track.applyConstraints(c);
       if (track.readyState !== "live") return false;
       cached.style = style;
-      // Pinch: trust requested value (getSettings every frame is slow on Samsung)
-      if (fast) {
+      // Continuous/pinch: trust requested value — never getSettings mid-gesture
+      if (fast || continuous) {
         cached.last = next;
         return next;
       }
@@ -1834,11 +1847,11 @@ export async function setCameraZoom(stream, value, options = {}) {
       return cached.last;
     } catch (error) {
       lastError = error;
-      if (fast) cached.style = null;
+      if (fast || continuous) cached.style = null;
     }
   }
 
-  if (lastError && !fast) {
+  if (lastError && !fast && !continuous) {
     logCameraPtz({
       action: "apply-zoom",
       applyResult: "error",
@@ -1848,6 +1861,82 @@ export async function setCameraZoom(stream, value, options = {}) {
     });
   }
   return false;
+}
+
+/**
+ * Latest-value-wins camera zoom applier.
+ * UI must update displayZoom independently — this only talks to the track.
+ *
+ * @param {() => MediaStream|null|undefined} getStream
+ * @param {{ minIntervalMs?: number, onApplied?: (z: number|false) => void }} [opts]
+ */
+export function createLatestZoomApplier(getStream, opts = {}) {
+  const minIntervalMs = opts.minIntervalMs ?? ZOOM_APPLY_THROTTLE_MS;
+  let applying = false;
+  let pending = null;
+  let lastAt = 0;
+
+  async function pump() {
+    if (applying) return;
+    applying = true;
+    try {
+      while (pending != null) {
+        let latest = pending;
+        pending = null;
+
+        const elapsed = Date.now() - lastAt;
+        if (lastAt > 0 && elapsed < minIntervalMs) {
+          await new Promise((r) =>
+            setTimeout(r, minIntervalMs - elapsed),
+          );
+          // Prefer value that arrived during the wait
+          if (pending != null) {
+            latest = pending;
+            pending = null;
+          }
+        }
+
+        const stream =
+          typeof getStream === "function" ? getStream() : null;
+        if (!stream || !isLiveVideoStream(stream)) {
+          lastAt = Date.now();
+          continue;
+        }
+
+        lastAt = Date.now();
+        const applied = await setCameraZoom(stream, latest, {
+          fast: true,
+          continuous: true,
+        });
+        try {
+          opts.onApplied?.(applied);
+        } catch {
+          /* ignore UI callbacks */
+        }
+      }
+    } finally {
+      applying = false;
+      if (pending != null) {
+        void pump();
+      }
+    }
+  }
+
+  return {
+    /** Queue latest zoom; never blocks the UI thread for intermediate values */
+    request(value) {
+      const n = Number(value);
+      if (!Number.isFinite(n)) return;
+      pending = n;
+      void pump();
+    },
+    get pending() {
+      return pending;
+    },
+    get busy() {
+      return applying;
+    },
+  };
 }
 
 /** Clear zoom cache when stream stops (optional) */

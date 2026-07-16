@@ -49,19 +49,21 @@ import {
   getLiveZoomDisplay,
   wideBandThreshold,
   applyLiveZoom,
+  createLatestZoomApplier,
   isWideZoomMode,
   WIDE_ZOOM_MODE,
   parkAtWidestTrackZoom,
   isUltraZoomValue,
   applyTapToFocus,
   pointerToFocusPoint,
-  applyPinchZoom,
   rememberPreferredWideCameraId,
   BROWSER_HIDES_ULTRAWIDE_MSG,
   isCameraDebugEnabled,
   getLastRearProbeReport,
   logCameraPtz,
   isLiveVideoStream,
+  ZOOM_APPLY_THROTTLE_MS,
+  clampZoom,
 } from "@/utils";
 const EditorCaption = lazy(() => import("@/features/EditorCaption"));
 import { useApp } from "@/context/AppContext";
@@ -70,13 +72,10 @@ import { SonnerInfo } from "@/components/uikit/SonnerToast";
 import { usePostStore, useUIStore } from "@/stores";
 import { useTranslation } from "react-i18next";
 import ZoomPresets from "./ZoomPresets";
+import ZoomSlider from "./ZoomSlider";
 import RearLensPicker from "./RearLensPicker";
 import FocusReticle from "./FocusReticle";
 import CameraDebugPanel from "./CameraDebugPanel";
-
-/** Safari: slightly denser than Android HAL; still coalesce applyConstraints */
-const PINCH_THROTTLE_MS = 48;
-const BADGE_THROTTLE_MS = 48;
 
 const MediaPreviewIOS = () => {
   const { camera, navigation } = useApp();
@@ -100,7 +99,9 @@ const MediaPreviewIOS = () => {
     setCurrentZoom,
     currentLensType,
     setCurrentLensType,
+    minZoom,
     setMinZoom,
+    maxZoom,
     setMaxZoom,
     setZoomStep,
     availableZoomModes,
@@ -128,14 +129,54 @@ const MediaPreviewIOS = () => {
     isPinching: false,
   });
   const currentZoomValue = useRef(1);
-  const lastPinchApply = useRef(0);
-  const lastBadgeUpdate = useRef(0);
+  const appliedZoomRef = useRef(1);
+  const displayZoomRaf = useRef(0);
   const pendingZoom = useRef(null);
   const applyInFlight = useRef(false);
   const detectedRef = useRef(null);
   const boundsRef = useRef({ minZoom: 1, maxZoom: 1 });
   const pinchingRef = useRef(false);
+  const zoomGestureActiveRef = useRef(false);
   const switchSpinnerTimer = useRef(null);
+  const zoomApplierRef = useRef(null);
+  if (!zoomApplierRef.current) {
+    zoomApplierRef.current = createLatestZoomApplier(
+      () => streamRef.current,
+      {
+        minIntervalMs: ZOOM_APPLY_THROTTLE_MS,
+        onApplied: (z) => {
+          if (typeof z === "number" && Number.isFinite(z)) {
+            appliedZoomRef.current = z;
+          }
+        },
+      },
+    );
+  }
+
+  const setDisplayZoomNow = useCallback(
+    (z, modeHint) => {
+      const n = Number(z);
+      if (!Number.isFinite(n)) return;
+      currentZoomValue.current = n;
+      if (displayZoomRaf.current) cancelAnimationFrame(displayZoomRaf.current);
+      displayZoomRaf.current = requestAnimationFrame(() => {
+        displayZoomRaf.current = 0;
+        setCurrentZoom(currentZoomValue.current);
+        if (modeHint) setActiveZoomMode(modeHint);
+      });
+    },
+    [setCurrentZoom, setActiveZoomMode],
+  );
+
+  const requestUserZoom = useCallback(
+    (raw, { modeHint } = {}) => {
+      const { minZoom: mn, maxZoom: mx } = boundsRef.current;
+      const clamped = clampZoom(raw, mn ?? 1, mx ?? 1);
+      setDisplayZoomNow(clamped, modeHint);
+      zoomApplierRef.current?.request(clamped);
+    },
+    [setDisplayZoomNow],
+  );
 
   const [previewMirror, setPreviewMirror] = useState(
     () => cameraMode === "user",
@@ -832,10 +873,7 @@ const MediaPreviewIOS = () => {
     if (!pinchState.current.active || event.touches.length !== 2) return;
     if (isSwitchingCamera) return;
     event.preventDefault();
-
-    const now = Date.now();
-    if (now - lastPinchApply.current < PINCH_THROTTLE_MS) return;
-    lastPinchApply.current = now;
+    // No UI throttle — displayZoom every move; HW is latest-wins
 
     const isFront = (cameraMode || "user") === "user";
     let { minZoom: mn, maxZoom: mx } = boundsRef.current;
@@ -866,69 +904,23 @@ const MediaPreviewIOS = () => {
     if (totalScale < 1) totalScale = Math.pow(totalScale, isFront ? 1.15 : 1.25);
     else if (totalScale > 1) totalScale = Math.pow(totalScale, 1.12);
 
-    let nextZoom = Math.max(mn, Math.min(startZoom * totalScale, mx));
-    // Snap to live ultra factor from capabilities — never hard-code 0.5
+    let nextZoom = clampZoom(startZoom * totalScale, mn, mx);
     const uf =
-      availableZoomModes?.ultraFactor ??
-      (mn < 0.98 ? Math.round(mn * 10) / 10 : null);
-    if (!isFront && uf && nextZoom < uf + 0.12 && mn <= uf + 0.05) {
-      nextZoom = uf;
-    }
+      availableZoomModes?.ultraFactor ?? (mn < 0.98 ? mn : null);
     if (isFront && nextZoom < 1) nextZoom = 1;
 
-    currentZoomValue.current = nextZoom;
-    const n = Date.now();
     const wideSnap =
       uf != null && uf < 0.98 ? (Number(uf) + 1) / 2 : 0.92;
-    if (n - lastBadgeUpdate.current >= BADGE_THROTTLE_MS) {
-      lastBadgeUpdate.current = n;
-      setCurrentZoom(nextZoom);
-      setActiveZoomMode(
-        isFront
-          ? Math.abs(nextZoom - 1) < 0.12
-            ? "1x"
-            : "custom"
-          : nextZoom < wideSnap
-            ? WIDE_ZOOM_MODE
-            : "custom",
-      );
-    }
+    const modeHint = isFront
+      ? Math.abs(nextZoom - 1) < 0.12
+        ? "1x"
+        : "custom"
+      : nextZoom < wideSnap
+        ? WIDE_ZOOM_MODE
+        : "custom";
 
-    // Shared fast pinch path (no-ops if browser has no capabilities.zoom)
-    if (applyInFlight.current) {
-      pendingZoom.current = nextZoom;
-      return;
-    }
-    applyInFlight.current = true;
-    const stream = streamRef.current;
-    const target = nextZoom;
-    (async () => {
-      try {
-        if (!stream) return;
-        if (isFront) {
-          await applyFrontCameraZoom(stream, Math.max(1, target));
-        } else if (supportsHardwareZoom(stream)) {
-          await applyPinchZoom(stream, target);
-        }
-      } catch {
-        /* ignore */
-      } finally {
-        applyInFlight.current = false;
-        if (pendingZoom.current != null && streamRef.current) {
-          const p = pendingZoom.current;
-          pendingZoom.current = null;
-          try {
-            if (isFront) {
-              await applyFrontCameraZoom(streamRef.current, Math.max(1, p));
-            } else if (supportsHardwareZoom(streamRef.current)) {
-              await applyPinchZoom(streamRef.current, p);
-            }
-          } catch {
-            /* ignore */
-          }
-        }
-      }
-    })();
+    zoomGestureActiveRef.current = true;
+    requestUserZoom(nextZoom, { modeHint });
   };
 
   const onTouchEnd = (event) => {
@@ -952,6 +944,7 @@ const MediaPreviewIOS = () => {
     if (!pinchState.current.active && !isPinching) return;
     const isFront = (cameraMode || "user") === "user";
     pinchingRef.current = false;
+    zoomGestureActiveRef.current = false;
     pinchState.current = {
       ...(isFront ? handleFrontCameraPinchEnd() : handlePinchZoomEnd()),
       zoom: currentZoomValue.current,
@@ -960,15 +953,9 @@ const MediaPreviewIOS = () => {
 
     const z = currentZoomValue.current;
     setCurrentZoom(z);
-    const stream = streamRef.current;
-    if (stream) {
-      if (isFront) {
-        applyFrontCameraZoom(stream, Math.max(1, z)).catch(() => {});
-      } else if (supportsHardwareZoom(stream)) {
-        applyLiveZoom(stream, z).catch(() => {});
-      }
-    }
+    zoomApplierRef.current?.request(z);
     try {
+      const stream = streamRef.current;
       const liveId =
         getCurrentTrackSettings(stream)?.deviceId ||
         lastDeviceId.current ||
@@ -1454,21 +1441,31 @@ const MediaPreviewIOS = () => {
                   style={{ textShadow: "0 1px 2px rgba(0,0,0,0.35)" }}
                 >
                   {(() => {
+                    const n = Number(currentZoom);
                     if ((cameraMode || "environment") === "user") {
-                      const n = Number(currentZoom);
                       return updateZoomBadge(
                         Number.isFinite(n) && n >= 1 ? n : 1,
                       );
                     }
-                    const disp = getLiveZoomDisplay(streamRef.current, {
-                      lensType: currentLensType,
-                      detected: toDetectedShape(
-                        detectedRef.current || detectedCameras,
-                      ),
-                      preferredMode: activeZoomMode || lastZoomLevel.current,
-                      uiZoom: currentZoom,
-                    });
-                    return disp.label;
+                    if (
+                      zoomGestureActiveRef.current ||
+                      isPinching ||
+                      pinchingRef.current
+                    ) {
+                      return updateZoomBadge(
+                        Number.isFinite(n) && n > 0 ? n : 1,
+                      );
+                    }
+                    if (
+                      isWideZoomMode(activeZoomMode) &&
+                      (!Number.isFinite(n) || n >= 0.98) &&
+                      availableZoomModes?.ultraFactor == null
+                    ) {
+                      return "UW";
+                    }
+                    return updateZoomBadge(
+                      Number.isFinite(n) && n > 0 ? n : 1,
+                    );
                   })()}
                 </div>
               </div>
@@ -1636,6 +1633,35 @@ const MediaPreviewIOS = () => {
                 }}
               />
             )}
+
+            {showZoomUi &&
+              (cameraMode || "environment") !== "user" &&
+              Number(maxZoom) > Number(minZoom) + 0.01 && (
+                <ZoomSlider
+                  min={minZoom}
+                  max={maxZoom}
+                  value={currentZoom}
+                  disabled={isSwitchingCamera}
+                  visible
+                  onInputValue={(z) => {
+                    zoomGestureActiveRef.current = true;
+                    const uf = availableZoomModes?.ultraFactor;
+                    const wideSnap =
+                      uf != null && uf < 0.98 ? (Number(uf) + 1) / 2 : 0.92;
+                    const modeHint =
+                      z < wideSnap
+                        ? WIDE_ZOOM_MODE
+                        : Math.abs(z - 1) < 0.12
+                          ? "1x"
+                          : "custom";
+                    requestUserZoom(z, { modeHint });
+                  }}
+                  onGestureEnd={() => {
+                    zoomGestureActiveRef.current = false;
+                    zoomApplierRef.current?.request(currentZoomValue.current);
+                  }}
+                />
+              )}
 
             {/* Hàng nút zoom ấn — cam trước (1x·2x) + cam sau (UW·1x·2x) */}
             {showZoomUi && (
