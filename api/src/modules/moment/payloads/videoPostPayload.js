@@ -324,10 +324,21 @@ const videoPostPayloadMusic = ({ videoUrl, thumbnailUrl, optionsData }) => {
   if (apple_music_url) {
     try {
       const u = new URL(String(apple_music_url));
-      const trackId = u.searchParams.get("i");
-      apple_music_url = `https://music.apple.com${u.pathname}${trackId ? `?i=${trackId}` : ""}`;
+      const host = u.hostname.replace(/^geo\./i, "");
+      let trackId = (u.searchParams.get("i") || "").replace(/\D/g, "");
+      if (!trackId) {
+        trackId =
+          u.pathname.match(/\/song\/(?:[^/]+\/)?(\d{5,})(?:\/)?$/i)?.[1] ||
+          "";
+      }
+      const store =
+        u.pathname.match(/^\/([a-z]{2})\//i)?.[1]?.toLowerCase() || "us";
+      apple_music_url =
+        /apple\.com$/i.test(host) && trackId.length >= 5
+          ? `https://music.apple.com/${store}/song/${trackId}?i=${trackId}`
+          : null;
     } catch {
-      /* keep */
+      apple_music_url = null;
     }
   }
 
@@ -342,6 +353,7 @@ const videoPostPayloadMusic = ({ videoUrl, thumbnailUrl, optionsData }) => {
   const musicPayload = {
     isrc,
     song_title: songTitle,
+    song_name: songTitle,
     artist,
   };
 
