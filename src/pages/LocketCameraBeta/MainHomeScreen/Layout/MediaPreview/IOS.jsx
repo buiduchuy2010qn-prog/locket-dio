@@ -415,28 +415,32 @@ const MediaPreviewIOS = () => {
   const requestUserZoom = useCallback(
     (raw, { modeHint, snap = false } = {}) => {
       const cont = continuumRef.current;
-      const { minZoom: mn, maxZoom: mx } = continuumBounds(
-        cont,
-        boundsRef.current,
-      );
-      let next = clampZoom(raw, mn ?? 1, mx ?? 1);
+      const bounds = boundsRef.current;
+      const mn = cont?.supported ? cont.minZoom : bounds?.minZoom ?? 1;
+      const mx = cont?.supported ? cont.maxZoom : bounds?.maxZoom ?? 1;
+      let next = clampZoom(raw, mn, mx);
       if (snap) {
-        next = clampZoom(snapGlobalZoomOnRelease(next, cont), mn ?? 1, mx ?? 1);
+        next = clampZoom(snapGlobalZoomOnRelease(next, cont), mn, mx);
       }
-      const hint =
-        modeHint ||
-        (isExactlyMainZoom(next)
-          ? "1x"
-          : next < 0.92
-            ? WIDE_ZOOM_MODE
-            : "custom");
-      setDisplayZoomNow(next, hint);
+
+      currentZoomValue.current = next;
       pendingGlobalZoomRef.current = next;
 
-      const liveId =
-        getCurrentTrackSettings(streamRef.current)?.deviceId ||
-        lastDeviceId.current ||
-        deviceId;
+      const gesturing = zoomGestureActiveRef.current && !snap;
+      if (!gesturing) {
+        const hint =
+          modeHint ||
+          (isExactlyMainZoom(next)
+            ? "1x"
+            : next < 0.92
+              ? WIDE_ZOOM_MODE
+              : "custom");
+        setDisplayZoomNow(next, hint);
+      } else if (isExactlyMainZoom(next)) {
+        lastZoomLevel.current = "1x";
+      }
+
+      const liveId = lastDeviceId.current || deviceId;
       const mapped = mapGlobalZoomToLens(
         next,
         cont,
@@ -448,18 +452,19 @@ const MediaPreviewIOS = () => {
         mapped.switchDevice &&
         mapped.deviceId &&
         mapped.deviceId !== liveId &&
-        (cameraMode || "environment") !== "user"
+        (cameraMode || "environment") !== "user" &&
+        !lensSwitchInFlightRef.current
       ) {
         stickyLensTypeRef.current = mapped.type || stickyLensTypeRef.current;
-        if (mapped.type) setCurrentLensType(mapped.type);
         void switchPhysicalLensForZoom(mapped.deviceId, mapped.type);
         return;
       }
 
-      if (mapped.type) {
+      if (mapped.type && mapped.type !== stickyLensTypeRef.current) {
         stickyLensTypeRef.current = mapped.type;
-        setCurrentLensType(mapped.type);
+        if (!gesturing) setCurrentLensType(mapped.type);
       }
+
       zoomApplierRef.current?.request(
         mapped.localZoom != null ? mapped.localZoom : next,
       );

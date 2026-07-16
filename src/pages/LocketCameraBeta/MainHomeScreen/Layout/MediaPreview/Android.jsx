@@ -443,37 +443,43 @@ const MediaPreviewAndroid = () => {
   );
 
   /**
-   * User gesture zoom: display immediate; HW apply latest-wins;
-   * multi-physical handoff with freeze frame + hysteresis.
-   * @param {{ modeHint?: string, snap?: boolean }} [opts]
-   *   snap=true only on pointerup (soft snap to 1x / markers)
+   * User gesture zoom — UI paints in ZoomSlider (DOM).
+   * During drag: no React setState (avoids MediaPreview re-render lag).
+   * HW: latest-wins only; lens switch only when deviceId actually changes.
    */
   const requestUserZoom = useCallback(
     (raw, { modeHint, snap = false } = {}) => {
       const cont = continuumRef.current;
-      const { minZoom: mn, maxZoom: mx } = continuumBounds(
-        cont,
-        boundsRef.current,
-      );
-      let next = clampZoom(raw, mn ?? 1, mx ?? 1);
+      const bounds = boundsRef.current;
+      const mn = cont?.supported ? cont.minZoom : bounds?.minZoom ?? 1;
+      const mx = cont?.supported ? cont.maxZoom : bounds?.maxZoom ?? 1;
+      let next = clampZoom(raw, mn, mx);
       if (snap) {
-        next = clampZoom(snapGlobalZoomOnRelease(next, cont), mn ?? 1, mx ?? 1);
+        next = clampZoom(snapGlobalZoomOnRelease(next, cont), mn, mx);
       }
-      // Display first — never await camera
-      const hint =
-        modeHint ||
-        (isExactlyMainZoom(next)
-          ? "1x"
-          : next < 0.92
-            ? WIDE_ZOOM_MODE
-            : "custom");
-      setDisplayZoomNow(next, hint);
+
+      // Ref first — always
+      currentZoomValue.current = next;
       pendingGlobalZoomRef.current = next;
 
-      const liveId =
-        getCurrentTrackSettings(streamRef.current)?.deviceId ||
-        lastDeviceId.current ||
-        deviceId;
+      // React state only when not mid-gesture (or on snap end)
+      const gesturing = zoomGestureActiveRef.current && !snap;
+      if (!gesturing) {
+        const hint =
+          modeHint ||
+          (isExactlyMainZoom(next)
+            ? "1x"
+            : next < 0.92
+              ? WIDE_ZOOM_MODE
+              : "custom");
+        setDisplayZoomNow(next, hint);
+      } else {
+        // Still track mode hint without full badge path
+        if (isExactlyMainZoom(next)) lastZoomLevel.current = "1x";
+      }
+
+      // Avoid getSettings every pointermove — use last known id
+      const liveId = lastDeviceId.current || deviceId;
       const mapped = mapGlobalZoomToLens(
         next,
         cont,
@@ -485,19 +491,20 @@ const MediaPreviewAndroid = () => {
         mapped.switchDevice &&
         mapped.deviceId &&
         mapped.deviceId !== liveId &&
-        (cameraMode || "environment") !== "user"
+        (cameraMode || "environment") !== "user" &&
+        !lensSwitchInFlightRef.current
       ) {
         stickyLensTypeRef.current = mapped.type || stickyLensTypeRef.current;
-        if (mapped.type) setCurrentLensType(mapped.type);
         void switchPhysicalLensForZoom(mapped.deviceId, mapped.type);
         return;
       }
 
-      if (mapped.type) {
+      if (mapped.type && mapped.type !== stickyLensTypeRef.current) {
         stickyLensTypeRef.current = mapped.type;
-        setCurrentLensType(mapped.type);
+        // Defer React lens label update off the hot path
+        if (!gesturing) setCurrentLensType(mapped.type);
       }
-      // Local track zoom (global / baseZoom) — latest-wins throttle ~40ms
+
       zoomApplierRef.current?.request(
         mapped.localZoom != null ? mapped.localZoom : next,
       );

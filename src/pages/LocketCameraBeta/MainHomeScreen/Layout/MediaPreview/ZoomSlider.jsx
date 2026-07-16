@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useCallback, useState } from "react";
+import React, { useMemo, useRef, useCallback, useEffect } from "react";
 import {
   zoomToSliderT,
   sliderTToZoom,
@@ -6,12 +6,9 @@ import {
 } from "@/utils";
 
 /**
- * Native-style single zoom rail — finger tracking is priority:
- * - Visual rail thin; hit target ≥ 48px
- * - Thumb ~26px visual, 44×44 touch
- * - pointerdown capture + pointermove (ref, not React state) so drag never lags
- * - Logarithmic t∈[0,1] ↔ global zoom
- * - Lens markers on rail (tap snaps); continuous drag never auto-snaps
+ * High-performance zoom rail.
+ * During drag: paint thumb/fill/badge via DOM (no React re-render).
+ * Parent only receives zoom values for camera apply (latest-wins).
  */
 export default function ZoomSlider({
   min = 1,
@@ -24,12 +21,20 @@ export default function ZoomSlider({
   onGestureEnd,
 }) {
   const trackRef = useRef(null);
-  /** Must be a ref — React state would lag one frame and drop first moves */
+  const fillRef = useRef(null);
+  const thumbRef = useRef(null);
+  const badgeRef = useRef(null);
   const draggingRef = useRef(false);
-  const [draggingUi, setDraggingUi] = useState(false);
+  const localZoomRef = useRef(Number(value) || 1);
+  const rectCacheRef = useRef(null);
+  const loRef = useRef(Number(min));
+  const hiRef = useRef(Number(max));
 
   const lo = Number(min);
   const hi = Number(max);
+  loRef.current = lo;
+  hiRef.current = hi;
+
   const ok =
     visible &&
     Number.isFinite(lo) &&
@@ -42,7 +47,20 @@ export default function ZoomSlider({
     return Math.min(hi, Math.max(lo, v));
   }, [value, lo, hi]);
 
-  const t = ok ? zoomToSliderT(safeZoom, lo, hi) : 0;
+  // Sync controlled value → DOM when not dragging
+  useEffect(() => {
+    if (draggingRef.current || !ok) return;
+    localZoomRef.current = safeZoom;
+    const t = zoomToSliderT(safeZoom, lo, hi);
+    paint(t, safeZoom);
+  }, [safeZoom, lo, hi, ok]);
+
+  const paint = (t, zoom) => {
+    const pct = `${Math.min(100, Math.max(0, t * 100))}%`;
+    if (fillRef.current) fillRef.current.style.width = pct;
+    if (thumbRef.current) thumbRef.current.style.left = pct;
+    if (badgeRef.current) badgeRef.current.textContent = updateZoomBadge(zoom);
+  };
 
   const markerItems = useMemo(() => {
     if (!ok || !Array.isArray(markers)) return [];
@@ -65,20 +83,28 @@ export default function ZoomSlider({
     (clientX) => {
       const el = trackRef.current;
       if (!el) return;
-      const rect = el.getBoundingClientRect();
+      // Cache rect during drag — avoid layout thrash every move
+      let rect = rectCacheRef.current;
+      if (!rect) {
+        rect = el.getBoundingClientRect();
+        rectCacheRef.current = rect;
+      }
       if (rect.width < 1) return;
       const p = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
-      const zoom = sliderTToZoom(p, lo, hi);
+      const zoom = sliderTToZoom(p, loRef.current, hiRef.current);
+      localZoomRef.current = zoom;
+      // Instant paint — no setState
+      paint(p, zoom);
       onInputValue?.(zoom);
     },
-    [lo, hi, onInputValue],
+    [onInputValue],
   );
 
   const endDrag = useCallback(
     (e) => {
       if (!draggingRef.current) return;
       draggingRef.current = false;
-      setDraggingUi(false);
+      rectCacheRef.current = null;
       try {
         if (e?.currentTarget && e.pointerId != null) {
           e.currentTarget.releasePointerCapture(e.pointerId);
@@ -86,12 +112,14 @@ export default function ZoomSlider({
       } catch {
         /* ignore */
       }
-      onGestureEnd?.(safeZoom);
+      onGestureEnd?.(localZoomRef.current);
     },
-    [onGestureEnd, safeZoom],
+    [onGestureEnd],
   );
 
   if (!ok) return null;
+
+  const t0 = zoomToSliderT(safeZoom, lo, hi);
 
   return (
     <div
@@ -101,12 +129,11 @@ export default function ZoomSlider({
       data-no-focus
     >
       <div
-        className={`pointer-events-auto w-full max-w-[280px] select-none transition-opacity ${
+        className={`pointer-events-auto w-full max-w-[280px] select-none ${
           disabled ? "opacity-45" : "opacity-100"
         }`}
         style={{ touchAction: "none" }}
       >
-        {/* ≥48px touch height; thin visual rail inside */}
         <div
           ref={trackRef}
           role="slider"
@@ -127,13 +154,12 @@ export default function ZoomSlider({
             e.preventDefault();
             e.stopPropagation();
             draggingRef.current = true;
-            setDraggingUi(true);
+            rectCacheRef.current = e.currentTarget.getBoundingClientRect();
             try {
               e.currentTarget.setPointerCapture(e.pointerId);
             } catch {
               /* ignore */
             }
-            // Jump to tap position immediately, then track finger
             emitFromClientX(e.clientX);
           }}
           onPointerMove={(e) => {
@@ -146,53 +172,55 @@ export default function ZoomSlider({
           onLostPointerCapture={() => {
             if (draggingRef.current) {
               draggingRef.current = false;
-              setDraggingUi(false);
-              onGestureEnd?.(safeZoom);
+              rectCacheRef.current = null;
+              onGestureEnd?.(localZoomRef.current);
             }
           }}
           onKeyDown={(e) => {
             if (disabled) return;
             const step = (hi - lo) * 0.03;
+            let z = localZoomRef.current;
             if (e.key === "ArrowRight" || e.key === "ArrowUp") {
               e.preventDefault();
-              onInputValue?.(Math.min(hi, safeZoom + step));
+              z = Math.min(hi, z + step);
             } else if (e.key === "ArrowLeft" || e.key === "ArrowDown") {
               e.preventDefault();
-              onInputValue?.(Math.max(lo, safeZoom - step));
-            }
+              z = Math.max(lo, z - step);
+            } else return;
+            localZoomRef.current = z;
+            paint(zoomToSliderT(z, lo, hi), z);
+            onInputValue?.(z);
           }}
         >
-          {/* Rail (visual only) */}
           <div className="absolute inset-x-0 h-[3px] rounded-full bg-white/35 pointer-events-none" />
           <div
-            className="absolute left-0 h-[3px] rounded-full bg-white/90 pointer-events-none"
-            style={{ width: `${t * 100}%` }}
+            ref={fillRef}
+            className="absolute left-0 h-[3px] rounded-full bg-white/90 pointer-events-none will-change-[width]"
+            style={{ width: `${t0 * 100}%` }}
           />
 
-          {/* Lens markers — pointer-events none while dragging so rail keeps capture */}
           {markerItems.map((m) => (
             <button
               key={`${m.type}-${m.zoom}`}
               type="button"
-              disabled={disabled || draggingUi}
+              disabled={disabled}
               aria-label={`Zoom ${m.label}x`}
-              className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 z-[2] flex flex-col items-center justify-center"
+              className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 z-[2] flex flex-col items-center justify-center pointer-events-auto"
               style={{
                 left: `${m.pos * 100}%`,
                 width: 28,
                 height: 44,
-                pointerEvents: draggingUi ? "none" : "auto",
               }}
               onClick={(e) => {
                 e.stopPropagation();
                 if (disabled) return;
-                onInputValue?.(Math.min(hi, Math.max(lo, m.zoom)));
-                onGestureEnd?.(m.zoom);
+                const z = Math.min(hi, Math.max(lo, m.zoom));
+                localZoomRef.current = z;
+                paint(zoomToSliderT(z, lo, hi), z);
+                onInputValue?.(z);
+                onGestureEnd?.(z);
               }}
-              onPointerDown={(e) => {
-                // Allow tap without starting rail drag
-                e.stopPropagation();
-              }}
+              onPointerDown={(e) => e.stopPropagation()}
             >
               <span
                 className={`block rounded-full ${
@@ -214,22 +242,19 @@ export default function ZoomSlider({
             </button>
           ))}
 
-          {/* Thumb: 26px visual, 44×44 hit via parent track */}
           <div
-            className="absolute top-1/2 z-[3] -translate-y-1/2 -translate-x-1/2 pointer-events-none flex flex-col items-center"
-            style={{ left: `${t * 100}%` }}
+            ref={thumbRef}
+            className="absolute top-1/2 z-[3] -translate-y-1/2 -translate-x-1/2 pointer-events-none flex flex-col items-center will-change-[left]"
+            style={{ left: `${t0 * 100}%` }}
           >
             <div
               className={`rounded-full bg-white shadow-lg border border-black/15 ${
                 disabled ? "opacity-50" : ""
-              } ${draggingUi ? "scale-110" : ""}`}
-              style={{
-                width: 26,
-                height: 26,
-                transition: "transform 60ms linear",
-              }}
+              }`}
+              style={{ width: 26, height: 26 }}
             />
             <div
+              ref={badgeRef}
               className="absolute -top-7 left-1/2 -translate-x-1/2 whitespace-nowrap
                 text-[11px] font-semibold text-white px-1.5 py-0.5 rounded-md
                 bg-black/50 backdrop-blur-sm"
