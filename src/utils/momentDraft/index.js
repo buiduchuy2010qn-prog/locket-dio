@@ -62,6 +62,14 @@ export function sanitizeOverlayForDraft(overlayData = {}) {
   delete o.idToken;
   delete o.accessToken;
   delete o.firebaseToken;
+  // Japanese caption picker helpers — never persist/send VI to Locket
+  delete o.vi;
+  delete o.vi_label;
+  delete o.translation;
+  delete o.viLabel;
+  delete o._jp_preset;
+  delete o.category;
+  delete o.ja;
   if (o.type === "music" && o.payload) {
     o.payload = serializeMusicPayload(o.payload);
   }

@@ -12,6 +12,7 @@ import {
   useOverlayUserStore,
 } from "@/stores/OverlayStores";
 import CaptionSections from "./components/OverlaySections";
+import JapaneseCaptionSections from "./components/JapaneseCaptionSections";
 import { useOverlayEditorStore } from "@/stores";
 import { SonnerInfo } from "@/components/uikit/SonnerToast";
 import NotesSection from "./components/NotesSection";
@@ -72,34 +73,48 @@ const ScreenCustomeStudio = () => {
   const handleSelectCaption = (caption) => {
     resetOverlayEditor();
 
+    // Strip picker-only VI / JP helper fields — never enter editor or Locket payload
+    const {
+      vi: _vi,
+      vi_label: _viLabel,
+      translation: _tr,
+      viLabel: _viLabel2,
+      _jp_preset: _jpFlag,
+      category: _cat,
+      ja: _ja,
+      ...safeCaption
+    } = caption || {};
+
     const rawText =
-      caption?.text != null && String(caption.text).trim() !== ""
-        ? String(caption.text)
-        : caption?.caption != null && String(caption.caption).trim() !== ""
-          ? String(caption.caption)
+      safeCaption?.text != null && String(safeCaption.text).trim() !== ""
+        ? String(safeCaption.text)
+        : safeCaption?.caption != null &&
+            String(safeCaption.caption).trim() !== ""
+          ? String(safeCaption.caption)
           : "";
 
     // Theme gợi ý (custom): text null → editable, caption trống để user gõ
     const isCustomTheme =
-      caption?.type === "custom" || caption?.is_editable === true;
+      safeCaption?.type === "custom" || safeCaption?.is_editable === true;
 
     // Decorative/template: giữ text API; custom: để trống (chỉ áp màu nền)
+    // Japanese presets: text is already JA-only
     const text = isCustomTheme ? "" : rawText;
 
     updateOverlayEditor({
-      ...caption,
-      overlay_id: caption?.overlay_id || caption?.id || "standard",
-      text_color: caption?.text_color || "#FFFFFF",
+      ...safeCaption,
+      overlay_id: safeCaption?.overlay_id || safeCaption?.id || "standard",
+      text_color: safeCaption?.text_color || "#FFFFFF",
       text,
       caption: text,
-      type: caption?.type || "default",
-      is_editable: isCustomTheme ? true : Boolean(caption?.is_editable),
-      color_top: caption?.colortop || caption?.color_top || "",
-      color_bottom: caption?.colorbottom || caption?.color_bottom || "",
+      type: safeCaption?.type || "default",
+      is_editable: isCustomTheme ? true : Boolean(safeCaption?.is_editable),
+      color_top: safeCaption?.colortop || safeCaption?.color_top || "",
+      color_bottom: safeCaption?.colorbottom || safeCaption?.color_bottom || "",
       // icon rỗng {} → bỏ để không vỡ UI
       icon:
-        caption?.icon && caption.icon.type && caption.icon.data
-          ? caption.icon
+        safeCaption?.icon && safeCaption.icon.type && safeCaption.icon.data
+          ? safeCaption.icon
           : null,
     });
 
@@ -156,6 +171,9 @@ const ScreenCustomeStudio = () => {
             sections={sectionOverlays}
             onSelect={handleSelectCaption}
           />
+
+          {/* 🇯🇵 Caption Nhật Bản — Decorative flow, JA payload only */}
+          <JapaneseCaptionSections onSelect={handleSelectCaption} />
 
           {canShowSavedCaptions && (
             <SavedCaptions
