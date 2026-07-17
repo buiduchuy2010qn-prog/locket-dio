@@ -147,7 +147,8 @@ export const applyTheme = (theme) => {
   }
 
   if (dataTheme === PINK_SNOW_THEME) {
-    baseColor = "#ff5fa8";
+    // Pink Glassmorphism status bar
+    baseColor = "#d81b60";
   } else if (dataTheme === "valentine") {
     baseColor = "#ff6b9d";
   } else if (isGlassTheme(dataTheme)) {

@@ -4,7 +4,8 @@
 }
 
 /* ═══════════════════════════════════════════
-   Theme: Hồng tuyết ❄ — hồng + mưa tuyết
+   Theme: Pink Glassmorphism (pinksnow / pink-snow)
+   Kính hồng — chỉ palette + glass chrome
    ═══════════════════════════════════════════ */
 @plugin "daisyui/theme" {
   name: "pinksnow";
@@ -12,26 +13,23 @@
   prefersdark: false;
   color-scheme: light;
 
-  /* Nền hồng kem sống động hơn (chroma ↑ nhẹ, vẫn soft) */
-  --color-base-100: oklch(97.2% 0.038 350);
-  --color-base-200: oklch(93.5% 0.062 350);
-  --color-base-300: oklch(88% 0.095 350);
-  --color-base-content: oklch(26% 0.07 350);
+  --color-base-100: #fdfbfb;
+  --color-base-200: #f5f0f2;
+  --color-base-300: #fecfef;
+  --color-base-content: #4a4a4a;
 
-  /* Primary hồng đậm / vibrant */
-  --color-primary: oklch(64% 0.245 350);
-  --color-primary-content: oklch(99% 0.01 350);
+  /* Accent #d81b60 */
+  --color-primary: #d81b60;
+  --color-primary-content: #ffffff;
 
-  /* Secondary hồng peach */
-  --color-secondary: oklch(76% 0.155 18);
-  --color-secondary-content: oklch(24% 0.05 20);
+  --color-secondary: #ff9a9e;
+  --color-secondary-content: #4a4a4a;
 
-  /* Accent hồng lilac */
-  --color-accent: oklch(70% 0.18 330);
-  --color-accent-content: oklch(98% 0.01 330);
+  --color-accent: #d81b60;
+  --color-accent-content: #ffffff;
 
-  --color-neutral: oklch(30% 0.055 350);
-  --color-neutral-content: oklch(98% 0.01 350);
+  --color-neutral: #4a4a4a;
+  --color-neutral-content: #fdfbfb;
 
   --color-info: oklch(75% 0.1 230);
   --color-info-content: oklch(25% 0.04 230);
@@ -89,113 +87,321 @@
 }
 
 /*
- * Hồng Tuyết — CSS variables + soft white→pink gradient (no hard split).
- * data-theme stays "pinksnow" (DaisyUI); alias pink-snow supported.
+ * Pink Glassmorphism — pinksnow / pink-snow
+ * Only color / background / border / shadow / opacity / backdrop-filter.
+ * Do not change layout geometry.
  */
 html[data-theme="pinksnow"],
 html[data-theme="pink-snow"] {
   color-scheme: light;
 
-  --page-bg: #fffafd;
-  --surface: rgba(255, 255, 255, 0.82);
-  --surface-strong: #ffffff;
-  --pink-soft: #ffe4f0;
-  --pink-light: #ffc5df;
-  --pink-primary: #ff5fa8;
-  --pink-strong: #ec3b91;
-  --text-primary: #2b1722;
-  --text-secondary: #765466;
-  --border-soft: rgba(236, 59, 145, 0.16);
-  --accent: #ff5fa8;
+  --pink-bg-start: #fdfbfb;
+  --pink-bg-end: #ebedee;
+  --pink-blob-1: #ff9a9e;
+  --pink-blob-2: #fecfef;
+  --pink-glass: rgba(255, 182, 193, 0.25);
+  --pink-glass-border: rgba(255, 255, 255, 0.4);
+  --pink-glass-shadow: rgba(255, 182, 193, 0.25);
+  --pink-accent: #d81b60;
+  --pink-text: #4a4a4a;
+
+  --page-bg: var(--pink-bg-start);
+  --surface: var(--pink-glass);
+  --surface-strong: rgba(255, 182, 193, 0.35);
+  --pink-soft: var(--pink-blob-2);
+  --pink-light: var(--pink-blob-1);
+  --pink-primary: var(--pink-accent);
+  --pink-strong: var(--pink-accent);
+  --text-primary: var(--pink-text);
+  --text-secondary: #6b6b6b;
+  --border-soft: var(--pink-glass-border);
+  --accent: var(--pink-accent);
   --accent-contrast: #ffffff;
-  --shadow-pink: 0 10px 30px rgba(236, 59, 145, 0.14);
+  --shadow-pink: 0 8px 32px var(--pink-glass-shadow);
+
+  --color-base-content: var(--pink-text);
+  --color-primary: var(--pink-accent);
+  --color-primary-content: #ffffff;
 }
 
+/* Page base: soft grey-white + two soft pink blobs (faded, not hard shapes) */
 html[data-theme="pinksnow"],
 html[data-theme="pinksnow"] body,
 html[data-theme="pink-snow"],
 html[data-theme="pink-snow"] body {
   min-height: 100%;
-  /* ~½ trắng → chuyển mềm sang hồng (không đường cứng) */
+  color: var(--pink-text);
+
   background:
     radial-gradient(
-      circle at 82% 12%,
-      rgba(255, 143, 196, 0.30),
-      transparent 34%
+      55% 45% at 12% 18%,
+      color-mix(in srgb, var(--pink-blob-1) 38%, transparent),
+      transparent 70%
+    ),
+    radial-gradient(
+      50% 42% at 88% 78%,
+      color-mix(in srgb, var(--pink-blob-2) 42%, transparent),
+      transparent 72%
     ),
     linear-gradient(
-      145deg,
-      #ffffff 0%,
-      #ffffff 44%,
-      #fff0f7 58%,
-      #ffc9e1 100%
+      135deg,
+      var(--pink-bg-start) 0%,
+      var(--pink-bg-end) 100%
     ) !important;
   background-attachment: fixed;
-  color: var(--text-primary, var(--color-base-content));
 }
 
-/* Surfaces: light glass only on small UI chrome — not full-screen */
-html[data-theme="pinksnow"] .pinkSnowSurface,
-html[data-theme="pink-snow"] .pinkSnowSurface {
-  background: rgba(255, 255, 255, 0.72);
-  border: 1px solid rgba(255, 255, 255, 0.78);
-  box-shadow:
-    0 10px 30px rgba(236, 59, 145, 0.12),
-    inset 0 1px 0 rgba(255, 255, 255, 0.90);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-}
-
-/* Capture shutter ring uses primary (pink) via existing .cameraShutterRing / border-camera */
-html[data-theme="pinksnow"] .border-camera-custome,
-html[data-theme="pinksnow"] .cameraShutterRing {
-  color: var(--pink-primary, var(--color-primary));
-  box-shadow: 0 0 0 5px var(--pink-primary, var(--color-primary));
-}
-
-/* Zoom rail soft pink (when expanded) */
-html[data-theme="pinksnow"] [data-zoom-slider] .bg-white\/35 {
-  background-color: color-mix(in srgb, var(--pink-light) 55%, transparent);
-}
-html[data-theme="pinksnow"] [data-zoom-slider] .bg-white\/90 {
-  background-color: color-mix(in srgb, var(--pink-primary) 70%, white);
-}
-
-/* Valentine / generic pink-snow class — giữ gradient cũ nhẹ hơn */
-html.theme-pink-snow:not([data-theme="pinksnow"]),
-html.theme-pink-snow:not([data-theme="pinksnow"]) body,
-body.theme-pink-snow:not(:is(html[data-theme="pinksnow"] body)) {
-  min-height: 100%;
-  background:
-    radial-gradient(ellipse 120% 80% at 50% -20%, rgba(255, 160, 200, 0.45), transparent 55%),
-    radial-gradient(ellipse 80% 50% at 100% 100%, rgba(255, 192, 220, 0.35), transparent 50%),
-    radial-gradient(ellipse 70% 40% at 0% 80%, rgba(255, 200, 230, 0.28), transparent 45%),
-    linear-gradient(180deg, #ffe4f0 0%, #ffd0e8 40%, #ffc4dd 100%) !important;
-  background-attachment: fixed;
-}
-
-html[data-theme="pinksnow"] .bg-base-100 {
-  background-color: color-mix(in oklab, var(--color-base-100) 86%, transparent);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-}
-
-html.theme-pink-snow:not([data-theme="pinksnow"]) .bg-base-100 {
-  background-color: color-mix(in oklab, var(--color-base-100) 88%, transparent);
-}
-
-/* Locket camera: soft pink page, never paint over video preview */
+/* Camera route: same palette, scroll attachment for mobile stability */
 html[data-theme="pinksnow"] body:has([data-locket-camera]),
 html[data-theme="pink-snow"] body:has([data-locket-camera]) {
   background:
-    radial-gradient(circle at 80% 8%, rgba(255, 143, 196, 0.22), transparent 32%),
-    linear-gradient(145deg, #ffffff 0%, #ffffff 48%, #fff0f7 62%, #ffd4e8 100%) !important;
+    radial-gradient(
+      50% 40% at 14% 16%,
+      color-mix(in srgb, var(--pink-blob-1) 32%, transparent),
+      transparent 70%
+    ),
+    radial-gradient(
+      48% 40% at 90% 80%,
+      color-mix(in srgb, var(--pink-blob-2) 36%, transparent),
+      transparent 72%
+    ),
+    linear-gradient(
+      135deg,
+      var(--pink-bg-start) 0%,
+      var(--pink-bg-end) 100%
+    ) !important;
   background-attachment: scroll !important;
 }
 
-html.theme-pink-snow:not([data-theme="pinksnow"]) body:has([data-locket-camera]) {
+/* Shared pink glass material (chrome only — not video) */
+html[data-theme="pinksnow"] .pinkSnowSurface,
+html[data-theme="pink-snow"] .pinkSnowSurface,
+html[data-theme="pinksnow"] .cameraControlPill,
+html[data-theme="pink-snow"] .cameraControlPill,
+html[data-theme="pinksnow"] .cameraBottomNav,
+html[data-theme="pink-snow"] .cameraBottomNav,
+html[data-theme="pinksnow"] .historyChip,
+html[data-theme="pink-snow"] .historyChip {
+  background: var(--pink-glass) !important;
+  border: 1px solid var(--pink-glass-border) !important;
+  box-shadow: 0 8px 32px var(--pink-glass-shadow) !important;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  color: var(--pink-text) !important;
+}
+
+/* Soften capture-bar highlight layer if present — color only */
+html[data-theme="pinksnow"] .cameraControlPill::before,
+html[data-theme="pink-snow"] .cameraControlPill::before {
+  background: linear-gradient(
+    110deg,
+    rgba(255, 255, 255, 0.35),
+    transparent 40%,
+    transparent 70%,
+    rgba(254, 207, 239, 0.2)
+  ) !important;
+}
+
+/* Side icons — plum/text, accent on press (color only) */
+html[data-theme="pinksnow"] .pillSideBtn,
+html[data-theme="pink-snow"] .pillSideBtn,
+html[data-theme="pinksnow"] .cameraSideBtn,
+html[data-theme="pink-snow"] .cameraSideBtn {
+  background: transparent !important;
+  border-color: transparent !important;
+  color: var(--pink-text) !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+html[data-theme="pinksnow"] .pillSideBtn svg,
+html[data-theme="pinksnow"] .cameraSideBtn svg {
+  color: var(--pink-text) !important;
+  stroke: var(--pink-text);
+}
+
+html[data-theme="pinksnow"] .pillSideBtn:active:not(:disabled),
+html[data-theme="pinksnow"] .cameraSideBtn:active:not(:disabled) {
+  color: var(--pink-accent) !important;
+}
+html[data-theme="pinksnow"] .pillSideBtn:active:not(:disabled) svg {
+  color: var(--pink-accent) !important;
+  stroke: var(--pink-accent);
+}
+
+html[data-theme="pinksnow"] .pillSideBtn:disabled {
+  opacity: 0.42;
+}
+
+/* Header chrome — pink glass (no geometry) */
+html[data-theme="pinksnow"] header button.w-11,
+html[data-theme="pinksnow"] header .w-11.h-11.rounded-full,
+html[data-theme="pinksnow"] [data-header-profile="true"] > div.absolute,
+html[data-theme="pinksnow"] [data-header-chat="true"],
+html[data-theme="pinksnow"] [data-header-menu="true"],
+html[data-theme="pinksnow"] button.w-11.h-11,
+html[data-theme="pink-snow"] button.w-11.h-11 {
+  background: var(--pink-glass) !important;
+  border: 1px solid var(--pink-glass-border) !important;
+  box-shadow: 0 8px 32px var(--pink-glass-shadow) !important;
+  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
+  color: var(--pink-text) !important;
+}
+
+/* Friends pill */
+html[data-theme="pinksnow"] [data-friends-pill="true"],
+html[data-theme="pink-snow"] [data-friends-pill="true"],
+html[data-theme="pinksnow"] header button.absolute.rounded-3xl {
+  background: var(--pink-glass) !important;
+  border: 1px solid var(--pink-glass-border) !important;
+  box-shadow: 0 8px 32px var(--pink-glass-shadow) !important;
+  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
+  color: var(--pink-text) !important;
+}
+
+/* Avatar disc behind profile image */
+html[data-theme="pinksnow"] header .bg-base-300\/70.rounded-full.absolute,
+html[data-theme="pinksnow"] .bg-base-300\/70.backdrop-blur-\[4px\] {
+  background: var(--pink-glass) !important;
+  border: 1px solid var(--pink-glass-border) !important;
+  box-shadow: 0 8px 24px var(--pink-glass-shadow) !important;
+  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
+}
+
+/* Shutter ring — accent #d81b60 (color/shadow only) */
+html[data-theme="pinksnow"] .border-camera-custome,
+html[data-theme="pink-snow"] .border-camera-custome,
+html[data-theme="pinksnow"] .cameraShutterRing,
+html[data-theme="pink-snow"] .cameraShutterRing {
+  color: var(--pink-accent) !important;
+  box-shadow: 0 0 0 5px var(--pink-accent) !important;
+}
+
+html[data-theme="pinksnow"] .cameraShutterCore,
+html[data-theme="pinksnow"] button[aria-label="Chụp ảnh"] .bg-white {
+  background: #ffffff !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.95);
+}
+
+/* Zoom rail — soft pink track / accent fill */
+html[data-theme="pinksnow"] [data-zoom-slider] .bg-white\/35 {
+  background-color: rgba(255, 182, 193, 0.45) !important;
+}
+html[data-theme="pinksnow"] [data-zoom-slider] .bg-white\/90 {
+  background-color: var(--pink-accent) !important;
+}
+html[data-theme="pinksnow"] [data-zoom-slider] .rounded-full.bg-white {
+  background: #ffffff !important;
+  border: 1px solid var(--pink-glass-border) !important;
+  box-shadow: 0 4px 12px var(--pink-glass-shadow) !important;
+}
+
+html[data-theme="pinksnow"] [data-zoom-badge="true"] > div {
+  background: var(--pink-glass) !important;
+  border: 1px solid var(--pink-glass-border) !important;
+  color: var(--pink-text) !important;
+  box-shadow: 0 4px 16px var(--pink-glass-shadow) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+}
+
+/* Bottom nav active / history active */
+html[data-theme="pinksnow"] .cameraBottomNavBtn {
+  color: var(--text-secondary) !important;
+}
+html[data-theme="pinksnow"] .cameraBottomNavBtn.is-active,
+html[data-theme="pinksnow"] .glassButtonActive {
+  background: color-mix(in srgb, var(--pink-accent) 18%, transparent) !important;
+  border: 1px solid color-mix(in srgb, var(--pink-accent) 35%, transparent) !important;
+  color: var(--pink-accent) !important;
+  box-shadow: none !important;
+}
+
+/* Sidebar / drawer — pink glass (color only) */
+html[data-theme="pinksnow"] .menuDrawer,
+html[data-theme="pink-snow"] .menuDrawer,
+html[data-theme="pinksnow"] .fixed.z-60.top-0.right-0.bg-base-100,
+html[data-theme="pinksnow"] .bg-base-100.flex.flex-col {
+  background: rgba(253, 251, 251, 0.72) !important;
+  border-color: var(--pink-glass-border) !important;
+  box-shadow: -8px 0 32px var(--pink-glass-shadow) !important;
+  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
+  color: var(--pink-text) !important;
+}
+
+html[data-theme="pinksnow"] .menuBackdrop,
+html[data-theme="pinksnow"] .fixed.inset-0.bg-base-100\/10 {
+  background: rgba(74, 74, 74, 0.12) !important;
+  backdrop-filter: blur(2px) !important;
+  -webkit-backdrop-filter: blur(2px) !important;
+}
+
+/* Active menu item */
+html[data-theme="pinksnow"] .menu a.bg-base-300,
+html[data-theme="pinksnow"] .menu a[aria-current="page"] {
+  background: color-mix(in srgb, var(--pink-accent) 14%, transparent) !important;
+  color: var(--pink-accent) !important;
+}
+
+/* Cards / modals / bottom sheets */
+html[data-theme="pinksnow"] .modal-box,
+html[data-theme="pinksnow"] [role="dialog"],
+html[data-theme="pinksnow"] .bg-base-100 {
+  background: rgba(253, 251, 251, 0.78) !important;
+  border: 1px solid var(--pink-glass-border) !important;
+  box-shadow: 0 8px 32px var(--pink-glass-shadow) !important;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  color: var(--pink-text);
+}
+
+html[data-theme="pinksnow"] .text-base-content {
+  color: var(--pink-text);
+}
+
+html[data-theme="pinksnow"] .btn-primary {
+  background: var(--pink-accent) !important;
+  border-color: var(--pink-accent) !important;
+  color: #ffffff !important;
+}
+
+/* Never tint live camera media */
+html[data-theme="pinksnow"] .cameraPreview,
+html[data-theme="pinksnow"] .cameraPreview video,
+html[data-theme="pinksnow"] [data-locket-camera] video,
+html[data-theme="pinksnow"] video.object-cover {
+  filter: none !important;
+  opacity: 1 !important;
+  mix-blend-mode: normal !important;
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none !important;
+  border: none !important;
+}
+
+/* Valentine alias — same glass palette, no huge shapes */
+html.theme-pink-snow:not([data-theme="pinksnow"]):not([data-theme="pink-snow"]) body {
+  min-height: 100%;
   background:
-    linear-gradient(180deg, #fff8fb 0%, #ffe8f2 50%, #ffdcec 100%) !important;
+    radial-gradient(
+      50% 40% at 15% 20%,
+      color-mix(in srgb, #ff9a9e 35%, transparent),
+      transparent 70%
+    ),
+    radial-gradient(
+      48% 40% at 85% 75%,
+      color-mix(in srgb, #fecfef 40%, transparent),
+      transparent 72%
+    ),
+    linear-gradient(135deg, #fdfbfb 0%, #ebedee 100%) !important;
+  background-attachment: fixed;
+  color: #4a4a4a;
 }
 
 /* ═══════════════════════════════════════════
