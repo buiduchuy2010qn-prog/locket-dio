@@ -1,23 +1,43 @@
 // utils/themeUtils.js
 import { CONFIG } from "@/config/webConfig";
 
-/** DaisyUI theme id — Hồng tuyết */
+/** DaisyUI / data-theme ids */
 export const PINK_SNOW_THEME = "pinksnow";
+export const GLASS_THEME = "glass";
+
 /** User-facing storage key values */
 export const HUY_THEME_KEY = "huy-locket-theme";
 export const HUY_SNOW_KEY = "huy-locket-snow-intensity";
 export const HUY_THEME_DEFAULT = "default";
 export const HUY_THEME_PINK_SNOW = "pink-snow";
+export const HUY_THEME_GLASS = "glass";
 
-/** Theme bật hiệu ứng tuyết rơi */
-export const SNOW_THEME_IDS = new Set(["pinksnow", "pink-snow", "valentine", "winter"]);
+/** Theme bật hiệu ứng tuyết rơi — Glass does NOT include snow */
+export const SNOW_THEME_IDS = new Set([
+  "pinksnow",
+  "pink-snow",
+  "valentine",
+  "winter",
+]);
 
 export const isPinkSnowTheme = (theme) =>
   theme === PINK_SNOW_THEME ||
   theme === HUY_THEME_PINK_SNOW ||
   theme === "valentine";
 
+export const isGlassTheme = (theme) =>
+  theme === GLASS_THEME || theme === HUY_THEME_GLASS;
+
 export const hasSnowEffect = (theme) => SNOW_THEME_IDS.has(theme);
+
+/** Map any theme id → huy-locket-theme storage value */
+export function toHuyThemeKey(themeId) {
+  if (isPinkSnowTheme(themeId) && themeId !== "valentine" && themeId !== "winter") {
+    return HUY_THEME_PINK_SNOW;
+  }
+  if (isGlassTheme(themeId)) return HUY_THEME_GLASS;
+  return HUY_THEME_DEFAULT;
+}
 
 /** off | light | normal — default light */
 export function getSnowIntensity() {
@@ -46,20 +66,30 @@ export function setSnowIntensity(level) {
   return v;
 }
 
-/** Resolve daisyUI theme id from storage (legacy + huy-locket-theme) */
+/** Resolve data-theme id from storage */
 export function resolveStoredTheme() {
   try {
     const huy = localStorage.getItem(HUY_THEME_KEY);
     if (huy === HUY_THEME_PINK_SNOW || huy === "pinksnow") {
       return PINK_SNOW_THEME;
     }
+    if (huy === HUY_THEME_GLASS || huy === "glass") {
+      return GLASS_THEME;
+    }
     if (huy === HUY_THEME_DEFAULT) {
-      // Prefer last non-pink daisy theme if any
       const legacy = localStorage.getItem("theme");
-      if (legacy && !isPinkSnowTheme(legacy)) return legacy;
+      if (
+        legacy &&
+        !isPinkSnowTheme(legacy) &&
+        !isGlassTheme(legacy) &&
+        legacy !== "pinksnow"
+      ) {
+        return legacy;
+      }
       return "light";
     }
     const legacy = localStorage.getItem("theme");
+    if (legacy === "pink-snow") return PINK_SNOW_THEME;
     if (legacy) return legacy;
   } catch {
     /* ignore */
@@ -67,57 +97,61 @@ export function resolveStoredTheme() {
   return PINK_SNOW_THEME;
 }
 
-/** Tên hiển thị đẹp trong Settings */
 export function getThemeLabel(themeId) {
   const labels = CONFIG?.ui?.themeLabels || {};
   if (labels[themeId]) return labels[themeId];
-  if (themeId === HUY_THEME_PINK_SNOW) return labels.pinksnow || "Hồng Tuyết";
+  if (themeId === HUY_THEME_PINK_SNOW || themeId === PINK_SNOW_THEME) {
+    return labels.pinksnow || "Hồng Tuyết";
+  }
+  if (isGlassTheme(themeId)) return labels.glass || "Glass";
   return themeId;
 }
 
 /**
  * Apply theme to document before/after React paint.
- * DaisyUI id stays "pinksnow"; also sync huy-locket-theme.
+ * Snow only when theme is in SNOW_THEME_IDS (not glass).
  */
 export const applyTheme = (theme) => {
   const t = theme || resolveStoredTheme() || PINK_SNOW_THEME;
   const root = document.documentElement;
 
-  root.setAttribute("data-theme", t);
-  // Alias for user-facing pink-snow naming
-  if (t === PINK_SNOW_THEME) {
-    root.dataset.huyTheme = HUY_THEME_PINK_SNOW;
-  } else {
-    root.dataset.huyTheme = HUY_THEME_DEFAULT;
-  }
+  // Normalize aliases
+  const dataTheme =
+    t === "pink-snow" ? PINK_SNOW_THEME : t === HUY_THEME_GLASS ? GLASS_THEME : t;
 
-  root.classList.toggle("theme-pink-snow", isPinkSnowTheme(t));
-  document.body?.classList.toggle("theme-pink-snow", isPinkSnowTheme(t));
+  root.setAttribute("data-theme", dataTheme);
+  root.dataset.huyTheme = toHuyThemeKey(dataTheme);
+
+  root.classList.toggle("theme-pink-snow", isPinkSnowTheme(dataTheme));
+  root.classList.toggle("theme-glass", isGlassTheme(dataTheme));
+  document.body?.classList.toggle("theme-pink-snow", isPinkSnowTheme(dataTheme));
+  document.body?.classList.toggle("theme-glass", isGlassTheme(dataTheme));
 
   try {
-    localStorage.setItem("theme", t);
-    localStorage.setItem(
-      HUY_THEME_KEY,
-      isPinkSnowTheme(t) && t !== "valentine" && t !== "winter"
-        ? HUY_THEME_PINK_SNOW
-        : HUY_THEME_DEFAULT,
-    );
+    localStorage.setItem("theme", dataTheme);
+    localStorage.setItem(HUY_THEME_KEY, toHuyThemeKey(dataTheme));
   } catch {
     /* ignore */
   }
 
-  // Snow intensity attribute for CSS/hooks
   const intensity = getSnowIntensity();
   root.dataset.snowIntensity = intensity;
 
-  const computedStyle = getComputedStyle(root);
-  let baseColor =
-    computedStyle.getPropertyValue("--color-base-100")?.trim() || "#ffc4dd";
+  let baseColor = "#edf2f8";
+  try {
+    const computedStyle = getComputedStyle(root);
+    baseColor =
+      computedStyle.getPropertyValue("--color-base-100")?.trim() || baseColor;
+  } catch {
+    /* ignore */
+  }
 
-  if (t === PINK_SNOW_THEME) {
+  if (dataTheme === PINK_SNOW_THEME) {
     baseColor = "#ff5fa8";
-  } else if (t === "valentine") {
+  } else if (dataTheme === "valentine") {
     baseColor = "#ff6b9d";
+  } else if (isGlassTheme(dataTheme)) {
+    baseColor = "#edf2f8";
   }
 
   let metaTheme = document.querySelector('meta[name="theme-color"]');
@@ -126,14 +160,12 @@ export const applyTheme = (theme) => {
     metaTheme.name = "theme-color";
     document.head.appendChild(metaTheme);
   }
-  metaTheme.setAttribute("content", baseColor || "#ffc4dd");
+  metaTheme.setAttribute("content", baseColor || "#edf2f8");
 };
 
-/** Early boot (index.html / main.jsx) — no React */
 export function bootThemeEarly() {
   try {
-    const t = resolveStoredTheme();
-    applyTheme(t);
+    applyTheme(resolveStoredTheme());
   } catch {
     /* ignore */
   }

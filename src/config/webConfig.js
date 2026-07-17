@@ -136,6 +136,7 @@ export const CONFIG = {
     theme: "pinksnow",
     themes: [
       "pinksnow",
+      "glass",
       "light",
       "dark",
       "cupcake",
@@ -166,6 +167,7 @@ export const CONFIG = {
     ],
     themeLabels: {
       pinksnow: "Hồng Tuyết ❄",
+      glass: "Glass ✦",
       valentine: "Valentine 💕",
       winter: "Winter ❄",
       light: "Mặc định / Sáng",

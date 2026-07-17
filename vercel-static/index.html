@@ -66,12 +66,12 @@
       gtag('config', 'G-7596Z1M8BB');
     </script>
     
-    <script type="module" crossorigin src="/assets/index-wtq4qjmX.js"></script>
+    <script type="module" crossorigin src="/assets/index-C1k15QAD.js"></script>
     <link rel="modulepreload" crossorigin href="/assets/vendor-B9JIdPzu.js">
     <link rel="modulepreload" crossorigin href="/assets/i18n-mAZFdGbT.js">
     <link rel="modulepreload" crossorigin href="/assets/react-Ka6xwUMR.js">
     <link rel="modulepreload" crossorigin href="/assets/icons-CX3v9chm.js">
-    <link rel="stylesheet" crossorigin href="/assets/index-BP0Rta8i.css">
+    <link rel="stylesheet" crossorigin href="/assets/index-7JLRhjZP.css">
   <link rel="manifest" href="/manifest.webmanifest"></head>
   <body>
     <!-- Apply theme before React to avoid FOUC / color flash -->
@@ -83,19 +83,31 @@
           var huy = localStorage.getItem(KEY);
           var legacy = localStorage.getItem("theme");
           var theme = "pinksnow";
-          if (huy === "default") theme = legacy && legacy !== "pinksnow" && legacy !== "pink-snow" ? legacy : "light";
-          else if (huy === "pink-snow" || huy === "pinksnow") theme = "pinksnow";
-          else if (legacy) theme = legacy;
+          if (huy === "default") {
+            theme = legacy && legacy !== "pinksnow" && legacy !== "pink-snow" && legacy !== "glass"
+              ? legacy : "light";
+          } else if (huy === "pink-snow" || huy === "pinksnow") theme = "pinksnow";
+          else if (huy === "glass") theme = "glass";
+          else if (legacy) theme = legacy === "pink-snow" ? "pinksnow" : legacy;
           document.documentElement.setAttribute("data-theme", theme);
+          document.documentElement.classList.remove("theme-pink-snow", "theme-glass");
           if (theme === "pinksnow") {
             document.documentElement.dataset.huyTheme = "pink-snow";
             document.documentElement.classList.add("theme-pink-snow");
+          } else if (theme === "glass") {
+            document.documentElement.dataset.huyTheme = "glass";
+            document.documentElement.classList.add("theme-glass");
+          } else {
+            document.documentElement.dataset.huyTheme = "default";
           }
           var snow = localStorage.getItem(SNOW) || "light";
           if (snow !== "off" && snow !== "light" && snow !== "normal") snow = "light";
           document.documentElement.dataset.snowIntensity = snow;
           var meta = document.querySelector('meta[name="theme-color"]');
-          if (meta && theme === "pinksnow") meta.setAttribute("content", "#ff5fa8");
+          if (meta) {
+            if (theme === "pinksnow") meta.setAttribute("content", "#ff5fa8");
+            else if (theme === "glass") meta.setAttribute("content", "#edf2f8");
+          }
         } catch (e) {}
       })();
     </script>

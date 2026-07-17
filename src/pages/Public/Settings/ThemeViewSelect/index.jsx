@@ -10,6 +10,9 @@ import {
   getThemeLabel,
   hasSnowEffect,
   PINK_SNOW_THEME,
+  GLASS_THEME,
+  isGlassTheme,
+  isPinkSnowTheme,
 } from "@/utils/theme/themeUtils";
 
 const SNOW_LEVELS = [
@@ -18,11 +21,18 @@ const SNOW_LEVELS = [
   { id: "normal", label: "Bình thường" },
 ];
 
+const QUICK = [
+  { id: "light", label: "Mặc định", theme: "light" },
+  { id: "pink", label: "Hồng Tuyết", theme: PINK_SNOW_THEME },
+  { id: "glass", label: "Glass", theme: GLASS_THEME },
+];
+
 const ThemeViewSelect = () => {
   const { t } = useTranslation("auth");
   const { theme, changeTheme, snowIntensity, changeSnowIntensity } = useTheme();
   const activeIndex = CONFIG.ui.themes.indexOf(theme);
-  const isPinkSnow = theme === PINK_SNOW_THEME;
+  const isPinkSnow = isPinkSnowTheme(theme) && theme !== "valentine";
+  const isGlass = isGlassTheme(theme);
 
   const [swiper, setSwiper] = useState(null);
 
@@ -32,6 +42,12 @@ const ThemeViewSelect = () => {
     }
   }, [activeIndex, swiper]);
 
+  const quickActive = (q) => {
+    if (q.id === "pink") return isPinkSnow;
+    if (q.id === "glass") return isGlass;
+    return !isPinkSnow && !isGlass;
+  };
+
   return (
     <div className="w-full flex justify-center overflow-hidden">
       <div className="h-full max-w-md w-full px-1">
@@ -39,39 +55,30 @@ const ThemeViewSelect = () => {
           {t("settings.theme_selector.title")}
         </h1>
         <p className="text-center text-xs text-base-content/60 mt-1 px-4">
-          Chọn{" "}
-          <span className="font-semibold text-primary">Hồng Tuyết ❄</span> để
-          bật nền trắng–hồng mềm + tuyết rơi
+          <span className="font-semibold text-primary">Hồng Tuyết</span> · tuyết ·{" "}
+          <span className="font-semibold">Glass</span> · trong mờ mượt
         </p>
 
-        {/* Quick: Mặc định / Hồng Tuyết */}
-        <div className="flex justify-center gap-2 mt-3 px-4">
-          <button
-            type="button"
-            onClick={() => changeTheme("light")}
-            className={`px-4 py-2 rounded-full text-sm font-semibold border transition ${
-              !isPinkSnow
-                ? "bg-primary text-primary-content border-primary"
-                : "bg-base-100/80 border-base-300 text-base-content"
-            }`}
-          >
-            Mặc định
-          </button>
-          <button
-            type="button"
-            onClick={() => changeTheme(PINK_SNOW_THEME)}
-            className={`px-4 py-2 rounded-full text-sm font-semibold border transition ${
-              isPinkSnow
-                ? "bg-primary text-primary-content border-primary"
-                : "bg-base-100/80 border-base-300 text-base-content"
-            }`}
-          >
-            Hồng Tuyết
-          </button>
+        {/* Quick: Mặc định / Hồng Tuyết / Glass */}
+        <div className="flex justify-center gap-2 mt-3 px-3 flex-wrap">
+          {QUICK.map((q) => (
+            <button
+              key={q.id}
+              type="button"
+              onClick={() => changeTheme(q.theme)}
+              className={`px-3.5 py-2 rounded-full text-sm font-semibold border transition ${
+                quickActive(q)
+                  ? "bg-primary text-primary-content border-primary"
+                  : "bg-base-100/80 border-base-300 text-base-content"
+              }`}
+            >
+              {q.label}
+            </button>
+          ))}
         </div>
 
         {isPinkSnow && (
-          <div className="mt-3 mx-4 p-3 rounded-2xl bg-base-100/80 border border-base-300/60">
+          <div className="mt-3 mx-4 p-3 rounded-2xl bg-base-100/80 border border-base-300/60 glassSurface">
             <p className="text-xs font-semibold text-base-content/80 mb-2">
               Hiệu ứng tuyết
             </p>
@@ -81,7 +88,7 @@ const ThemeViewSelect = () => {
                   key={lv.id}
                   type="button"
                   onClick={() => changeSnowIntensity?.(lv.id)}
-                  className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition ${
+                  className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition glassButton ${
                     (snowIntensity || "light") === lv.id
                       ? "bg-primary text-primary-content border-primary"
                       : "bg-base-200/80 border-base-300 text-base-content/80"
@@ -92,7 +99,15 @@ const ThemeViewSelect = () => {
               ))}
             </div>
             <p className="text-[10px] text-base-content/50 mt-2">
-              Mặc định: Nhẹ · Camera tự giảm particle để mượt
+              Mặc định: Nhẹ · Camera tự giảm particle
+            </p>
+          </div>
+        )}
+
+        {isGlass && (
+          <div className="mt-3 mx-4 p-3 rounded-2xl glassSurface text-center">
+            <p className="text-xs font-semibold text-base-content/80">
+              Theme Glass — blur chỉ trên chrome UI, không đụng camera
             </p>
           </div>
         )}
@@ -143,6 +158,11 @@ const ThemeViewSelect = () => {
                       ❄
                     </span>
                   )}
+                  {themeId === "glass" && (
+                    <span className="absolute top-2 right-2 z-10 text-[10px] font-bold bg-white/50 rounded-full px-1.5 py-0.5">
+                      glass
+                    </span>
+                  )}
 
                   <div className="w-full flex flex-row justify-between items-center p-2 relative">
                     <div className="w-6 h-6 bg-base-300 rounded-full" />
@@ -163,6 +183,17 @@ const ThemeViewSelect = () => {
                         }}
                       >
                         ❄
+                      </div>
+                    )}
+                    {themeId === "glass" && (
+                      <div
+                        className="absolute inset-0 flex items-center justify-center text-sm font-semibold text-slate-600"
+                        style={{
+                          background:
+                            "radial-gradient(circle at 20% 20%,rgba(145,188,255,.35),transparent 40%),linear-gradient(145deg,#f8fbff,#e9f0f8 52%,#f8eef5)",
+                        }}
+                      >
+                        ✦ glass
                       </div>
                     )}
                   </div>

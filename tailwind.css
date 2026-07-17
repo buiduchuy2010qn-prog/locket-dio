@@ -47,6 +47,47 @@
   --radius-box: 1.25rem;
 }
 
+/* ═══════════════════════════════════════════
+   Theme: Glass — soft blur chrome (mobile-safe)
+   ═══════════════════════════════════════════ */
+@plugin "daisyui/theme" {
+  name: "glass";
+  default: false;
+  prefersdark: false;
+  color-scheme: light;
+
+  --color-base-100: oklch(97% 0.01 250);
+  --color-base-200: oklch(94% 0.015 250);
+  --color-base-300: oklch(90% 0.02 250);
+  --color-base-content: oklch(22% 0.03 250);
+
+  /* Keep Huy Locket accent feel (warm amber-gold) */
+  --color-primary: oklch(78% 0.16 85);
+  --color-primary-content: oklch(98% 0.01 85);
+
+  --color-secondary: oklch(72% 0.08 250);
+  --color-secondary-content: oklch(20% 0.03 250);
+
+  --color-accent: oklch(78% 0.16 85);
+  --color-accent-content: oklch(98% 0.01 85);
+
+  --color-neutral: oklch(28% 0.03 250);
+  --color-neutral-content: oklch(98% 0.005 250);
+
+  --color-info: oklch(72% 0.1 230);
+  --color-info-content: oklch(22% 0.04 230);
+  --color-success: oklch(70% 0.14 155);
+  --color-success-content: oklch(20% 0.04 155);
+  --color-warning: oklch(82% 0.14 85);
+  --color-warning-content: oklch(28% 0.05 85);
+  --color-error: oklch(62% 0.2 25);
+  --color-error-content: oklch(98% 0.01 25);
+
+  --radius-selector: 1rem;
+  --radius-field: 0.75rem;
+  --radius-box: 1.25rem;
+}
+
 /*
  * Hồng Tuyết — CSS variables + soft white→pink gradient (no hard split).
  * data-theme stays "pinksnow" (DaisyUI); alias pink-snow supported.
@@ -155,4 +196,266 @@ html[data-theme="pink-snow"] body:has([data-locket-camera]) {
 html.theme-pink-snow:not([data-theme="pinksnow"]) body:has([data-locket-camera]) {
   background:
     linear-gradient(180deg, #fff8fb 0%, #ffe8f2 50%, #ffdcec 100%) !important;
+}
+
+/* ═══════════════════════════════════════════
+   Theme: Glass — surfaces + chrome (no full-screen blur)
+   ═══════════════════════════════════════════ */
+html[data-theme="glass"] {
+  color-scheme: light;
+
+  --page-bg: #edf2f8;
+  --text-primary: #17202c;
+  --text-secondary: #536071;
+
+  --accent: var(--color-primary, #ffb000);
+  --accent-contrast: #ffffff;
+
+  --glass-bg: rgba(255, 255, 255, 0.46);
+  --glass-bg-strong: rgba(255, 255, 255, 0.68);
+  --glass-border: rgba(255, 255, 255, 0.72);
+  --glass-highlight: rgba(255, 255, 255, 0.88);
+
+  --glass-shadow:
+    0 12px 34px rgba(31, 44, 61, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.82),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.18);
+}
+
+html[data-theme="glass"],
+html[data-theme="glass"] body {
+  min-height: 100%;
+  background:
+    radial-gradient(
+      circle at 15% 10%,
+      rgba(145, 188, 255, 0.32),
+      transparent 34%
+    ),
+    radial-gradient(
+      circle at 88% 18%,
+      rgba(255, 170, 211, 0.28),
+      transparent 32%
+    ),
+    linear-gradient(
+      145deg,
+      #f8fbff,
+      #e9f0f8 52%,
+      #f8eef5
+    ) !important;
+  background-attachment: fixed;
+  color: var(--text-primary, var(--color-base-content));
+}
+
+/* Soft bg on camera — never cover video */
+html[data-theme="glass"] body:has([data-locket-camera]) {
+  background:
+    radial-gradient(circle at 18% 8%, rgba(145, 188, 255, 0.22), transparent 30%),
+    radial-gradient(circle at 90% 12%, rgba(255, 170, 211, 0.18), transparent 28%),
+    linear-gradient(145deg, #f8fbff, #e9f0f8 55%, #f6eef4) !important;
+  background-attachment: scroll !important;
+}
+
+/* Shared glass surface — ONE blur layer, reused via selectors */
+.glassSurface,
+html[data-theme="glass"] .cameraControlPill,
+html[data-theme="glass"] .cameraBottomNav,
+html[data-theme="glass"] [data-zoom-badge="true"] > div,
+html[data-theme="glass"] [data-zoom-slider] .previewChip,
+html[data-theme="glass"] button.bg-base-300\/70,
+html[data-theme="glass"] .bg-base-300\/70 {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+
+  background:
+    linear-gradient(
+      145deg,
+      rgba(255, 255, 255, 0.66),
+      rgba(255, 255, 255, 0.30)
+    ) !important;
+
+  border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.72)) !important;
+  box-shadow: var(--glass-shadow) !important;
+
+  backdrop-filter: blur(16px) saturate(145%);
+  -webkit-backdrop-filter: blur(16px) saturate(145%);
+}
+
+.glassSurface::before,
+html[data-theme="glass"] .cameraControlPill::before,
+html[data-theme="glass"] .cameraBottomNav::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none !important;
+  border-radius: inherit;
+  background:
+    linear-gradient(
+      120deg,
+      rgba(255, 255, 255, 0.46),
+      transparent 34%,
+      transparent 68%,
+      rgba(255, 255, 255, 0.12)
+    );
+}
+
+/* Children of glass surfaces sit above highlight */
+html[data-theme="glass"] .cameraControlPill > *,
+html[data-theme="glass"] .cameraBottomNav > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* Nested buttons: NO second backdrop-filter */
+.glassButton,
+html[data-theme="glass"] .pillSideBtn,
+html[data-theme="glass"] .cameraSideBtn,
+html[data-theme="glass"] .cameraBottomNavBtn,
+html[data-theme="glass"] .historyChip {
+  background: rgba(255, 255, 255, 0.28) !important;
+  border: 1px solid rgba(255, 255, 255, 0.34) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  color: var(--text-primary, var(--color-base-content)) !important;
+  box-shadow: none !important;
+  transition:
+    transform 130ms ease,
+    background-color 180ms ease,
+    border-color 180ms ease;
+}
+
+html[data-theme="glass"] .pillSideBtn:active:not(:disabled),
+html[data-theme="glass"] .cameraSideBtn:active:not(:disabled),
+html[data-theme="glass"] .cameraBottomNavBtn:active,
+html[data-theme="glass"] .historyChip:active {
+  transform: scale(0.95);
+  background: rgba(255, 255, 255, 0.42) !important;
+}
+
+html[data-theme="glass"] .cameraBottomNavBtn.is-active,
+html[data-theme="glass"] .glassButtonActive {
+  background: rgba(255, 255, 255, 0.76) !important;
+  border-color: rgba(255, 255, 255, 0.90) !important;
+  box-shadow:
+    0 5px 16px rgba(31, 44, 61, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95) !important;
+}
+
+/* Friends pill — glass surface */
+html[data-theme="glass"] header button.rounded-3xl,
+html[data-theme="glass"] .cameraHeaderFriends {
+  background:
+    linear-gradient(
+      145deg,
+      rgba(255, 255, 255, 0.66),
+      rgba(255, 255, 255, 0.30)
+    ) !important;
+  border: 1px solid var(--glass-border) !important;
+  box-shadow: var(--glass-shadow) !important;
+  backdrop-filter: blur(16px) saturate(145%) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(145%) !important;
+  color: var(--text-primary) !important;
+}
+
+/* Header round buttons — glass chrome (one blur each, not nested in a bar) */
+html[data-theme="glass"] header .w-11.h-11.rounded-full,
+html[data-theme="glass"] .cameraHeaderBtn {
+  background: rgba(255, 255, 255, 0.46) !important;
+  border: 1px solid rgba(255, 255, 255, 0.55) !important;
+  backdrop-filter: blur(14px) saturate(140%) !important;
+  -webkit-backdrop-filter: blur(14px) saturate(140%) !important;
+  box-shadow: 0 6px 16px rgba(31, 44, 61, 0.1) !important;
+}
+
+/* Capture shutter — solid / strong glass, clear accent ring */
+html[data-theme="glass"] .border-camera-custome,
+html[data-theme="glass"] .cameraShutterRing {
+  color: var(--color-primary);
+  box-shadow: 0 0 0 5px var(--color-primary);
+}
+
+html[data-theme="glass"] .cameraShutterCore {
+  background: #ffffff !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.95);
+}
+
+/* Zoom rail */
+html[data-theme="glass"] [data-zoom-slider] .bg-white\/35 {
+  background-color: rgba(255, 255, 255, 0.45) !important;
+}
+html[data-theme="glass"] [data-zoom-slider] .bg-white\/90 {
+  background-color: color-mix(in srgb, var(--color-primary) 75%, white) !important;
+}
+html[data-theme="glass"] [data-zoom-slider] .rounded-full.bg-white {
+  background: rgba(255, 255, 255, 0.92) !important;
+  border: 1px solid rgba(255, 255, 255, 0.95) !important;
+  box-shadow: 0 4px 12px rgba(31, 44, 61, 0.14) !important;
+}
+
+/* Flash / zoom chips inside preview */
+html[data-theme="glass"] .previewChip {
+  background: rgba(255, 255, 255, 0.42) !important;
+  border: 1px solid rgba(255, 255, 255, 0.55) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+  color: #fff !important;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+
+/* Cards / modals — solid-ish glass, no nested blur on children */
+html[data-theme="glass"] .modal-box,
+html[data-theme="glass"] [role="dialog"],
+html[data-theme="glass"] .bg-base-100 {
+  background: rgba(255, 255, 255, 0.78) !important;
+  border: 1px solid rgba(255, 255, 255, 0.7) !important;
+  box-shadow: var(--glass-shadow) !important;
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+}
+
+/* Never glass the live camera frame */
+html[data-theme="glass"] .cameraPreview,
+html[data-theme="glass"] [data-zoom-slider] video,
+html[data-theme="glass"] video.object-cover {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+@supports not (
+  (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))
+) {
+  [data-theme="glass"] .glassSurface,
+  [data-theme="glass"] .cameraControlPill,
+  [data-theme="glass"] .cameraBottomNav,
+  [data-theme="glass"] .bg-base-100,
+  [data-theme="glass"] .modal-box {
+    background: rgba(245, 248, 252, 0.94) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-theme="glass"] .glassButton,
+  [data-theme="glass"] .glassSurface,
+  [data-theme="glass"] .pillSideBtn,
+  [data-theme="glass"] .cameraSideBtn,
+  [data-theme="glass"] .cameraBottomNavBtn {
+    transition: none !important;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  [data-theme="glass"] .glassSurface,
+  [data-theme="glass"] .cameraControlPill,
+  [data-theme="glass"] .cameraBottomNav,
+  [data-theme="glass"] .bg-base-100 {
+    background: rgba(248, 250, 253, 0.96) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
 }
