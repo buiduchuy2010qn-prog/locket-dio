@@ -162,13 +162,14 @@ const ScreenCustomeStudio = () => {
         </div>
         {/* Nội dung - Cuộn được */}
         <div className="flex-1 overflow-y-auto space-y-4">
-          {/* 🇯🇵 Caption Nhật Bản — placed above Chung / Decorative */}
-          <JapaneseCaptionSections onSelect={handleSelectCaption} />
-
+          {/* Chung always first */}
           <GeneralThemes
             title={t("custom_studio.general_title")}
             onSelect={handleSelectCaption}
           />
+
+          {/* 🇯🇵 Caption Nhật Bản — right after Chung */}
+          <JapaneseCaptionSections onSelect={handleSelectCaption} />
 
           <CaptionSections
             sections={sectionOverlays}
