@@ -1,67 +1,108 @@
 import { create } from "zustand";
-import { toast } from "sonner";
 import {
-  deleteMomentDraft,
-  getMomentDraftMeta,
-  hasMomentDraft,
-  loadMomentDraft,
-  resolveDraftUid,
-  saveMomentDraftMedia,
-  setMomentDraftStatus,
-  updateMomentDraftMeta,
-  collectDraftMetaFromStores,
+  createDraft,
+  updateDraftMedia,
+  updateDraftMeta,
+  listDraftsMeta,
+  getDraftFull,
+  getDraftMeta,
+  deleteDraft,
+  resetStuckPostingDrafts,
   draftMediaToFile,
+  collectMetaFromStores,
+  resolveDraftUid,
+  requestDraftPersist,
+  formatDraftSavedAt,
+  DRAFT_STATUS,
   isRestoreInProgress,
   setRestoreInProgress,
-  formatDraftSavedAt,
-  markDraftPendingDeletion,
-  cancelDraftPendingDeletion,
-  isDraftPendingDeletion,
-  isDraftPendingDeletionExpired,
-  remainingDraftUndoMs,
-  DRAFT_UNDO_MS,
+  statusLabel,
 } from "@/utils/momentDraft";
 import { usePostStore } from "./usePostStore";
 import { useOverlayEditorStore } from "./useOverlayEditorStore";
-import { SonnerError, SonnerInfo, SonnerSuccess } from "@/components/uikit/SonnerToast";
+import {
+  SonnerError,
+  SonnerInfo,
+  SonnerSuccess,
+  SonnerWarning,
+} from "@/components/uikit/SonnerToast";
+import * as services from "@/services";
+import { useUploadQueueStore } from "./useUploadPostStore";
+import { useConnectivityStore } from "@/stores/useConnectivityStore";
+import { resetAllPostData } from "@/utils";
 
 let metaSaveTimer = null;
 let mediaSaveChain = Promise.resolve();
-/** Soft-delete finalize timer (hard-delete after undo window) */
-let pendingDeleteTimer = null;
-let pendingDeleteToastId = null;
 
-function clearPendingDeleteTimer() {
-  if (pendingDeleteTimer) {
-    clearTimeout(pendingDeleteTimer);
-    pendingDeleteTimer = null;
-  }
+function snapshotMetaFromStores() {
+  const post = usePostStore.getState();
+  const overlay = useOverlayEditorStore.getState().overlayData;
+  return collectMetaFromStores({
+    overlayData: overlay,
+    audience: post.audience,
+    selectedRecipients: post.selectedRecipients,
+    selectedGroupId: post.selectedGroupId,
+    videoCropData: post.videoCropData,
+    restoreStreakData: post.restoreStreakData,
+  });
 }
 
-function dismissPendingDeleteToast() {
-  if (pendingDeleteToastId != null) {
-    try {
-      toast.dismiss(pendingDeleteToastId);
-    } catch {
-      /* ignore */
-    }
-    pendingDeleteToastId = null;
+function applyMetaToStores(meta) {
+  const ov = meta.overlays || meta.optionsData || {};
+  useOverlayEditorStore.getState().updateOverlayEditor({
+    overlay_id: ov.overlay_id || meta.captionStyle?.overlay_id || "standard",
+    text: ov.text || meta.caption || "",
+    caption: ov.caption || meta.caption || "",
+    text_color: ov.text_color || meta.captionStyle?.text_color || "#FFFFFF",
+    icon: ov.icon || meta.captionStyle?.icon || {},
+    type: ov.type || meta.captionStyle?.type || "default",
+    background: ov.background || meta.captionStyle?.background || { colors: [] },
+    payload: ov.payload || meta.music || {},
+    color_top: ov.color_top || meta.captionStyle?.color_top || "",
+    color_bottom: ov.color_bottom || meta.captionStyle?.color_bottom || "",
+  });
+  const friendIds = Array.isArray(meta.selectedFriendIds)
+    ? meta.selectedFriendIds
+    : [];
+  usePostStore.getState().setAudience(meta.audience || "all");
+  usePostStore.getState().setSelectedRecipients(friendIds);
+  if (meta.optionsData?.selectedGroupId) {
+    usePostStore.getState().setSelectedGroupId(meta.optionsData.selectedGroupId);
+  }
+  if (meta.optionsData?.videoCropData) {
+    usePostStore.getState().setVideoCropData(meta.optionsData.videoCropData);
+  }
+  if (meta.optionsData?.restoreStreakData) {
+    usePostStore
+      .getState()
+      .setRestoreStreakData(meta.optionsData.restoreStreakData);
   }
 }
 
 export const useMomentDraftStore = create((set, get) => ({
-  /** meta without blob */
+  /** metadata rows only */
+  drafts: [],
+  draftCount: 0,
+  /** currently editing draft UUID (null = unsaved studio session) */
+  activeDraftId: null,
+  /** library sheet open */
+  libraryOpen: false,
+  libraryFilter: "all", // all | image | video | failed
+  /** single-draft UI compat */
   draftMeta: null,
   hasDraft: false,
-  /** restore modal open */
   showRestoreModal: false,
-  /** user chose "Để sau" this session */
   dismissedRestore: false,
-  /** replace-draft confirm while capturing new media */
   showReplacePrompt: false,
   pendingNewFile: null,
   loading: false,
   thumbnailUrl: null,
+  /** global post lock — one draft at a time */
+  postingDraftId: null,
+
+  openLibrary: () => set({ libraryOpen: true }),
+  closeLibrary: () => set({ libraryOpen: false }),
+  setLibraryFilter: (f) => set({ libraryFilter: f || "all" }),
 
   clearThumbnail: () => {
     const url = get().thumbnailUrl;
@@ -75,93 +116,59 @@ export const useMomentDraftStore = create((set, get) => ({
     set({ thumbnailUrl: null });
   },
 
-  setDismissedRestore: (v) => set({ dismissedRestore: Boolean(v) }),
-
-  refreshDraftPresence: async (uid) => {
+  refreshList: async (uid) => {
     const id = uid || resolveDraftUid();
     if (!id) {
-      set({ hasDraft: false, draftMeta: null });
-      return false;
+      set({ drafts: [], draftCount: 0, hasDraft: false, draftMeta: null });
+      return [];
     }
-    try {
-      const meta = await getMomentDraftMeta(id);
-      const ok = Boolean(meta?.mediaKey);
-      set({ hasDraft: ok, draftMeta: meta || null });
-      return ok;
-    } catch {
-      set({ hasDraft: false, draftMeta: null });
-      return false;
-    }
+    const rows = await listDraftsMeta(id);
+    set({
+      drafts: rows,
+      draftCount: rows.length,
+      hasDraft: rows.length > 0,
+      draftMeta: rows[0] || null,
+    });
+    return rows;
+  },
+
+  refreshDraftPresence: async (uid) => {
+    const rows = await get().refreshList(uid);
+    return rows.length > 0;
   },
 
   /**
-   * After login: load draft for this uid and offer restore modal.
-   * Also resumes / finalizes soft-delete (pendingDeletion).
+   * After login: reset stuck posting, load list, offer restore if any drafts.
    */
   checkAndOfferRestore: async (user) => {
     const uid = resolveDraftUid(user);
     if (!uid) return;
     set({ loading: true });
     try {
-      const metaOnly = await getMomentDraftMeta(uid);
-      // Soft-delete still in progress after reload → resume undo window
-      if (metaOnly && isDraftPendingDeletion(metaOnly)) {
-        if (isDraftPendingDeletionExpired(metaOnly)) {
-          await deleteMomentDraft(uid);
-          get().clearThumbnail();
-          set({
-            hasDraft: false,
-            draftMeta: null,
-            showRestoreModal: false,
-            loading: false,
-          });
-          return;
-        }
-        // Not expired: keep data, hide as active draft, re-offer Undo toast
+      await requestDraftPersist();
+      await resetStuckPostingDrafts(uid);
+      const rows = await get().refreshList(uid);
+      if (!rows.length) {
         set({
-          hasDraft: false,
-          draftMeta: metaOnly,
           showRestoreModal: false,
           loading: false,
-        });
-        get().clearThumbnail();
-        get()._schedulePendingDeletionFinalize(
-          uid,
-          remainingDraftUndoMs(metaOnly),
-        );
-        get()._showUndoToast();
-        return;
-      }
-
-      const loaded = await loadMomentDraft(uid);
-      if (!loaded?.meta?.mediaKey) {
-        set({
           hasDraft: false,
           draftMeta: null,
-          showRestoreModal: false,
-          loading: false,
         });
         get().clearThumbnail();
         return;
       }
-      if (loaded.corrupt || !loaded.media) {
-        set({
-          hasDraft: true,
-          draftMeta: loaded.meta,
-          showRestoreModal: true,
-          loading: false,
-        });
-        return;
-      }
-      get().clearThumbnail();
-      const thumb = URL.createObjectURL(loaded.media.blob);
+      // Multi-draft: open library prompt once (not force modal every time if dismissed)
       set({
         hasDraft: true,
-        draftMeta: loaded.meta,
-        thumbnailUrl: thumb,
-        showRestoreModal: !get().dismissedRestore,
+        draftMeta: rows[0],
+        showRestoreModal: !get().dismissedRestore && rows.length === 1,
         loading: false,
       });
+      if (rows.length > 1 && !get().dismissedRestore) {
+        // Prefer library for multiple drafts
+        set({ showRestoreModal: false, libraryOpen: true });
+      }
     } catch (e) {
       console.error("[moment-draft] check restore", e);
       set({ loading: false });
@@ -169,68 +176,149 @@ export const useMomentDraftStore = create((set, get) => ({
   },
 
   openRestoreModal: async () => {
-    const uid = resolveDraftUid();
-    if (!uid) return;
-    set({ dismissedRestore: false, loading: true });
-    await get().checkAndOfferRestore();
-    set({ showRestoreModal: true, loading: false });
+    set({ dismissedRestore: false });
+    await get().refreshList();
+    const n = get().draftCount;
+    if (n > 1) {
+      set({ libraryOpen: true, showRestoreModal: false });
+    } else if (n === 1) {
+      set({ showRestoreModal: true, libraryOpen: false });
+    } else {
+      set({ libraryOpen: true });
+    }
   },
 
   closeRestoreModal: () => set({ showRestoreModal: false }),
-
   dismissRestoreForLater: () =>
     set({ showRestoreModal: false, dismissedRestore: true }),
+  setDismissedRestore: (v) => set({ dismissedRestore: Boolean(v) }),
 
   /**
-   * Save media Blob after capture/pick. Single write of media.
+   * Save current studio media as NEW draft (always new UUID) or update activeDraftId.
+   * @param {{ asNew?: boolean, keepStudio?: boolean, clearAfter?: boolean }} opts
    */
-  saveMediaFromFile: async (file) => {
-    if (!file || isRestoreInProgress()) return { skipped: true };
+  saveCurrentAsDraft: async (opts = {}) => {
+    const { asNew = false, clearAfter = false } = opts;
     const uid = resolveDraftUid();
-    if (!uid) return { error: "no-uid" };
+    if (!uid) {
+      SonnerError("Chưa đăng nhập — không lưu được bản nháp.");
+      return { error: "no-uid" };
+    }
+    let file = usePostStore.getState().selectedFile;
+    const preview = usePostStore.getState().preview;
+    if (!file && preview?.data?.startsWith("data:")) {
+      try {
+        const res = await fetch(preview.data);
+        const blob = await res.blob();
+        file = new File([blob], "locket_draft.jpg", {
+          type: blob.type || "image/jpeg",
+        });
+        usePostStore.getState().setMediaFromFile(file);
+      } catch {
+        /* ignore */
+      }
+    }
+    if (!file) {
+      SonnerWarning("Chưa có ảnh/video để lưu bản nháp.");
+      return { error: "no-file" };
+    }
 
-    // New capture supersedes any soft-delete undo window
-    clearPendingDeleteTimer();
-    dismissPendingDeleteToast();
+    const meta = snapshotMetaFromStores();
+    const activeId = get().activeDraftId;
 
     mediaSaveChain = mediaSaveChain.then(async () => {
-      const post = usePostStore.getState();
-      const overlay = useOverlayEditorStore.getState().overlayData;
-      const metaPatch = collectDraftMetaFromStores({
-        overlayData: overlay,
-        audience: post.audience,
-        selectedRecipients: post.selectedRecipients,
-        selectedGroupId: post.selectedGroupId,
-        videoCropData: post.videoCropData,
-        restoreStreakData: post.restoreStreakData,
-      });
-      const result = await saveMomentDraftMedia(uid, file, {
-        ...metaPatch,
-        status: "editing",
-        pendingDeletionAt: null,
-      });
+      let result;
+      if (activeId && !asNew) {
+        result = await updateDraftMedia(activeId, file, {
+          ...meta,
+          status: DRAFT_STATUS.READY,
+        });
+        if (!result.error) {
+          await updateDraftMeta(activeId, {
+            ...meta,
+            status: DRAFT_STATUS.READY,
+          });
+          result = { id: activeId, ok: true };
+        }
+      } else {
+        result = await createDraft({
+          ownerUid: uid,
+          file,
+          meta: { ...meta, status: DRAFT_STATUS.READY },
+        });
+        if (result.id) {
+          set({ activeDraftId: result.id });
+        }
+      }
+
       if (result.error === "quota" || result.error === "too-large") {
         SonnerError(
           result.message ||
-            "Thiết bị không còn đủ dung lượng để lưu bản nháp này.",
+            "Thiết bị không đủ dung lượng để lưu bản nháp này",
         );
-      } else if (result.mediaKey) {
-        await get().refreshDraftPresence(uid);
       } else if (result.error) {
-        console.warn("[moment-draft] media save:", result.error, result.message);
+        SonnerError(result.message || "Không lưu được bản nháp.");
+      } else {
+        SonnerSuccess("Đã lưu bản nháp");
+        await get().refreshList(uid);
+        if (clearAfter) {
+          get().clearStudioAfterSave();
+        }
       }
       return result;
     });
     return mediaSaveChain;
   },
 
-  /**
-   * Debounced metadata flush (caption / music / audience).
-   */
+  clearStudioAfterSave: () => {
+    usePostStore.getState().resetMedia?.();
+    try {
+      resetAllPostData();
+    } catch {
+      /* optional */
+    }
+    set({ activeDraftId: null });
+  },
+
+  /** Auto-bind media after capture: update active or create new draft (never overwrite others). */
+  saveMediaFromFile: async (file) => {
+    if (!file || isRestoreInProgress()) return { skipped: true };
+    const uid = resolveDraftUid();
+    if (!uid) return { error: "no-uid" };
+
+    mediaSaveChain = mediaSaveChain.then(async () => {
+      const meta = snapshotMetaFromStores();
+      const activeId = get().activeDraftId;
+      let result;
+      if (activeId) {
+        result = await updateDraftMedia(activeId, file, {
+          ...meta,
+          status: DRAFT_STATUS.READY,
+        });
+      } else {
+        result = await createDraft({
+          ownerUid: uid,
+          file,
+          meta: { ...meta, status: DRAFT_STATUS.READY },
+        });
+        if (result.id) set({ activeDraftId: result.id });
+      }
+      if (result.error === "quota" || result.error === "too-large") {
+        SonnerError(
+          result.message ||
+            "Thiết bị không đủ dung lượng để lưu bản nháp này",
+        );
+      } else if (result.id || result.ok) {
+        await get().refreshList(uid);
+      }
+      return result;
+    });
+    return mediaSaveChain;
+  },
+
   scheduleMetaSave: (delayMs = 250) => {
     if (isRestoreInProgress()) return;
-    const uid = resolveDraftUid();
-    if (!uid) return;
+    if (!get().activeDraftId) return;
     if (metaSaveTimer) clearTimeout(metaSaveTimer);
     metaSaveTimer = setTimeout(() => {
       metaSaveTimer = null;
@@ -240,111 +328,59 @@ export const useMomentDraftStore = create((set, get) => ({
 
   flushMetaSave: async () => {
     if (isRestoreInProgress()) return;
-    const uid = resolveDraftUid();
-    if (!uid) return;
+    const draftId = get().activeDraftId;
+    if (!draftId) return;
     if (metaSaveTimer) {
       clearTimeout(metaSaveTimer);
       metaSaveTimer = null;
     }
-    const exists = await hasMomentDraft(uid);
-    if (!exists) return;
     const post = usePostStore.getState();
-    if (!post.selectedFile && !post.preview) {
-      // Studio cleared but draft may still exist (dismissed) — only update if posting flag
-      return;
-    }
-    const overlay = useOverlayEditorStore.getState().overlayData;
-    const patch = collectDraftMetaFromStores({
-      overlayData: overlay,
-      audience: post.audience,
-      selectedRecipients: post.selectedRecipients,
-      selectedGroupId: post.selectedGroupId,
-      videoCropData: post.videoCropData,
-      restoreStreakData: post.restoreStreakData,
+    if (!post.selectedFile && !post.preview) return;
+    const meta = snapshotMetaFromStores();
+    await updateDraftMeta(draftId, {
+      ...meta,
+      status: DRAFT_STATUS.READY,
     });
-    await updateMomentDraftMeta(uid, patch);
-    await get().refreshDraftPresence(uid);
+    await get().refreshList();
   },
 
-  /**
-   * Apply draft into post + overlay stores.
-   */
-  restoreDraftIntoStudio: async () => {
+  restoreDraftIntoStudio: async (draftId) => {
     const uid = resolveDraftUid();
     if (!uid) {
       SonnerError("Chưa đăng nhập — không khôi phục được bản nháp.");
       return false;
     }
+    const id = draftId || get().drafts[0]?.id;
+    if (!id) return false;
     set({ loading: true });
     setRestoreInProgress(true);
     try {
-      const loaded = await loadMomentDraft(uid);
+      const loaded = await getDraftFull(id);
       if (!loaded?.meta || loaded.corrupt || !loaded.media) {
-        SonnerError(
-          "Bản nháp bị hỏng hoặc không đọc được.",
-          "Bạn có thể xóa bản nháp và chụp lại.",
-        );
-        set({ loading: false, showRestoreModal: true });
+        SonnerError("Bản nháp bị hỏng hoặc không đọc được.");
+        set({ loading: false });
         setRestoreInProgress(false);
         return false;
       }
-
-      const file = draftMediaToFile(loaded.media);
+      const file = draftMediaToFile(loaded.media, loaded.meta);
       if (!file) {
         SonnerError("Không tạo được file từ bản nháp.");
         set({ loading: false });
         setRestoreInProgress(false);
         return false;
       }
-
-      // Fresh object URL after reload
       usePostStore.getState().setMediaFromFile(file);
-
-      const meta = loaded.meta;
-      const ov = meta.overlays || meta.optionsData || {};
-      useOverlayEditorStore.getState().updateOverlayEditor({
-        overlay_id: ov.overlay_id || "standard",
-        text: ov.text || meta.caption || "",
-        caption: ov.caption || meta.caption || "",
-        text_color: ov.text_color || "#FFFFFF",
-        icon: ov.icon || {},
-        type: ov.type || "default",
-        background: ov.background || { colors: [] },
-        payload: ov.payload || {},
-        color_top: ov.color_top || "",
-        color_bottom: ov.color_bottom || "",
-      });
-
-      const friendIds = Array.isArray(meta.selectedFriendIds)
-        ? meta.selectedFriendIds
-        : [];
-      usePostStore.getState().setAudience(meta.selectedAudience || "all");
-      usePostStore.getState().setSelectedRecipients(friendIds);
-      if (meta.optionsData?.selectedGroupId) {
-        usePostStore
-          .getState()
-          .setSelectedGroupId(meta.optionsData.selectedGroupId);
-      }
-      if (meta.optionsData?.videoCropData) {
-        usePostStore
-          .getState()
-          .setVideoCropData(meta.optionsData.videoCropData);
-      }
-      if (meta.optionsData?.restoreStreakData) {
-        usePostStore
-          .getState()
-          .setRestoreStreakData(meta.optionsData.restoreStreakData);
-      }
-
-      await setMomentDraftStatus(uid, "editing");
+      applyMetaToStores(loaded.meta);
       set({
+        activeDraftId: id,
         showRestoreModal: false,
+        libraryOpen: false,
         dismissedRestore: false,
         hasDraft: true,
-        draftMeta: { ...meta, status: "editing" },
+        draftMeta: loaded.meta,
         loading: false,
       });
-      SonnerInfo("Đã khôi phục bài chưa đăng");
+      SonnerInfo("Đã mở bản nháp");
       return true;
     } catch (e) {
       console.error("[moment-draft] restore", e);
@@ -352,162 +388,175 @@ export const useMomentDraftStore = create((set, get) => ({
       set({ loading: false });
       return false;
     } finally {
-      // Allow subsequent edits to autosave again
       setTimeout(() => setRestoreInProgress(false), 400);
     }
   },
 
   /**
-   * Soft-delete draft: mark pendingDeletion, toast Undo 8s, hard-delete after.
-   * Does NOT remove IndexedDB until the undo window ends.
+   * Post a draft by id using existing createRequestPayloadV6 + upload queue.
+   * One draft at a time. Delete only on API success.
    */
-  softDeleteDraft: async () => {
-    const uid = resolveDraftUid();
-    if (!uid) return false;
-    const meta = await getMomentDraftMeta(uid);
-    if (!meta?.mediaKey) {
-      // Nothing in IDB — still clear UI flags
-      get().clearThumbnail();
-      set({
-        hasDraft: false,
-        draftMeta: null,
-        showRestoreModal: false,
-        dismissedRestore: false,
-      });
+  postDraftById: async (draftId) => {
+    if (!draftId) return false;
+    if (get().postingDraftId) {
+      SonnerWarning("Đang đăng một bản nháp khác — vui lòng chờ.");
+      return false;
+    }
+
+    // Connectivity (health, not only navigator.onLine)
+    try {
+      const conn = await useConnectivityStore
+        .getState()
+        .checkConnectivity({ force: true });
+      if (!conn?.browserOnline || !conn?.serverReachable) {
+        SonnerWarning(
+          "Đang ngoại tuyến",
+          "Bản nháp vẫn được giữ. Thử đăng khi có mạng.",
+        );
+        await updateDraftMeta(draftId, {
+          status: DRAFT_STATUS.FAILED,
+          lastError: "Offline",
+        });
+        await get().refreshList();
+        return false;
+      }
+    } catch {
+      SonnerWarning("Không kết nối được máy chủ");
+      return false;
+    }
+
+    set({ postingDraftId: draftId });
+    await updateDraftMeta(draftId, {
+      status: DRAFT_STATUS.POSTING,
+      lastError: null,
+    });
+    await get().refreshList();
+
+    // Preserve current studio (if any) then load draft
+    const prevActive = get().activeDraftId;
+    const prevFile = usePostStore.getState().selectedFile;
+
+    setRestoreInProgress(true);
+    try {
+      const loaded = await getDraftFull(draftId);
+      if (!loaded?.meta || loaded.corrupt || !loaded.media) {
+        throw new Error("Bản nháp không đọc được");
+      }
+      const file = draftMediaToFile(loaded.media, loaded.meta);
+      if (!file) throw new Error("Media trống");
+
+      usePostStore.getState().setMediaFromFile(file);
+      applyMetaToStores(loaded.meta);
+      set({ activeDraftId: draftId });
+
+      const payload = await services.createRequestPayloadV6();
+      if (!payload) throw new Error("Không tạo được payload");
+
+      // Tag queue item with draftId for success cleanup
+      payload.draftId = draftId;
+      await useUploadQueueStore.getState().enqueueUploadItem(payload);
+
+      SonnerSuccess("Đã thêm vào hàng đợi đăng");
+      // Clear studio after enqueue (upload runs async); draft stays until success
+      try {
+        usePostStore.getState().resetMedia?.();
+        resetAllPostData();
+      } catch {
+        /* ignore */
+      }
+      set({ activeDraftId: null, libraryOpen: get().libraryOpen });
       return true;
-    }
-
-    const result = await markDraftPendingDeletion(uid);
-    if (result?.error) {
-      SonnerError("Không thể xóa bản nháp. Vui lòng thử lại.");
+    } catch (e) {
+      console.error("[moment-draft] post failed", e);
+      const attempts =
+        ((await getDraftMeta(draftId))?.uploadAttempts || 0) + 1;
+      await updateDraftMeta(draftId, {
+        status: DRAFT_STATUS.FAILED,
+        lastError: e?.message || "Đăng thất bại",
+        uploadAttempts: attempts,
+      });
+      await get().refreshList();
+      SonnerError("Đăng bản nháp thất bại", e?.message || "");
+      // restore previous studio if any
+      if (prevFile && prevActive) {
+        set({ activeDraftId: prevActive });
+      }
       return false;
+    } finally {
+      setRestoreInProgress(false);
+      set({ postingDraftId: null });
     }
-
-    get().clearThumbnail();
-    set({
-      hasDraft: false,
-      draftMeta: {
-        ...meta,
-        status: "pendingDeletion",
-        pendingDeletionAt: Date.now(),
-      },
-      showRestoreModal: false,
-      dismissedRestore: false,
-    });
-
-    get()._schedulePendingDeletionFinalize(uid, DRAFT_UNDO_MS);
-    get()._showUndoToast();
-    return true;
   },
 
-  /** @deprecated use softDeleteDraft — kept as alias for callers */
-  confirmDeleteDraft: async () => get().softDeleteDraft(),
-
-  undoSoftDeleteDraft: async () => {
-    const uid = resolveDraftUid();
-    clearPendingDeleteTimer();
-    dismissPendingDeleteToast();
-    if (!uid) return false;
-    const result = await cancelDraftPendingDeletion(uid);
-    if (result?.error) {
-      SonnerError("Không khôi phục được bản nháp.");
-      return false;
-    }
-    await get().refreshDraftPresence(uid);
-    SonnerSuccess("Đã khôi phục bản nháp");
-    return true;
-  },
-
-  _schedulePendingDeletionFinalize: (uid, delayMs = DRAFT_UNDO_MS) => {
-    clearPendingDeleteTimer();
-    const wait = Math.max(0, Number(delayMs) || 0);
-    pendingDeleteTimer = setTimeout(() => {
-      pendingDeleteTimer = null;
-      void get()._finalizePendingDeletion(uid);
-    }, wait);
-  },
-
-  _finalizePendingDeletion: async (uid) => {
-    const id = uid || resolveDraftUid();
+  markPosting: async (draftId) => {
+    const id = draftId || get().activeDraftId;
     if (!id) return;
-    const meta = await getMomentDraftMeta(id);
-    if (!meta || !isDraftPendingDeletion(meta)) return;
-    // Only hard-delete if still pending (user may have undone)
-    await deleteMomentDraft(id);
-    dismissPendingDeleteToast();
-    get().clearThumbnail();
-    set({
-      hasDraft: false,
-      draftMeta: null,
-      showRestoreModal: false,
+    await updateDraftMeta(id, { status: DRAFT_STATUS.POSTING });
+    await get().refreshList();
+  },
+
+  markEditing: async (draftId) => {
+    const id = draftId || get().activeDraftId;
+    if (!id) return;
+    await updateDraftMeta(id, {
+      status: DRAFT_STATUS.FAILED,
+      lastError: "Đăng chưa thành công — thử lại.",
     });
+    await get().refreshList();
   },
 
-  _showUndoToast: () => {
-    dismissPendingDeleteToast();
-    pendingDeleteToastId = toast("Đã xóa bản nháp — Hoàn tác", {
-      duration: DRAFT_UNDO_MS,
-      position: "top-center",
-      action: {
-        label: "Hoàn tác",
-        onClick: () => {
-          void get().undoSoftDeleteDraft();
-        },
-      },
-    });
-  },
-
-  markPosting: async () => {
-    const uid = resolveDraftUid();
-    if (!uid) return;
-    await setMomentDraftStatus(uid, "posting");
-    await get().refreshDraftPresence(uid);
-  },
-
-  markEditing: async () => {
-    const uid = resolveDraftUid();
-    if (!uid) return;
-    await setMomentDraftStatus(uid, "editing");
-    await get().refreshDraftPresence(uid);
-  },
-
-  clearAfterSuccessfulPost: async () => {
-    const uid = resolveDraftUid();
-    if (!uid) return;
-    clearPendingDeleteTimer();
-    dismissPendingDeleteToast();
-    await deleteMomentDraft(uid);
+  clearAfterSuccessfulPost: async (draftId) => {
+    const id = draftId || get().activeDraftId;
+    if (id) {
+      await deleteDraft(id);
+    }
+    if (get().activeDraftId === id) set({ activeDraftId: null });
     get().clearThumbnail();
+    await get().refreshList();
     set({
-      hasDraft: false,
-      draftMeta: null,
       showRestoreModal: false,
       dismissedRestore: false,
     });
   },
 
-  /**
-   * Before capturing/picking new media when a draft already exists.
-   * Returns true if caller may proceed with new file immediately.
-   * Returns false if replace prompt is shown (studio empty + draft in IDB).
-   */
-  requestReplaceOrContinue: async (newFile) => {
-    if (isRestoreInProgress()) return true;
-    const uid = resolveDraftUid();
-    if (!uid) return true;
-    const exists = await hasMomentDraft(uid);
-    if (!exists) return true;
-    // Already editing media in studio → allow overwrite of draft media
-    if (usePostStore.getState().selectedFile) return true;
-    set({ showReplacePrompt: true, pendingNewFile: newFile || null });
-    return false;
+  /** Permanent delete with caller confirmation already done */
+  confirmDeleteDraft: async (draftId) => {
+    const id = draftId || get().drafts[0]?.id;
+    if (!id) return false;
+    const ok = await deleteDraft(id);
+    if (!ok) {
+      SonnerError("Không thể xóa bản nháp.");
+      return false;
+    }
+    if (get().activeDraftId === id) {
+      set({ activeDraftId: null });
+      try {
+        usePostStore.getState().resetMedia?.();
+        resetAllPostData();
+      } catch {
+        /* ignore */
+      }
+    }
+    await get().refreshList();
+    SonnerSuccess("Đã xóa bản nháp");
+    return true;
   },
 
-  /** Camera / picker: gate then apply setMediaFromFile */
+  softDeleteDraft: async (draftId) => get().confirmDeleteDraft(draftId),
+
+  // Replace-prompt: new capture while studio empty but drafts exist → open library
+  requestReplaceOrContinue: async () => true,
+
   applyNewMediaFile: async (file, { onApplied } = {}) => {
     if (!file) return false;
-    const proceed = await get().requestReplaceOrContinue(file);
-    if (!proceed) return false;
+    // New capture session: clear active draft so createDraft gets new UUID
+    // only if studio already empty; if editing a draft, keep id (update media)
+    const studioEmpty =
+      !usePostStore.getState().selectedFile &&
+      !usePostStore.getState().preview?.data;
+    if (studioEmpty) {
+      set({ activeDraftId: null });
+    }
     usePostStore.getState().setMediaFromFile(file);
     onApplied?.(file);
     return true;
@@ -515,27 +564,20 @@ export const useMomentDraftStore = create((set, get) => ({
 
   cancelReplacePrompt: () =>
     set({ showReplacePrompt: false, pendingNewFile: null }),
-
   acceptReplaceWithNew: async () => {
     const file = get().pendingNewFile;
-    const uid = resolveDraftUid();
-    set({ showReplacePrompt: false, pendingNewFile: null });
-    clearPendingDeleteTimer();
-    dismissPendingDeleteToast();
-    if (uid) await deleteMomentDraft(uid);
-    get().clearThumbnail();
-    set({ hasDraft: false, draftMeta: null, dismissedRestore: false });
+    set({ showReplacePrompt: false, pendingNewFile: null, activeDraftId: null });
     if (file) {
       usePostStore.getState().setMediaFromFile(file);
       await get().saveMediaFromFile(file);
     }
     return true;
   },
-
   continueOldDraftFromPrompt: async () => {
     set({ showReplacePrompt: false, pendingNewFile: null });
     await get().restoreDraftIntoStudio();
   },
 
   formatSavedAt: (ts) => formatDraftSavedAt(ts),
+  statusLabel,
 }));

@@ -308,12 +308,14 @@ export const useUploadQueueStore = create((set, get) => ({
         status: STATUS_UPLOAD_MOMENT.DONE,
       });
 
-      // Draft only cleared after confirmed API success
+      // Draft only cleared after confirmed API success (by draftId if multi-draft)
       try {
         const { useMomentDraftStore } = await import(
           "@/stores/PostStores/useMomentDraftStore"
         );
-        await useMomentDraftStore.getState().clearAfterSuccessfulPost();
+        await useMomentDraftStore
+          .getState()
+          .clearAfterSuccessfulPost(item?.draftId || null);
       } catch {
         /* draft optional */
       }
@@ -335,7 +337,9 @@ export const useUploadQueueStore = create((set, get) => ({
           const { useMomentDraftStore } = await import(
             "@/stores/PostStores/useMomentDraftStore"
           );
-          await useMomentDraftStore.getState().markEditing();
+          await useMomentDraftStore
+            .getState()
+            .markEditing(item?.draftId || null);
         } catch {
           /* draft optional */
         }
@@ -353,7 +357,9 @@ export const useUploadQueueStore = create((set, get) => ({
           const { useMomentDraftStore } = await import(
             "@/stores/PostStores/useMomentDraftStore"
           );
-          await useMomentDraftStore.getState().clearAfterSuccessfulPost();
+          await useMomentDraftStore
+            .getState()
+            .clearAfterSuccessfulPost(item?.draftId || null);
         } catch {
           /* ignore */
         }

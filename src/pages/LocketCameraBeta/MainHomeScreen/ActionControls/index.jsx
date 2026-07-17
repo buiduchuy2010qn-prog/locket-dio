@@ -8,6 +8,7 @@ import SendButton from "./MediaControls/SendButton";
 import DelButton from "./MediaControls/DelButton";
 import OverlayButton from "./MediaControls/OverlayButton";
 import DraftButton from "./MediaControls/DraftButton";
+import SaveDraftActions from "@/components/MomentDraft/SaveDraftActions";
 import { useMomentDraftStore, usePostStore } from "@/stores";
 
 /**
@@ -18,16 +19,17 @@ const ActionControls = () => {
   const selectedFile = usePostStore((s) => s.selectedFile);
   const preview = usePostStore((s) => s.preview);
   const hasDraft = useMomentDraftStore((s) => s.hasDraft);
+  const draftCount = useMomentDraftStore((s) => s.draftCount);
   const showRestoreModal = useMomentDraftStore((s) => s.showRestoreModal);
 
   const hasFile = !!(selectedFile || preview);
-  const showDraftChip = !hasFile && hasDraft && !showRestoreModal;
+  const showDraftChip =
+    !hasFile && (hasDraft || draftCount > 0) && !showRestoreModal;
 
   return (
-    <div
-      className="w-full flex justify-center px-2"
-      data-action-controls="true"
-    >
+    <div className="w-full flex flex-col items-center" data-action-controls="true">
+      {hasFile ? <SaveDraftActions /> : null}
+      <div className="w-full flex justify-center px-2">
       <div
         className="cameraControlPill"
         data-camera-control-pill="true"
@@ -85,6 +87,7 @@ const ActionControls = () => {
             <OverlayButton />
           </div>
         </div>
+      </div>
       </div>
     </div>
   );

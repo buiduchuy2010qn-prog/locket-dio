@@ -33,6 +33,7 @@ import { useMomentDraftLifecycle } from "./hooks/useMomentDraftLifecycle";
 import RestoreDraftModal, {
   ReplaceDraftPrompt,
 } from "./components/MomentDraft/RestoreDraftModal";
+import DraftLibrary from "./components/MomentDraft/DraftLibrary";
 import { useConnectivityStore } from "./stores/useConnectivityStore";
 
 function App() {
@@ -46,6 +47,7 @@ function App() {
             <AppContent />
             <RestoreDraftModal />
             <ReplaceDraftPrompt />
+            <DraftLibrary />
           </Router>
           <Toaster />
         </AppProvider>

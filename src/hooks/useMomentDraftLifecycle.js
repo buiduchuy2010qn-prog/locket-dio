@@ -8,7 +8,7 @@ import {
 import { resolveDraftUid, requestDraftPersist } from "@/utils/momentDraft";
 
 /**
- * Autosave draft meta, flush on hide/pagehide, offer restore after auth.
+ * Multi-draft autosave: meta → activeDraftId only; media after capture.
  */
 export function useMomentDraftLifecycle() {
   const user = useAuthStore((s) => s.user);
@@ -16,28 +16,30 @@ export function useMomentDraftLifecycle() {
   const checkAndOfferRestore = useMomentDraftStore((s) => s.checkAndOfferRestore);
   const flushMetaSave = useMomentDraftStore((s) => s.flushMetaSave);
   const scheduleMetaSave = useMomentDraftStore((s) => s.scheduleMetaSave);
+  const draftCount = useMomentDraftStore((s) => s.draftCount);
   const hasDraft = useMomentDraftStore((s) => s.hasDraft);
   const refreshDraftPresence = useMomentDraftStore((s) => s.refreshDraftPresence);
   const prevUid = useRef(null);
 
-  // Ask browser to persist IndexedDB (draft blobs survive eviction better)
   useEffect(() => {
     if (!isAuth) return;
     void requestDraftPersist();
   }, [isAuth]);
 
-  // Auth → check draft for this uid only
   useEffect(() => {
     if (!isAuth || !user) return;
     const uid = resolveDraftUid(user);
     if (!uid) return;
     if (prevUid.current && prevUid.current !== uid) {
-      // Account switched — never show previous account draft
       useMomentDraftStore.setState({
         hasDraft: false,
         draftMeta: null,
+        drafts: [],
+        draftCount: 0,
+        activeDraftId: null,
         showRestoreModal: false,
         dismissedRestore: false,
+        libraryOpen: false,
       });
       useMomentDraftStore.getState().clearThumbnail();
     }
@@ -45,7 +47,6 @@ export function useMomentDraftLifecycle() {
     void checkAndOfferRestore(user);
   }, [isAuth, user, checkAndOfferRestore]);
 
-  // Debounced meta when overlay / audience changes
   useEffect(() => {
     const unsubOverlay = useOverlayEditorStore.subscribe(() => {
       scheduleMetaSave(250);
@@ -60,11 +61,8 @@ export function useMomentDraftLifecycle() {
       ) {
         scheduleMetaSave(250);
       }
-      // New media file → save blob (capture / pick)
-      if (
-        state.selectedFile &&
-        state.selectedFile !== prev.selectedFile
-      ) {
+      // New media file → bind to active draft or create NEW uuid (never overwrite others)
+      if (state.selectedFile && state.selectedFile !== prev.selectedFile) {
         void useMomentDraftStore.getState().saveMediaFromFile(state.selectedFile);
       }
     });
@@ -74,7 +72,6 @@ export function useMomentDraftLifecycle() {
     };
   }, [scheduleMetaSave]);
 
-  // pagehide / visibility → flush meta (mobile-safe)
   useEffect(() => {
     const flush = () => {
       void flushMetaSave();
@@ -91,21 +88,19 @@ export function useMomentDraftLifecycle() {
     };
   }, [flushMetaSave]);
 
-  // beforeunload warn when editing draft (best-effort desktop)
   useEffect(() => {
     const onBeforeUnload = (e) => {
       const post = usePostStore.getState();
-      if (!hasDraft && !post.selectedFile) return;
-      if (post.selectedFile || hasDraft) {
+      if (!hasDraft && !draftCount && !post.selectedFile) return;
+      if (post.selectedFile || hasDraft || draftCount) {
         e.preventDefault();
         e.returnValue = "";
       }
     };
     window.addEventListener("beforeunload", onBeforeUnload);
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
-  }, [hasDraft]);
+  }, [hasDraft, draftCount]);
 
-  // Keep hasDraft flag fresh
   useEffect(() => {
     if (!isAuth) return;
     void refreshDraftPresence();

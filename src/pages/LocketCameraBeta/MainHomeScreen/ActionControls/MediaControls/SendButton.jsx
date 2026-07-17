@@ -162,9 +162,10 @@ const SendButton = () => {
       setIsSuccess(false);
 
       // Flush draft meta + mark posting (do NOT delete draft yet)
+      const draftId = useMomentDraftStore.getState().activeDraftId;
       try {
         await useMomentDraftStore.getState().flushMetaSave();
-        await useMomentDraftStore.getState().markPosting();
+        await useMomentDraftStore.getState().markPosting(draftId);
       } catch {
         /* draft optional */
       }
@@ -175,6 +176,9 @@ const SendButton = () => {
       if (!payload) {
         throw new Error(t("home.payload_failed_error"));
       }
+
+      // Tag multi-draft id so success only removes this draft
+      if (draftId) payload.draftId = draftId;
 
       // Lưu payload vào memory và start
       enqueueUploadItem(payload);
@@ -196,7 +200,9 @@ const SendButton = () => {
       setUploadLoading(false);
       setIsSuccess(false);
       try {
-        await useMomentDraftStore.getState().markEditing();
+        await useMomentDraftStore
+          .getState()
+          .markEditing(useMomentDraftStore.getState().activeDraftId);
       } catch {
         /* ignore */
       }
