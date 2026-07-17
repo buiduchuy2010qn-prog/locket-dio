@@ -165,10 +165,10 @@ export const CONFIG = {
       "winter",
     ],
     themeLabels: {
-      pinksnow: "Hồng tuyết ❄",
+      pinksnow: "Hồng Tuyết ❄",
       valentine: "Valentine 💕",
       winter: "Winter ❄",
-      light: "Sáng",
+      light: "Mặc định / Sáng",
       dark: "Tối",
       cupcake: "Cupcake",
       synthwave: "Synthwave",

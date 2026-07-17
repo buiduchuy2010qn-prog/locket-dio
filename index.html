@@ -75,6 +75,31 @@
     
   </head>
   <body>
+    <!-- Apply theme before React to avoid FOUC / color flash -->
+    <script>
+      (function () {
+        try {
+          var KEY = "huy-locket-theme";
+          var SNOW = "huy-locket-snow-intensity";
+          var huy = localStorage.getItem(KEY);
+          var legacy = localStorage.getItem("theme");
+          var theme = "pinksnow";
+          if (huy === "default") theme = legacy && legacy !== "pinksnow" && legacy !== "pink-snow" ? legacy : "light";
+          else if (huy === "pink-snow" || huy === "pinksnow") theme = "pinksnow";
+          else if (legacy) theme = legacy;
+          document.documentElement.setAttribute("data-theme", theme);
+          if (theme === "pinksnow") {
+            document.documentElement.dataset.huyTheme = "pink-snow";
+            document.documentElement.classList.add("theme-pink-snow");
+          }
+          var snow = localStorage.getItem(SNOW) || "light";
+          if (snow !== "off" && snow !== "light" && snow !== "normal") snow = "light";
+          document.documentElement.dataset.snowIntensity = snow;
+          var meta = document.querySelector('meta[name="theme-color"]');
+          if (meta && theme === "pinksnow") meta.setAttribute("content", "#ff5fa8");
+        } catch (e) {}
+      })();
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>

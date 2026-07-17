@@ -6,12 +6,23 @@ import { useTheme } from "@/hooks/useTheme";
 import { Swiper, SwiperSlide } from "swiper/react";
 import { EffectCoverflow } from "swiper/modules";
 import { useTranslation } from "react-i18next";
-import { getThemeLabel, hasSnowEffect } from "@/utils/theme/themeUtils";
+import {
+  getThemeLabel,
+  hasSnowEffect,
+  PINK_SNOW_THEME,
+} from "@/utils/theme/themeUtils";
+
+const SNOW_LEVELS = [
+  { id: "off", label: "Tắt" },
+  { id: "light", label: "Nhẹ" },
+  { id: "normal", label: "Bình thường" },
+];
 
 const ThemeViewSelect = () => {
   const { t } = useTranslation("auth");
-  const { theme, changeTheme } = useTheme();
+  const { theme, changeTheme, snowIntensity, changeSnowIntensity } = useTheme();
   const activeIndex = CONFIG.ui.themes.indexOf(theme);
+  const isPinkSnow = theme === PINK_SNOW_THEME;
 
   const [swiper, setSwiper] = useState(null);
 
@@ -23,14 +34,68 @@ const ThemeViewSelect = () => {
 
   return (
     <div className="w-full flex justify-center overflow-hidden">
-      <div className="h-full max-w-md">
+      <div className="h-full max-w-md w-full px-1">
         <h1 className="font-lovehouse text-base-content text-center text-3xl font-semibold">
           {t("settings.theme_selector.title")}
         </h1>
         <p className="text-center text-xs text-base-content/60 mt-1 px-4">
-          Chọn <span className="font-semibold text-primary">Hồng tuyết ❄</span>{" "}
-          để bật nền hồng + mưa tuyết
+          Chọn{" "}
+          <span className="font-semibold text-primary">Hồng Tuyết ❄</span> để
+          bật nền trắng–hồng mềm + tuyết rơi
         </p>
+
+        {/* Quick: Mặc định / Hồng Tuyết */}
+        <div className="flex justify-center gap-2 mt-3 px-4">
+          <button
+            type="button"
+            onClick={() => changeTheme("light")}
+            className={`px-4 py-2 rounded-full text-sm font-semibold border transition ${
+              !isPinkSnow
+                ? "bg-primary text-primary-content border-primary"
+                : "bg-base-100/80 border-base-300 text-base-content"
+            }`}
+          >
+            Mặc định
+          </button>
+          <button
+            type="button"
+            onClick={() => changeTheme(PINK_SNOW_THEME)}
+            className={`px-4 py-2 rounded-full text-sm font-semibold border transition ${
+              isPinkSnow
+                ? "bg-primary text-primary-content border-primary"
+                : "bg-base-100/80 border-base-300 text-base-content"
+            }`}
+          >
+            Hồng Tuyết
+          </button>
+        </div>
+
+        {isPinkSnow && (
+          <div className="mt-3 mx-4 p-3 rounded-2xl bg-base-100/80 border border-base-300/60">
+            <p className="text-xs font-semibold text-base-content/80 mb-2">
+              Hiệu ứng tuyết
+            </p>
+            <div className="flex gap-2 flex-wrap">
+              {SNOW_LEVELS.map((lv) => (
+                <button
+                  key={lv.id}
+                  type="button"
+                  onClick={() => changeSnowIntensity?.(lv.id)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition ${
+                    (snowIntensity || "light") === lv.id
+                      ? "bg-primary text-primary-content border-primary"
+                      : "bg-base-200/80 border-base-300 text-base-content/80"
+                  }`}
+                >
+                  {lv.label}
+                </button>
+              ))}
+            </div>
+            <p className="text-[10px] text-base-content/50 mt-2">
+              Mặc định: Nhẹ · Camera tự giảm particle để mượt
+            </p>
+          </div>
+        )}
 
         <Swiper
           direction="horizontal"
@@ -90,7 +155,13 @@ const ThemeViewSelect = () => {
 
                   <div className="w-full aspect-square bg-base-200 rounded-4xl relative overflow-hidden">
                     {themeId === "pinksnow" && (
-                      <div className="absolute inset-0 bg-gradient-to-b from-pink-200/80 to-pink-300/60 flex items-center justify-center text-3xl">
+                      <div
+                        className="absolute inset-0 flex items-center justify-center text-2xl"
+                        style={{
+                          background:
+                            "linear-gradient(145deg,#fff 0%,#fff 44%,#fff0f7 58%,#ffc9e1 100%)",
+                        }}
+                      >
                         ❄
                       </div>
                     )}

@@ -2,242 +2,191 @@ import React, { useEffect, useRef } from "react";
 import "./snow.css";
 
 /**
- * Tuyết rơi — CSS transform GPU.
- * premium (pinksnow): multi-depth layers, denser, brighter.
- * lite (Android): ít bông, setInterval, glow nhẹ.
+ * Canvas snow — single fixed canvas, particle pool, rAF.
+ * No DOM flakes / emoji. Does not capture pointer events.
+ * Never draws into camera MediaStream or capture canvas.
  */
-const FLAKE_POOL = [
-  { char: "❄", kind: "" },
-  { char: "❅", kind: "" },
-  { char: "❆", kind: "" },
-  { char: "·", kind: "" },
-  { char: "✦", kind: "is-spark" },
-  { char: "✧", kind: "is-spark" },
-  { char: "♥", kind: "is-heart" },
-];
-
-/** Depth profiles: size / duration / opacity / drift scale */
-const DEPTH = {
-  back: {
-    cls: "flake-back",
-    size: [8, 12],
-    duration: [8, 12],
-    opacity: [0.35, 0.55],
-    drift: 50,
-    weight: 0.4,
-  },
-  mid: {
-    cls: "flake-mid",
-    size: [12, 18],
-    duration: [5.5, 8.5],
-    opacity: [0.55, 0.85],
-    drift: 90,
-    weight: 0.4,
-  },
-  fore: {
-    cls: "flake-fore",
-    size: [16, 24],
-    duration: [3.8, 6],
-    opacity: [0.75, 0.98],
-    drift: 120,
-    weight: 0.2,
-  },
-};
-
-function pickDepth(premium) {
-  if (!premium) {
-    // Standard: mostly mid, some back
-    return Math.random() < 0.35 ? DEPTH.back : DEPTH.mid;
-  }
-  const r = Math.random();
-  if (r < DEPTH.back.weight) return DEPTH.back;
-  if (r < DEPTH.back.weight + DEPTH.mid.weight) return DEPTH.mid;
-  return DEPTH.fore;
-}
-
-function randRange([a, b]) {
-  return a + Math.random() * (b - a);
-}
-
 const SnowEffect = ({
-  intervalMs = 90,
-  maxFlakes = 60,
-  className = "",
-  snowflakeCount,
-  containerHeight,
+  maxFlakes = 28,
   pinkMode = false,
-  /** pinksnow only — multi-layer + denser */
-  premium = false,
-  /** Android/low-end: giảm DOM churn + CSS nặng */
-  lite = false,
+  className = "",
+  /** static flakes only (reduced-motion) */
+  staticOnly = false,
 }) => {
-  const layerRef = useRef(null);
-  const countRef = useRef(0);
-
-  const spawnEvery =
-    typeof snowflakeCount === "number" && snowflakeCount > 0
-      ? Math.max(50, Math.min(200, Math.round(5000 / snowflakeCount)))
-      : intervalMs;
+  const canvasRef = useRef(null);
+  const rafRef = useRef(0);
+  const particlesRef = useRef([]);
+  const sizeRef = useRef({ w: 0, h: 0, dpr: 1 });
 
   useEffect(() => {
-    const layer = layerRef.current;
-    if (!layer) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d", { alpha: true });
+    if (!ctx) return;
 
     let alive = true;
-    let timer = null;
-    let intervalId = null;
+    const particles = particlesRef.current;
 
-    const fallDistance =
-      typeof containerHeight === "number" && containerHeight > 0
-        ? `${containerHeight + 40}px`
-        : "115vh";
+    const cap = Math.max(0, Math.min(60, Number(maxFlakes) || 0));
 
-    const pickFlake = () => {
-      if (lite) {
-        return Math.random() < 0.75 ? FLAKE_POOL[0] : FLAKE_POOL[3];
-      }
-      if (premium || pinkMode) {
-        const r = Math.random();
-        // Premium pinksnow: more variety, still mostly snow glyphs
-        if (premium) {
-          if (r < 0.12) return FLAKE_POOL[6]; // ♥
-          if (r < 0.28) return FLAKE_POOL[4 + (Math.random() < 0.5 ? 0 : 1)]; // spark
-          return FLAKE_POOL[Math.floor(Math.random() * 4)]; // snow + ·
-        }
-        if (r < 0.15) return FLAKE_POOL[6];
-        if (r < 0.28) return FLAKE_POOL[4];
-        return FLAKE_POOL[Math.floor(Math.random() * 3)];
-      }
-      return FLAKE_POOL[Math.floor(Math.random() * 3)];
+    const resize = () => {
+      const dpr = Math.min(window.devicePixelRatio || 1, 1.75);
+      const w = window.innerWidth || 1;
+      const h = window.innerHeight || 1;
+      sizeRef.current = { w, h, dpr };
+      canvas.width = Math.floor(w * dpr);
+      canvas.height = Math.floor(h * dpr);
+      canvas.style.width = `${w}px`;
+      canvas.style.height = `${h}px`;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     };
 
-    const spawn = () => {
-      if (!alive || !layer) return;
-      if (countRef.current >= maxFlakes) return;
+    const colorFor = () => {
+      if (!pinkMode) return "rgba(255,255,255,";
+      const r = Math.random();
+      if (r < 0.55) return "rgba(255,255,255,";
+      if (r < 0.85) return "rgba(255,240,248,";
+      return "rgba(255,210,230,";
+    };
 
-      const flake = pickFlake();
-      const depth = pickDepth(premium && !lite);
-      const el = document.createElement("span");
-      el.className =
-        `snowflake-emoji ${flake.kind} ${depth.cls}`.trim();
-      el.textContent = flake.char;
-      el.setAttribute("aria-hidden", "true");
+    const resetParticle = (p, spawnTop) => {
+      const { w, h } = sizeRef.current;
+      p.x = Math.random() * w;
+      p.y = spawnTop ? -4 - Math.random() * 40 : Math.random() * h;
+      p.r = 1.5 + Math.random() * 3.5;
+      p.speed = 0.35 + Math.random() * 1.15;
+      p.drift = (Math.random() - 0.5) * 0.45;
+      p.phase = Math.random() * Math.PI * 2;
+      p.op = 0.35 + Math.random() * 0.5;
+      p.color = colorFor();
+      p.kind = Math.random() < 0.72 ? 0 : Math.random() < 0.5 ? 1 : 2; // 0 circle, 1 soft star, 2 cross
+    };
 
-      let size;
-      let duration;
-      let opacity;
-      let driftScale = depth.drift;
+    // Build / trim pool (reuse — no alloc in loop)
+    while (particles.length < cap) {
+      const p = {};
+      resetParticle(p, false);
+      particles.push(p);
+    }
+    if (particles.length > cap) particles.length = cap;
 
-      if (lite) {
-        size = 11 + Math.random() * 11;
-        duration = 5 + Math.random() * 4;
-        opacity = 0.45 + Math.random() * 0.4;
-        driftScale = 45;
-      } else if (premium) {
-        size = randRange(depth.size);
-        duration = randRange(depth.duration);
-        opacity = randRange(depth.opacity);
-      } else {
-        size = 11 + Math.random() * 16;
-        duration = 4.5 + Math.random() * 5;
-        opacity = 0.45 + Math.random() * 0.5;
-      }
+    resize();
 
-      const left = Math.random() * 100;
-      const drift = (Math.random() - 0.5) * 2 * driftScale;
-      const spin = lite
-        ? (Math.random() > 0.5 ? 1 : -1) * 90
-        : (Math.random() > 0.5 ? 1 : -1) *
-          (premium ? 160 + Math.random() * 480 : 120 + Math.random() * 400);
-      const scale =
-        premium && depth.cls === "flake-fore"
-          ? 1 + Math.random() * 0.15
-          : premium && depth.cls === "flake-back"
-            ? 0.75 + Math.random() * 0.15
-            : 1;
-
-      el.style.left = `${left}%`;
-      el.style.fontSize = `${size}px`;
-      el.style.opacity = String(opacity);
-      el.style.setProperty("--flake-opacity", String(opacity));
-      el.style.setProperty("--drift", `${drift.toFixed(1)}px`);
-      el.style.setProperty("--fall-distance", fallDistance);
-      el.style.setProperty("--spin", `${spin}deg`);
-      el.style.setProperty("--flake-scale", String(scale.toFixed(3)));
-      el.style.animationDuration = `${duration.toFixed(2)}s`;
-      // Stagger start so rain feels continuous, not pulsed
-      el.style.animationDelay = lite ? "0s" : `${(-Math.random() * duration).toFixed(2)}s`;
-
-      if (!alive || !layer.isConnected) return;
-      try {
-        layer.appendChild(el);
-      } catch {
+    const drawFlake = (p) => {
+      ctx.globalAlpha = p.op;
+      ctx.fillStyle = p.color + "1)";
+      if (p.kind === 0) {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+        ctx.fill();
         return;
       }
-      countRef.current += 1;
-
-      const life = Math.ceil(duration * 1000) + 250;
-      window.setTimeout(() => {
-        if (!alive) return;
-        try {
-          if (el.parentNode === layer) layer.removeChild(el);
-        } catch {
-          /* already detached */
-        }
-        countRef.current = Math.max(0, countRef.current - 1);
-      }, life);
+      if (p.kind === 1) {
+        // soft 4-point spark
+        const s = p.r * 1.4;
+        ctx.beginPath();
+        ctx.moveTo(p.x, p.y - s);
+        ctx.lineTo(p.x + s * 0.35, p.y);
+        ctx.lineTo(p.x, p.y + s);
+        ctx.lineTo(p.x - s * 0.35, p.y);
+        ctx.closePath();
+        ctx.fill();
+        return;
+      }
+      // simple cross snow
+      const s = p.r * 1.2;
+      ctx.strokeStyle = p.color + "1)";
+      ctx.lineWidth = Math.max(0.8, p.r * 0.35);
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(p.x - s, p.y);
+      ctx.lineTo(p.x + s, p.y);
+      ctx.moveTo(p.x, p.y - s);
+      ctx.lineTo(p.x, p.y + s);
+      ctx.stroke();
     };
 
-    // Seed more flakes for premium pinksnow so first paint already feels snowy
-    const seed = Math.min(
-      lite ? 4 : premium ? 14 : 6,
-      maxFlakes,
-    );
-    for (let i = 0; i < seed; i++) {
-      window.setTimeout(spawn, i * (lite ? 120 : premium ? 45 : 90));
-    }
+    const paintStatic = () => {
+      const { w, h } = sizeRef.current;
+      ctx.clearRect(0, 0, w, h);
+      for (let i = 0; i < particles.length; i++) {
+        drawFlake(particles[i]);
+      }
+      ctx.globalAlpha = 1;
+    };
 
-    if (lite) {
-      intervalId = window.setInterval(() => {
-        if (!alive || document.hidden) return;
-        spawn();
-      }, spawnEvery);
-    } else {
-      let last = 0;
-      const tick = (now) => {
-        if (!alive) return;
-        if (!document.hidden && now - last >= spawnEvery) {
-          last = now;
-          // Premium: occasional double-spawn for density without shorter interval
-          spawn();
-          if (premium && countRef.current < maxFlakes * 0.85 && Math.random() < 0.35) {
-            spawn();
-          }
+    let last = 0;
+    const tick = (now) => {
+      if (!alive) return;
+      if (document.hidden) {
+        rafRef.current = 0;
+        return;
+      }
+      rafRef.current = requestAnimationFrame(tick);
+      if (staticOnly) return;
+
+      const dt = Math.min(32, now - last || 16);
+      last = now;
+      const { w, h } = sizeRef.current;
+      ctx.clearRect(0, 0, w, h);
+
+      for (let i = 0; i < particles.length; i++) {
+        const p = particles[i];
+        p.phase += dt * 0.0012;
+        p.y += p.speed * (dt * 0.06);
+        p.x += p.drift + Math.sin(p.phase) * 0.15;
+        if (p.y > h + 8 || p.x < -12 || p.x > w + 12) {
+          resetParticle(p, true);
         }
-        timer = window.requestAnimationFrame(tick);
-      };
-      timer = window.requestAnimationFrame(tick);
+        drawFlake(p);
+      }
+      ctx.globalAlpha = 1;
+    };
+
+    const onVis = () => {
+      if (document.hidden) {
+        if (rafRef.current) {
+          cancelAnimationFrame(rafRef.current);
+          rafRef.current = 0;
+        }
+        return;
+      }
+      if (!staticOnly && !rafRef.current) {
+        last = performance.now();
+        rafRef.current = requestAnimationFrame(tick);
+      } else if (staticOnly) {
+        paintStatic();
+      }
+    };
+
+    window.addEventListener("resize", resize, { passive: true });
+    document.addEventListener("visibilitychange", onVis);
+
+    if (staticOnly) {
+      paintStatic();
+    } else {
+      last = performance.now();
+      rafRef.current = requestAnimationFrame(tick);
     }
 
     return () => {
       alive = false;
-      if (timer) window.cancelAnimationFrame(timer);
-      if (intervalId) window.clearInterval(intervalId);
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      rafRef.current = 0;
+      window.removeEventListener("resize", resize);
+      document.removeEventListener("visibilitychange", onVis);
       try {
-        if (layer?.isConnected) {
-          while (layer.firstChild) layer.removeChild(layer.firstChild);
-        }
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
       } catch {
         /* ignore */
       }
-      countRef.current = 0;
     };
-  }, [spawnEvery, maxFlakes, containerHeight, pinkMode, premium, lite]);
+  }, [maxFlakes, pinkMode, staticOnly]);
 
   return (
-    <div
-      ref={layerRef}
-      className={`snow-layer ${className}`.trim()}
+    <canvas
+      ref={canvasRef}
+      className={`snow-layer snow-layer--canvas ${className}`.trim()}
       aria-hidden="true"
     />
   );

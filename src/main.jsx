@@ -1,5 +1,6 @@
 import { createRoot } from "react-dom/client";
 import "./i18n";
+import "../tailwind.css";
 import "./index.css";
 import App from "./App.jsx";
 
@@ -10,6 +11,10 @@ import {
   startUpdateWatcher,
 } from "./utils";
 import { applyPerfClasses } from "./utils/device/perfProfile";
+import { bootThemeEarly } from "./utils/theme/themeUtils";
+
+// Theme + snow intensity before first paint (localStorage)
+bootThemeEarly();
 
 // Android / mobile: class perf-lite để giảm blur + effect
 applyPerfClasses();

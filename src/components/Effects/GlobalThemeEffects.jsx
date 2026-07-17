@@ -1,15 +1,20 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { useTheme } from "@/hooks/useTheme";
 import SnowEffect from "./SnowEffect";
-import { hasSnowEffect, isPinkSnowTheme } from "@/utils/theme/themeUtils";
-import { getSnowPerfConfig } from "@/utils/device/perfProfile";
+import {
+  hasSnowEffect,
+  isPinkSnowTheme,
+  getSnowIntensity,
+} from "@/utils/theme/themeUtils";
+import { getPerfProfile } from "@/utils/device/perfProfile";
 
 /**
- * Mưa tuyết — Android/lite: rất nhẹ (hoặc tắt trên camera).
+ * Tuyết canvas — không che camera gesture (pointer-events: none).
+ * Intensity: off | light | normal (localStorage huy-locket-snow-intensity).
  */
 const GlobalThemeEffects = () => {
-  const { theme } = useTheme();
+  const { theme, snowIntensity } = useTheme();
   const location = useLocation();
   const [hidden, setHidden] = useState(
     typeof document !== "undefined" ? document.hidden : false,
@@ -29,40 +34,51 @@ const GlobalThemeEffects = () => {
     };
   }, []);
 
-  if (!hasSnowEffect(theme) || hidden || reduceMotion) return null;
+  const intensity = snowIntensity || getSnowIntensity();
+  const snowTheme = hasSnowEffect(theme);
 
   const onCameraRoute =
     location.pathname.startsWith("/locket") ||
     location.pathname.startsWith("/camera");
 
-  // Camera: tắt tuyết hẳn — tránh DOM append/remove đụng React khi mở cam
-  if (onCameraRoute) return null;
+  const cfg = useMemo(() => {
+    if (!snowTheme || intensity === "off") {
+      return { enabled: false, maxFlakes: 0, staticOnly: false };
+    }
+    const p = getPerfProfile();
+    const isPink = isPinkSnowTheme(theme);
 
-  const isPink = isPinkSnowTheme(theme);
-  const isPinkSnow = theme === "pinksnow";
+    // reduced motion → few static flakes only
+    if (reduceMotion) {
+      return { enabled: true, maxFlakes: 8, staticOnly: true, pinkMode: isPink };
+    }
 
-  const cfg = getSnowPerfConfig({ onCameraRoute, isPinkSnow, isPink });
-  if (!cfg.enabled) return null;
+    let max = intensity === "normal" ? 42 : 24;
+    if (p.isMobile) max = intensity === "normal" ? 26 : 20;
+    if (p.isLowEnd || p.isAndroid) max = intensity === "normal" ? 18 : 14;
+    if (onCameraRoute) {
+      // Keep camera smooth — always light on camera
+      max = Math.min(max, p.isLowEnd || p.isAndroid ? 12 : 18);
+    }
+    // hard cap
+    max = Math.min(60, Math.max(10, max));
 
-  // Premium visuals only for pinksnow (not valentine/winter)
-  const premium = isPinkSnow && !cfg.lite;
+    return {
+      enabled: true,
+      maxFlakes: max,
+      staticOnly: false,
+      pinkMode: isPink,
+    };
+  }, [snowTheme, intensity, theme, reduceMotion, onCameraRoute]);
+
+  if (!cfg.enabled || hidden) return null;
 
   return (
     <SnowEffect
-      intervalMs={cfg.intervalMs}
       maxFlakes={cfg.maxFlakes}
-      pinkMode={(isPink || isPinkSnow) && !cfg.lite}
-      premium={premium}
-      lite={cfg.lite}
-      className={[
-        isPink || isPinkSnow ? "snow-layer--pink" : "",
-        premium ? "snow-layer--premium" : "",
-        // lite pinksnow still marks premium for slightly brighter lite CSS
-        isPinkSnow && cfg.lite ? "snow-layer--premium" : "",
-        cfg.lite ? "snow-layer--lite" : "",
-      ]
-        .filter(Boolean)
-        .join(" ")}
+      pinkMode={cfg.pinkMode}
+      staticOnly={cfg.staticOnly}
+      className={cfg.pinkMode ? "snow-layer--pink" : ""}
     />
   );
 };

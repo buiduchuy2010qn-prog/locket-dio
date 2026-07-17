@@ -48,25 +48,76 @@
 }
 
 /*
- * Pinksnow-only backdrop (data-theme) — valentine giữ class theme-pink-snow
- * nhưng gradient dreamy chỉ pinksnow để không đụng theme khác.
+ * Hồng Tuyết — CSS variables + soft white→pink gradient (no hard split).
+ * data-theme stays "pinksnow" (DaisyUI); alias pink-snow supported.
  */
 html[data-theme="pinksnow"],
-html[data-theme="pinksnow"] body {
+html[data-theme="pink-snow"] {
+  color-scheme: light;
+
+  --page-bg: #fffafd;
+  --surface: rgba(255, 255, 255, 0.82);
+  --surface-strong: #ffffff;
+  --pink-soft: #ffe4f0;
+  --pink-light: #ffc5df;
+  --pink-primary: #ff5fa8;
+  --pink-strong: #ec3b91;
+  --text-primary: #2b1722;
+  --text-secondary: #765466;
+  --border-soft: rgba(236, 59, 145, 0.16);
+  --accent: #ff5fa8;
+  --accent-contrast: #ffffff;
+  --shadow-pink: 0 10px 30px rgba(236, 59, 145, 0.14);
+}
+
+html[data-theme="pinksnow"],
+html[data-theme="pinksnow"] body,
+html[data-theme="pink-snow"],
+html[data-theme="pink-snow"] body {
   min-height: 100%;
+  /* ~½ trắng → chuyển mềm sang hồng (không đường cứng) */
   background:
-    radial-gradient(ellipse 110% 75% at 50% -18%, rgba(255, 130, 185, 0.55), transparent 52%),
-    radial-gradient(ellipse 70% 48% at 100% 95%, rgba(255, 155, 200, 0.42), transparent 55%),
-    radial-gradient(ellipse 65% 42% at 0% 75%, rgba(255, 175, 215, 0.38), transparent 50%),
-    radial-gradient(ellipse 55% 35% at 50% 55%, rgba(255, 210, 230, 0.22), transparent 60%),
+    radial-gradient(
+      circle at 82% 12%,
+      rgba(255, 143, 196, 0.30),
+      transparent 34%
+    ),
     linear-gradient(
-      168deg,
-      #ffeaf5 0%,
-      #ffd6ec 32%,
-      #ffc4e3 62%,
-      #ffb4da 100%
+      145deg,
+      #ffffff 0%,
+      #ffffff 44%,
+      #fff0f7 58%,
+      #ffc9e1 100%
     ) !important;
   background-attachment: fixed;
+  color: var(--text-primary, var(--color-base-content));
+}
+
+/* Surfaces: light glass only on small UI chrome — not full-screen */
+html[data-theme="pinksnow"] .pinkSnowSurface,
+html[data-theme="pink-snow"] .pinkSnowSurface {
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.78);
+  box-shadow:
+    0 10px 30px rgba(236, 59, 145, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.90);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+/* Capture shutter ring uses primary (pink) via existing .cameraShutterRing / border-camera */
+html[data-theme="pinksnow"] .border-camera-custome,
+html[data-theme="pinksnow"] .cameraShutterRing {
+  color: var(--pink-primary, var(--color-primary));
+  box-shadow: 0 0 0 5px var(--pink-primary, var(--color-primary));
+}
+
+/* Zoom rail soft pink (when expanded) */
+html[data-theme="pinksnow"] [data-zoom-slider] .bg-white\/35 {
+  background-color: color-mix(in srgb, var(--pink-light) 55%, transparent);
+}
+html[data-theme="pinksnow"] [data-zoom-slider] .bg-white\/90 {
+  background-color: color-mix(in srgb, var(--pink-primary) 70%, white);
 }
 
 /* Valentine / generic pink-snow class — giữ gradient cũ nhẹ hơn */
@@ -92,14 +143,16 @@ html.theme-pink-snow:not([data-theme="pinksnow"]) .bg-base-100 {
   background-color: color-mix(in oklab, var(--color-base-100) 88%, transparent);
 }
 
-/* Locket camera: hồng êm hơn, không che preview */
-html[data-theme="pinksnow"] body:has([data-locket-camera]) {
+/* Locket camera: soft pink page, never paint over video preview */
+html[data-theme="pinksnow"] body:has([data-locket-camera]),
+html[data-theme="pink-snow"] body:has([data-locket-camera]) {
   background:
-    linear-gradient(180deg, #ffeaf4 0%, #ffd8ec 48%, #ffcce6 100%) !important;
+    radial-gradient(circle at 80% 8%, rgba(255, 143, 196, 0.22), transparent 32%),
+    linear-gradient(145deg, #ffffff 0%, #ffffff 48%, #fff0f7 62%, #ffd4e8 100%) !important;
   background-attachment: scroll !important;
 }
 
 html.theme-pink-snow:not([data-theme="pinksnow"]) body:has([data-locket-camera]) {
   background:
-    linear-gradient(180deg, #ffe8f2 0%, #ffd6ea 50%, #ffcce4 100%) !important;
+    linear-gradient(180deg, #fff8fb 0%, #ffe8f2 50%, #ffdcec 100%) !important;
 }
