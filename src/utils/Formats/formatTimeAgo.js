@@ -44,13 +44,12 @@ function toValidDate(input, isSecondTimestamp = false) {
 
   if (typeof value === "number") {
     if (!Number.isFinite(value) || value <= 0) return null;
-    // seconds vs ms
+    // 13+ digits (>= 1e12) → already milliseconds. Never *1000 again
+    // (old V2 forced seconds and turned ms into far-future → always "Vừa xong")
     let ms = value;
-    if (
-      isSecondTimestamp ||
-      (value < 1e12 && value > 1e9) // ~2001–2286 as seconds
-    ) {
-      if (String(Math.floor(value)).length === 10 || isSecondTimestamp) {
+    if (value < 1e12) {
+      // 10-digit epoch seconds (~2001–2286), or caller said seconds
+      if (isSecondTimestamp || value > 1e9) {
         ms = value * 1000;
       }
     }
@@ -126,4 +125,5 @@ const getTimeAgo = (timestamp, isSecondTimestamp = false) => {
 
 export const formatTimeAgo = (timestamp) => getTimeAgo(timestamp);
 
-export const formatTimeAgoV2 = (timestamp) => getTimeAgo(timestamp, true);
+/** Auto-detect seconds vs ms (chat list may mix both). */
+export const formatTimeAgoV2 = (timestamp) => getTimeAgo(timestamp, false);

@@ -1,6 +1,15 @@
 import { useGroupChatStore, useConversationsStore } from "@/stores";
 import { useMemo } from "react";
 
+/** Normalize epoch seconds or ms → always milliseconds for sort + formatTimeAgo. */
+const toMs = (ts) => {
+  if (ts == null || ts === "") return 0;
+  const n = Number(ts);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  // 10-digit seconds → ms; 13-digit already ms
+  return n < 1e12 ? Math.floor(n * 1000) : Math.floor(n);
+};
+
 export const useConversations = () => {
   const conversations = useConversationsStore((state) => state.conversations);
   const groups = useGroupChatStore((state) => state.groups);
@@ -22,11 +31,14 @@ const normalizePrivate = (chat) => ({
   replyMoment: chat.latest_message?.reply_moment,
   unreadCount: chat.unread_count ?? chat.unreadCount ?? 0,
   isRead: chat.is_read ?? false,
-  updatedAt:
+  updatedAt: toMs(
     chat.latest_message?.created_at ??
-    chat.last_updated ??
-    chat.updateTime * 1000 ??
-    0,
+      chat.latest_message?.update_time ??
+      chat.last_updated ??
+      chat.update_time ??
+      chat.updateTime ??
+      0,
+  ),
   raw: chat,
 });
 
@@ -41,6 +53,8 @@ const normalizeGroup = (group) => ({
     "[Locket]",
   unreadCount: group.unread_count ?? 0,
   isRead: group.unread_count === 0,
-  updatedAt: group.latest_message?.created_at ?? group.last_updated_at ?? 0,
+  updatedAt: toMs(
+    group.latest_message?.created_at ?? group.last_updated_at ?? 0,
+  ),
   raw: group,
 });
