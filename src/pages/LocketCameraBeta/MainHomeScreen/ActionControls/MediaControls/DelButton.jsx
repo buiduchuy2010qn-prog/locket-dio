@@ -51,7 +51,7 @@ const DelButton = () => {
     <>
       <button
         type="button"
-        className="cameraSideBtn"
+        className="pillSideBtn"
         aria-label="Xóa bài đang chỉnh"
         title="Xóa bài đang chỉnh"
         onClick={() => setConfirmOpen(true)}

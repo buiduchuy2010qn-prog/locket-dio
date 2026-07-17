@@ -1,10 +1,4 @@
-import React, {
-  useMemo,
-  useRef,
-  useCallback,
-  useEffect,
-  useState,
-} from "react";
+import React, { useMemo, useRef, useCallback, useEffect } from "react";
 import {
   zoomToSliderT,
   sliderTToZoom,
@@ -12,11 +6,15 @@ import {
 } from "@/utils";
 
 const DRAG_THRESHOLD_PX = 5;
-const HIDE_DELAY_MS = 1800;
 
 /**
- * Zoom control: compact badge (top-right) + expandable rail (bottom).
- * Press-and-drag in one touch; rail auto-hides after idle.
+ * Always-visible zoom rail — press-and-drag in one touch.
+ *
+ * - Gesture surface always mounted (never remount mid-pointer).
+ * - Rail always visible (no collapse-to-1x-badge).
+ * - Pointerdown starts drag immediately via refs + setPointerCapture.
+ * - Markers are decorative only (pointer-events: none); no stopPropagation.
+ * - Mid-drag: DOM paint only; parent gets zoom via onInputValue.
  */
 export default function ZoomSlider({
   min = 1,
@@ -25,26 +23,21 @@ export default function ZoomSlider({
   markers = [],
   disabled = false,
   visible = true,
-  /** Parent forces rail open (e.g. pinch) */
-  forceShow = false,
   onInputValue,
   onGestureEnd,
-  onVisibilityChange,
 }) {
   const gestureRef = useRef(null);
   const trackRef = useRef(null);
   const fillRef = useRef(null);
   const thumbRailRef = useRef(null);
   const badgeRef = useRef(null);
-  const compactBadgeRef = useRef(null);
 
+  /** Gesture truth — never gate moves on React state */
   const draggingRef = useRef(false);
   const activePointerIdRef = useRef(null);
   const downPosRef = useRef({ x: 0, y: 0 });
   const didDragRef = useRef(false);
   const suppressClickRef = useRef(false);
-  const expandedRef = useRef(false);
-  const trackingZoomRef = useRef(false);
 
   const localZoomRef = useRef(Number(value) || 1);
   const rectCacheRef = useRef(null);
@@ -52,17 +45,12 @@ export default function ZoomSlider({
   const hiRef = useRef(Number(max));
   const onInputRef = useRef(onInputValue);
   const onEndRef = useRef(onGestureEnd);
-  const onVisRef = useRef(onVisibilityChange);
   const rafRef = useRef(0);
   const pendingXRef = useRef(null);
   const lastPaintTRef = useRef(-1);
-  const hideTimerRef = useRef(0);
-
-  const [railVisible, setRailVisible] = useState(false);
 
   onInputRef.current = onInputValue;
   onEndRef.current = onGestureEnd;
-  onVisRef.current = onVisibilityChange;
 
   const lo = Number(min);
   const hi = Number(max);
@@ -86,57 +74,17 @@ export default function ZoomSlider({
     const badge = updateZoomBadge(zoom);
     if (Math.abs(clamped - lastPaintTRef.current) < 0.0005) {
       if (badgeRef.current) badgeRef.current.textContent = badge;
-      if (compactBadgeRef.current) compactBadgeRef.current.textContent = badge;
       return;
     }
     lastPaintTRef.current = clamped;
-    if (fillRef.current) fillRef.current.style.transform = `scaleX(${clamped})`;
+    if (fillRef.current) {
+      fillRef.current.style.transform = `scaleX(${clamped})`;
+    }
     if (thumbRailRef.current) {
       thumbRailRef.current.style.transform = `translate3d(${clamped * 100}%, 0, 0)`;
     }
     if (badgeRef.current) badgeRef.current.textContent = badge;
-    if (compactBadgeRef.current) compactBadgeRef.current.textContent = badge;
   }, []);
-
-  const clearZoomHideTimer = useCallback(() => {
-    if (hideTimerRef.current) {
-      clearTimeout(hideTimerRef.current);
-      hideTimerRef.current = 0;
-    }
-  }, []);
-
-  const setExpanded = useCallback(
-    (open) => {
-      expandedRef.current = open;
-      setRailVisible(open);
-      onVisRef.current?.(open);
-    },
-    [],
-  );
-
-  const scheduleZoomHide = useCallback(() => {
-    clearZoomHideTimer();
-    if (forceShow) return;
-    hideTimerRef.current = window.setTimeout(() => {
-      hideTimerRef.current = 0;
-      if (draggingRef.current || forceShow) return;
-      setExpanded(false);
-    }, HIDE_DELAY_MS);
-  }, [clearZoomHideTimer, forceShow, setExpanded]);
-
-  const showRail = useCallback(() => {
-    clearZoomHideTimer();
-    setExpanded(true);
-  }, [clearZoomHideTimer, setExpanded]);
-
-  useEffect(() => {
-    if (forceShow) {
-      clearZoomHideTimer();
-      setExpanded(true);
-    } else if (!draggingRef.current) {
-      scheduleZoomHide();
-    }
-  }, [forceShow, clearZoomHideTimer, setExpanded, scheduleZoomHide]);
 
   useEffect(() => {
     if (draggingRef.current || !ok) return;
@@ -147,7 +95,6 @@ export default function ZoomSlider({
   useEffect(
     () => () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
     },
     [],
   );
@@ -242,14 +189,12 @@ export default function ZoomSlider({
       event.preventDefault();
       event.stopPropagation();
 
-      const wasOpen = expandedRef.current || forceShow;
-
+      // Start drag immediately — refs, not React state
       draggingRef.current = true;
       activePointerIdRef.current = event.pointerId;
       downPosRef.current = { x: event.clientX, y: event.clientY };
       didDragRef.current = false;
       suppressClickRef.current = false;
-      trackingZoomRef.current = wasOpen;
       lastPaintTRef.current = -1;
       rectCacheRef.current = null;
 
@@ -259,31 +204,30 @@ export default function ZoomSlider({
         /* ignore */
       }
 
-      showRail();
       rectCacheRef.current = trackRef.current?.getBoundingClientRect() ?? null;
-
-      if (wasOpen) {
-        updateZoomFromClientX(event.clientX);
-      }
+      // Seek under finger on first contact (same gesture continues as drag)
+      updateZoomFromClientX(event.clientX);
     },
-    [disabled, ok, forceShow, showRail, updateZoomFromClientX],
+    [disabled, ok, updateZoomFromClientX],
   );
 
   const handleZoomPointerMove = useCallback(
     (event) => {
       if (!draggingRef.current) return;
       if (event.pointerId !== activePointerIdRef.current) return;
+
       event.preventDefault();
 
       const dx = event.clientX - downPosRef.current.x;
       const dy = event.clientY - downPosRef.current.y;
-      if (!didDragRef.current && Math.hypot(dx, dy) >= DRAG_THRESHOLD_PX) {
+      if (
+        !didDragRef.current &&
+        Math.hypot(dx, dy) >= DRAG_THRESHOLD_PX
+      ) {
         didDragRef.current = true;
         suppressClickRef.current = true;
-        trackingZoomRef.current = true;
       }
 
-      if (!trackingZoomRef.current) return;
       updateZoomFromClientX(event.clientX);
     },
     [updateZoomFromClientX],
@@ -295,11 +239,9 @@ export default function ZoomSlider({
 
       const clientX = event.clientX;
       const wasDrag = didDragRef.current;
-      const wasTracking = trackingZoomRef.current;
 
       draggingRef.current = false;
       activePointerIdRef.current = null;
-      trackingZoomRef.current = false;
       rectCacheRef.current = null;
 
       if (rafRef.current) {
@@ -316,26 +258,22 @@ export default function ZoomSlider({
         /* ignore */
       }
 
+      // Tap without drag: snap to nearby lens marker if close enough
       if (!wasDrag) {
-        if (wasTracking) {
-          const snapped = snapToNearbyLensMarker(clientX);
-          onEndRef.current?.(snapped ?? localZoomRef.current);
-        }
-        scheduleZoomHide();
+        const snapped = snapToNearbyLensMarker(clientX);
+        onEndRef.current?.(snapped ?? localZoomRef.current);
         return;
       }
 
       onEndRef.current?.(localZoomRef.current);
-      scheduleZoomHide();
     },
-    [flushPendingX, scheduleZoomHide, snapToNearbyLensMarker],
+    [flushPendingX, snapToNearbyLensMarker],
   );
 
   const handleLostPointerCapture = useCallback(() => {
     if (!draggingRef.current) return;
     draggingRef.current = false;
     activePointerIdRef.current = null;
-    trackingZoomRef.current = false;
     rectCacheRef.current = null;
     if (rafRef.current) {
       cancelAnimationFrame(rafRef.current);
@@ -343,58 +281,29 @@ export default function ZoomSlider({
     }
     if (pendingXRef.current != null) flushPendingX();
     onEndRef.current?.(localZoomRef.current);
-    scheduleZoomHide();
-  }, [flushPendingX, scheduleZoomHide]);
+  }, [flushPendingX]);
 
   if (!ok) return null;
 
   const t0 = zoomToSliderT(safeZoom, lo, hi);
   const badgeText = updateZoomBadge(safeZoom);
-  const railOpen = railVisible || forceShow || draggingRef.current;
 
   return (
     <div
-      className="absolute inset-0 z-40 pointer-events-none"
+      className="absolute inset-x-4 sm:inset-x-6 bottom-4 z-40 pointer-events-none flex justify-center"
       data-zoom-slider="true"
       data-locket-zoom-ui="true"
       data-no-focus
     >
-      {/* Compact badge — top-right of preview */}
-      <div
-        className="absolute top-5 right-5 sm:top-6 sm:right-6 pointer-events-auto"
-        style={{
-          opacity: railOpen ? 0 : 1,
-          transition: "opacity 150ms ease",
-          pointerEvents: railOpen ? "none" : "auto",
-        }}
-      >
-        <button
-          type="button"
-          className="previewChip zoomGestureSurface"
-          disabled={disabled}
-          aria-label={`Zoom ${badgeText}`}
-          style={{ touchAction: "none" }}
-          onPointerDown={handleZoomPointerDown}
-          onPointerMove={handleZoomPointerMove}
-          onPointerUp={handleZoomPointerEnd}
-          onPointerCancel={handleZoomPointerEnd}
-          onLostPointerCapture={handleLostPointerCapture}
-        >
-          <span ref={compactBadgeRef}>{badgeText}</span>
-        </button>
-      </div>
-
-      {/* Expanded rail — bottom of preview, always mounted for rect */}
       <div
         ref={gestureRef}
-        className="zoomGestureSurface absolute inset-x-4 sm:inset-x-6 bottom-3 sm:bottom-4 pointer-events-auto"
+        className={`zoomGestureSurface pointer-events-auto w-full max-w-[280px] select-none ${
+          disabled ? "opacity-45" : "opacity-100"
+        }`}
         style={{
-          opacity: railOpen ? 1 : 0,
-          pointerEvents: railOpen ? "auto" : "none",
           touchAction: "none",
           WebkitUserSelect: "none",
           userSelect: "none",
-          transition: "opacity 150ms ease",
         }}
         onPointerDown={handleZoomPointerDown}
         onPointerMove={handleZoomPointerMove}
@@ -416,10 +325,16 @@ export default function ZoomSlider({
           aria-valuemin={lo}
           aria-valuemax={hi}
           aria-valuenow={safeZoom}
-          tabIndex={-1}
-          className="relative w-full max-w-[280px] mx-auto flex items-center"
-          style={{ height: 48 }}
+          tabIndex={disabled ? -1 : 0}
+          className="relative w-full flex items-center cursor-pointer"
+          style={{
+            height: 48,
+            touchAction: "none",
+            WebkitUserSelect: "none",
+            userSelect: "none",
+          }}
         >
+          {/* Decorative only — never steals events */}
           <div className="absolute inset-x-0 h-[3px] rounded-full bg-white/35 pointer-events-none" />
           <div
             ref={fillRef}
@@ -431,7 +346,11 @@ export default function ZoomSlider({
             <div
               key={`${m.type}-${m.zoom}`}
               className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 z-[2] flex flex-col items-center justify-center pointer-events-none"
-              style={{ left: `${m.pos * 100}%`, width: 28, height: 44 }}
+              style={{
+                left: `${m.pos * 100}%`,
+                width: 28,
+                height: 44,
+              }}
               aria-hidden
             >
               <span

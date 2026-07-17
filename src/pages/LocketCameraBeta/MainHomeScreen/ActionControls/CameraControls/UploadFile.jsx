@@ -12,17 +12,13 @@ const UploadFile = () => {
   const resetMedia = usePostStore((s) => s.resetMedia);
   const setImageToCrop = usePostStore((s) => s.setImageToCrop);
   const setVideoToCrop = usePostStore((s) => s.setVideoToCrop);
+
+  const setMediaFromFile = usePostStore((s) => s.setMediaFromFile);
   const applyNewMediaFile = useMomentDraftStore((s) => s.applyNewMediaFile);
-  const hasDraft = useMomentDraftStore((s) => s.hasDraft);
-  const showRestoreModal = useMomentDraftStore((s) => s.showRestoreModal);
-  const openRestoreModal = useMomentDraftStore((s) => s.openRestoreModal);
-  const selectedFile = usePostStore((s) => s.selectedFile);
-  const preview = usePostStore((s) => s.preview);
 
-  const { setCameraActive } = camera;
-  const studioEmpty = !selectedFile && !preview?.data;
-  const showDraftDot = hasDraft && studioEmpty && !showRestoreModal;
+  const { cameraActive, setCameraActive } = camera;
 
+  //Handle tải file
   const handleFileChange = useCallback(async (event) => {
     setCameraActive(false);
 
@@ -39,10 +35,12 @@ const UploadFile = () => {
       return;
     }
 
+    // Gate replace-draft before wiping studio
     const proceed = await useMomentDraftStore
       .getState()
       .requestReplaceOrContinue(rawFile);
     if (!proceed) {
+      // Prompt open — do not reset yet
       event.target.value = "";
       return;
     }
@@ -51,6 +49,7 @@ const UploadFile = () => {
 
     if (fileType === "image") {
       setImageToCrop(rawFile);
+      // Crop flow will setMediaFromFile later → autosave via store subscribe
       return;
     }
     if (fileType === "video") {
@@ -58,15 +57,7 @@ const UploadFile = () => {
       return;
     }
     await applyNewMediaFile(rawFile);
-  }, [applyNewMediaFile, resetMedia, setCameraActive, setImageToCrop, setVideoToCrop, t]);
-
-  const handleLibraryClick = (e) => {
-    // Long-press alternative: if draft exists, second intent via title — badge opens restore
-    if (showDraftDot && e.detail === 2) {
-      e.preventDefault();
-      openRestoreModal();
-    }
-  };
+  }, []);
 
   return (
     <>
@@ -79,44 +70,11 @@ const UploadFile = () => {
       />
       <label
         htmlFor="file-upload"
-        className="cameraSideBtn"
-        aria-label={
-          showDraftDot
-            ? t("home.upload_library_with_draft", {
-                defaultValue: "Thư viện · có bản nháp",
-              })
-            : t("home.upload_library", { defaultValue: "Thư viện" })
-        }
-        title={
-          showDraftDot
-            ? t("home.draft_hint", {
-                defaultValue: "Chạm để chọn ảnh · Double-tap mở bản nháp",
-              })
-            : t("home.upload_library", { defaultValue: "Thư viện" })
-        }
-        onClick={handleLibraryClick}
+        className="pillSideBtn"
+        aria-label={t("home.upload_library", { defaultValue: "Thư viện" })}
+        title={t("home.upload_library", { defaultValue: "Thư viện" })}
       >
         <ImageUp size={24} strokeWidth={2} />
-        {showDraftDot ? (
-          <span
-            className="cameraDraftDot"
-            role="button"
-            tabIndex={0}
-            aria-label={t("home.open_draft", { defaultValue: "Mở bản nháp" })}
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              openRestoreModal();
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                e.stopPropagation();
-                openRestoreModal();
-              }
-            }}
-          />
-        ) : null}
       </label>
     </>
   );

@@ -1,27 +1,47 @@
 import React from "react";
-import { ChevronDown, Images } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-const HistoryArrow = ({ setIsBottomOpen, isOpen = false }) => {
+const HistoryArrow = ({ setIsBottomOpen }) => {
   const { t } = useTranslation("main");
 
+  const handleClick = () => {
+    setIsBottomOpen(true);
+  };
+
   return (
-    <button
-      type="button"
-      className="historyChip"
-      onClick={() => setIsBottomOpen(true)}
-      aria-label={t("home.history")}
-      aria-expanded={isOpen}
-    >
-      <Images size={18} strokeWidth={2.2} aria-hidden />
-      <span>{t("home.history")}</span>
-      <ChevronDown
-        size={18}
-        strokeWidth={2.5}
-        className={isOpen ? "rotate-180" : ""}
-        aria-hidden
-      />
-    </button>
+    <>
+      <div className={`flex flex-col items-center select-none`}>
+        <button
+          className="flex flex-col items-center cursor-pointer transition-transform hover:scale-105 active:scale-95"
+          onClick={handleClick}
+        >
+          <div className="flex items-center justify-center space-x-2 mb-1">
+            {/* <div className="bg-accent text-base-content font-semibold px-[9px] py-0.5 rounded-lg shadow-md">
+          {recentPosts.length}
+        </div> */}
+            <span className="text-xl font-semibold text-base-content">
+              {t("home.history")}
+            </span>
+          </div>
+          <svg
+            width="40"
+            height="40"
+            viewBox="0 0 40 40"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            className=""
+          >
+            <path
+              d="M4 8l17 7l17-7"
+              stroke="currentColor"
+              strokeWidth="4"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </button>
+      </div>
+    </>
   );
 };
 

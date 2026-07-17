@@ -39,7 +39,7 @@ const CameraToggleIOS = () => {
   return (
     <button
       type="button"
-      className="cameraSideBtn"
+      className="pillSideBtn"
       onClick={handleRotateCamera}
       aria-label="Đổi camera"
       title="Đổi camera"

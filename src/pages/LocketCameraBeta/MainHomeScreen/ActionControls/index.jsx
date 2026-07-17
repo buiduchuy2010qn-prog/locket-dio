@@ -1,4 +1,5 @@
 import React from "react";
+import "./styles.css";
 import UploadFile from "./CameraControls/UploadFile";
 import CameraButton from "./CameraControls/CameraButton";
 import CameraToggle from "./CameraControls/CameraToggle";
@@ -6,67 +7,83 @@ import CameraToggle from "./CameraControls/CameraToggle";
 import SendButton from "./MediaControls/SendButton";
 import DelButton from "./MediaControls/DelButton";
 import OverlayButton from "./MediaControls/OverlayButton";
-import { usePostStore } from "@/stores";
+import DraftButton from "./MediaControls/DraftButton";
+import { useMomentDraftStore, usePostStore } from "@/stores";
 
 /**
- * Capture row — 3 equal columns, shutter dead-center.
- * No glass pill bar; draft badge lives on Library icon.
+ * Floating control pill — 3-column grid (1fr | auto | 1fr).
+ * Center column is always true horizontal center of the bar.
  */
 const ActionControls = () => {
   const selectedFile = usePostStore((s) => s.selectedFile);
   const preview = usePostStore((s) => s.preview);
+  const hasDraft = useMomentDraftStore((s) => s.hasDraft);
+  const showRestoreModal = useMomentDraftStore((s) => s.showRestoreModal);
+
   const hasFile = !!(selectedFile || preview);
+  const showDraftChip = !hasFile && hasDraft && !showRestoreModal;
 
   return (
-    <div className="captureControls" data-action-controls="true">
-      {/* Left: library | delete */}
-      <div className="captureControlsCol" data-action-left="true">
-        <div
-          className={`captureSlot ${!hasFile ? "is-active" : "is-idle"}`}
-          aria-hidden={hasFile}
-        >
-          <UploadFile />
-        </div>
-        <div
-          className={`captureSlot ${hasFile ? "is-active" : "is-idle"}`}
-          aria-hidden={!hasFile}
-        >
-          <DelButton />
-        </div>
-      </div>
-
-      {/* Center: shutter | send */}
+    <div
+      className="w-full flex justify-center px-2"
+      data-action-controls="true"
+    >
       <div
-        className="captureControlsCol captureControlsColCenter"
-        data-capture-center="true"
+        className="cameraControlPill"
+        data-camera-control-pill="true"
+        data-action-bar="true"
+        data-has-media={hasFile ? "true" : "false"}
       >
-        <div
-          className={`captureSlot ${!hasFile ? "is-active" : "is-idle"}`}
-          aria-hidden={hasFile}
-        >
-          <CameraButton />
+        {/* Left: library (+ draft)  |  delete after capture */}
+        <div className="actionBarCol actionBarColLeft" data-action-left="true">
+          <div
+            className={`actionBarSlot ${!hasFile ? "is-active" : "is-idle"}`}
+            aria-hidden={hasFile}
+          >
+            <UploadFile />
+            {showDraftChip ? <DraftButton /> : null}
+          </div>
+          <div
+            className={`actionBarSlot ${hasFile ? "is-active" : "is-idle"}`}
+            aria-hidden={!hasFile}
+          >
+            <DelButton />
+          </div>
         </div>
-        <div
-          className={`captureSlot ${hasFile ? "is-active" : "is-idle"}`}
-          aria-hidden={!hasFile}
-        >
-          <SendButton />
-        </div>
-      </div>
 
-      {/* Right: flip | effects */}
-      <div className="captureControlsCol" data-action-right="true">
+        {/* Center: shutter  |  send — grid auto column keeps true center */}
         <div
-          className={`captureSlot ${!hasFile ? "is-active" : "is-idle"}`}
-          aria-hidden={hasFile}
+          className="actionBarCol actionBarColCenter"
+          data-capture-center="true"
         >
-          <CameraToggle />
+          <div
+            className={`actionBarSlot ${!hasFile ? "is-active" : "is-idle"}`}
+            aria-hidden={hasFile}
+          >
+            <CameraButton />
+          </div>
+          <div
+            className={`actionBarSlot ${hasFile ? "is-active" : "is-idle"}`}
+            aria-hidden={!hasFile}
+          >
+            <SendButton />
+          </div>
         </div>
-        <div
-          className={`captureSlot ${hasFile ? "is-active" : "is-idle"}`}
-          aria-hidden={!hasFile}
-        >
-          <OverlayButton />
+
+        {/* Right: flip  |  effects after capture */}
+        <div className="actionBarCol actionBarColRight" data-action-right="true">
+          <div
+            className={`actionBarSlot ${!hasFile ? "is-active" : "is-idle"}`}
+            aria-hidden={hasFile}
+          >
+            <CameraToggle />
+          </div>
+          <div
+            className={`actionBarSlot ${hasFile ? "is-active" : "is-idle"}`}
+            aria-hidden={!hasFile}
+          >
+            <OverlayButton />
+          </div>
         </div>
       </div>
     </div>

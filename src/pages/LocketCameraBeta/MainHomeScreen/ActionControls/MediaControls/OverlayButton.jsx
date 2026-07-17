@@ -9,7 +9,7 @@ const OverlayButton = () => {
   return (
     <button
       type="button"
-      className="cameraSideBtn"
+      className="pillSideBtn"
       onClick={() => {
         setIsFilterOpen(true);
       }}

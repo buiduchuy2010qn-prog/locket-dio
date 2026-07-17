@@ -182,13 +182,13 @@ const SendButton = () => {
   };
 
   const toneClass = hasNoData
-    ? "sendButton--warn cameraSendBtn--warn"
+    ? "sendButton--warn"
     : isTooBig
-      ? "sendButton--overLimit cameraSendBtn--overLimit"
+      ? "sendButton--overLimit"
       : isSuccess
-        ? "sendButton--success cameraSendBtn--success"
+        ? "sendButton--success"
         : uploadLoading
-          ? "sendButton--loading cameraSendBtn--loading"
+          ? "sendButton--loading"
           : "";
 
   return (
@@ -198,7 +198,7 @@ const SendButton = () => {
       disabled={uploadLoading || isSuccess}
       aria-label="Đăng bài"
       aria-busy={uploadLoading || undefined}
-      className={`sendButton cameraSendBtn ${toneClass}`.trim()}
+      className={`sendButton ${toneClass}`.trim()}
       data-send-button="true"
     >
       <UploadStatusIcon

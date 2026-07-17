@@ -1815,7 +1815,7 @@ const MediaPreviewAndroid = () => {
           onTouchEnd(e);
         }}
         onClick={onFrameClick}
-        className="cameraPreview"
+        className="relative w-full max-w-md aspect-square bg-gray-800 rounded-[65px] overflow-hidden transition-transform duration-500"
         style={{
           // Prevent browser page-zoom while pinching camera
           touchAction: preview || selectedFile ? "auto" : "none",
@@ -1872,21 +1872,60 @@ const MediaPreviewAndroid = () => {
 
         {showCameraUi && (
           <>
-            {/* Torch — top-left of preview */}
-            <div className="absolute top-5 left-5 sm:top-6 sm:left-6 z-30 pointer-events-none">
+            {/* Torch top-left area — zoom badge sits beside it */}
+            <div className="absolute top-7 left-7 z-30 pointer-events-none flex items-center gap-2">
               <button
                 onClick={handleToggleTorch}
                 data-no-focus
-                className="previewChip pointer-events-auto"
-                aria-label="Flash"
+                className="pointer-events-auto w-7 h-7 p-1.5 rounded-full bg-white/30 backdrop-blur-md flex items-center justify-center"
               >
-                <img
-                  src="/icons/bolt.fill.png"
-                  alt=""
-                  className="w-5 h-5"
-                />
+                <img src="/icons/bolt.fill.png" alt="Flash" />
               </button>
             </div>
+
+            {/* ONLY zoom indicator: top-right of camera frame (never top-left / caption) */}
+            {showZoomUi && (
+              <div className="absolute top-7 right-7 z-30 pointer-events-none">
+                <div
+                  className="min-w-[2.5rem] h-7 px-2.5 rounded-full flex items-center justify-center
+                    text-[11px] font-semibold tracking-wide text-white
+                    bg-white/20 backdrop-blur-md border border-white/25 shadow-sm"
+                  data-zoom-badge="true"
+                  style={{ textShadow: "0 1px 2px rgba(0,0,0,0.35)" }}
+                >
+                  {(() => {
+                    // Always prefer displayZoom (instant). Round only for label.
+                    // Never call getSettings during pinch/slider gestures.
+                    const n = Number(currentZoom);
+                    if ((cameraMode || "environment") === "user") {
+                      return updateZoomBadge(
+                        Number.isFinite(n) && n >= 1 ? n : 1,
+                      );
+                    }
+                    if (
+                      zoomGestureActiveRef.current ||
+                      isPinching ||
+                      pinchingRef.current
+                    ) {
+                      return updateZoomBadge(
+                        Number.isFinite(n) && n > 0 ? n : 1,
+                      );
+                    }
+                    // Idle: still show displayZoom first; soft UW label if needed
+                    if (
+                      isWideZoomMode(activeZoomMode) &&
+                      (!Number.isFinite(n) || n >= 0.98) &&
+                      availableZoomModes?.ultraFactor == null
+                    ) {
+                      return "UW";
+                    }
+                    return updateZoomBadge(
+                      Number.isFinite(n) && n > 0 ? n : 1,
+                    );
+                  })()}
+                </div>
+              </div>
+            )}
 
             {cameraFrame?.imageSrc && (
               <div className="absolute inset-0 z-20 pointer-events-none">
@@ -2065,7 +2104,7 @@ const MediaPreviewAndroid = () => {
               />
             )}
 
-            {/* Zoom badge (collapsed) + rail on interaction */}
+            {/* Single continuous zoom rail — disabled until catalog ready */}
             {showZoomUi &&
               Number(maxZoom) > Number(minZoom) + 0.01 && (
                 <ZoomSlider
@@ -2081,7 +2120,6 @@ const MediaPreviewAndroid = () => {
                     (cameraMode || "environment") !== "user" && !zoomRailReady
                   }
                   visible
-                  forceShow={isPinching || pinchingRef.current}
                   onInputValue={(z) => {
                     if (
                       (cameraMode || "environment") !== "user" &&
