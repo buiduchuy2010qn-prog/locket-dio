@@ -45,7 +45,7 @@ const CameraToggleAndroid = () => {
   return (
     <button
       type="button"
-      className="pillSideBtn"
+      className="cameraSideBtn"
       onClick={handleRotateCamera}
       aria-label="Đổi camera"
       title="Đổi camera"

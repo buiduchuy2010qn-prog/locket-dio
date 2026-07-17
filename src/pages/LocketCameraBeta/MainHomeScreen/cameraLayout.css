@@ -1,0 +1,577 @@
+/* ── Huy Locket camera screen — document flow layout ─────────────── */
+/* Theme-aware: uses daisyUI / base tokens only (no hard-coded black). */
+
+.cameraScreen {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  min-height: 100dvh;
+  max-width: 480px;
+  margin-inline: auto;
+  padding-top: max(8px, env(safe-area-inset-top, 0px));
+  padding-bottom: max(8px, env(safe-area-inset-bottom, 0px));
+  padding-left: max(10px, env(safe-area-inset-left, 0px));
+  padding-right: max(10px, env(safe-area-inset-right, 0px));
+  box-sizing: border-box;
+  color: var(--color-base-content, inherit);
+  transition: transform 0.5s ease;
+}
+
+/* When history/moments panel is open — hide camera column */
+.cameraScreen--history .cameraColumn {
+  display: none;
+}
+
+.cameraScreen--history .historyColumn {
+  display: flex;
+}
+
+.historyColumn {
+  display: none;
+  flex: 1;
+  flex-direction: column;
+  width: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.historyColumnScroll {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-top: 4px;
+  min-height: 0;
+}
+
+/* Main camera column: header → preview → controls → history */
+.cameraColumn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+  gap: 0;
+}
+
+/* ── Header (3-col grid) ─────────────────────────────────────────── */
+
+.cameraHeader {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) 48px;
+  align-items: center;
+  width: 100%;
+  max-width: 430px;
+  min-height: 52px;
+  padding: 4px 4px 8px;
+  box-sizing: border-box;
+  flex-shrink: 0;
+  z-index: 40;
+}
+
+.cameraHeaderSide {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+}
+
+.cameraHeaderCenter {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  padding-inline: 6px;
+}
+
+.cameraHeaderBtn {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  border-radius: 999px;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  color: var(--color-base-content, currentColor);
+  background: color-mix(in srgb, var(--color-base-300, #a8a29e) 70%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  transition: transform 0.12s ease, background 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.cameraHeaderBtn:active {
+  transform: scale(1.05);
+}
+
+.cameraHeaderBtn:hover {
+  background: color-mix(in srgb, var(--color-base-300, #a8a29e) 90%, transparent);
+}
+
+.cameraHeaderFriends {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  max-width: 100%;
+  min-height: 40px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: none;
+  cursor: pointer;
+  font-size: 0.95rem;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--color-base-content, currentColor);
+  background: color-mix(in srgb, var(--color-base-300, #a8a29e) 70%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  transition: transform 0.12s ease, background 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cameraHeaderFriends:active {
+  transform: scale(1.03);
+}
+
+.cameraHeaderFriends span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cameraHeaderAvatar {
+  position: relative;
+  width: 38px;
+  height: 38px;
+  border-radius: 999px;
+  object-fit: cover;
+  display: block;
+}
+
+/* ── Preview ─────────────────────────────────────────────────────── */
+
+.cameraPreviewShell {
+  width: min(calc(100vw - 28px), 430px);
+  max-width: 100%;
+  flex-shrink: 0;
+  margin-inline: auto;
+}
+
+.cameraPreview {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  margin-inline: auto;
+  border-radius: clamp(32px, 10vw, 52px);
+  overflow: hidden;
+  position: relative;
+  background: color-mix(in srgb, var(--color-base-content, #000) 12%, transparent);
+  transition: transform 0.4s ease;
+}
+
+/* ── Capture controls row ────────────────────────────────────────── */
+
+.captureControls {
+  width: min(calc(100vw - 40px), 360px);
+  max-width: 100%;
+  margin-inline: auto;
+  margin-top: 16px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  align-items: center;
+  justify-items: center;
+  min-height: 88px;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 20;
+}
+
+.captureControlsCol {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 88px;
+  position: relative;
+}
+
+.captureControlsColCenter {
+  width: 100%;
+}
+
+/* Side action buttons (library / flip / delete / effects) */
+.cameraSideBtn {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  min-width: 48px;
+  min-height: 48px;
+  border-radius: 999px;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  margin: 0;
+  color: var(--color-base-content, currentColor);
+  background: color-mix(in srgb, var(--color-base-300, #a8a29e) 55%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  transition: transform 0.12s ease, opacity 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  line-height: 0;
+  position: relative;
+}
+
+.cameraSideBtn:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
+.cameraSideBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.cameraSideBtn svg {
+  width: 24px;
+  height: 24px;
+  display: block;
+}
+
+label.cameraSideBtn {
+  margin: 0;
+}
+
+/* Draft badge on library */
+.cameraDraftDot {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: #fbbf24;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-base-100, #fff) 80%, transparent);
+  pointer-events: none;
+}
+
+/* Capture shutter */
+.cameraShutter {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 88px;
+  height: 88px;
+  min-width: 88px;
+  min-height: 88px;
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  border-radius: 999px;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.cameraShutterRing {
+  position: absolute;
+  width: 80px;
+  height: 80px;
+  border-radius: 999px;
+  box-shadow: 0 0 0 5px var(--color-primary, currentColor);
+  color: color-mix(in srgb, var(--color-base-content, #fff) 90%, transparent);
+  pointer-events: none;
+}
+
+.cameraShutterCore {
+  position: absolute;
+  width: 66px;
+  height: 66px;
+  border-radius: 999px;
+  background: var(--color-base-100, #fff);
+  transition: transform 0.15s ease, opacity 0.15s ease;
+  pointer-events: none;
+}
+
+.cameraShutter.is-holding .cameraShutterCore {
+  transform: scale(0.78);
+  opacity: 0.9;
+}
+
+.cameraShutter.is-holding .cameraShutterRing {
+  animation: cameraShutterPulse 1s infinite ease-in-out;
+}
+
+@keyframes cameraShutterPulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 5px var(--color-primary, currentColor);
+    opacity: 0.85;
+  }
+  50% {
+    box-shadow: 0 0 0 7px var(--color-primary, currentColor);
+    opacity: 1;
+  }
+}
+
+/* Post-capture send button */
+.cameraSendBtn {
+  width: 80px;
+  height: 80px;
+  min-width: 80px;
+  min-height: 80px;
+  aspect-ratio: 1 / 1;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--color-base-content, #fff) 25%, transparent);
+  cursor: pointer;
+  padding: 0;
+  background: color-mix(in srgb, var(--color-base-100, #fff) 92%, transparent);
+  color: var(--color-base-content, #141418);
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--color-base-content, #000) 12%, transparent);
+  transition: transform 0.12s ease, opacity 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.cameraSendBtn:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.cameraSendBtn:disabled {
+  opacity: 0.72;
+  cursor: not-allowed;
+}
+
+.cameraSendBtn--loading {
+  background: color-mix(in srgb, var(--color-primary, #60a5fa) 90%, transparent);
+  color: var(--color-primary-content, #fff);
+}
+
+.cameraSendBtn--success {
+  background: color-mix(in srgb, #22c55e 92%, transparent);
+  color: #fff;
+}
+
+.cameraSendBtn--overLimit {
+  background: color-mix(in srgb, #ef4444 92%, transparent);
+  color: #fff;
+}
+
+/* ── History chip ────────────────────────────────────────────────── */
+
+.historyChip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 14px;
+  margin-bottom: 4px;
+  padding: 8px 14px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-base-content, currentColor);
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.12s ease, opacity 0.15s ease;
+  flex-shrink: 0;
+}
+
+.historyChip:active {
+  transform: scale(0.97);
+  opacity: 0.85;
+}
+
+.historyChip svg {
+  flex-shrink: 0;
+}
+
+/* ── Bottom navigation (camera + history) ────────────────────────── */
+
+.cameraBottomNav {
+  width: min(calc(100vw - 28px), 400px);
+  max-width: 100%;
+  margin-top: auto;
+  margin-inline: auto;
+  margin-bottom: max(6px, env(safe-area-inset-bottom, 0px));
+  padding: 8px 10px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  align-items: center;
+  gap: 4px;
+  border-radius: 999px;
+  flex-shrink: 0;
+  z-index: 50;
+  box-sizing: border-box;
+
+  background: color-mix(in srgb, var(--color-base-200, #e5e5e5) 72%, transparent);
+  backdrop-filter: blur(20px) saturate(150%);
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+  border: 1px solid color-mix(in srgb, var(--color-base-content, #000) 10%, transparent);
+  box-shadow: 0 8px 28px color-mix(in srgb, var(--color-base-content, #000) 10%, transparent);
+}
+
+.cameraBottomNavBtn {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  min-height: 48px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-base-content, currentColor);
+  cursor: pointer;
+  padding: 8px;
+  transition: background 0.15s ease, transform 0.12s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.cameraBottomNavBtn:active {
+  transform: scale(0.96);
+}
+
+.cameraBottomNavBtn.is-active {
+  background: color-mix(in srgb, var(--color-primary, #a78bfa) 28%, transparent);
+  color: var(--color-primary, inherit);
+}
+
+.cameraBottomNavBtn.is-active .cameraBottomNavHomeDot {
+  background: var(--color-base-100, #fff);
+  box-shadow: 0 0 0 3px var(--color-primary, currentColor);
+}
+
+.cameraBottomNavHomeDot {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-base-content, #000) 18%, transparent);
+  transition: box-shadow 0.15s ease, background 0.15s ease;
+}
+
+/* ── In-preview glass chips (flash / zoom) ───────────────────────── */
+
+.previewChip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--color-base-content, #fff) 22%, transparent);
+  background: color-mix(in srgb, var(--color-base-300, #000) 35%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  color: var(--color-base-content, #fff);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.previewChip:active {
+  transform: scale(0.96);
+}
+
+/* ── Zoom gesture surface ────────────────────────────────────────── */
+
+.zoomGestureSurface {
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* ── Capture ↔ post-capture slots ────────────────────────────────── */
+
+.captureSlot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.25s ease;
+}
+
+.captureSlot.is-idle {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.captureSlot.is-active {
+  position: relative;
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* ── Responsive tweaks ───────────────────────────────────────────── */
+
+@media (max-width: 360px) {
+  .cameraPreviewShell {
+    width: min(calc(100vw - 20px), 430px);
+  }
+
+  .captureControls {
+    width: min(calc(100vw - 28px), 360px);
+    margin-top: 12px;
+    min-height: 80px;
+  }
+
+  .cameraShutter {
+    width: 80px;
+    height: 80px;
+    min-width: 80px;
+    min-height: 80px;
+  }
+
+  .cameraShutterRing {
+    width: 72px;
+    height: 72px;
+  }
+
+  .cameraShutterCore {
+    width: 58px;
+    height: 58px;
+  }
+
+  .historyChip {
+    margin-top: 10px;
+    font-size: 0.95rem;
+  }
+}
+
+@media (max-height: 700px) {
+  .cameraPreviewShell {
+    width: min(calc(100vw - 40px), min(430px, 52dvh));
+  }
+
+  .captureControls {
+    margin-top: 10px;
+    min-height: 76px;
+  }
+
+  .historyChip {
+    margin-top: 8px;
+  }
+}
+
+@media (min-width: 768px) {
+  .cameraScreen {
+    max-width: 430px;
+  }
+}
