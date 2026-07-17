@@ -107,17 +107,40 @@ const RightHomeScreen = ({ setIsHomeOpen }) => {
     }
   };
 
-  const handleCreateGroup = useCallback((newGroup) => {
-    if (!newGroup?.id) return;
-    // Đảm bảo group mới luôn có last_updated_at để sort đúng và hiện lên đầu list
-    const enriched = {
-      ...newGroup,
-      last_updated_at: newGroup.last_updated_at || Date.now(),
-    };
-    upsertGroup(enriched);
-    // Hydrate members ngay để GroupConversationItem render đúng tên/avatar
-    hydrateMembersFromGroups([enriched]);
-  }, [upsertGroup, hydrateMembersFromGroups]);
+  const handleCreateGroup = useCallback(
+    async (newGroup) => {
+      if (!newGroup?.id) return;
+      // Đảm bảo group mới luôn có last_updated_at để sort đúng và hiện lên đầu list
+      const enriched = {
+        ...newGroup,
+        last_updated_at: newGroup.last_updated_at || Date.now(),
+      };
+      upsertGroup(enriched);
+      // Hydrate members ngay để GroupConversationItem render đúng tên/avatar
+      hydrateMembersFromGroups([enriched]);
+
+      // Mở chat nhóm ngay sau khi tạo
+      const chat = {
+        id: enriched.id,
+        type: "group",
+        name: enriched.name,
+        avatar: enriched.image_url,
+        latestMessage: "",
+        unreadCount: 0,
+        isRead: true,
+        updatedAt: enriched.last_updated_at,
+        raw: enriched,
+      };
+      setSelectedChat(chat);
+      setOpenConversation(true);
+      try {
+        await fetchGroupMessages(enriched.id);
+      } catch {
+        /* non-blocking — list/messages will load on next open */
+      }
+    },
+    [upsertGroup, hydrateMembersFromGroups, fetchGroupMessages],
+  );
 
   // ── Load more conversations ──
   const handleLoadMore = () => {

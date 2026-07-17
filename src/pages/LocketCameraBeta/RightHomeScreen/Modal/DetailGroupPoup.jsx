@@ -175,7 +175,18 @@ const DetailGroupPoup = ({
     }
   };
 
+  // Locket: group id is typically "{ownerUid}-…"; no transfer-ownership API in client
+  const isGroupOwner = Boolean(
+    myUserId && group?.id && String(group.id).startsWith(`${myUserId}-`),
+  );
+
   const handleLeaveGroup = async () => {
+    if (isGroupOwner) {
+      SonnerInfo(t("right.owner_cannot_leave"));
+      setOpenLeaveModal(false);
+      return;
+    }
+
     setLoadingAction("leave");
 
     try {
@@ -303,14 +314,29 @@ const DetailGroupPoup = ({
 
             <div className="divider my-0 opacity-30" />
 
-            {/* Leave group */}
+            {/* Leave group — owner blocked (no transfer API on Locket client) */}
             <button
-              onClick={() => setOpenLeaveModal(true)}
+              onClick={() => {
+                if (isGroupOwner) {
+                  SonnerInfo(t("right.owner_cannot_leave"));
+                  return;
+                }
+                setOpenLeaveModal(true);
+              }}
               className="flex items-center gap-3 w-full py-2 hover:bg-error/10 rounded-lg transition-colors"
             >
               <Undo2 size={18} className="text-error" />
-              <span className="font-medium text-error">{t("right.leave_group")}</span>
+              <span className="font-medium text-error">
+                {isGroupOwner
+                  ? t("right.leave_group_owner_label")
+                  : t("right.leave_group")}
+              </span>
             </button>
+            {isGroupOwner ? (
+              <p className="text-[11px] text-base-content/50 px-1">
+                {t("right.owner_cannot_leave_hint")}
+              </p>
+            ) : null}
           </div>
 
           {/* Search input */}
