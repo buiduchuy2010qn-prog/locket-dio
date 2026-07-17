@@ -139,9 +139,11 @@ const HeaderHome = ({
           </div>
 
           <button
+            type="button"
+            data-friends-pill="true"
             className="absolute flex z-90 transition-all justify-center items-center flex-row gap-1 left-1/2 
-          transform -translate-x-1/2 text-lg font-semibold bg-base-300/70 backdrop-blur-[4px] 
-          hover:bg-base-300 active:scale-105 px-3 py-2 rounded-3xl select-none"
+          -translate-x-1/2 text-lg font-semibold bg-base-300/70 backdrop-blur-[4px] 
+          hover:bg-base-300 px-3 py-2 rounded-3xl select-none"
             onClick={toggleDropdown}
           >
             {isBottomOpen ? (

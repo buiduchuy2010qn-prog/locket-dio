@@ -255,14 +255,10 @@ html[data-theme="glass"] body:has([data-locket-camera]) {
   background-attachment: scroll !important;
 }
 
-/* Shared glass surface — ONE blur layer, reused via selectors */
+/* Shared glass look — do NOT force position:relative on header absolute pill */
 .glassSurface,
 html[data-theme="glass"] .cameraControlPill,
-html[data-theme="glass"] .cameraBottomNav,
-html[data-theme="glass"] [data-zoom-badge="true"] > div,
-html[data-theme="glass"] [data-zoom-slider] .previewChip,
-html[data-theme="glass"] button.bg-base-300\/70,
-html[data-theme="glass"] .bg-base-300\/70 {
+html[data-theme="glass"] .cameraBottomNav {
   position: relative;
   isolation: isolate;
   overflow: hidden;
@@ -277,6 +273,22 @@ html[data-theme="glass"] .bg-base-300\/70 {
   border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.72)) !important;
   box-shadow: var(--glass-shadow) !important;
 
+  backdrop-filter: blur(16px) saturate(145%);
+  -webkit-backdrop-filter: blur(16px) saturate(145%);
+}
+
+/* Glass chrome look without stealing layout position */
+html[data-theme="glass"] [data-zoom-badge="true"] > div,
+html[data-theme="glass"] [data-zoom-slider] .previewChip {
+  isolation: isolate;
+  background:
+    linear-gradient(
+      145deg,
+      rgba(255, 255, 255, 0.66),
+      rgba(255, 255, 255, 0.30)
+    ) !important;
+  border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.72)) !important;
+  box-shadow: var(--glass-shadow) !important;
   backdrop-filter: blur(16px) saturate(145%);
   -webkit-backdrop-filter: blur(16px) saturate(145%);
 }
@@ -342,9 +354,22 @@ html[data-theme="glass"] .glassButtonActive {
     inset 0 1px 0 rgba(255, 255, 255, 0.95) !important;
 }
 
-/* Friends pill — glass surface */
-html[data-theme="glass"] header button.rounded-3xl,
+/*
+ * Friends pill MUST stay absolutely centered (left-1/2 -translate-x-1/2).
+ * Never set position:relative here — that was pushing "N người bạn" to the side.
+ */
+html[data-theme="glass"] header button[data-friends-pill="true"],
+html[data-theme="glass"] header button.absolute.rounded-3xl,
+html[data-theme="glass"] header button.absolute.left-1\/2,
 html[data-theme="glass"] .cameraHeaderFriends {
+  position: absolute !important;
+  left: 50% !important;
+  right: auto !important;
+  top: auto !important;
+  transform: translateX(-50%) !important;
+  z-index: 90 !important;
+  margin: 0 !important;
+
   background:
     linear-gradient(
       145deg,
@@ -358,14 +383,30 @@ html[data-theme="glass"] .cameraHeaderFriends {
   color: var(--text-primary) !important;
 }
 
-/* Header round buttons — glass chrome (one blur each, not nested in a bar) */
-html[data-theme="glass"] header .w-11.h-11.rounded-full,
+html[data-theme="glass"] header button[data-friends-pill="true"]:active,
+html[data-theme="glass"] header button.absolute.rounded-3xl:active,
+html[data-theme="glass"] header button.absolute.left-1\/2:active {
+  /* keep horizontal center when pressing — only scale */
+  transform: translateX(-50%) scale(1.03) !important;
+}
+
+/* Header round buttons (avatar frame / chat / menu) — not the centered pill */
+html[data-theme="glass"] header .w-11.h-11.rounded-full:not(.absolute),
 html[data-theme="glass"] .cameraHeaderBtn {
   background: rgba(255, 255, 255, 0.46) !important;
   border: 1px solid rgba(255, 255, 255, 0.55) !important;
   backdrop-filter: blur(14px) saturate(140%) !important;
   -webkit-backdrop-filter: blur(14px) saturate(140%) !important;
   box-shadow: 0 6px 16px rgba(31, 44, 61, 0.1) !important;
+}
+
+/* Avatar outer glass disc — keep behind avatar image */
+html[data-theme="glass"] header .bg-base-300\/70.rounded-full.absolute {
+  position: absolute !important;
+  background: rgba(255, 255, 255, 0.5) !important;
+  border: 1px solid rgba(255, 255, 255, 0.6) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
 }
 
 /* Capture shutter — solid / strong glass, clear accent ring */
