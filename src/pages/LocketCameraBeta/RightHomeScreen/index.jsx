@@ -192,20 +192,29 @@ const RightHomeScreen = ({ setIsHomeOpen }) => {
       />
 
       {/* ================= ConversationWithUser ================= */}
+      {/* Chỉ mở DM khi chat 1-1 — tránh header "Chi tiết cuộc trò" chồng lên group */}
       <ConversationWithUser
-        selectedChat={selectedChat?.type !== "group" ? selectedChat : null}
-        isOpenConvesation={isOpenConvesation}
+        selectedChat={selectedChat?.type === "with-user" ? selectedChat : null}
+        isOpenConvesation={
+          isOpenConvesation && selectedChat?.type === "with-user"
+        }
         setOpenConversation={setOpenConversation}
-        messages={messagesByConversation}
+        messages={
+          selectedChat?.type === "with-user" ? messagesByConversation : []
+        }
         setSelectedChat={setSelectedChat}
       />
 
       {/* ================= ConversationWithGroup ================= */}
       <ConversationWithGroup
         selectedChat={selectedChat?.type === "group" ? selectedChat : null}
-        isOpenConvesation={selectedChat?.type === "group" ? isOpenConvesation : false}
+        isOpenConvesation={
+          isOpenConvesation && selectedChat?.type === "group"
+        }
         setOpenConversation={setOpenConversation}
-        messages={messagesByConversation}
+        messages={
+          selectedChat?.type === "group" ? messagesByConversation : []
+        }
         setSelectedChat={setSelectedChat}
       />
     </>

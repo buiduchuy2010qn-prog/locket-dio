@@ -76,8 +76,8 @@ const ConversationWithGroup = ({
           },
         )}
       >
-        {/* Header */}
-        <div className="sticky top-0 z-10">
+        {/* Header — bg opaque để không lộ panel khác phía dưới */}
+        <div className="sticky top-0 z-10 bg-base-100">
           <HeaderGroupChatDetail
             selectedChat={selectedChat}
             members={members}
@@ -136,11 +136,11 @@ const ConversationWithGroup = ({
       <DetailGroupPoup
         open={showInfoModal}
         onClose={() => setShowInfoModal(false)}
-        group={selectedChat.raw}
+        group={selectedChat?.raw}
         members={members}
         onConfirm={() => {
           setShowInfoModal(false);
-          onBack();
+          setOpenConversation(false);
         }}
       />
     </>
