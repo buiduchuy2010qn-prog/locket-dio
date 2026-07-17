@@ -1,10 +1,10 @@
 import React from "react";
 import "./SquareProgress.css"
-import { useApp } from "@/context/AppContext";
+import { useAppCamera } from "@/context/AppContext";
 import { getVideoRecordLimit } from "@/hooks/useFeature";
 
 const BorderProgress = () => {
-  const { camera } = useApp();
+  const camera = useAppCamera();
   const { isHolding, setIsHolding } = camera;
   const MAX_RECORD_TIME = getVideoRecordLimit();
 

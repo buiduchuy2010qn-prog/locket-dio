@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { useApp } from "@/context/AppContext";
+import { useAppNavigation } from "@/context/AppContext";
 import HeaderOne from "./Layout/HeaderOne";
 import InfoUser from "./Layout/InfoUser";
 import WatermarkMenuItem from "./Layout/WatermarkMenuItem";
@@ -10,7 +10,7 @@ import { useAuthStore, useUploadQueueStore } from "@/stores";
 
 const LeftHomeScreen = ({ setIsProfileOpen }) => {
   const { user } = useAuthStore();
-  const { navigation } = useApp();
+  const navigation = useAppNavigation();
   const { isProfileOpen } = navigation;
   const [posts, setPosts] = useState([]);
 

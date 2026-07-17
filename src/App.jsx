@@ -143,14 +143,30 @@ function AppContent() {
   }, [isAuth, loading, location.pathname, navigate]);
 
   useEffect(() => {
-    if (user) {
+    if (!user) return;
+    // Defer secondary data so camera first paint isn't blocked
+    let cancelled = false;
+    const run = () => {
+      if (cancelled) return;
       // Force sync lần đầu sau login (tránh list rỗng do cache)
       fetchAndSyncFriends(false, true);
       syncStreak();
       hydrateUploadQueue();
       fetchConversations();
       fetchAndSyncGroups();
+    };
+    let cancelIdle = () => {};
+    if (typeof requestIdleCallback === "function") {
+      const id = requestIdleCallback(run, { timeout: 1800 });
+      cancelIdle = () => cancelIdleCallback(id);
+    } else {
+      const t = setTimeout(run, 200);
+      cancelIdle = () => clearTimeout(t);
     }
+    return () => {
+      cancelled = true;
+      cancelIdle();
+    };
   }, [user]);
 
   useEffect(() => {

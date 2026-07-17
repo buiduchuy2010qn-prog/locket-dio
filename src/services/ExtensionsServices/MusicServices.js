@@ -352,17 +352,55 @@ function rankTracksByQuery(query, tracks, limit = 40) {
     .slice(0, limit);
 }
 
-/** Tìm nhạc theo tên — full catalog qua API server (Deezer ISRC + iTunes + Spotify) */
-export const searchMusicByQuery = async (query, limit = 30) => {
+/** Short-lived client cache — avoids duplicate in-flight search while typing */
+const searchCache = new Map();
+const SEARCH_CACHE_TTL_MS = 45_000;
+const SEARCH_CACHE_MAX = 40;
+
+function searchCacheKey(q, limit) {
+  return `${q.toLowerCase()}|${limit}`;
+}
+
+function getCachedSearch(key) {
+  const hit = searchCache.get(key);
+  if (!hit) return null;
+  if (Date.now() - hit.at > SEARCH_CACHE_TTL_MS) {
+    searchCache.delete(key);
+    return null;
+  }
+  return hit.list;
+}
+
+function setCachedSearch(key, list) {
+  searchCache.set(key, { at: Date.now(), list });
+  if (searchCache.size > SEARCH_CACHE_MAX) {
+    const first = searchCache.keys().next().value;
+    if (first != null) searchCache.delete(first);
+  }
+}
+
+/**
+ * Tìm nhạc theo tên — full catalog qua API server (Deezer ISRC + iTunes + Spotify).
+ * @param {string} query
+ * @param {number} [limit=30]
+ * @param {{ signal?: AbortSignal }} [options] — cancel stale typeahead
+ */
+export const searchMusicByQuery = async (query, limit = 30, options = {}) => {
   const q = String(query || "").trim();
   if (!q) return [];
+  const signal = options?.signal;
+  const fetchLimit = Math.min(50, Math.max(Number(limit) || 30, 25));
+  const key = searchCacheKey(q, fetchLimit);
+  const cached = getCachedSearch(key);
+  if (cached) return cached.slice(0, fetchLimit);
+
   try {
-    const fetchLimit = Math.min(50, Math.max(Number(limit) || 30, 25));
     const res = await api.post(
       "/api/searchMusic",
       { query: q, limit: fetchLimit },
-      { timeout: 45000, skipErrorToast: true },
+      { timeout: 45000, skipErrorToast: true, signal },
     );
+    if (signal?.aborted) return [];
     if (res?.data?.status === "success" && Array.isArray(res.data.data)) {
       const list = res.data.data;
       // Soft re-rank — giữ list server nếu filter rỗng (tìm artist)
@@ -380,13 +418,32 @@ export const searchMusicByQuery = async (query, limit = 30) => {
         if (sa !== sb) return sb - sa;
         return 0;
       });
-      return out.slice(0, fetchLimit);
+      const final = out.slice(0, fetchLimit);
+      setCachedSearch(key, final);
+      return final;
     }
     // Một số proxy trả data thuần array
-    if (Array.isArray(res?.data)) return res.data.slice(0, fetchLimit);
-    if (Array.isArray(res?.data?.data)) return res.data.data.slice(0, fetchLimit);
+    if (Array.isArray(res?.data)) {
+      const final = res.data.slice(0, fetchLimit);
+      setCachedSearch(key, final);
+      return final;
+    }
+    if (Array.isArray(res?.data?.data)) {
+      const final = res.data.data.slice(0, fetchLimit);
+      setCachedSearch(key, final);
+      return final;
+    }
     return [];
   } catch (error) {
+    // Abort is expected while typing — not an error
+    if (
+      error?.name === "CanceledError" ||
+      error?.name === "AbortError" ||
+      error?.code === "ERR_CANCELED" ||
+      signal?.aborted
+    ) {
+      return [];
+    }
     console.error("🚨 searchMusicByQuery:", error.message);
     throw error;
   }

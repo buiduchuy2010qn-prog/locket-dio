@@ -1,9 +1,9 @@
 import React, { useRef } from "react";
-import { useApp } from "@/context/AppContext";
+import { useAppCamera } from "@/context/AppContext";
 import { RefreshCcw } from "lucide-react";
 
 const CameraToggleIOS = () => {
-  const { camera } = useApp();
+  const camera = useAppCamera();
   const {
     rotation,
     setRotation,

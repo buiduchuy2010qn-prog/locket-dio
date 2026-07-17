@@ -75,7 +75,7 @@ import {
   resolveUltraBaseZoom,
 } from "@/utils";
 const EditorCaption = lazy(() => import("@/features/EditorCaption"));
-import { useApp } from "@/context/AppContext";
+import { useAppCamera, useAppNavigation } from "@/context/AppContext";
 import BorderProgress from "../../Widgets/SquareProgress";
 import { SonnerInfo } from "@/components/uikit/SonnerToast";
 import { usePostStore, useUIStore } from "@/stores";
@@ -86,7 +86,8 @@ import FocusReticle from "./FocusReticle";
 import CameraDebugPanel from "./CameraDebugPanel";
 
 const MediaPreviewIOS = () => {
-  const { camera, navigation } = useApp();
+  const camera = useAppCamera();
+  const navigation = useAppNavigation();
   const { t } = useTranslation("main");
 
   const selectedFile = usePostStore((s) => s.selectedFile);

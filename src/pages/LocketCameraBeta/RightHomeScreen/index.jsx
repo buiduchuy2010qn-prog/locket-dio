@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { useApp } from "@/context/AppContext";
+import { useAppNavigation } from "@/context/AppContext";
 import { markGroupAsRead, markReadMessage } from "@/services";
 import { CONFIG } from "@/config";
 import { useSocket } from "@/context/SocketContext";
@@ -31,7 +31,7 @@ const INITIAL_DISPLAY_COUNT = CONFIG.ui.chat.initialVisible;
 // ================= Component: RightHomeScreen =================
 const RightHomeScreen = ({ setIsHomeOpen }) => {
   const { user } = useAuthStore();
-  const { navigation } = useApp();
+  const navigation = useAppNavigation();
   const { isHomeOpen } = navigation;
 
   const { socket, isConnected } = useSocket();

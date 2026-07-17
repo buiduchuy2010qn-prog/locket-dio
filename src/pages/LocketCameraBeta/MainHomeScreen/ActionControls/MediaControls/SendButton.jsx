@@ -1,5 +1,5 @@
 import * as services from "@/services";
-import { useApp } from "@/context/AppContext";
+import { useAppNavigation, useAppCamera, useAppLoading } from "@/context/AppContext";
 import { useCallback, useState } from "react";
 import UploadStatusIcon from "./UploadStatusIcon";
 import { getMaxUploads } from "@/hooks/useFeature";
@@ -22,7 +22,9 @@ import { useTranslation } from "react-i18next";
 const SendButton = () => {
   const { t } = useTranslation("main");
   const navigate = useNavigate();
-  const { navigation, useloading, camera } = useApp();
+  const navigation = useAppNavigation();
+  const useloading = useAppLoading();
+  const camera = useAppCamera();
   const { setIsFilterOpen } = navigation;
   const { sendLoading, uploadLoading, setUploadLoading } = useloading;
 

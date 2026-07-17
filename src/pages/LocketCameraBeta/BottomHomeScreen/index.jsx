@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { useApp } from "@/context/AppContext";
+import { useAppNavigation } from "@/context/AppContext";
 import { useSocket } from "@/context/SocketContext";
 import { useAuthStore, useMomentsStoreV2, useSelectedStore } from "@/stores";
 
@@ -13,12 +13,11 @@ const POLL_OFFLINE_MS = isAndroidUA ? 25_000 : 12_000;
 const POLL_ONLINE_MS = isAndroidUA ? 45_000 : 25_000;
 
 const BottomHomeScreen = () => {
-  const { navigation } = useApp();
   const {
     isHomeOpen,
     isBottomOpen,
     isProfileOpen,
-  } = navigation;
+  } = useAppNavigation();
 
   const selectedMoment = useSelectedStore((s) => s.selectedMoment);
   const selectedQueue = useSelectedStore((s) => s.selectedQueue);

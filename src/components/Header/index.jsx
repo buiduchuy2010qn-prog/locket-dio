@@ -1,10 +1,10 @@
 import "./header.css";
 import { Menu } from "lucide-react";
 import { Link } from "react-router-dom";
-import { useApp } from "@/context/AppContext";
+import { useAppNavigation } from "@/context/AppContext";
 
 const Header = () => {
-  const { navigation } = useApp();
+  const navigation = useAppNavigation();
 
   const { setIsSidebarOpen } = navigation;
 

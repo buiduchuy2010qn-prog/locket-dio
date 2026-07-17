@@ -1,11 +1,10 @@
-import React, { lazy, Suspense, useEffect } from "react";
-import { useApp } from "@/context/AppContext";
+import React, { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { useAppNavigation } from "@/context/AppContext";
 import MainHomeScreen from "./MainHomeScreen";
 import { MusicPlayer } from "./Widgets/MusicPlayer";
 import { useOverlayEditorStore, useUIStore } from "@/stores";
 import GlobalReactionEffect from "./Widgets/GlobalReactionEffect";
-// import CropVideoStudio from "./ModalViews/CropVideoStudio";
-// const Snowfall = lazy(() => import("@/components/Effects/SnowBanner"));
+
 const BgHuyLocket = lazy(() => import("@/components/Effects/BgLocketDio"));
 
 const LeftHomeScreen = lazy(() => import("./LeftHomeScreen"));
@@ -19,29 +18,52 @@ const CropVideoStudio = lazy(() => import("@/features/EditorStudio/CropVideoStud
 const OptionMoment = lazy(() => import("@/features/OptionMoment"));
 const WelcomeModal = lazy(() => import("./Widgets/WelcomeModal"));
 
-export default function LocketCameraBeta() {
-  const { navigation, camera } = useApp();
+function idleSchedule(fn) {
+  if (typeof requestIdleCallback === "function") {
+    const id = requestIdleCallback(() => fn(), { timeout: 2500 });
+    return () => cancelIdleCallback(id);
+  }
+  const t = setTimeout(fn, 400);
+  return () => clearTimeout(t);
+}
 
+export default function LocketCameraBeta() {
+  // Navigation only — do NOT subscribe to camera (zoom must not re-render this shell)
   const {
     isHomeOpen,
     isProfileOpen,
-    isBottomOpen,
     setIsHomeOpen,
     setIsProfileOpen,
-    setIsBottomOpen,
-    setFriendsTabOpen,
-    setIsSidebarOpen,
     isOptionModalOpen,
     setOptionModalOpen,
-  } = navigation;
-  const { canvasRef } = camera;
+  } = useAppNavigation();
+
+  // Local canvas for legacy capture helpers (CameraButton uses its own)
+  const canvasRef = useRef(null);
 
   const overlayData = useOverlayEditorStore((s) => s.overlayData);
   const background = useUIStore((s) => s.background);
 
+  // Mount side panels only after first open (keep mounted afterward for swipe state)
+  const [leftReady, setLeftReady] = useState(false);
+  const [rightReady, setRightReady] = useState(false);
+
   useEffect(() => {
-    import("./LeftHomeScreen");
-    import("./RightHomeScreen");
+    if (isProfileOpen) setLeftReady(true);
+  }, [isProfileOpen]);
+
+  useEffect(() => {
+    if (isHomeOpen) setRightReady(true);
+  }, [isHomeOpen]);
+
+  // Preload heavy side chunks when browser is idle (not on first paint)
+  useEffect(() => {
+    return idleSchedule(() => {
+      import("./LeftHomeScreen");
+      import("./RightHomeScreen");
+      import("../../features/FriendsContainer");
+      import("@/features/CustomeStudio");
+    });
   }, []);
 
   return (
@@ -52,13 +74,16 @@ export default function LocketCameraBeta() {
       </Suspense>
 
       <MainHomeScreen />
-      {/* Page Views */}
+
+      {/* Page Views — mount once opened (or preloaded after idle) */}
       <Suspense fallback={null}>
-        <LeftHomeScreen setIsProfileOpen={setIsProfileOpen} />
-        <RightHomeScreen setIsHomeOpen={setIsHomeOpen} />
+        {leftReady ? (
+          <LeftHomeScreen setIsProfileOpen={setIsProfileOpen} />
+        ) : null}
+        {rightReady ? <RightHomeScreen setIsHomeOpen={setIsHomeOpen} /> : null}
       </Suspense>
 
-      {/* Modal Views */}
+      {/* Modal Views — lazy chunks; preload on idle above */}
       <Suspense fallback={null}>
         <FriendsContainer />
         <CropImageStudio />
@@ -72,10 +97,10 @@ export default function LocketCameraBeta() {
         <WelcomeModal />
       </Suspense>
 
-      {/* Canvas for capturing image/video */}
       <canvas ref={canvasRef} className="hidden" />
-      {/* Audio Music */}
-      {overlayData.type === "music" && <MusicPlayer music={overlayData.payload} />}
+      {overlayData.type === "music" && (
+        <MusicPlayer music={overlayData.payload} />
+      )}
       <span className="fixed pointer-events-none z-60 bottom-3 right-4 text-xs text-gray-400 select-none">
         © Huy Locket
       </span>

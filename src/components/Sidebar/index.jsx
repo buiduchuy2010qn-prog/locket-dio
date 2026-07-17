@@ -26,7 +26,7 @@ import {
   BookUser,
   HardDrive,
 } from "lucide-react";
-import { useApp } from "@/context/AppContext";
+import { useAppNavigation } from "@/context/AppContext";
 import { MenuItem } from "./MenuItem";
 import { AuthButton } from "./AuthButton";
 import ThemeToggle from "./ThemeToggle";
@@ -43,7 +43,7 @@ const Sidebar = () => {
   const clearAndlogout = useAuthStore((state) => state.clearAndlogout);
   const { t } = useTranslation("auth");
 
-  const { navigation } = useApp();
+  const navigation = useAppNavigation();
   const { isSidebarOpen, setIsSidebarOpen } = navigation;
 
   const localId = getMyLocalId(user);

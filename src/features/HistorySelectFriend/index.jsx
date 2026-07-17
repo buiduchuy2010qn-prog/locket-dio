@@ -1,5 +1,5 @@
 import SearchInput from "@/components/uikit/Input/SearchInput";
-import { useApp } from "@/context/AppContext";
+import { useAppNavigation } from "@/context/AppContext";
 import { useAuthStore, useFriendObjects, useSelectedStore } from "@/stores";
 import { getAvatarOrFallback, imageFallback } from "@/utils";
 import clsx from "clsx";
@@ -15,7 +15,7 @@ function HistorySelectFriend({
   onClick,
 }) {
   const { t } = useTranslation("features");
-  const { navigation } = useApp();
+  const navigation = useAppNavigation();
   const { isBottomOpen, isFriendHistoryOpen, setFriendHistoryOpen } =
     navigation;
 

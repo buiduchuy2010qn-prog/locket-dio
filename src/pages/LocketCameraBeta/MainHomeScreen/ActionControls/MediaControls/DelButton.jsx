@@ -1,12 +1,13 @@
 import { X } from "lucide-react";
-import { useApp } from "@/context/AppContext.jsx";
+import { useAppCamera, useAppLoading } from "@/context/AppContext";
 import { useCallback, useState } from "react";
 import { resetAllPostData } from "@/utils";
 import { useMomentDraftStore, usePostStore } from "@/stores";
 import ConfirmDeleteModal from "@/components/uikit/ConfirmDeleteModal";
 
 const DelButton = () => {
-  const { useloading, camera } = useApp();
+  const useloading = useAppLoading();
+  const camera = useAppCamera();
   const { sendLoading, uploadLoading } = useloading;
 
   const resetMedia = usePostStore((s) => s.resetMedia);

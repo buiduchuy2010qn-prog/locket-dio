@@ -1,5 +1,5 @@
 import React, { useCallback } from "react";
-import { useApp } from "@/context/AppContext";
+import { useAppCamera } from "@/context/AppContext";
 import { ImageUp } from "lucide-react";
 import { SonnerInfo } from "@/components/uikit/SonnerToast";
 import { useMomentDraftStore, usePostStore } from "@/stores";
@@ -7,7 +7,7 @@ import { useTranslation } from "react-i18next";
 
 const UploadFile = () => {
   const { t } = useTranslation("main");
-  const { camera } = useApp();
+  const camera = useAppCamera();
 
   const resetMedia = usePostStore((s) => s.resetMedia);
   const setImageToCrop = usePostStore((s) => s.setImageToCrop);

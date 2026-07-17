@@ -4,7 +4,7 @@ import { SonnerInfo } from "@/components/uikit/SonnerToast";
 import { usePostStore } from "@/stores";
 import clsx from "clsx";
 import { dateToYYYYMMDD } from "./streakUtils";
-import { useApp } from "@/context/AppContext";
+import { useAppNavigation } from "@/context/AppContext";
 import { useTranslation } from "react-i18next";
 
 export default function CalendarDay({
@@ -21,7 +21,7 @@ export default function CalendarDay({
   showPlusIcon = false,
 }) {
   const setRestoreStreakData = usePostStore((s) => s.setRestoreStreakData);
-  const { setIsProfileOpen } = useApp().navigation;
+  const { setIsProfileOpen } = useAppNavigation();
   const { t } = useTranslation("main");
 
   if (!day) return null;

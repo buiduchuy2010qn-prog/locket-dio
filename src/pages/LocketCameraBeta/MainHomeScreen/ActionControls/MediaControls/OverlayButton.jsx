@@ -1,8 +1,9 @@
 import { Sparkles } from "lucide-react";
-import { useApp } from "@/context/AppContext.jsx";
+import { useAppNavigation, useAppLoading } from "@/context/AppContext";
 
 const OverlayButton = () => {
-  const { navigation, useloading, camera } = useApp();
+  const navigation = useAppNavigation();
+  const useloading = useAppLoading();
   const { setIsFilterOpen } = navigation;
   const { sendLoading, uploadLoading, setUploadLoading } = useloading;
 

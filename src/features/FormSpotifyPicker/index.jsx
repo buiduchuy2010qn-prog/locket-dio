@@ -235,6 +235,7 @@ export default function FormSpotifyPicker({
   }, [open, stopAudio]);
 
   // Search — /api/searchMusic (rank server) + filter client cứng
+  // Abort previous request when query changes (no duplicate in-flight results)
   useEffect(() => {
     if (!open || selected) return;
     if (searchTimer.current) clearTimeout(searchTimer.current);
@@ -245,17 +246,24 @@ export default function FormSpotifyPicker({
       return;
     }
     setSearching(true);
+    const controller = new AbortController();
     searchTimer.current = setTimeout(async () => {
       try {
         // Server đã rank theo title + artist — tin API
-        let list = await searchMusicByQuery(q, 40);
+        let list = await searchMusicByQuery(q, 40, {
+          signal: controller.signal,
+        });
+        if (controller.signal.aborted) return;
         // Fallback không dấu nếu rỗng
         if (!list?.length) {
           const bare = normalizeQ(q);
           if (bare && bare !== q.toLowerCase()) {
-            list = await searchMusicByQuery(bare, 40);
+            list = await searchMusicByQuery(bare, 40, {
+              signal: controller.signal,
+            });
           }
         }
+        if (controller.signal.aborted) return;
 
         const normalized = (Array.isArray(list) ? list : []).map((t) => {
           if (t._raw) {
@@ -305,15 +313,24 @@ export default function FormSpotifyPicker({
 
         setResults(scored);
       } catch (e) {
+        if (
+          e?.name === "CanceledError" ||
+          e?.name === "AbortError" ||
+          e?.code === "ERR_CANCELED" ||
+          controller.signal.aborted
+        ) {
+          return;
+        }
         console.error("[search music]", e);
         SonnerError("Tìm nhạc lỗi", e?.message || "Thử lại sau");
         setResults([]);
       } finally {
-        setSearching(false);
+        if (!controller.signal.aborted) setSearching(false);
       }
     }, 280);
     return () => {
       if (searchTimer.current) clearTimeout(searchTimer.current);
+      controller.abort();
     };
   }, [query, open, selected]);
 

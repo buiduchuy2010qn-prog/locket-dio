@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect } from "react";
 import ReactDOM from "react-dom";
-import { useApp } from "@/context/AppContext";
+import { useAppNavigation } from "@/context/AppContext";
 import { X } from "lucide-react";
 import { AcceptRequestToFriend } from "@/services";
 import IncomingFriendRequests from "./IncomingRequests";
@@ -15,7 +15,7 @@ import { useTranslation } from "react-i18next";
 const FriendsContainer = () => {
   const { t } = useTranslation("features");
   const popupRef = useRef(null);
-  const { navigation } = useApp();
+  const navigation = useAppNavigation();
 
   const {
     loading,

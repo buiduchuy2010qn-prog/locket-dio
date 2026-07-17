@@ -1,5 +1,5 @@
 import React, { lazy, Suspense } from "react";
-import { useApp } from "@/context/AppContext";
+import { useAppNavigation } from "@/context/AppContext";
 
 import HeaderHome from "./Layout/HeaderHome";
 import BottomMenu from "../BottomHomeScreen/Layout/BottomMenu";
@@ -13,8 +13,6 @@ const BottomHomeScreen = lazy(() => import("../BottomHomeScreen"));
 const SelectFriendsList = lazy(() => import("./Layout/SelectFriends"));
 
 export default function MainHomeScreen() {
-  const { navigation } = useApp();
-
   const {
     isHomeOpen,
     isProfileOpen,
@@ -27,7 +25,7 @@ export default function MainHomeScreen() {
     setOptionModalOpen,
     isFriendHistoryOpen,
     setFriendHistoryOpen,
-  } = navigation;
+  } = useAppNavigation();
   const selectedFile = usePostStore((s) => s.selectedFile);
   const preview = usePostStore((s) => s.preview);
   const hasCaptured = !!(selectedFile || preview);

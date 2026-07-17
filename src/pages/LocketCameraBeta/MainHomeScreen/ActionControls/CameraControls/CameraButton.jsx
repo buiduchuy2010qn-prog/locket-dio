@@ -1,6 +1,6 @@
 import "./styles.css";
 import React, { useEffect, useRef } from "react";
-import { useApp } from "@/context/AppContext";
+import { useAppCamera } from "@/context/AppContext";
 import { getVideoRecordLimit } from "@/hooks/useFeature";
 import { CAMERA_CONFIG } from "@/config/configAlias";
 import { SonnerInfo } from "@/components/uikit/SonnerToast";
@@ -81,7 +81,7 @@ function recordProfile() {
 
 const CameraButton = () => {
   const { t } = useTranslation("main");
-  const { camera } = useApp();
+  const camera = useAppCamera();
   const {
     videoRef,
     isHolding,
