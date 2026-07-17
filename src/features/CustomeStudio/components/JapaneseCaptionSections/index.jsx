@@ -36,8 +36,10 @@ const JapaneseCaptionSections = ({ onSelect }) => {
             {(section.items || []).map((item) => {
               const ja = item.text || item.caption || "";
               const vi = item.vi_label || "";
+              const romaji = item.romaji_label || "";
               const showIcon = hasValidIcon(item.icon);
               const key = item.overlay_id || item.id;
+              const tip = [ja, romaji, vi].filter(Boolean).join(" — ");
 
               return (
                 <button
@@ -48,7 +50,7 @@ const JapaneseCaptionSections = ({ onSelect }) => {
                   style={{
                     ...getCaptionStyle(item.background, item?.text_color),
                   }}
-                  title={vi ? `${ja} — ${vi}` : ja}
+                  title={tip || ja}
                 >
                   <span className="text-base flex items-center gap-1.5 relative z-[1]">
                     {showIcon && (

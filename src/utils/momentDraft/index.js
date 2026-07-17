@@ -67,6 +67,8 @@ export function sanitizeOverlayForDraft(overlayData = {}) {
   delete o.vi_label;
   delete o.translation;
   delete o.viLabel;
+  delete o.romaji;
+  delete o.romaji_label;
   delete o._jp_preset;
   delete o.category;
   delete o.ja;

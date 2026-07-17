@@ -79,6 +79,8 @@ const ScreenCustomeStudio = () => {
       vi_label: _viLabel,
       translation: _tr,
       viLabel: _viLabel2,
+      romaji: _romaji,
+      romaji_label: _romajiLabel,
       _jp_preset: _jpFlag,
       category: _cat,
       ja: _ja,
