@@ -6,24 +6,44 @@ import { visualizer } from "rollup-plugin-visualizer";
 import { VitePWA } from "vite-plugin-pwa";
 
 const manifestForPlugIn = {
-  // ✅ Dùng đúng chiến lược cập nhật SW
+  // injectManifest: custom src/sw.js (network-first nav, network-only APIs)
   strategies: "injectManifest",
   srcDir: "src",
   filename: "sw.js",
 
-  // ✅ Auto inject code register SW
   injectRegister: "auto",
   injectManifest: {
-    maximumFileSizeToCacheInBytes: 0, // ✅ TẮT HOÀN TOÀN cache tự động
+    // App shell + hashed chunks needed after first visit (not feed media)
+    globPatterns: [
+      "index.html",
+      "offline.html",
+      "manifest.webmanifest",
+      "assets/*.{js,css,woff2,woff}",
+      "favicon*.{ico,png,svg}",
+      "android-chrome-*.png",
+      "apple-touch-icon.png",
+      "maskable-icon-*.png",
+      "fonts/**/*.{woff,woff2}",
+    ],
+    // Do not precache gallery dumps / large optional icon sets / user media
+    globIgnores: [
+      "**/pwa-icons/**",
+      "**/images/**",
+      "**/stats.html",
+      "**/prvlocket.png",
+    ],
+    // Allow typical main chunks; skip multi‑MB accidental assets
+    maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
   },
 
-  // prompt: không auto-reload — app hiện nút Cập nhật / Hủy (registerSW.js)
+  // prompt: user confirms update — no auto skipWaiting mid-edit
   registerType: "prompt",
 
   includeAssets: [
     "favicon.ico",
     "apple-touch-icon.png",
     "maskable-icon-512x512.png",
+    "offline.html",
   ],
 
   manifest: {
@@ -35,6 +55,8 @@ const manifestForPlugIn = {
     // Mở PWA/web → thẳng camera Locket
     start_url: "/locket",
     orientation: "portrait",
+    background_color: "#ffffff",
+    theme_color: "#ffffff",
     icons: [
       {
         src: "/android-chrome-192x192.png",
@@ -62,13 +84,12 @@ const manifestForPlugIn = {
       },
     ],
   },
+  // workbox options apply mainly to generateSW; kept for safety
   workbox: {
     cleanupOutdatedCaches: true,
-    // User-controlled update (prompt) — không skipWaiting/claim tự động
     skipWaiting: false,
     clientsClaim: false,
-
-    navigateFallbackDenylist: [/^\/assets\//],
+    navigateFallbackDenylist: [/^\/assets\//, /^\/dio-/, /^\/api\//],
   },
 };
 

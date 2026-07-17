@@ -3,6 +3,7 @@ import { getISOWeek } from "@/utils";
 
 export const getRollcallPosts = async ({ selectWeek, selectYear }) => {
   const { year, week } = getISOWeek();
+  const t0 = typeof performance !== "undefined" ? performance.now() : Date.now();
   try {
     const body = {
       data: {
@@ -19,8 +20,30 @@ export const getRollcallPosts = async ({ selectWeek, selectYear }) => {
     };
     const res = await instanceLocketV2.post("getRollcallPosts", body);
     const moments = res.data?.result?.data?.posts;
+    const ms = Math.round(
+      (typeof performance !== "undefined" ? performance.now() : Date.now()) - t0
+    );
+    // Safe net log — no tokens / cookies / URLs
+    console.info("[rollcall:net]", {
+      type: "getRollcallPosts_api",
+      status: res?.status ?? 200,
+      ms,
+      count: Array.isArray(moments) ? moments.length : 0,
+      week: selectWeek || week,
+      year: selectYear || year,
+    });
     return moments;
   } catch (err) {
+    const ms = Math.round(
+      (typeof performance !== "undefined" ? performance.now() : Date.now()) - t0
+    );
+    console.info("[rollcall:net]", {
+      type: "getRollcallPosts_api",
+      status: err?.response?.status || "error",
+      ms,
+      week: selectWeek || week,
+      year: selectYear || year,
+    });
     console.warn("❌ Failed", err);
   }
 };

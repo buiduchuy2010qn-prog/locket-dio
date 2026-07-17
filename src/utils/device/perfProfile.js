@@ -32,12 +32,26 @@ function detect() {
 
   // Low-end: Android + (≤4 cores hoặc ≤2GB RAM) hoặc save-data
   const saveData = navigator.connection?.saveData === true;
+  const reduceMotion =
+    typeof window !== "undefined" &&
+    Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches);
+  // reduceMotion only affects FX — not capture quality (isLowEnd)
   const isLowEnd =
     saveData ||
     (isAndroid && (cores <= 4 || memGB <= 2)) ||
-    (isMobile && cores <= 2);
+    (isMobile && cores <= 2) ||
+    memGB <= 2;
 
-  return { isAndroid, isIOS, isMobile, isLowEnd, cores, memGB, saveData };
+  return {
+    isAndroid,
+    isIOS,
+    isMobile,
+    isLowEnd,
+    cores,
+    memGB,
+    saveData,
+    reduceMotion,
+  };
 }
 
 export function getPerfProfile() {
@@ -53,6 +67,7 @@ export function applyPerfClasses() {
   root.classList.toggle("perf-android", p.isAndroid);
   root.classList.toggle("perf-mobile", p.isMobile);
   root.classList.toggle("perf-lite", p.isLowEnd || p.isAndroid);
+  root.classList.toggle("perf-reduce-motion", Boolean(p.reduceMotion));
 
   // Pause decorative FX when tab hidden
   if (!root.dataset.tabVisBound) {
@@ -170,12 +185,12 @@ export function getSnowPerfConfig({ onCameraRoute, isPinkSnow, isPink }) {
   if ((p.isAndroid || p.isLowEnd) && onCameraRoute) {
     return { enabled: true, intervalMs: 320, maxFlakes: 8, lite: true };
   }
-  // Android / low-end: denser pinksnow still lite (no heavy glow)
+  // Android / low-end: keep theme colors, fewer flakes (no heavy glow)
   if (p.isAndroid || p.isLowEnd) {
     return {
       enabled: true,
-      intervalMs: isPinkSnow ? 140 : 220,
-      maxFlakes: isPinkSnow ? 26 : 12,
+      intervalMs: isPinkSnow ? 180 : 280,
+      maxFlakes: isPinkSnow ? 14 : 8,
       lite: true,
     };
   }

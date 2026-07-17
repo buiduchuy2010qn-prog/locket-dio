@@ -28,10 +28,12 @@ import LoadingPageMain from "./components/pages/LoadPageMain";
 import LayoutWithSidebar from "./layouts/baseLayout";
 import { useOverlayDataStore } from "./stores/OverlayStores";
 import GlobalThemeEffects from "./components/Effects/GlobalThemeEffects";
+import OfflineBanner from "./components/OfflineBanner";
 import { useMomentDraftLifecycle } from "./hooks/useMomentDraftLifecycle";
 import RestoreDraftModal, {
   ReplaceDraftPrompt,
 } from "./components/MomentDraft/RestoreDraftModal";
+import { useConnectivityStore } from "./stores/useConnectivityStore";
 
 function App() {
   return (
@@ -40,6 +42,7 @@ function App() {
         <AppProvider>
           <Router>
             <GlobalThemeEffects />
+            <OfflineBanner />
             <AppContent />
             <RestoreDraftModal />
             <ReplaceDraftPrompt />
@@ -72,6 +75,11 @@ function AppContent() {
   // Unpublished moment draft: autosave + restore modal (IndexedDB)
   useMomentDraftLifecycle();
 
+  // Online/offline + health (no aggressive ping — store throttles)
+  useEffect(() => {
+    return useConnectivityStore.getState().startConnectivityWatch();
+  }, []);
+
   const allRoutes = [...publicRoutes, ...authRoutes, ...locketRoutes];
   const privateRoutes = [...authRoutes, ...locketRoutes];
 
@@ -81,10 +89,10 @@ function AppContent() {
   }
   useEffect(() => {
     import("./styles/animation.css");
-    // Đánh thức API Render free: poll đến khi healthy (cold start 20–60s)
+    // Đánh thức API (cold start) — limited retries, not a battery drain loop
     let cancelled = false;
     const wakeApi = async () => {
-      const delays = [0, 2000, 4000, 6000, 8000, 10000, 12000, 15000];
+      const delays = [0, 2000, 5000, 10000];
       for (let i = 0; i < delays.length && !cancelled; i++) {
         if (delays[i]) await new Promise((r) => setTimeout(r, delays[i]));
         try {
@@ -93,20 +101,36 @@ function AppContent() {
             credentials: "include",
             cache: "no-store",
           });
-          if (r.ok) return;
+          if (r.ok) {
+            useConnectivityStore.getState()._applyResult(true, true);
+            return;
+          }
         } catch {
           /* cold start — thử tiếp */
         }
       }
     };
     wakeApi();
-    // Giữ API ấm khi tab còn mở (free sleep ~15 phút)
+    // Giữ API ấm khi tab còn mở (10 phút — không ping liên tục)
     const keepAlive = setInterval(() => {
+      if (document.hidden) return;
+      if (typeof navigator !== "undefined" && navigator.onLine === false) return;
       fetch("/dio-api/health", {
         method: "GET",
         credentials: "include",
         cache: "no-store",
-      }).catch(() => {});
+      })
+        .then((r) => {
+          useConnectivityStore
+            .getState()
+            ._applyResult(true, Boolean(r?.ok));
+        })
+        .catch(() => {
+          useConnectivityStore.getState()._applyResult(
+            navigator.onLine !== false,
+            false,
+          );
+        });
     }, 10 * 60 * 1000);
     // Token local → coi như đã login ngay (không chờ API)
     hydrateAuth();

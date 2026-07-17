@@ -17,6 +17,7 @@
     "hide_comments": "Hide comments",
     "view_comments": "View comments",
     "image_loading": "Loading…",
+    "retry": "Retry",
     "week": "Week:",
     "week_option": "Week {{week}} ({{label}})"
   },

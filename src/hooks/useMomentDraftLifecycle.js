@@ -5,7 +5,7 @@ import {
   useOverlayEditorStore,
   usePostStore,
 } from "@/stores";
-import { resolveDraftUid } from "@/utils/momentDraft";
+import { resolveDraftUid, requestDraftPersist } from "@/utils/momentDraft";
 
 /**
  * Autosave draft meta, flush on hide/pagehide, offer restore after auth.
@@ -19,6 +19,12 @@ export function useMomentDraftLifecycle() {
   const hasDraft = useMomentDraftStore((s) => s.hasDraft);
   const refreshDraftPresence = useMomentDraftStore((s) => s.refreshDraftPresence);
   const prevUid = useRef(null);
+
+  // Ask browser to persist IndexedDB (draft blobs survive eviction better)
+  useEffect(() => {
+    if (!isAuth) return;
+    void requestDraftPersist();
+  }, [isAuth]);
 
   // Auth → check draft for this uid only
   useEffect(() => {

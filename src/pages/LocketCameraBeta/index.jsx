@@ -4,6 +4,7 @@ import MainHomeScreen from "./MainHomeScreen";
 import { MusicPlayer } from "./Widgets/MusicPlayer";
 import { useOverlayEditorStore, useUIStore } from "@/stores";
 import GlobalReactionEffect from "./Widgets/GlobalReactionEffect";
+import { getPerfProfile } from "@/utils/device/perfProfile";
 
 const BgHuyLocket = lazy(() => import("@/components/Effects/BgLocketDio"));
 
@@ -18,12 +19,12 @@ const CropVideoStudio = lazy(() => import("@/features/EditorStudio/CropVideoStud
 const OptionMoment = lazy(() => import("@/features/OptionMoment"));
 const WelcomeModal = lazy(() => import("./Widgets/WelcomeModal"));
 
-function idleSchedule(fn) {
+function idleSchedule(fn, { timeout = 2500, delay = 400 } = {}) {
   if (typeof requestIdleCallback === "function") {
-    const id = requestIdleCallback(() => fn(), { timeout: 2500 });
+    const id = requestIdleCallback(() => fn(), { timeout });
     return () => cancelIdleCallback(id);
   }
-  const t = setTimeout(fn, 400);
+  const t = setTimeout(fn, delay);
   return () => clearTimeout(t);
 }
 
@@ -56,14 +57,21 @@ export default function LocketCameraBeta() {
     if (isHomeOpen) setRightReady(true);
   }, [isHomeOpen]);
 
-  // Preload heavy side chunks when browser is idle (not on first paint)
+  // Preload heavy side chunks when idle — skip on low-end / save-data
+  // so first paint + camera stay free (chat/rollcalls/caption still lazy on open)
   useEffect(() => {
-    return idleSchedule(() => {
-      import("./LeftHomeScreen");
-      import("./RightHomeScreen");
-      import("../../features/FriendsContainer");
-      import("@/features/CustomeStudio");
-    });
+    const perf = getPerfProfile();
+    if (perf.isLowEnd || perf.saveData) return undefined;
+    // Stronger devices: warm chat/caption after a longer idle so shell wins first
+    return idleSchedule(
+      () => {
+        import("./LeftHomeScreen");
+        import("./RightHomeScreen");
+        import("../../features/FriendsContainer");
+        import("@/features/CustomeStudio");
+      },
+      { timeout: 5000, delay: 1200 },
+    );
   }, []);
 
   return (

@@ -14,6 +14,7 @@ import {
   useMomentDraftStore,
   usePostStore,
   useUploadQueueStore,
+  useConnectivityStore,
 } from "@/stores";
 import { useNavigate } from "react-router-dom";
 import { resetAllPostData } from "@/utils";
@@ -32,6 +33,10 @@ const SendButton = () => {
   const isSizeMedia = usePostStore((s) => s.isSizeMedia);
   const preview = usePostStore((s) => s.preview);
   const resetMedia = usePostStore((s) => s.resetMedia);
+
+  const isOffline = useConnectivityStore((s) => s.isOffline);
+  const serverReachable = useConnectivityStore((s) => s.serverReachable);
+  const checkConnectivity = useConnectivityStore((s) => s.checkConnectivity);
 
   const { setCameraActive } = camera;
 
@@ -54,6 +59,9 @@ const SendButton = () => {
   // State để quản lý hiệu ứng loading và success
   const [isSuccess, setIsSuccess] = useState(false);
 
+  const sendDisabled =
+    uploadLoading || isSuccess || isOffline || !serverReachable;
+
   const handleDelete = useCallback(() => {
     // Dừng stream cũ nếu có
     if (camera.streamRef.current) {
@@ -73,6 +81,24 @@ const SendButton = () => {
   const handleSubmit = async () => {
     // Chặn double-tap / double-enqueue
     if (uploadLoading || isSuccess) return;
+
+    // Re-check server before post (no Background Sync auto-post)
+    try {
+      const conn = await checkConnectivity({ force: true });
+      if (!conn?.browserOnline || !conn?.serverReachable) {
+        SonnerWarning(
+          "Đang ngoại tuyến",
+          "Bản nháp vẫn được lưu. Hãy đăng khi có mạng.",
+        );
+        return;
+      }
+    } catch {
+      SonnerWarning(
+        "Không kết nối được máy chủ",
+        "Bản nháp vẫn được lưu. Thử lại khi có mạng.",
+      );
+      return;
+    }
 
     // Chờ blob encode xong nếu vừa chụp (preview dataURL trước, file sau)
     let file = selectedFile || usePostStore.getState().selectedFile;
@@ -191,17 +217,29 @@ const SendButton = () => {
         ? "sendButton--success"
         : uploadLoading
           ? "sendButton--loading"
-          : "";
+          : isOffline || !serverReachable
+            ? "sendButton--warn"
+            : "";
 
   return (
     <button
       type="button"
       onClick={handleSubmit}
-      disabled={uploadLoading || isSuccess}
-      aria-label="Đăng bài"
+      disabled={sendDisabled}
+      aria-label={
+        isOffline || !serverReachable
+          ? "Đang ngoại tuyến — không thể đăng"
+          : "Đăng bài"
+      }
       aria-busy={uploadLoading || undefined}
+      title={
+        isOffline || !serverReachable
+          ? "Đang ngoại tuyến · Bản nháp vẫn được lưu"
+          : undefined
+      }
       className={`sendButton ${toneClass}`.trim()}
       data-send-button="true"
+      data-offline={isOffline || !serverReachable ? "true" : undefined}
     >
       <UploadStatusIcon
         loading={uploadLoading}

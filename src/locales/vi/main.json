@@ -17,6 +17,7 @@
     "hide_comments": "Ẩn bình luận",
     "view_comments": "Xem bình luận",
     "image_loading": "Đang tải…",
+    "retry": "Thử lại",
     "week": "Tuần:",
     "week_option": "Tuần {{week}} ({{label}})"
   },

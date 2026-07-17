@@ -4,6 +4,18 @@ import RollcallImages from "./RollcallImages";
 import RollcallComments from "./RollcallComments";
 import { useTranslation } from "react-i18next";
 
+function formatRollcallCreatedAt(createdAt) {
+  if (createdAt == null) return "";
+  if (typeof createdAt === "number") {
+    return new Date(createdAt).toLocaleString();
+  }
+  if (typeof createdAt === "object" && createdAt._seconds != null) {
+    return new Date(createdAt._seconds * 1000).toLocaleString();
+  }
+  const d = new Date(createdAt);
+  return Number.isNaN(d.getTime()) ? "" : d.toLocaleString();
+}
+
 function RollcallCard({ post }) {
   const { t } = useTranslation("main");
   const [openComments, setOpenComments] = useState(false);
@@ -15,7 +27,7 @@ function RollcallCard({ post }) {
       <hr />
       <RollcallImages items={post.items} onActiveChange={setActiveItem}/>
       <span className="text-xs opacity-50">
-        {new Date(post.created_at._seconds * 1000).toLocaleString()}
+        {formatRollcallCreatedAt(post.created_at ?? post.create_time)}
       </span>
 
       {post.comments?.length > 0 && (
