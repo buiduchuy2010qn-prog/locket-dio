@@ -2,6 +2,13 @@ import { create } from "zustand";
 
 const defaultState = {
   selectedFile: null,
+  /** First image of the current editor session — never overwritten by AI confirm */
+  originalFile: null,
+  /**
+   * AI enhance meta when activeMedia !== original
+   * { enabled, mode, model, createdAt } | null
+   */
+  enhancement: null,
   imageToCrop: null,
   videoToCrop: null,
   videoCropData: null,
@@ -14,7 +21,24 @@ const defaultState = {
   videoCropArea: null,
 };
 
-export const usePostStore = create((set) => ({
+function revokePreviewUrl(preview) {
+  if (preview?.data?.startsWith("blob:")) {
+    try {
+      URL.revokeObjectURL(preview.data);
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+function mediaTypeOf(file) {
+  if (!file?.type) return null;
+  if (file.type.startsWith("image/")) return "image";
+  if (file.type.startsWith("video/")) return "video";
+  return null;
+}
+
+export const usePostStore = create((set, get) => ({
   ...defaultState,
 
   setSelectedFile: (file) => set({ selectedFile: file }),
@@ -36,30 +60,92 @@ export const usePostStore = create((set) => ({
   setRestoreStreakData: (val) => set({ restoreStreakData: val }),
   setSelectedGroupId: (val) => set({ selectedGroupId: val }),
 
+  /**
+   * New capture / upload / draft restore full replace.
+   * Resets originalFile + clears enhancement (new session media).
+   */
   setMediaFromFile: (file) => {
-    const url = URL.createObjectURL(file);
-
-    const type = file.type.startsWith("image/")
-      ? "image"
-      : file.type.startsWith("video/")
-        ? "video"
-        : null;
-
-    set({
-      selectedFile: file,
-      preview: { type, data: url },
-      isSizeMedia: (file.size / 1024 / 1024).toFixed(2),
+    if (!file) return;
+    set((state) => {
+      revokePreviewUrl(state.preview);
+      const url = URL.createObjectURL(file);
+      const type = mediaTypeOf(file);
+      return {
+        selectedFile: file,
+        // Videos: originalFile tracks same file for consistency; AI only uses images
+        originalFile: file,
+        enhancement: null,
+        preview: { type, data: url },
+        isSizeMedia: (file.size / 1024 / 1024).toFixed(2),
+      };
     });
   },
+
+  /**
+   * After user confirms AI result — swap active media only.
+   * Does not change originalFile.
+   */
+  setActiveMediaFile: (file, enhancementMeta = null) => {
+    if (!file) return;
+    set((state) => {
+      revokePreviewUrl(state.preview);
+      const url = URL.createObjectURL(file);
+      const type = mediaTypeOf(file) || "image";
+      return {
+        selectedFile: file,
+        originalFile: state.originalFile || file,
+        enhancement: enhancementMeta
+          ? {
+              enabled: true,
+              mode: enhancementMeta.mode || "natural",
+              model: enhancementMeta.model || "server-image-enhancement",
+              createdAt: enhancementMeta.createdAt || Date.now(),
+            }
+          : null,
+        preview: { type, data: url },
+        isSizeMedia: (file.size / 1024 / 1024).toFixed(2),
+      };
+    });
+  },
+
+  /** Ensure originalFile is set before AI (first image of session). */
+  ensureOriginalFile: () => {
+    const s = get();
+    if (!s.originalFile && s.selectedFile) {
+      set({ originalFile: s.selectedFile });
+    }
+  },
+
+  /** Undo AI — active back to original; enhancement cleared. */
+  revertEnhancement: () => {
+    const s = get();
+    const orig = s.originalFile;
+    if (!orig) {
+      set({ enhancement: null });
+      return;
+    }
+    set((state) => {
+      revokePreviewUrl(state.preview);
+      const url = URL.createObjectURL(orig);
+      return {
+        selectedFile: orig,
+        enhancement: null,
+        preview: {
+          type: mediaTypeOf(orig) || "image",
+          data: url,
+        },
+        isSizeMedia: (orig.size / 1024 / 1024).toFixed(2),
+      };
+    });
+  },
+
   resetMedia: () => {
     set((state) => {
-      // cleanup blob URL nếu có
-      if (state.preview?.data?.startsWith("blob:")) {
-        URL.revokeObjectURL(state.preview.data);
-      }
-
+      revokePreviewUrl(state.preview);
       return {
         selectedFile: null,
+        originalFile: null,
+        enhancement: null,
         imageToCrop: null,
         videoToCrop: null,
         videoCropData: null,
@@ -69,10 +155,9 @@ export const usePostStore = create((set) => ({
     });
   },
 
-  resetPostStore: () => set(defaultState),
+  resetPostStore: () =>
+    set((state) => {
+      revokePreviewUrl(state.preview);
+      return { ...defaultState };
+    }),
 }));
-
-// const selectedFile = usePostStore((s) => s.selectedFile);
-// const setSelectedFile = usePostStore((s) => s.setSelectedFile);
-
-// const setMediaFromFile = usePostStore((s) => s.setMediaFromFile);

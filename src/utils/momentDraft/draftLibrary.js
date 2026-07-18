@@ -215,6 +215,8 @@ export function collectMetaFromStores({
   selectedGroupId,
   videoCropData,
   restoreStreakData,
+  enhancement = null,
+  originalMediaBlob = null,
 } = {}) {
   const sanitized = sanitizeOverlayForDraft(overlayData || {});
   const music =
@@ -251,6 +253,10 @@ export function collectMetaFromStores({
       restoreStreakData: restoreStreakData || null,
       videoCropData: videoCropData || null,
     },
+    // Optional AI enhance (ignored by older clients)
+    enhancement: enhancement || null,
+    originalMediaBlob:
+      originalMediaBlob instanceof Blob ? originalMediaBlob : null,
   };
 }
 
@@ -301,7 +307,12 @@ export async function createDraft({ ownerUid, file, meta = {} } = {}) {
     width: dims.width,
     height: dims.height,
     duration: dims.duration,
+    // AI enhance meta (optional, backwards compatible)
+    enhancement: meta.enhancement || null,
   };
+
+  const originalBlob =
+    meta.originalMediaBlob instanceof Blob ? meta.originalMediaBlob : null;
 
   try {
     await momentDraftDB.transaction(
@@ -314,6 +325,7 @@ export async function createDraft({ ownerUid, file, meta = {} } = {}) {
           id,
           mediaBlob,
           thumbnailBlob: thumb || null,
+          originalMediaBlob: originalBlob,
           mimeType: row.mimeType,
           fileName: row.fileName,
         });
@@ -373,11 +385,21 @@ export async function updateDraftMedia(draftId, file, metaPatch = {}) {
           updatedAt: now,
           status: metaPatch.status || DRAFT_STATUS.READY,
           lastError: null,
+          enhancement:
+            metaPatch.enhancement !== undefined
+              ? metaPatch.enhancement
+              : prev.enhancement || null,
         });
+        const prevBlobs = await momentDraftDB.draftBlobs.get(draftId);
+        const keepOriginal =
+          metaPatch.originalMediaBlob instanceof Blob
+            ? metaPatch.originalMediaBlob
+            : prevBlobs?.originalMediaBlob || null;
         await momentDraftDB.draftBlobs.put({
           id: draftId,
           mediaBlob,
           thumbnailBlob: thumb || null,
+          originalMediaBlob: keepOriginal,
           mimeType: file.type || prev.mimeType,
           fileName: file.name || prev.fileName,
         });
@@ -472,6 +494,7 @@ export async function getDraftFull(draftId) {
       media: {
         blob: blobs.mediaBlob,
         thumbnailBlob: blobs.thumbnailBlob || null,
+        originalMediaBlob: blobs.originalMediaBlob || null,
         mimeType: blobs.mimeType || meta.mimeType,
         fileName: blobs.fileName || meta.fileName,
       },

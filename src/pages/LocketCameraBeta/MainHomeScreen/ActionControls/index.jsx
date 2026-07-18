@@ -9,11 +9,13 @@ import DelButton from "./MediaControls/DelButton";
 import OverlayButton from "./MediaControls/OverlayButton";
 import DraftButton from "./MediaControls/DraftButton";
 import SaveDraftActions from "@/components/MomentDraft/SaveDraftActions";
+import { ImageEnhancementButton } from "@/features/ImageEnhancement";
 import { useMomentDraftStore, usePostStore } from "@/stores";
 
 /**
  * Floating control pill — 3-column grid (1fr | auto | 1fr).
  * Center column is always true horizontal center of the bar.
+ * Post-capture slots only: SaveDraftActions + AI enhance (no camera logic).
  */
 const ActionControls = () => {
   const selectedFile = usePostStore((s) => s.selectedFile);
@@ -28,6 +30,8 @@ const ActionControls = () => {
   return (
     <div className="w-full flex flex-col items-center" data-action-controls="true">
       {hasFile ? <SaveDraftActions /> : null}
+      {/* AI Làm nét: only renders for still images; lazy service inside */}
+      {hasFile ? <ImageEnhancementButton /> : null}
       <div className="w-full flex justify-center px-2">
       <div
         className="cameraControlPill"

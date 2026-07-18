@@ -80,4 +80,16 @@ momentDraftDB
     }
   });
 
+/**
+ * v3: optional originalMediaBlob + enhancement meta (AI Làm nét).
+ * Backwards compatible — old rows keep working without original blob.
+ */
+momentDraftDB.version(3).stores({
+  momentDraftMedia: "mediaKey, createdAt",
+  momentDraftMeta: "id, uid, updatedAt, status",
+  drafts:
+    "id, ownerUid, createdAt, updatedAt, status, mediaType, [ownerUid+updatedAt]",
+  draftBlobs: "id",
+});
+
 export default momentDraftDB;

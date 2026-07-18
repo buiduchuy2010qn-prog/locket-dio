@@ -44,6 +44,14 @@ function snapshotMetaFromStores() {
     selectedGroupId: post.selectedGroupId,
     videoCropData: post.videoCropData,
     restoreStreakData: post.restoreStreakData,
+    enhancement: post.enhancement || null,
+    // Keep original still if AI replaced active media
+    originalMediaBlob:
+      post.originalFile &&
+      post.selectedFile &&
+      post.originalFile !== post.selectedFile
+        ? post.originalFile
+        : post.originalFile || null,
   });
 }
 
@@ -77,6 +85,7 @@ function applyMetaToStores(meta) {
       .getState()
       .setRestoreStreakData(meta.optionsData.restoreStreakData);
   }
+  // enhancement meta restored with media in restoreDraftIntoStudio
 }
 
 export const useMomentDraftStore = create((set, get) => ({
@@ -352,6 +361,30 @@ export const useMomentDraftStore = create((set, get) => ({
         return false;
       }
       usePostStore.getState().setMediaFromFile(file);
+      // Restore original still if AI enhanced draft
+      if (
+        loaded.media.originalMediaBlob instanceof Blob &&
+        loaded.meta?.enhancement?.enabled
+      ) {
+        try {
+          const origFile = draftMediaToFile(
+            {
+              blob: loaded.media.originalMediaBlob,
+              mimeType: loaded.media.mimeType,
+              fileName: loaded.media.fileName,
+            },
+            loaded.meta,
+          );
+          if (origFile) {
+            usePostStore.setState({
+              originalFile: origFile,
+              enhancement: loaded.meta.enhancement,
+            });
+          }
+        } catch {
+          /* keep single-file restore */
+        }
+      }
       applyMetaToStores(loaded.meta);
       set({
         activeDraftId: id,
