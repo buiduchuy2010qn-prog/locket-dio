@@ -94,6 +94,7 @@ const MediaPreviewAndroid = () => {
     streamRef,
     videoRef,
     cameraActive,
+    setCameraActive,
     cameraMode,
     zoomLevel,
     setZoomLevel,
@@ -549,6 +550,8 @@ const MediaPreviewAndroid = () => {
   /** Freeze frame khi flip — tránh màn đen */
   const [freezeFrame, setFreezeFrame] = useState(null);
   const [videoEpoch, setVideoEpoch] = useState(0);
+  /** True when resume after draft failed — show "Mở lại camera" once */
+  const [cameraResumeError, setCameraResumeError] = useState(false);
   /** Tap-to-focus reticle (percent inside frame) */
   const [focusReticle, setFocusReticle] = useState(null);
   const frameRef = useRef(null);
@@ -1400,7 +1403,11 @@ const MediaPreviewAndroid = () => {
     }
   };
 
-  const stopCamera = () => {
+  /**
+   * Full stop — only unmount / leave capture page / intentional disable.
+   * NEVER use this for "clear preview → chụp tiếp".
+   */
+  const stopCameraCompletely = useCallback(() => {
     startRequestId.current += 1;
     startingRef.current = false;
     pinchingRef.current = false;
@@ -1411,6 +1418,15 @@ const MediaPreviewAndroid = () => {
     pinchState.current = handlePinchZoomEnd();
     setIsPinching(false);
     if (streamRef.current) clearTrackZoomCache(streamRef.current);
+    if (import.meta.env?.DEV) {
+      const tr = streamRef.current?.getVideoTracks?.()?.[0];
+      console.info("[cam] stopCameraCompletely", {
+        streamId: streamRef.current?.id,
+        trackReadyState: tr?.readyState,
+        cameraMode,
+        selectedDeviceId: deviceId,
+      });
+    }
     stopCurrentCamera(streamRef.current, videoRef.current);
     streamRef.current = null;
     cameraInitialized.current = false;
@@ -1419,7 +1435,64 @@ const MediaPreviewAndroid = () => {
     currentZoomValue.current = 1;
     setCurrentZoom(1);
     setActiveZoomMode("1x");
-  };
+    setCameraResumeError(false);
+  }, [cameraMode, deviceId, setCurrentZoom, setActiveZoomMode, streamRef, videoRef]);
+
+  /**
+   * Park live stream while showing captured preview.
+   * Does NOT call track.stop() — keep stream for "Lưu và chụp tiếp".
+   */
+  const parkCameraForPreview = useCallback(() => {
+    // Video element unmounts via JSX when preview is set; only log + keep streamRef.
+    if (import.meta.env?.DEV) {
+      const stream = streamRef.current;
+      const tr = stream?.getVideoTracks?.()?.[0];
+      console.info("[cam] parkCameraForPreview", {
+        streamId: stream?.id,
+        active: stream?.active,
+        trackReadyState: tr?.readyState,
+        trackEnabled: tr?.enabled,
+        trackMuted: tr?.muted,
+        hasSrcObject: Boolean(videoRef.current?.srcObject),
+        cameraMode,
+        selectedDeviceId: deviceId,
+      });
+    }
+  }, [cameraMode, deviceId, streamRef, videoRef]);
+
+  const waitForVideoEl = useCallback(async (timeoutMs = 2500) => {
+    const t0 = Date.now();
+    while (Date.now() - t0 < timeoutMs) {
+      if (videoRef.current) return videoRef.current;
+      await new Promise((r) => requestAnimationFrame(r));
+    }
+    return videoRef.current;
+  }, [videoRef]);
+
+  const waitForVideoFrames = useCallback(async (video, timeoutMs = 4000) => {
+    if (!video) return false;
+    if (video.videoWidth > 0 && video.videoHeight > 0) return true;
+    return new Promise((resolve) => {
+      let done = false;
+      const finish = (ok) => {
+        if (done) return;
+        done = true;
+        video.removeEventListener("loadedmetadata", onMeta);
+        video.removeEventListener("loadeddata", onMeta);
+        video.removeEventListener("playing", onMeta);
+        clearTimeout(timer);
+        resolve(ok);
+      };
+      const onMeta = () => {
+        if (video.videoWidth > 0 && video.videoHeight > 0) finish(true);
+      };
+      video.addEventListener("loadedmetadata", onMeta);
+      video.addEventListener("loadeddata", onMeta);
+      video.addEventListener("playing", onMeta);
+      const timer = setTimeout(() => finish(video.videoWidth > 0), timeoutMs);
+      onMeta();
+    });
+  }, []);
 
   const attachStreamToVideo = (stream, wantFacing) => {
     const v = videoRef.current;
@@ -1435,9 +1508,12 @@ const MediaPreviewAndroid = () => {
     }
     const mirror = facing === "user";
     setPreviewMirror(mirror);
-    v.srcObject = stream;
+    if (v.srcObject !== stream) {
+      v.srcObject = stream;
+    }
     v.muted = true;
     v.playsInline = true;
+    v.autoplay = true;
     v.setAttribute("playsinline", "true");
     v.setAttribute("webkit-playsinline", "true");
     v.style.transform = mirror
@@ -1452,7 +1528,26 @@ const MediaPreviewAndroid = () => {
     v.addEventListener("playing", clearFreeze, { once: true });
     v.addEventListener("loadeddata", clearFreeze, { once: true });
     setTimeout(clearFreeze, 600);
-    v.play().catch(() => {});
+    if (import.meta.env?.DEV) {
+      const tr = stream.getVideoTracks?.()?.[0];
+      console.info("[cam] attachStreamToVideo", {
+        streamId: stream.id,
+        active: stream.active,
+        trackId: tr?.id,
+        trackKind: tr?.kind,
+        trackReadyState: tr?.readyState,
+        trackEnabled: tr?.enabled,
+        trackMuted: tr?.muted,
+        videoReadyState: v.readyState,
+        videoPaused: v.paused,
+        videoWidth: v.videoWidth,
+        videoHeight: v.videoHeight,
+        hasSrcObject: Boolean(v.srcObject),
+        cameraMode: facing,
+        selectedDeviceId: deviceId,
+      });
+    }
+    return v.play().catch(() => {});
   };
 
   const startCamera = async () => {
@@ -1481,10 +1576,14 @@ const MediaPreviewAndroid = () => {
         lastZoomLevel.current === zoomLevel &&
         lastDeviceId.current === deviceId
       ) {
-        if (videoRef.current && !videoRef.current.srcObject) {
-          videoRef.current.srcObject = streamRef.current;
-          videoRef.current.play().catch(() => {});
+        // Live stream parked during preview — reattach without getUserMedia
+        if (videoRef.current) {
+          await attachStreamToVideo(
+            streamRef.current,
+            mode === "user" ? "user" : "environment",
+          );
         }
+        startingRef.current = false;
         return;
       }
 
@@ -1727,6 +1826,100 @@ const MediaPreviewAndroid = () => {
     }
   };
 
+  /**
+   * After clearing capture preview ("Lưu và chụp tiếp"): reattach live stream
+   * or reopen getUserMedia once — keep facing/deviceId/zoom prefs.
+   * Defined after startCamera so it can call the current startCamera.
+   */
+  const resumeCameraAfterDraft = async () => {
+    if (startingRef.current) return;
+
+    const mode = cameraMode || "environment";
+    const z = zoomLevel || "1x";
+    const paramsChanged =
+      lastCameraMode.current !== mode ||
+      lastZoomLevel.current !== z ||
+      (deviceId != null &&
+        lastDeviceId.current != null &&
+        lastDeviceId.current !== deviceId);
+
+    const stream = streamRef.current;
+    const track = stream?.getVideoTracks?.()?.[0];
+    const streamUsable =
+      Boolean(stream?.active) && track && track.readyState === "live";
+
+    // Lens / facing change while live → full startCamera path
+    if (paramsChanged || !streamUsable || !cameraInitialized.current) {
+      if (import.meta.env?.DEV) {
+        console.info("[cam] resume → startCamera", {
+          paramsChanged,
+          streamUsable,
+          cameraMode: mode,
+          selectedDeviceId: deviceId,
+          trackReadyState: track?.readyState,
+        });
+      }
+      await startCamera();
+      const v = await waitForVideoEl();
+      if (v && (await waitForVideoFrames(v))) setCameraResumeError(false);
+      else setCameraResumeError(true);
+      return;
+    }
+
+    const video = await waitForVideoEl();
+    if (!video) {
+      setCameraResumeError(true);
+      return;
+    }
+
+    if (import.meta.env?.DEV) {
+      console.info("[cam] resumeCameraAfterDraft reattach", {
+        streamId: stream?.id,
+        active: stream?.active,
+        trackId: track?.id,
+        trackKind: track?.kind,
+        trackReadyState: track?.readyState,
+        trackEnabled: track?.enabled,
+        trackMuted: track?.muted,
+        videoReadyState: video.readyState,
+        videoPaused: video.paused,
+        videoWidth: video.videoWidth,
+        videoHeight: video.videoHeight,
+        hasSrcObject: Boolean(video.srcObject),
+        cameraMode: mode,
+        selectedDeviceId: deviceId,
+      });
+    }
+
+    try {
+      await attachStreamToVideo(stream, mode);
+      let ok = await waitForVideoFrames(video);
+      if (!ok) {
+        video.srcObject = null;
+        await attachStreamToVideo(stream, mode);
+        ok = await waitForVideoFrames(video);
+      }
+      if (ok) {
+        setCameraResumeError(false);
+        return;
+      }
+      // Last resort: one full restart
+      if (streamRef.current) {
+        clearTrackZoomCache(streamRef.current);
+        stopCurrentCamera(streamRef.current, null);
+        streamRef.current = null;
+      }
+      cameraInitialized.current = false;
+      await startCamera();
+      const v2 = videoRef.current;
+      if (v2 && (await waitForVideoFrames(v2))) setCameraResumeError(false);
+      else setCameraResumeError(true);
+    } catch (e) {
+      console.error("[cam] resumeCameraAfterDraft failed", e);
+      setCameraResumeError(true);
+    }
+  };
+
   useEffect(() => {
     removeCaptionZoomControls();
     // Preload danh sách cam — flip/zoom sau này không enumerate lại
@@ -1742,13 +1935,18 @@ const MediaPreviewAndroid = () => {
   }, []);
 
   useEffect(() => {
-    const shouldRun =
-      cameraActive && onCapturePage && !preview && !selectedFile;
+    const inPreview = Boolean(preview || selectedFile);
+    const wantLive = cameraActive && onCapturePage && !inPreview;
 
-    if (shouldRun) {
-      startCamera();
+    if (wantLive) {
+      // After "Lưu và chụp tiếp": prefer reattach parked stream
+      void resumeCameraAfterDraft();
+    } else if (inPreview && onCapturePage) {
+      // Captured media showing — keep tracks alive for next shot
+      parkCameraForPreview();
     } else if (streamRef.current) {
-      stopCamera();
+      // Left capture page or camera intentionally off (upload picker / unmount path)
+      stopCameraCompletely();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
@@ -1760,6 +1958,16 @@ const MediaPreviewAndroid = () => {
     selectedFile,
     onCapturePage,
   ]);
+
+  // Safety: leaving preview with cameraActive still false → re-enable (parity with iOS)
+  useEffect(() => {
+    if (!preview && !selectedFile && !cameraActive && onCapturePage) {
+      if (import.meta.env?.DEV) {
+        console.info("[cam] auto setCameraActive(true) after leaving preview");
+      }
+      setCameraActive(true);
+    }
+  }, [preview, selectedFile, cameraActive, onCapturePage, setCameraActive]);
 
   useEffect(() => {
     return () => {
@@ -1843,6 +2051,31 @@ const MediaPreviewAndroid = () => {
               WebkitBackfaceVisibility: "hidden",
             }}
           />
+        )}
+
+        {cameraResumeError && !preview && !selectedFile && (
+          <div className="absolute inset-0 z-40 flex flex-col items-center justify-center gap-2 bg-black/55 px-4">
+            <p className="text-white text-sm text-center">
+              Không mở được camera
+            </p>
+            <button
+              type="button"
+              className="btn btn-sm btn-primary rounded-full"
+              data-no-focus
+              onClick={() => {
+                setCameraResumeError(false);
+                cameraInitialized.current = false;
+                if (streamRef.current) {
+                  stopCurrentCamera(streamRef.current, null);
+                  streamRef.current = null;
+                }
+                setCameraActive(true);
+                void resumeCameraAfterDraft();
+              }}
+            >
+              Mở lại camera
+            </button>
+          </div>
         )}
 
         {/* Freeze frame khi flip — che khoảng stop→open, không đen */}

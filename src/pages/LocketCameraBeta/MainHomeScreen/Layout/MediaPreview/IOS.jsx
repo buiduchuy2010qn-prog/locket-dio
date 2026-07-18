@@ -498,6 +498,7 @@ const MediaPreviewIOS = () => {
     () => cameraMode === "user",
   );
   const [freezeFrame, setFreezeFrame] = useState(null);
+  const [cameraResumeError, setCameraResumeError] = useState(false);
   const [videoEpoch, setVideoEpoch] = useState(0);
   const [forceRearLensPicker, setForceRearLensPicker] = useState(false);
   const [cameraDebug] = useState(() => isCameraDebugEnabled());
@@ -1305,7 +1306,8 @@ const MediaPreviewIOS = () => {
     }
   };
 
-  const stopCamera = () => {
+  /** Full stop — unmount / leave page / intentional off. Not for chụp tiếp. */
+  const stopCameraCompletely = () => {
     startRequestId.current += 1;
     pinchingRef.current = false;
     if (switchSpinnerTimer.current) {
@@ -1315,12 +1317,71 @@ const MediaPreviewIOS = () => {
     pinchState.current = handlePinchZoomEnd();
     setIsPinching(false);
     if (streamRef.current) clearTrackZoomCache(streamRef.current);
+    if (import.meta.env?.DEV) {
+      const tr = streamRef.current?.getVideoTracks?.()?.[0];
+      console.info("[cam-ios] stopCameraCompletely", {
+        streamId: streamRef.current?.id,
+        trackReadyState: tr?.readyState,
+        cameraMode,
+        selectedDeviceId: deviceId,
+      });
+    }
     stopCurrentCamera(streamRef.current, videoRef.current);
     streamRef.current = null;
     cameraInitialized.current = false;
     currentZoomValue.current = 1;
     setCurrentZoom(1);
     setActiveZoomMode("1x");
+    setCameraResumeError(false);
+  };
+
+  /** Keep live tracks while showing capture preview */
+  const parkCameraForPreview = () => {
+    if (import.meta.env?.DEV) {
+      const stream = streamRef.current;
+      const tr = stream?.getVideoTracks?.()?.[0];
+      console.info("[cam-ios] parkCameraForPreview", {
+        streamId: stream?.id,
+        active: stream?.active,
+        trackReadyState: tr?.readyState,
+        cameraMode,
+        selectedDeviceId: deviceId,
+      });
+    }
+  };
+
+  const waitForVideoEl = async (timeoutMs = 2500) => {
+    const t0 = Date.now();
+    while (Date.now() - t0 < timeoutMs) {
+      if (videoRef.current) return videoRef.current;
+      await new Promise((r) => requestAnimationFrame(r));
+    }
+    return videoRef.current;
+  };
+
+  const waitForVideoFrames = async (video, timeoutMs = 4000) => {
+    if (!video) return false;
+    if (video.videoWidth > 0 && video.videoHeight > 0) return true;
+    return new Promise((resolve) => {
+      let done = false;
+      const finish = (ok) => {
+        if (done) return;
+        done = true;
+        video.removeEventListener("loadedmetadata", onMeta);
+        video.removeEventListener("loadeddata", onMeta);
+        video.removeEventListener("playing", onMeta);
+        clearTimeout(timer);
+        resolve(ok);
+      };
+      const onMeta = () => {
+        if (video.videoWidth > 0 && video.videoHeight > 0) finish(true);
+      };
+      video.addEventListener("loadedmetadata", onMeta);
+      video.addEventListener("loadeddata", onMeta);
+      video.addEventListener("playing", onMeta);
+      const timer = setTimeout(() => finish(video.videoWidth > 0), timeoutMs);
+      onMeta();
+    });
   };
 
   const attachStreamToVideo = (stream, wantFacing) => {
@@ -1336,9 +1397,12 @@ const MediaPreviewIOS = () => {
     }
     const mirror = facing === "user";
     setPreviewMirror(mirror);
-    v.srcObject = stream;
+    if (v.srcObject !== stream) {
+      v.srcObject = stream;
+    }
     v.muted = true;
     v.playsInline = true;
+    v.autoplay = true;
     v.setAttribute("playsinline", "true");
     v.setAttribute("webkit-playsinline", "true");
     v.style.transform = mirror
@@ -1348,7 +1412,18 @@ const MediaPreviewIOS = () => {
     v.addEventListener("playing", clearFreeze, { once: true });
     v.addEventListener("loadeddata", clearFreeze, { once: true });
     setTimeout(clearFreeze, 600);
-    v.play().catch(() => {});
+    if (import.meta.env?.DEV) {
+      const tr = stream.getVideoTracks?.()?.[0];
+      console.info("[cam-ios] attachStreamToVideo", {
+        streamId: stream.id,
+        trackReadyState: tr?.readyState,
+        videoWidth: v.videoWidth,
+        hasSrcObject: Boolean(v.srcObject),
+        cameraMode: facing,
+        selectedDeviceId: deviceId,
+      });
+    }
+    return v.play().catch(() => {});
   };
 
   const startCamera = async () => {
@@ -1375,9 +1450,11 @@ const MediaPreviewIOS = () => {
         lastZoomLevel.current === zoomLevel &&
         lastDeviceId.current === deviceId
       ) {
-        if (videoRef.current && !videoRef.current.srcObject) {
-          videoRef.current.srcObject = streamRef.current;
-          videoRef.current.play().catch(() => {});
+        if (videoRef.current) {
+          await attachStreamToVideo(
+            streamRef.current,
+            mode === "user" ? "user" : "environment",
+          );
         }
         return;
       }
@@ -1613,13 +1690,70 @@ const MediaPreviewIOS = () => {
     return () => document.removeEventListener("visibilitychange", onVis);
   }, []);
 
+  const resumeCameraAfterDraft = async () => {
+    const mode = cameraMode || "environment";
+    const z = zoomLevel || "1x";
+    const paramsChanged =
+      lastCameraMode.current !== mode ||
+      lastZoomLevel.current !== z ||
+      (deviceId != null &&
+        lastDeviceId.current != null &&
+        lastDeviceId.current !== deviceId);
+    const stream = streamRef.current;
+    const track = stream?.getVideoTracks?.()?.[0];
+    const streamUsable =
+      Boolean(stream?.active) && track && track.readyState === "live";
+
+    if (paramsChanged || !streamUsable || !cameraInitialized.current) {
+      await startCamera();
+      const v = await waitForVideoEl();
+      if (v && (await waitForVideoFrames(v))) setCameraResumeError(false);
+      else setCameraResumeError(true);
+      return;
+    }
+
+    const video = await waitForVideoEl();
+    if (!video) {
+      setCameraResumeError(true);
+      return;
+    }
+    try {
+      await attachStreamToVideo(stream, mode);
+      let ok = await waitForVideoFrames(video);
+      if (!ok) {
+        video.srcObject = null;
+        await attachStreamToVideo(stream, mode);
+        ok = await waitForVideoFrames(video);
+      }
+      if (ok) {
+        setCameraResumeError(false);
+        return;
+      }
+      if (streamRef.current) {
+        clearTrackZoomCache(streamRef.current);
+        stopCurrentCamera(streamRef.current, null);
+        streamRef.current = null;
+      }
+      cameraInitialized.current = false;
+      await startCamera();
+      const v2 = videoRef.current;
+      if (v2 && (await waitForVideoFrames(v2))) setCameraResumeError(false);
+      else setCameraResumeError(true);
+    } catch (e) {
+      console.error("[cam-ios] resume failed", e);
+      setCameraResumeError(true);
+    }
+  };
+
   useEffect(() => {
-    const shouldRun =
-      cameraActive && onCapturePage && !preview && !selectedFile;
-    if (shouldRun) {
-      startCamera();
+    const inPreview = Boolean(preview || selectedFile);
+    const wantLive = cameraActive && onCapturePage && !inPreview;
+    if (wantLive) {
+      void resumeCameraAfterDraft();
+    } else if (inPreview && onCapturePage) {
+      parkCameraForPreview();
     } else if (streamRef.current) {
-      stopCamera();
+      stopCameraCompletely();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
@@ -1696,6 +1830,31 @@ const MediaPreviewIOS = () => {
               backfaceVisibility: "hidden",
             }}
           />
+        )}
+
+        {cameraResumeError && !preview && !selectedFile && (
+          <div className="absolute inset-0 z-40 flex flex-col items-center justify-center gap-2 bg-black/55 px-4">
+            <p className="text-white text-sm text-center">
+              Không mở được camera
+            </p>
+            <button
+              type="button"
+              className="btn btn-sm btn-primary rounded-full"
+              data-no-focus
+              onClick={() => {
+                setCameraResumeError(false);
+                cameraInitialized.current = false;
+                if (streamRef.current) {
+                  stopCurrentCamera(streamRef.current, null);
+                  streamRef.current = null;
+                }
+                setCameraActive(true);
+                void resumeCameraAfterDraft();
+              }}
+            >
+              Mở lại camera
+            </button>
+          </div>
         )}
 
         {/* Freeze frame khi flip — không màn đen / spinner */}

@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { useMomentDraftStore, usePostStore } from "@/stores";
 import { useConnectivityStore } from "@/stores/useConnectivityStore";
+import { useAppCamera } from "@/context/AppContext";
 
 /**
  * Compact actions after capture — does not move camera chrome.
@@ -14,19 +15,53 @@ export default function SaveDraftActions() {
   const serverReachable = useConnectivityStore((s) => s.serverReachable);
   const saveCurrentAsDraft = useMomentDraftStore((s) => s.saveCurrentAsDraft);
   const openLibrary = useMomentDraftStore((s) => s.openLibrary);
+  const camera = useAppCamera();
+  const setCameraActive = camera?.setCameraActive;
   const [busy, setBusy] = useState(false);
 
   if (!hasMedia) return null;
 
   const canPost = !isOffline && serverReachable;
 
+  /**
+   * After IndexedDB save + clear preview: re-enable live camera.
+   * MediaPreview parks stream during preview (no track.stop) then reattaches.
+   */
+  const resumeLiveCamera = () => {
+    if (import.meta.env?.DEV) {
+      const stream = camera?.streamRef?.current;
+      const tr = stream?.getVideoTracks?.()?.[0];
+      console.info("[cam] SaveDraftActions resumeLiveCamera", {
+        streamId: stream?.id,
+        active: stream?.active,
+        trackReadyState: tr?.readyState,
+        trackEnabled: tr?.enabled,
+        hasSrcObject: Boolean(camera?.videoRef?.current?.srcObject),
+        cameraMode: camera?.cameraMode,
+        selectedDeviceId: camera?.deviceId,
+      });
+    }
+    setCameraActive?.(true);
+  };
+
   const onSave = async (clearAfter) => {
     if (busy) return;
     setBusy(true);
     try {
-      await saveCurrentAsDraft({ clearAfter });
-      if (clearAfter) {
-        // stay on camera for next shot
+      if (import.meta.env?.DEV) {
+        console.info("[cam] SaveDraft before draft save", { clearAfter });
+      }
+      const result = await saveCurrentAsDraft({ clearAfter });
+      if (import.meta.env?.DEV) {
+        console.info("[cam] SaveDraft after IDB", {
+          clearAfter,
+          ok: !result?.error,
+          error: result?.error || null,
+        });
+      }
+      if (clearAfter && !result?.error) {
+        // clearStudioAfterSave already ran inside saveCurrentAsDraft
+        resumeLiveCamera();
       }
     } finally {
       setBusy(false);
@@ -37,8 +72,12 @@ export default function SaveDraftActions() {
     if (busy) return;
     setBusy(true);
     try {
-      await saveCurrentAsDraft({ clearAfter: true });
-      openLibrary();
+      const result = await saveCurrentAsDraft({ clearAfter: true });
+      if (!result?.error) {
+        // Leaving studio for library — full camera stop handled by page/nav
+        setCameraActive?.(false);
+        openLibrary();
+      }
     } finally {
       setBusy(false);
     }
