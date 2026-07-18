@@ -5,6 +5,7 @@ import React, {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import {
   X,
   MoreVertical,
@@ -12,23 +13,27 @@ import {
   Video,
   Play,
   Camera,
+  RefreshCw,
 } from "lucide-react";
-import { useMomentDraftStore } from "@/stores";
+import { useMomentDraftStore, usePostStore } from "@/stores";
 import { useConnectivityStore } from "@/stores/useConnectivityStore";
+import { useAppCamera } from "@/context/AppContext";
 import { OverlayRenderer } from "@/components/Overlay";
 import { SonnerInfo } from "@/components/uikit/SonnerToast";
 import {
   getDraftThumbnailBlob,
   getDraftMediaBlob,
+  ensureLocalThumbnail,
+  ensureLocalMedia,
   DRAFT_STATUS,
   SYNC_STATUS,
   formatDraftStatusLine,
   formatDraftCreatedAt,
-  syncStatusLabel,
 } from "@/utils/momentDraft";
 
 /**
- * Multi-draft library — large post-like previews (feed-style OverlayRenderer).
+ * Full-screen draft library — opaque page, not a glass overlay on camera.
+ * Pauses camera stream while open to avoid lag.
  * Opened only when user taps the draft badge (never auto).
  */
 export default function DraftLibrary() {
@@ -46,14 +51,79 @@ export default function DraftLibrary() {
   const retrySyncDraft = useMomentDraftStore((s) => s.retrySyncDraft);
   const syncDraftsNow = useMomentDraftStore((s) => s.syncDraftsNow);
   const isOffline = useConnectivityStore((s) => s.isOffline);
+  const camera = useAppCamera();
+  const setCameraActive = camera?.setCameraActive;
 
   const listRef = useRef(null);
   const scrollRestoreRef = useRef(0);
   const offlineToastOnce = useRef(false);
+  const cameraPausedRef = useRef(false);
 
   const [confirmId, setConfirmId] = useState(null);
   const [menuId, setMenuId] = useState(null);
   const [busyId, setBusyId] = useState(null);
+  const [syncing, setSyncing] = useState(false);
+
+  // Opaque page: pause camera + lock body scroll (tránh camera xuyên + lag)
+  useEffect(() => {
+    if (!open) return undefined;
+
+    cameraPausedRef.current = true;
+    try {
+      setCameraActive?.(false);
+      const stream = camera?.streamRef?.current;
+      stream?.getVideoTracks?.()?.forEach((t) => {
+        try {
+          t.enabled = false;
+        } catch {
+          /* ignore */
+        }
+      });
+      const videoEl = camera?.videoRef?.current;
+      if (videoEl) {
+        try {
+          videoEl.pause?.();
+        } catch {
+          /* ignore */
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+
+    const prevOverflow = document.body.style.overflow;
+    const prevTouch = document.body.style.touchAction;
+    document.body.style.overflow = "hidden";
+    document.body.style.touchAction = "none";
+    document.documentElement.classList.add("draft-library-open");
+
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      document.body.style.touchAction = prevTouch;
+      document.documentElement.classList.remove("draft-library-open");
+
+      // Resume camera only if studio has no media (user just closed library)
+      const post = usePostStore.getState();
+      const hasStudioMedia = !!(post.selectedFile || post.preview?.data);
+      if (!hasStudioMedia && cameraPausedRef.current) {
+        try {
+          const stream = camera?.streamRef?.current;
+          stream?.getVideoTracks?.()?.forEach((t) => {
+            try {
+              t.enabled = true;
+            } catch {
+              /* ignore */
+            }
+          });
+          setCameraActive?.(true);
+        } catch {
+          /* ignore */
+        }
+      }
+      cameraPausedRef.current = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only on open/close
+  }, [open]);
 
   useEffect(() => {
     if (!open) {
@@ -152,55 +222,86 @@ export default function DraftLibrary() {
     }
   };
 
+  const handleClose = () => {
+    closeLibrary();
+  };
+
+  const handleSync = async () => {
+    if (syncing || isOffline) return;
+    setSyncing(true);
+    try {
+      await syncDraftsNow?.();
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   if (!open) return null;
 
-  return (
+  const shell = (
     <div
-      className="fixed inset-0 z-[190] flex flex-col bg-base-100 text-base-content"
+      className="draft-library-root fixed inset-0 z-[320] flex flex-col text-base-content isolate"
       role="dialog"
       aria-modal="true"
       aria-labelledby="draft-lib-title"
+      data-draft-library="true"
     >
-      <header className="flex items-center justify-between px-4 py-3 border-b border-base-300 shrink-0">
-        <div>
-          <h2 id="draft-lib-title" className="text-lg font-semibold">
+      <header
+        className="relative z-10 flex items-center justify-between gap-2 px-4 py-3 border-b border-base-300 shrink-0 bg-inherit"
+        style={{
+          paddingTop: "max(0.75rem, env(safe-area-inset-top))",
+        }}
+      >
+        <div className="min-w-0">
+          <h2 id="draft-lib-title" className="text-lg font-semibold truncate">
             Thư viện bản nháp
           </h2>
-          <p className="text-xs opacity-60">
+          <p className="text-xs opacity-60 truncate">
             {drafts.length
               ? `${drafts.length} bản chưa đăng`
               : "Chưa có bản nháp"}
             {isOffline ? " · Ngoại tuyến" : " · Đồng bộ theo tài khoản"}
           </p>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 shrink-0">
           {!isOffline && (
             <button
               type="button"
-              className="btn btn-ghost btn-xs"
-              onClick={() => {
-                void syncDraftsNow?.().then(() =>
-                  SonnerInfo("Đã thử đồng bộ bản nháp"),
-                );
-              }}
+              className="btn btn-ghost btn-sm gap-1"
+              disabled={syncing}
+              onClick={() => void handleSync()}
             >
+              <RefreshCw
+                size={14}
+                className={syncing ? "animate-spin" : undefined}
+              />
               Đồng bộ
             </button>
           )}
           <button
             type="button"
             className="btn btn-ghost btn-sm btn-circle"
-            onClick={closeLibrary}
-            aria-label="Đóng"
+            onClick={handleClose}
+            aria-label="Đóng thư viện"
           >
             <X size={20} />
           </button>
         </div>
       </header>
 
-      <div ref={listRef} className="flex-1 overflow-y-auto px-3 py-4 pb-10">
+      <div
+        ref={listRef}
+        className="relative z-10 flex-1 overflow-y-auto overscroll-contain px-3 py-4 bg-inherit"
+        style={{
+          paddingBottom: "max(2.5rem, env(safe-area-inset-bottom))",
+          WebkitOverflowScrolling: "touch",
+        }}
+      >
         {!sorted.length ? (
-          <div className="flex flex-col items-center justify-center text-center py-20 px-6 gap-3">
+          <div className="flex flex-col items-center justify-center text-center py-20 px-6 gap-3 min-h-[50vh]">
+            <div className="w-16 h-16 rounded-2xl bg-base-200 flex items-center justify-center opacity-80">
+              <ImageIcon size={28} />
+            </div>
             <p className="text-base font-semibold">Chưa có bản nháp</p>
             <p className="text-sm opacity-60 max-w-xs">
               Ảnh và video chưa đăng sẽ xuất hiện tại đây.
@@ -208,7 +309,7 @@ export default function DraftLibrary() {
             <button
               type="button"
               className="btn btn-primary btn-sm gap-2 mt-2"
-              onClick={closeLibrary}
+              onClick={handleClose}
             >
               <Camera size={16} />
               Mở camera
@@ -250,8 +351,8 @@ export default function DraftLibrary() {
       </div>
 
       {confirmId && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/60">
-          <div className="w-full max-w-sm rounded-2xl bg-base-100 p-4 shadow-xl border border-base-300">
+        <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/70">
+          <div className="w-full max-w-sm rounded-2xl p-4 shadow-xl border border-base-300 bg-base-100">
             <p className="text-base font-semibold mb-1">Xóa bản nháp này?</p>
             <p className="text-sm opacity-70 mb-4">
               Ảnh/video chưa đăng sẽ không thể khôi phục.
@@ -278,6 +379,12 @@ export default function DraftLibrary() {
       )}
     </div>
   );
+
+  // Portal ra body — tách hẳn khỏi layout camera (z-index / transparency)
+  if (typeof document !== "undefined" && document.body) {
+    return createPortal(shell, document.body);
+  }
+  return shell;
 }
 
 function buildOverlayData(draft) {
@@ -342,7 +449,6 @@ function DraftPreviewCard({
     draft.syncStatus === SYNC_STATUS.SYNC_FAILED ||
     draft.syncStatus === SYNC_STATUS.CONFLICT;
   const statusLine = formatDraftStatusLine(draft);
-  const syncLine = syncStatusLabel(draft.syncStatus);
   const overlayData = useMemo(() => buildOverlayData(draft), [draft]);
   const editedHint =
     draft.updatedAt &&
@@ -351,11 +457,19 @@ function DraftPreviewCard({
       ? `Đã sửa · ${formatDraftCreatedAt(draft.updatedAt)}`
       : null;
 
-  // Thumbnail ASAP
+  // Thumbnail ASAP — local IDB, rồi tải từ tài khoản (thiết bị khác / URL ký hết hạn)
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const blob = await getDraftThumbnailBlob(draft.id);
+      let blob = await getDraftThumbnailBlob(draft.id);
+      if (!blob && !offline) {
+        try {
+          const r = await ensureLocalThumbnail(draft.id);
+          blob = r?.blob || (await getDraftThumbnailBlob(draft.id));
+        } catch {
+          /* network */
+        }
+      }
       if (cancelled || !blob) return;
       if (thumbUrlRef.current) {
         try {
@@ -379,9 +493,9 @@ function DraftPreviewCard({
         thumbUrlRef.current = null;
       }
     };
-  }, [draft.id]);
+  }, [draft.id, offline]);
 
-  // Near-viewport → load full media blob
+  // Near-viewport → load full media blob (pull from cloud if shell-only)
   useEffect(() => {
     const el = rootRef.current;
     if (!el || typeof IntersectionObserver === "undefined") {
@@ -404,7 +518,24 @@ function DraftPreviewCard({
     if (!nearView) return undefined;
     let cancelled = false;
     (async () => {
-      const blob = await getDraftMediaBlob(draft.id);
+      let blob = await getDraftMediaBlob(draft.id);
+      if (!blob && !offline) {
+        try {
+          await ensureLocalMedia(draft.id);
+          blob = await getDraftMediaBlob(draft.id);
+          // refresh thumb if it filled during media download
+          if (!thumbUrlRef.current) {
+            const t = await getDraftThumbnailBlob(draft.id);
+            if (t && !cancelled) {
+              const u = URL.createObjectURL(t);
+              thumbUrlRef.current = u;
+              setThumbUrl(u);
+            }
+          }
+        } catch {
+          /* network */
+        }
+      }
       if (cancelled || !blob) return;
       if (mediaUrlRef.current) {
         try {
@@ -430,7 +561,7 @@ function DraftPreviewCard({
       setMediaUrl(null);
       setPlaying(false);
     };
-  }, [nearView, draft.id]);
+  }, [nearView, draft.id, offline]);
 
   const togglePlay = useCallback(
     (e) => {
@@ -537,9 +668,10 @@ function DraftPreviewCard({
               onEdit();
             }
           }}
-          className="w-full text-left border border-base-300 rounded-[28px] sm:rounded-[40px] overflow-hidden bg-base-300/40 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          className="draft-library-card w-full text-left border border-base-300 rounded-[28px] sm:rounded-[40px] overflow-hidden shadow-md cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
         >
-          <div className="relative aspect-square w-full overflow-hidden bg-gradient-to-br from-base-300/30 to-base-100/20">
+          {/* Nền đặc — không trong suốt xuyên camera */}
+          <div className="relative aspect-square w-full overflow-hidden draft-library-card">
             {/* Thumbnail always under */}
             {thumbUrl ? (
               <img
@@ -552,8 +684,11 @@ function DraftPreviewCard({
                 }`}
               />
             ) : (
-              <div className="absolute inset-0 flex items-center justify-center opacity-40">
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-base-content/40">
                 {isVideo ? <Video size={40} /> : <ImageIcon size={40} />}
+                <span className="text-xs">
+                  {offline ? "Chưa có ảnh local" : "Đang tải…"}
+                </span>
               </div>
             )}
 

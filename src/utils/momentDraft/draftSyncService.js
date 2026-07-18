@@ -24,7 +24,16 @@ function authOk() {
 }
 
 async function listPendingLocal(ownerUid) {
-  const all = await listDraftsMeta(ownerUid);
+  // Read raw IDB (listDraftsMeta ẩn pending_delete — vẫn cần push xóa cloud)
+  let all = [];
+  try {
+    all = await momentDraftDB.drafts
+      .where("ownerUid")
+      .equals(String(ownerUid))
+      .toArray();
+  } catch {
+    all = await listDraftsMeta(ownerUid);
+  }
   return all.filter(
     (d) =>
       d.syncStatus === SYNC_STATUS.PENDING_SYNC ||
@@ -250,6 +259,76 @@ export async function pushPendingDrafts({ onProgress } = {}) {
 }
 
 /**
+ * Download draft media role with Bearer auth.
+ * Prefer authenticated API path (no signed URL expiry) so PC/phone always work.
+ * Fallback: signed mediaUrls if absolute path fails.
+ */
+function isUsableMediaBlob(blob) {
+  return (
+    blob instanceof Blob &&
+    blob.size > 0 &&
+    !(blob.type && String(blob.type).includes("application/json"))
+  );
+}
+
+async function downloadDraftRoleBlob(draftId, role, mediaUrls) {
+  // 1) Authenticated API path — works after signed URL expires (15m)
+  const path = `/api/drafts/${encodeURIComponent(draftId)}/media/${encodeURIComponent(role)}`;
+  try {
+    const res = await instanceMain.get(path, {
+      responseType: "blob",
+      timeout: 180000,
+    });
+    if (isUsableMediaBlob(res?.data)) return res.data;
+  } catch {
+    /* try signed URLs */
+  }
+
+  // 2) Signed URLs from list/get (prefer same-origin proxy)
+  const entry = mediaUrls?.[role];
+  const candidates = [entry?.proxyUrl, entry?.url].filter(Boolean);
+  for (const url of candidates) {
+    try {
+      let res;
+      if (String(url).startsWith("http")) {
+        // Full absolute host — do not prepend /dio-api
+        res = await instanceMain.get(url, {
+          responseType: "blob",
+          timeout: 180000,
+          baseURL: "",
+        });
+      } else {
+        res = await instanceMain.get(url, {
+          responseType: "blob",
+          timeout: 180000,
+        });
+      }
+      if (isUsableMediaBlob(res?.data)) return res.data;
+    } catch {
+      /* try next */
+    }
+  }
+  return null;
+}
+
+async function refreshDraftMediaUrls(draftId) {
+  try {
+    const res = await instanceMain.get(
+      `/api/drafts/${encodeURIComponent(draftId)}`,
+      { timeout: 60000 },
+    );
+    const cloud = res?.data?.draft;
+    if (cloud?.mediaUrls) {
+      await updateDraftMeta(draftId, { mediaUrls: cloud.mediaUrls });
+      return cloud.mediaUrls;
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+/**
  * Pull cloud metadata (+ optional thumb) and merge into IndexedDB.
  * Does not download full media until user opens draft.
  */
@@ -294,29 +373,25 @@ export async function pullCloudDrafts({ onProgress } = {}) {
           mediaUrls: cloud.mediaUrls || null,
           sourceDeviceId: cloud.sourceDeviceId || null,
         });
-        // Optional thumbnail download for list preview
-        const thumbUrl =
-          cloud.mediaUrls?.thumbnail?.proxyUrl ||
-          cloud.mediaUrls?.thumbnail?.url;
-        if (thumbUrl) {
-          try {
-            const blobRes = await instanceMain.get(thumbUrl, {
-              responseType: "blob",
-              timeout: 60000,
+        // Best-effort thumbnail for list (auth path — không phụ thuộc URL ký 15p)
+        try {
+          const thumbBlob = await downloadDraftRoleBlob(
+            cloud.id,
+            "thumbnail",
+            cloud.mediaUrls,
+          );
+          if (thumbBlob) {
+            await momentDraftDB.draftBlobs.put({
+              id: cloud.id,
+              mediaBlob: null,
+              thumbnailBlob: thumbBlob,
+              originalMediaBlob: null,
+              mimeType: cloud.mimeType || "",
+              fileName: cloud.fileName || "",
             });
-            if (blobRes?.data) {
-              await momentDraftDB.draftBlobs.put({
-                id: cloud.id,
-                mediaBlob: null,
-                thumbnailBlob: blobRes.data,
-                originalMediaBlob: null,
-                mimeType: cloud.mimeType || "",
-                fileName: cloud.fileName || "",
-              });
-            }
-          } catch {
-            /* thumbs are best-effort */
           }
+        } catch {
+          /* thumbs are best-effort */
         }
         continue;
       }
@@ -395,8 +470,62 @@ export async function pullCloudDrafts({ onProgress } = {}) {
           duration: cloud.duration ?? local.duration,
           mediaType: cloud.mediaType || local.mediaType,
         });
+        // Fill missing thumb for already-synced shells (other devices)
+        try {
+          const blobs = await momentDraftDB.draftBlobs.get(local.id);
+          if (!(blobs?.thumbnailBlob instanceof Blob) || !blobs.thumbnailBlob.size) {
+            const thumbBlob = await downloadDraftRoleBlob(
+              local.id,
+              "thumbnail",
+              cloud.mediaUrls || local.mediaUrls,
+            );
+            if (thumbBlob) {
+              await momentDraftDB.draftBlobs.put({
+                id: local.id,
+                mediaBlob: blobs?.mediaBlob || null,
+                thumbnailBlob: thumbBlob,
+                originalMediaBlob: blobs?.originalMediaBlob || null,
+                mimeType: blobs?.mimeType || cloud.mimeType || local.mimeType || "",
+                fileName: blobs?.fileName || cloud.fileName || local.fileName || "",
+              });
+            }
+          }
+        } catch {
+          /* best-effort */
+        }
       }
     }
+
+    // Drop local shells that only existed on cloud and were deleted elsewhere
+    // (keep pending_sync / sync_failed / conflict / local_only)
+    const remoteIds = new Set(remote.map((d) => d?.id).filter(Boolean));
+    let locals = [];
+    try {
+      locals = await momentDraftDB.drafts
+        .where("ownerUid")
+        .equals(String(ownerUid))
+        .toArray();
+    } catch {
+      locals = await listDraftsMeta(ownerUid);
+    }
+    for (const row of locals) {
+      if (remoteIds.has(row.id)) continue;
+      const st = row.syncStatus;
+      const keepLocal =
+        st === SYNC_STATUS.PENDING_SYNC ||
+        st === SYNC_STATUS.SYNC_FAILED ||
+        st === SYNC_STATUS.SYNCING ||
+        st === SYNC_STATUS.CONFLICT ||
+        st === SYNC_STATUS.LOCAL_ONLY ||
+        st === SYNC_STATUS.PENDING_DELETE ||
+        !st;
+      if (keepLocal) continue;
+      if (st === SYNC_STATUS.SYNCED || st === SYNC_STATUS.UPLOADING_POST) {
+        await momentDraftDB.drafts.delete(row.id);
+        await momentDraftDB.draftBlobs.delete(row.id);
+      }
+    }
+
     return { ok: true, count: remote.length };
   } catch (e) {
     return {
@@ -408,26 +537,99 @@ export async function pullCloudDrafts({ onProgress } = {}) {
   }
 }
 
+/**
+ * Ensure thumbnail blob present (for library preview on other devices).
+ * Uses authenticated media route so signed URLs can expire safely.
+ */
+export async function ensureLocalThumbnail(draftId) {
+  if (!draftId) return { ok: false, error: "missing_id" };
+  const existing = await momentDraftDB.draftBlobs.get(draftId);
+  if (existing?.thumbnailBlob instanceof Blob && existing.thumbnailBlob.size > 0) {
+    return { ok: true, blob: existing.thumbnailBlob, blobs: existing };
+  }
+  const meta = await momentDraftDB.drafts.get(draftId);
+  if (!meta) return { ok: false, error: "not_found" };
+
+  let mediaUrls = meta.mediaUrls || null;
+  let thumb =
+    (await downloadDraftRoleBlob(draftId, "thumbnail", mediaUrls).catch(
+      () => null,
+    )) || null;
+
+  // Fresh signed urls if first try failed
+  if (!thumb) {
+    mediaUrls = (await refreshDraftMediaUrls(draftId)) || mediaUrls;
+    thumb = await downloadDraftRoleBlob(draftId, "thumbnail", mediaUrls).catch(
+      () => null,
+    );
+  }
+  // Fall back to active still (image drafts)
+  if (!thumb && meta.mediaType !== "video") {
+    thumb = await downloadDraftRoleBlob(draftId, "active", mediaUrls).catch(
+      () => null,
+    );
+  }
+  if (!thumb) return { ok: false, error: "no_remote_thumb" };
+
+  await momentDraftDB.draftBlobs.put({
+    id: draftId,
+    mediaBlob: existing?.mediaBlob || null,
+    thumbnailBlob: thumb,
+    originalMediaBlob: existing?.originalMediaBlob || null,
+    mimeType: existing?.mimeType || meta.mimeType || thumb.type || "",
+    fileName: existing?.fileName || meta.fileName || "",
+  });
+  return {
+    ok: true,
+    blob: thumb,
+    blobs: await momentDraftDB.draftBlobs.get(draftId),
+  };
+}
+
 /** Ensure full media blob present locally (download active if needed). */
 export async function ensureLocalMedia(draftId) {
   const blobs = await momentDraftDB.draftBlobs.get(draftId);
-  if (blobs?.mediaBlob) return { ok: true, blobs };
+  if (blobs?.mediaBlob instanceof Blob && blobs.mediaBlob.size > 0) {
+    return { ok: true, blobs };
+  }
   const meta = await momentDraftDB.drafts.get(draftId);
-  const url =
-    meta?.mediaUrls?.active?.proxyUrl ||
-    meta?.mediaUrls?.active?.url ||
-    meta?.mediaUrls?.original?.proxyUrl ||
-    meta?.mediaUrls?.original?.url;
-  if (!url) return { ok: false, error: "no_remote_media" };
-  const res = await instanceMain.get(url, {
-    responseType: "blob",
-    timeout: 180000,
-  });
-  const mediaBlob = res.data;
+  if (!meta) return { ok: false, error: "not_found" };
+
+  let mediaUrls = meta.mediaUrls || null;
+  let mediaBlob =
+    (await downloadDraftRoleBlob(draftId, "active", mediaUrls).catch(
+      () => null,
+    )) ||
+    (await downloadDraftRoleBlob(draftId, "original", mediaUrls).catch(
+      () => null,
+    ));
+
+  if (!mediaBlob) {
+    mediaUrls = (await refreshDraftMediaUrls(draftId)) || mediaUrls;
+    mediaBlob =
+      (await downloadDraftRoleBlob(draftId, "active", mediaUrls).catch(
+        () => null,
+      )) ||
+      (await downloadDraftRoleBlob(draftId, "original", mediaUrls).catch(
+        () => null,
+      ));
+  }
+  if (!mediaBlob) return { ok: false, error: "no_remote_media" };
+
+  // Also try to fill missing thumbnail while we're online
+  let thumbnailBlob = blobs?.thumbnailBlob || null;
+  if (!(thumbnailBlob instanceof Blob) || !thumbnailBlob.size) {
+    thumbnailBlob =
+      (await downloadDraftRoleBlob(draftId, "thumbnail", mediaUrls).catch(
+        () => null,
+      )) ||
+      (meta.mediaType !== "video" ? mediaBlob : null);
+  }
+
   await momentDraftDB.draftBlobs.put({
     id: draftId,
     mediaBlob,
-    thumbnailBlob: blobs?.thumbnailBlob || null,
+    thumbnailBlob: thumbnailBlob || null,
     originalMediaBlob: blobs?.originalMediaBlob || null,
     mimeType: mediaBlob.type || meta.mimeType || "",
     fileName: meta.fileName || "",

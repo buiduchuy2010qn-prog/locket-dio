@@ -548,11 +548,15 @@ export async function listDraftsMeta(ownerUid) {
       .where("ownerUid")
       .equals(String(ownerUid))
       .toArray();
-    rows.sort(
+    // Ẩn bản đang chờ xóa cloud (tránh “mất” / ghost trên thiết bị khác)
+    const visible = rows.filter(
+      (r) => r && r.syncStatus !== SYNC_STATUS.PENDING_DELETE,
+    );
+    visible.sort(
       (a, b) =>
         (b.createdAt || b.updatedAt || 0) - (a.createdAt || a.updatedAt || 0),
     );
-    return rows;
+    return visible;
   } catch (e) {
     console.error("[draft-lib] list failed", e);
     return [];

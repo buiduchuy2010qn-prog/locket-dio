@@ -142,12 +142,22 @@ export const useMomentDraftStore = create((set, get) => ({
     set({ libraryOpen: true });
     const uid = resolveDraftUid();
     await get().refreshList(uid);
-    if (!isDraftCloudOnline()) return;
+    if (!isDraftCloudOnline()) {
+      SonnerInfo("Ngoại tuyến — chỉ hiện bản nháp đã lưu trên máy này");
+      return;
+    }
     try {
-      await syncAll();
+      const r = await syncAll();
       await get().refreshList(uid);
+      if (r?.pull?.ok === false) {
+        SonnerWarning(
+          "Không kéo được bản nháp từ tài khoản",
+          r.pull.error || "Thử nút Đồng bộ",
+        );
+      }
     } catch (e) {
       console.warn("[moment-draft] openLibrary sync", e?.message || e);
+      SonnerWarning("Đồng bộ bản nháp lỗi", e?.message || "");
     }
   },
   closeLibrary: () => set({ libraryOpen: false }),
@@ -226,11 +236,26 @@ export const useMomentDraftStore = create((set, get) => ({
   syncDraftsNow: async () => {
     const uid = resolveDraftUid();
     if (!uid) return { ok: false };
+    if (!isDraftCloudOnline()) {
+      SonnerWarning("Cần mạng để đồng bộ bản nháp giữa các thiết bị");
+      return { ok: false, offline: true };
+    }
     try {
       const r = await syncAll();
       await get().refreshList(uid);
+      const n = r?.pull?.count;
+      if (r?.pull?.ok === false) {
+        SonnerWarning("Kéo bản nháp thất bại", r.pull.error || "");
+      } else if (typeof n === "number") {
+        SonnerInfo(
+          n
+            ? `Đã đồng bộ · ${n} bản trên tài khoản`
+            : "Đã đồng bộ · chưa có bản nháp trên tài khoản",
+        );
+      }
       return r;
     } catch (e) {
+      SonnerWarning("Đồng bộ thất bại", e?.message || "");
       return { ok: false, error: e?.message };
     }
   },

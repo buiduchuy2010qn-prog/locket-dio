@@ -39,6 +39,7 @@ export {
   pullCloudDrafts,
   syncAll,
   ensureLocalMedia,
+  ensureLocalThumbnail,
   isDraftSyncRunning,
 } from "./draftSyncService";
 
