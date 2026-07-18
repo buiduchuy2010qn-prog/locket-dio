@@ -1,13 +1,14 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useMemo } from "react";
 import { X } from "lucide-react";
 import {
   DEFAULT_ENHANCE_MODE,
   ENHANCE_MODES,
+  ENHANCE_UI,
   PROVIDER_DISCLOSURE,
 } from "./constants";
 
 /**
- * Before/After + progress UI for AI enhance.
+ * Before/After + progress UI for free (or optional AI) enhance.
  * Pure presentation — no camera/music imports.
  */
 export default function ImageEnhancementModal({
@@ -38,13 +39,13 @@ export default function ImageEnhancementModal({
       className="fixed inset-0 z-[210] flex items-end sm:items-center justify-center p-3 bg-black/60"
       role="dialog"
       aria-modal="true"
-      aria-labelledby="ai-enhance-title"
+      aria-labelledby="enhance-title"
     >
       <div className="w-full max-w-md rounded-2xl bg-base-100 border border-base-300 shadow-2xl overflow-hidden max-h-[92vh] flex flex-col">
         <header className="flex items-center justify-between px-4 py-3 border-b border-base-300 shrink-0">
           <div>
-            <h2 id="ai-enhance-title" className="font-semibold text-base">
-              ✨ AI Làm nét
+            <h2 id="enhance-title" className="font-semibold text-base">
+              ✨ {ENHANCE_UI.title}
             </h2>
             <p className="text-[11px] opacity-60">
               {PROVIDER_DISCLOSURE.provider} · {PROVIDER_DISCLOSURE.latencyHint}
@@ -114,7 +115,7 @@ export default function ImageEnhancementModal({
                 />
               ) : (
                 <div className="w-full h-full flex items-center justify-center text-xs opacity-50 px-2 text-center">
-                  {busy ? "Đang xử lý…" : "Sau AI"}
+                  {busy ? "Đang xử lý…" : ENHANCE_UI.afterLabel}
                 </div>
               )}
               <figcaption className="absolute bottom-1 left-1 text-[10px] px-1.5 py-0.5 rounded bg-black/55 text-white">
@@ -126,7 +127,7 @@ export default function ImageEnhancementModal({
           {busy && (
             <div className="flex flex-col items-center gap-2 py-2">
               <span className="loading loading-spinner loading-md text-primary" />
-              <p className="text-sm">{progressText || "AI đang cải thiện ảnh…"}</p>
+              <p className="text-sm">{progressText || ENHANCE_UI.progress}</p>
             </div>
           )}
 
@@ -137,7 +138,7 @@ export default function ImageEnhancementModal({
           )}
 
           {offline && (
-            <p className="text-sm opacity-70">Cần kết nối mạng để dùng AI.</p>
+            <p className="text-sm opacity-70">{ENHANCE_UI.needNetwork}</p>
           )}
 
           {providerMissing && (
@@ -149,6 +150,12 @@ export default function ImageEnhancementModal({
               <p>Bên thứ ba: {PROVIDER_DISCLOSURE.thirdParty}</p>
               <p>Lưu trữ: {PROVIDER_DISCLOSURE.retention}</p>
             </div>
+          )}
+
+          {!providerMissing && !showCompare && !busy && (
+            <p className="text-[10px] opacity-50">
+              {PROVIDER_DISCLOSURE.costHint} · {PROVIDER_DISCLOSURE.thirdParty}
+            </p>
           )}
         </div>
 
@@ -179,14 +186,14 @@ export default function ImageEnhancementModal({
                 className="btn btn-primary btn-sm w-full rounded-full"
                 onClick={onUseAi}
               >
-                Dùng ảnh AI
+                {ENHANCE_UI.useResult}
               </button>
               <button
                 type="button"
                 className="btn btn-ghost btn-sm w-full rounded-full bg-base-200"
                 onClick={onKeepOriginal}
               >
-                Giữ ảnh gốc
+                {ENHANCE_UI.keepOriginal}
               </button>
               <button
                 type="button"

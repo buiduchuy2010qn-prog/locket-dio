@@ -6,7 +6,7 @@ export function assertEnhanceableFile(file) {
   if (!String(file.type || "").startsWith("image/")) {
     return {
       ok: false,
-      message: "AI Làm nét chỉ hỗ trợ ảnh (không hỗ trợ video).",
+      message: "Làm nét chỉ hỗ trợ ảnh (không hỗ trợ video).",
     };
   }
   if (!ALLOWED_MIME.includes(file.type)) {

@@ -7,7 +7,11 @@
     "start": "node app.js",
     "dev": "nodemon app.js"
   },
-  "keywords": ["huy-locket", "locket", "api"],
+  "keywords": [
+    "huy-locket",
+    "locket",
+    "api"
+  ],
   "author": "Bùi Đức Huy",
   "license": "ISC",
   "description": "Huy Locket API / backend (from Server-Locket-Dio)",
@@ -34,7 +38,7 @@
     "jsonwebtoken": "^9.0.2",
     "multer": "^1.4.5-lts.1",
     "redis": "^5.10.0",
-    "sharp": "^0.34.2",
+    "sharp": "^0.34.5",
     "socket.io": "^4.8.3",
     "spotify-uri": "^4.1.0",
     "uuid": "^11.1.0",

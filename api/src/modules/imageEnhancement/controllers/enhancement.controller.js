@@ -5,6 +5,7 @@ const jobStore = require("../services/jobStore");
 const {
   runEnhancementProvider,
   isProviderConfigured,
+  getProviderPublicInfo,
 } = require("../services/providers");
 
 const ALLOWED_MODES = new Set(["natural", "portrait", "lowlight"]);
@@ -21,7 +22,7 @@ async function createJob(req, res) {
         success: false,
         code: "PROVIDER_NOT_CONFIGURED",
         message:
-          "AI Làm nét chưa cấu hình provider (REPLICATE_API_TOKEN). Ảnh gốc được giữ nguyên.",
+          "Làm nét chưa được bật trên máy chủ. Ảnh gốc được giữ nguyên.",
       });
     }
 
@@ -29,7 +30,7 @@ async function createJob(req, res) {
       return res.status(429).json({
         success: false,
         code: "CONCURRENT_LIMIT",
-        message: "Đang có job AI khác — chờ xong rồi thử lại.",
+        message: "Đang có job làm nét khác — chờ xong rồi thử lại.",
       });
     }
 
@@ -85,7 +86,7 @@ async function createJob(req, res) {
     console.error("[image-enhancement] createJob", e?.code || e?.message);
     return res.status(500).json({
       success: false,
-      message: "Không tạo được job AI.",
+      message: "Không tạo được job làm nét.",
     });
   }
 }
@@ -136,7 +137,7 @@ async function processJob(jobId) {
     const code = e?.code || "PROVIDER_ERROR";
     jobStore.updateJob(jobId, {
       status: "failed",
-      error: e?.message || "AI thất bại",
+      error: e?.message || "Làm nét thất bại",
       code,
     });
     jobStore.releaseUserSlot(job.uid);
@@ -205,10 +206,17 @@ function cancelJob(req, res) {
 }
 
 function providerStatus(req, res) {
+  const info = getProviderPublicInfo();
   return res.json({
     success: true,
     configured: isProviderConfigured(),
-    provider: process.env.IMAGE_ENHANCEMENT_PROVIDER || "replicate",
+    provider: info.provider,
+    isAi: info.isAi,
+    label: info.label,
+    costHint: info.costHint,
+    latencyHint: info.latencyHint,
+    thirdParty: info.thirdParty,
+    model: info.model,
   });
 }
 

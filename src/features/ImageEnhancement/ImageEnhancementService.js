@@ -1,5 +1,5 @@
 /**
- * Client API for AI image enhancement.
+ * Client API for image enhancement (free sharp by default; optional Replicate).
  * Lazy-imported only when user taps the button — no model in main bundle.
  */
 import { instanceMain } from "@/libs";
@@ -57,7 +57,7 @@ export async function createEnhancementJob(file, mode, { signal } = {}) {
 
   const data = res?.data;
   if (!data?.jobId) {
-    const err = new Error(data?.message || "Không tạo được job AI.");
+    const err = new Error(data?.message || "Không tạo được job làm nét.");
     err.code = data?.code || "CREATE_FAILED";
     err.details = data;
     throw err;
@@ -120,7 +120,7 @@ export async function waitForEnhancementJob(
     onProgress?.(job);
     if (job.status === "succeeded") return job;
     if (job.status === "failed" || job.status === "cancelled") {
-      const err = new Error(job.error || "AI xử lý thất bại");
+      const err = new Error(job.error || "Làm nét thất bại");
       err.code = job.code || "JOB_FAILED";
       err.job = job;
       throw err;
@@ -128,7 +128,7 @@ export async function waitForEnhancementJob(
     await new Promise((r) => setTimeout(r, delay));
     delay = Math.min(4000, Math.round(delay * 1.35));
   }
-  const err = new Error("AI quá lâu — thử lại sau.");
+  const err = new Error("Làm nét quá lâu — thử lại sau.");
   err.code = "TIMEOUT";
   throw err;
 }

@@ -1,4 +1,4 @@
-/** AI image enhancement — isolated module constants */
+/** Image enhancement — isolated module constants (free by default). */
 
 export const ENHANCE_MODES = {
   natural: {
@@ -25,15 +25,33 @@ export const MAX_CLIENT_BYTES = 12 * 1024 * 1024; // 12MB
 export const ALLOWED_MIME = ["image/jpeg", "image/png", "image/webp"];
 
 /**
- * Provider note (shown in UI when not configured / docs).
- * Update when wiring a real paid provider.
+ * Default disclosure — free sharp on Huy Locket API (no third-party AI).
+ * Replicate remains optional via IMAGE_ENHANCEMENT_PROVIDER=replicate.
  */
 export const PROVIDER_DISCLOSURE = {
-  provider: "Replicate",
-  model: "nightmareai/real-esrgan (or configured REPLICATE_MODEL)",
-  costHint: "~$0.002–0.01 / ảnh tùy độ phân giải (ước lượng Replicate)",
-  latencyHint: "thường 5–30 giây",
+  provider: "Free (server)",
+  model: "sharp — làm nét cổ điển (không AI)",
+  costHint: "Miễn phí — không tốn credit",
+  latencyHint: "thường 1–5 giây",
   maxPixels: "tối đa ~12MP (server)",
-  thirdParty: "Ảnh được gửi tạm tới Replicate để suy luận",
-  retention: "Xóa file tạm trên server sau khi hoàn tất/thất bại; phía provider theo chính sách Replicate",
+  thirdParty: "Không gửi ảnh ra bên thứ ba",
+  retention: "Xóa file tạm trên server sau khi hoàn tất/thất bại",
+  isAi: false,
+};
+
+/** Short UI copy for free path (honest labels, not “AI”). */
+export const ENHANCE_UI = {
+  title: "Làm nét",
+  button: "✨ Làm nét",
+  buttonActive: "· Đang dùng",
+  progress: "Đang cải thiện ảnh…",
+  needNetwork: "Cần kết nối mạng để làm nét.",
+  useResult: "Dùng ảnh đã làm nét",
+  keepOriginal: "Giữ ảnh gốc",
+  success: "Đã dùng ảnh làm nét",
+  failTitle: "Làm nét thất bại",
+  failBody: "Ảnh gốc vẫn an toàn.",
+  cancel: "Đã hủy làm nét",
+  revert: "Đã hoàn tác — về ảnh gốc",
+  afterLabel: "Sau",
 };

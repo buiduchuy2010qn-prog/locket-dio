@@ -2,7 +2,7 @@ import React, { lazy, Suspense, useCallback, useEffect, useRef, useState } from 
 import { usePostStore } from "@/stores";
 import { useConnectivityStore } from "@/stores/useConnectivityStore";
 import { SonnerError, SonnerInfo, SonnerSuccess } from "@/components/uikit/SonnerToast";
-import { DEFAULT_ENHANCE_MODE } from "./constants";
+import { DEFAULT_ENHANCE_MODE, ENHANCE_UI } from "./constants";
 import { assertEnhanceableFile } from "./validateClient";
 
 const ImageEnhancementModal = lazy(() => import("./ImageEnhancementModal"));
@@ -10,6 +10,7 @@ const ImageEnhancementModal = lazy(() => import("./ImageEnhancementModal"));
 /**
  * Post-capture only. Does not import camera hooks or music modules.
  * Lazy-loads enhancement service + modal on first open.
+ * Default path is free server-side sharp (not third-party AI).
  */
 export default function ImageEnhancementButton() {
   const selectedFile = usePostStore((s) => s.selectedFile);
@@ -65,7 +66,7 @@ export default function ImageEnhancementButton() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // New capture session → clear AI compare state
+  // New capture session → clear compare state
   useEffect(() => {
     if (!selectedFile) {
       setOpen(false);
@@ -105,7 +106,7 @@ export default function ImageEnhancementButton() {
     jobLockRef.current = false;
     setProgressText("");
     setJobId(null);
-    SonnerInfo("Đã hủy AI Làm nét");
+    SonnerInfo(ENHANCE_UI.cancel);
   };
 
   const runEnhance = useCallback(async () => {
@@ -117,7 +118,7 @@ export default function ImageEnhancementButton() {
       return;
     }
     if (!online) {
-      setError("Cần kết nối mạng để dùng AI.");
+      setError(ENHANCE_UI.needNetwork);
       return;
     }
 
@@ -126,13 +127,12 @@ export default function ImageEnhancementButton() {
     setError("");
     setProviderMissing(false);
     revokeEnhancedUrl();
-    setProgressText("AI đang cải thiện ảnh…");
+    setProgressText(ENHANCE_UI.progress);
 
     const ac = new AbortController();
     abortRef.current = ac;
 
     try {
-      // Lazy-load service (and only then hit network)
       const { enhanceImageFile } = await import("./ImageEnhancementService");
       const result = await enhanceImageFile(file, mode, {
         signal: ac.signal,
@@ -140,7 +140,7 @@ export default function ImageEnhancementButton() {
           if (p.jobId) setJobId(p.jobId);
           if (p.phase === "queued") setProgressText("Đang xếp hàng…");
           else if (p.phase === "running")
-            setProgressText(p.message || "AI đang cải thiện ảnh…");
+            setProgressText(p.message || ENHANCE_UI.progress);
           else if (p.phase === "done") setProgressText("Hoàn tất");
         },
       });
@@ -163,15 +163,15 @@ export default function ImageEnhancementButton() {
         setError(
           e?.response?.data?.message ||
             e?.message ||
-            "Máy chủ chưa cấu hình AI provider.",
+            "Máy chủ chưa bật làm nét.",
         );
       } else {
         setError(
           e?.response?.data?.message ||
             e?.message ||
-            "AI thất bại — ảnh gốc được giữ nguyên.",
+            "Làm nét thất bại — ảnh gốc được giữ nguyên.",
         );
-        SonnerError("AI Làm nét thất bại", "Ảnh gốc vẫn an toàn.");
+        SonnerError(ENHANCE_UI.failTitle, ENHANCE_UI.failBody);
       }
     } finally {
       setBusy(false);
@@ -185,12 +185,11 @@ export default function ImageEnhancementButton() {
     setActiveMediaFile(enhancedFile, {
       enabled: true,
       mode,
-      model: "server-image-enhancement",
+      model: "free-sharp",
       createdAt: Date.now(),
     });
-    SonnerSuccess("Đã dùng ảnh AI");
+    SonnerSuccess(ENHANCE_UI.success);
     setOpen(false);
-    // Keep enhanced blob in editor via post store; free compare URL later on next open
     revokeEnhancedUrl();
   };
 
@@ -198,7 +197,7 @@ export default function ImageEnhancementButton() {
     revertEnhancement?.();
     revokeEnhancedUrl();
     setOpen(false);
-    SonnerInfo("Giữ ảnh gốc");
+    SonnerInfo(ENHANCE_UI.keepOriginal);
   };
 
   const onRetry = () => {
@@ -221,8 +220,8 @@ export default function ImageEnhancementButton() {
             !online
               ? "Cần kết nối mạng"
               : enhancement?.enabled
-                ? "Đã dùng AI — bấm để xem lại / hoàn tác"
-                : "AI Làm nét ảnh"
+                ? "Đã làm nét — bấm để xem lại / hoàn tác"
+                : "Làm nét ảnh (miễn phí)"
           }
           onClick={() => {
             if (!online) {
@@ -232,12 +231,14 @@ export default function ImageEnhancementButton() {
             openModal();
           }}
         >
-          ✨ AI Làm nét
+          {ENHANCE_UI.button}
           {!online ? (
             <span className="text-[9px] opacity-70">· Cần mạng</span>
           ) : enhancement?.enabled ? (
-            <span className="text-[9px] opacity-70">· Đang dùng AI</span>
-          ) : null}
+            <span className="text-[9px] opacity-70">{ENHANCE_UI.buttonActive}</span>
+          ) : (
+            <span className="text-[9px] opacity-70">· Free</span>
+          )}
         </button>
         {enhancement?.enabled && online && (
           <button
@@ -245,10 +246,10 @@ export default function ImageEnhancementButton() {
             className="btn btn-xs btn-ghost rounded-full ml-1"
             onClick={() => {
               revertEnhancement?.();
-              SonnerInfo("Đã hoàn tác AI — về ảnh gốc");
+              SonnerInfo(ENHANCE_UI.revert);
             }}
           >
-            Hoàn tác AI
+            Hoàn tác
           </button>
         )}
       </div>
