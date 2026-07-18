@@ -95,7 +95,7 @@
       "destination": "https://huy-locket-production.up.railway.app/api/media-download"
     },
     {
-      "source": "/:path*",
+      "source": "/((?!assets/|sw\\.js$|workbox-[^/]+\\.js$|manifest\\.webmanifest$|offline\\.html$|version\\.json$|robots\\.txt$|sitemap\\.xml$|favicon[^/]*|android-chrome-[^/]+|apple-touch-icon\\.png$|maskable-icon-[^/]+|icons/|pwa-icons/|fonts/|images/|svg/|.*\\.[a-zA-Z0-9]+$).*)",
       "destination": "/index.html"
     }
   ],
@@ -115,6 +115,27 @@
         {
           "key": "Cache-Control",
           "value": "public, max-age=0, must-revalidate"
+        },
+        {
+          "key": "Content-Type",
+          "value": "application/javascript; charset=utf-8"
+        },
+        {
+          "key": "Service-Worker-Allowed",
+          "value": "/"
+        }
+      ]
+    },
+    {
+      "source": "/workbox-(.*).js",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=0, must-revalidate"
+        },
+        {
+          "key": "Content-Type",
+          "value": "application/javascript; charset=utf-8"
         }
       ]
     },
@@ -142,15 +163,10 @@
         {
           "key": "Cache-Control",
           "value": "public, max-age=0, must-revalidate"
-        }
-      ]
-    },
-    {
-      "source": "/workbox-(.*).js",
-      "headers": [
+        },
         {
-          "key": "Cache-Control",
-          "value": "public, max-age=0, must-revalidate"
+          "key": "Content-Type",
+          "value": "application/manifest+json; charset=utf-8"
         }
       ]
     }

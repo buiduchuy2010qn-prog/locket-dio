@@ -44,7 +44,13 @@ if (rootEl) {
   );
 }
 
-// PWA / update watcher sau paint (không chặn boot)
+// PWA: register SW ASAP so offline shell is ready after first visit.
+// Update watcher can wait — not needed for offline control.
+try {
+  initPWA();
+} catch {
+  /* ignore */
+}
 const defer = (fn) => {
   if (typeof window !== "undefined" && window.requestIdleCallback) {
     window.requestIdleCallback(fn, { timeout: 3000 });
@@ -54,7 +60,6 @@ const defer = (fn) => {
 };
 defer(() => {
   try {
-    initPWA();
     startUpdateWatcher();
   } catch {
     /* ignore */

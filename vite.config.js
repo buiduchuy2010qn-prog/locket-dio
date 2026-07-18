@@ -10,10 +10,10 @@ const manifestForPlugIn = {
   strategies: "injectManifest",
   srcDir: "src",
   filename: "sw.js",
-
-  injectRegister: "auto",
+  // App registers via virtual:pwa-register — avoid double inject in HTML
+  injectRegister: false,
   injectManifest: {
-    // App shell + hashed chunks needed after first visit (not feed media)
+    // App shell + hashed chunks from CURRENT build (no hard-coded chunk names)
     globPatterns: [
       "index.html",
       "offline.html",
@@ -25,19 +25,20 @@ const manifestForPlugIn = {
       "maskable-icon-*.png",
       "fonts/**/*.{woff,woff2}",
     ],
-    // Do not precache gallery dumps / large optional icon sets / user media
     globIgnores: [
       "**/pwa-icons/**",
       "**/images/**",
       "**/stats.html",
       "**/prvlocket.png",
     ],
-    // Allow typical main chunks; skip multi‑MB accidental assets
     maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
   },
 
   // prompt: user confirms update — no auto skipWaiting mid-edit
   registerType: "prompt",
+  // Root scope so both `/` and `/locket` are controlled
+  scope: "/",
+  base: "/",
 
   includeAssets: [
     "favicon.ico",
@@ -89,7 +90,8 @@ const manifestForPlugIn = {
     cleanupOutdatedCaches: true,
     skipWaiting: false,
     clientsClaim: false,
-    navigateFallbackDenylist: [/^\/assets\//, /^\/dio-/, /^\/api\//],
+    navigateFallback: "/index.html",
+    navigateFallbackDenylist: [/^\/assets\//, /^\/dio-/, /^\/api\//, /^\/sw\.js$/],
   },
 };
 

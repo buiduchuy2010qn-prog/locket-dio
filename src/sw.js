@@ -1,14 +1,16 @@
 /**
  * Huy Locket Service Worker (injectManifest)
  * - Precache app shell (hashed assets via Workbox manifest)
- * - Navigation: network-first + short timeout → cached shell
+ * - Navigation: network-first + short timeout → always cached shell (never ERR_FAILED)
  * - /assets/*: cache-first (immutable hashes)
  * - API / Firebase / Locket / non-GET: network-only
- * - No skipWaiting until client sends SKIP_WAITING (update button / next reload)
+ * - No skipWaiting on updates until client sends SKIP_WAITING
  * - Never Background Sync for posts
  */
 
 const SW_VERSION = import.meta.env.VITE_APP_VERSION;
+const SHELL_CACHE = "hl-app-shell-v2";
+const PAGES_CACHE = "hl-pages-v2";
 
 console.log(`[SW] Huy Locket SW ${SW_VERSION} - loaded`);
 
@@ -29,8 +31,8 @@ import { CacheableResponsePlugin } from "workbox-cacheable-response";
 
 // ======================
 // UPDATE CONTROL
-// Never auto skipWaiting — client sends SKIP_WAITING after user confirms
-// (or on next full reload). Prevents mid-edit chunk mismatch.
+// First install (no active SW): skipWaiting so offline works after one visit.
+// Updates: wait for client SKIP_WAITING — avoids mid-edit chunk mismatch.
 // ======================
 self.addEventListener("message", (event) => {
   if (event.data?.type === "SKIP_WAITING") {
@@ -38,13 +40,148 @@ self.addEventListener("message", (event) => {
   }
 });
 
+self.addEventListener("install", (event) => {
+  // First SW only — activate ASAP after install finishes (workbox precache waitUntil).
+  // Updates stay waiting until client SKIP_WAITING.
+  if (!self.registration.active) {
+    self.skipWaiting();
+  }
+  // Do NOT warm shell here — precache may still be empty (parallel install handlers).
+  // warmShellCache runs on activate after precache is ready.
+  event.waitUntil(Promise.resolve());
+});
+
+async function resolveShellResponse() {
+  const keys = ["index.html", "/index.html"];
+  for (const key of keys) {
+    try {
+      const hit = await matchPrecache(key);
+      if (hit) return hit;
+    } catch {
+      /* continue */
+    }
+  }
+  try {
+    const handler = createHandlerBoundToURL("index.html");
+    return await handler({
+      request: new Request("/index.html"),
+      url: new URL("/index.html", self.location.origin),
+      event: undefined,
+    });
+  } catch {
+    /* continue */
+  }
+  for (const key of ["/index.html", "index.html", "/offline.html", "offline.html"]) {
+    try {
+      const hit = await caches.match(key, { ignoreSearch: true, ignoreVary: true });
+      if (hit) return hit;
+    } catch {
+      /* continue */
+    }
+  }
+  // Scan workbox precache caches for index.html (revision query safe)
+  try {
+    const names = await caches.keys();
+    for (const name of names) {
+      if (!/precache|workbox/i.test(name)) continue;
+      const cache = await caches.open(name);
+      const reqs = await cache.keys();
+      for (const req of reqs) {
+        if (/\/index\.html(?:\?|$)/.test(req.url) || req.url.endsWith("/index.html")) {
+          const res = await cache.match(req);
+          if (res) return res;
+        }
+      }
+      // Relative key form
+      for (const req of reqs) {
+        if (req.url.includes("index.html")) {
+          const res = await cache.match(req);
+          if (res) return res;
+        }
+      }
+    }
+  } catch {
+    /* continue */
+  }
+  return null;
+}
+
+async function warmShellCache() {
+  try {
+    // Wait a tick so injectManifest install can populate precache first when called from activate
+    const shell = await resolveShellResponse();
+    if (!shell) return;
+    const cache = await caches.open(SHELL_CACHE);
+    const clone = async () => shell.clone();
+    // Routes users open offline (SPA). Server rewrite not available offline.
+    await cache.put(new Request("/index.html"), await clone());
+    await cache.put(new Request("/"), await clone());
+    await cache.put(new Request("/locket"), await clone());
+    try {
+      const offline = await matchPrecache("offline.html");
+      if (offline) {
+        await cache.put(new Request("/offline.html"), offline.clone());
+      }
+    } catch {
+      /* optional */
+    }
+  } catch (err) {
+    console.warn("[SW] warmShellCache failed", err);
+  }
+}
+
+async function navigationFallback() {
+  // 1) Dedicated shell cache (stable keys, no __WB_REVISION__)
+  try {
+    const cache = await caches.open(SHELL_CACHE);
+    for (const path of ["/index.html", "/", "/locket"]) {
+      const hit = await cache.match(path, { ignoreSearch: true });
+      if (hit) return hit;
+    }
+  } catch {
+    /* continue */
+  }
+
+  // 2) Workbox precache / pages cache
+  const shell = await resolveShellResponse();
+  if (shell) return shell;
+
+  try {
+    const pages = await caches.open(PAGES_CACHE);
+    const hit = await pages.match("/index.html", { ignoreSearch: true });
+    if (hit) return hit;
+  } catch {
+    /* continue */
+  }
+
+  // 3) Never Response.error() for navigations — Chrome shows ERR_FAILED otherwise.
+  return new Response(
+    `<!DOCTYPE html><html lang="vi"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Huy Locket</title></head><body style="font-family:system-ui;display:flex;min-height:100vh;align-items:center;justify-content:center;background:#0f0f12;color:#f5f5f7;margin:0"><div style="text-align:center;padding:24px"><h1 style="font-size:1.2rem">Đang ngoại tuyến</h1><p style="opacity:.8">Mở lại khi có mạng để tải app shell. Bản nháp vẫn lưu trên máy.</p><button onclick="location.reload()" style="border:0;border-radius:999px;padding:10px 18px;background:#ffb800;font-weight:600">Thử lại</button></div></body></html>`,
+    {
+      status: 200,
+      statusText: "OK",
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store",
+      },
+    },
+  );
+}
+
 self.addEventListener("activate", (event) => {
-  // Claim only after this SW becomes active (first install or post-SKIP_WAITING).
-  // Because skipWaiting is user-gated, claim here is safe.
   event.waitUntil(
     (async () => {
       cleanupOutdatedCaches();
+      // Drop previous shell cache name if present
+      try {
+        await caches.delete("hl-app-shell-v1");
+        await caches.delete("hl-pages-v1");
+      } catch {
+        /* ignore */
+      }
+      await warmShellCache();
       await self.clients.claim();
+      console.log("[SW] activated + claimed", SW_VERSION);
     })(),
   );
 });
@@ -84,7 +221,6 @@ function isSensitiveApi(url) {
 
   const h = url.hostname || "";
   // Locket / Firebase / Google identity — always network
-  // (user media, auth, personal APIs — never cache)
   if (
     h.includes("locketcamera.com") ||
     h.includes("api.locket-dio.com") ||
@@ -106,8 +242,6 @@ function isSensitiveApi(url) {
 
   // Signed / user media on brand CDN — never long-cache
   if (h.includes("cdn.locket-dio.com") || h.includes("cdn.locketcamera.com")) {
-    // Only allow non-API static brand images path in a dedicated route;
-    // treat everything else on CDN as network-only (no signed URL cache)
     if (!url.pathname.startsWith("/v1/images/")) return true;
     if (url.search && /[Tt]oken=|[Ss]ignature=|X-Goog-/.test(url.search)) {
       return true;
@@ -119,12 +253,33 @@ function isSensitiveApi(url) {
 
 function isHashedAsset(url) {
   if (url.origin !== self.location.origin) return false;
-  // Vite hashed files under /assets/
   if (url.pathname.startsWith("/assets/")) return true;
-  // Hashed filename pattern name-Ab12cdEf.js
   return /\/[^/]+-[A-Za-z0-9_-]{6,}\.(js|css|woff2?|ttf|png|svg|webp)$/.test(
     url.pathname,
   );
+}
+
+function isSpaNavigation({ request, url }) {
+  if (request.method !== "GET" && request.method !== "HEAD") return false;
+  if (request.mode !== "navigate") return false;
+  if (url.origin !== self.location.origin) return false;
+  const p = url.pathname || "/";
+  // Never treat API / static build files as SPA navigations
+  if (p.startsWith("/dio-") || p.startsWith("/api/")) return false;
+  if (p.startsWith("/assets/")) return false;
+  if (
+    p === "/sw.js" ||
+    p === "/manifest.webmanifest" ||
+    p === "/offline.html" ||
+    p === "/version.json" ||
+    p === "/robots.txt" ||
+    p === "/sitemap.xml"
+  ) {
+    return false;
+  }
+  // Real files with extensions (favicon.ico, icons, etc.) — not SPA routes
+  if (/\.[a-zA-Z0-9]+$/.test(p) && p !== "/") return false;
+  return true;
 }
 
 // ======================
@@ -139,8 +294,7 @@ registerRoute(
 // API / AUTH / PERSONAL — network only
 // ======================
 registerRoute(
-  ({ url, request }) =>
-    request.method === "GET" && isSensitiveApi(url),
+  ({ url, request }) => request.method === "GET" && isSensitiveApi(url),
   new NetworkOnly(),
 );
 
@@ -166,7 +320,7 @@ registerRoute(
     plugins: [
       new CacheableResponsePlugin({ statuses: [0, 200] }),
       new ExpirationPlugin({
-        maxEntries: 100,
+        maxEntries: 120,
         maxAgeSeconds: 365 * 24 * 60 * 60,
       }),
     ],
@@ -217,65 +371,71 @@ registerRoute(
 );
 
 // ======================
-// NAVIGATION — network-first, short timeout, shell fallback
+// NAVIGATION — network-first, short timeout, ALWAYS shell fallback
+// Covers `/` and `/locket` (and other SPA routes). Never ERR_FAILED.
 // ======================
-const shellHandler = createHandlerBoundToURL("index.html");
-
 const navigationNetworkFirst = new NetworkFirst({
-  cacheName: "hl-pages-v1",
-  networkTimeoutSeconds: 3,
-  plugins: [
-    new CacheableResponsePlugin({ statuses: [200] }),
-  ],
+  cacheName: PAGES_CACHE,
+  networkTimeoutSeconds: 2,
+  plugins: [new CacheableResponsePlugin({ statuses: [200] })],
 });
 
+async function handleNavigation(params) {
+  const { request, event } = params;
+  try {
+    const res = await navigationNetworkFirst.handle(params);
+    if (res && res.ok) {
+      // Mirror successful navigations into shell cache for offline re-open
+      if (event?.waitUntil) {
+        event.waitUntil(
+          (async () => {
+            try {
+              const cache = await caches.open(SHELL_CACHE);
+              const copy = res.clone();
+              await cache.put(request, copy);
+              await cache.put(new Request("/index.html"), res.clone());
+            } catch {
+              /* ignore */
+            }
+          })(),
+        );
+      }
+      return res;
+    }
+  } catch {
+    /* offline / timeout */
+  }
+  return navigationFallback();
+}
+
 registerRoute(
-  new NavigationRoute(
-    async (params) => {
-      try {
-        const res = await navigationNetworkFirst.handle(params);
-        if (res) return res;
-      } catch {
-        /* fall through */
-      }
-      try {
-        const precached = await matchPrecache("index.html");
-        if (precached) return precached;
-      } catch {
-        /* fall through */
-      }
-      try {
-        return await shellHandler(params);
-      } catch {
-        /* fall through */
-      }
-      const offline = await caches.match("/offline.html");
-      if (offline) return offline;
-      return new Response("Offline", {
-        status: 503,
-        statusText: "Service Unavailable",
-        headers: { "Content-Type": "text/plain; charset=utf-8" },
-      });
-    },
-    {
-      denylist: [
-        /^\/assets\//,
-        /^\/dio-/,
-        /^\/api\//,
-        /\/[^/?]+\.[^/]+$/, // files with extensions
-      ],
-    },
-  ),
+  new NavigationRoute(handleNavigation, {
+    // Only skip true non-document paths; keep all SPA routes including /locket
+    denylist: [
+      /^\/assets\//,
+      /^\/dio-/,
+      /^\/api\//,
+      /^\/sw\.js$/,
+      /^\/manifest\.webmanifest$/,
+      /^\/workbox-.*\.js$/,
+      // Static files with extensions — but NOT extension-less SPA paths
+      /\/[^/?]+\.[a-zA-Z0-9]+$/,
+    ],
+  }),
 );
 
-// Offline fallback for failed navigations / document
+// Extra match for edge cases where mode=navigate but NavigationRoute misses
+registerRoute(
+  (ctx) => isSpaNavigation(ctx),
+  handleNavigation,
+);
+
+// Offline fallback — NEVER Response.error() for document/navigate (Chrome ERR_FAILED)
 setCatchHandler(async ({ request }) => {
-  if (request.destination === "document" || request.mode === "navigate") {
-    const precached = await matchPrecache("index.html");
-    if (precached) return precached;
-    const offline = await caches.match("/offline.html");
-    if (offline) return offline;
+  if (request.mode === "navigate" || request.destination === "document") {
+    return navigationFallback();
   }
+  // Non-navigation: fail closed without poisoning shell
   return Response.error();
 });
 

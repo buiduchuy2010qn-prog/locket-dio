@@ -19,15 +19,18 @@ export function initPWA() {
   };
 
   const updateSW = registerSW({
-    immediate: false,
+    // Register as soon as module runs (do not wait for window load only).
+    // Scope is `/` via vite-plugin-pwa + Workbox(`/sw.js`, { scope: "/" }).
+    immediate: true,
     onNeedRefresh() {
       console.log("[PWA] waiting SW — show update button");
       notifySwOnce(updateSW);
     },
     onOfflineReady() {
-      console.log("[PWA] offline ready");
+      console.log("[PWA] offline ready — shell cached");
     },
-    onRegisteredSW(_url, reg) {
+    onRegisteredSW(swUrl, reg) {
+      console.log("[PWA] registered", swUrl, "scope", reg?.scope);
       registration = reg || null;
       if (!registration) return;
 
