@@ -39,3 +39,29 @@ const st = fs.statSync(indexHtml);
 console.log(
   `[vercel-prebuilt] ok — output vercel-static/ (${st.size} bytes index.html)`
 );
+
+// On-device AI model must ship with static output (same-origin, both hosts)
+const modelJson = path.join(
+  outDir,
+  "ai-models",
+  "esrgan-slim-2x",
+  "v1",
+  "model.json",
+);
+if (!fs.existsSync(modelJson) || fs.statSync(modelJson).size <= 0) {
+  console.error(
+    "[vercel-prebuilt] missing ai-models/esrgan-slim-2x/v1/model.json — run: npm run build:vercel-static",
+  );
+  process.exit(1);
+}
+const model = JSON.parse(fs.readFileSync(modelJson, "utf8"));
+for (const man of model.weightsManifest || []) {
+  for (const rel of man.paths || []) {
+    const shard = path.join(path.dirname(modelJson), path.basename(rel));
+    if (!fs.existsSync(shard) || fs.statSync(shard).size <= 0) {
+      console.error(`[vercel-prebuilt] missing/empty shard: ${shard}`);
+      process.exit(1);
+    }
+  }
+}
+console.log("[vercel-prebuilt] ai-models/esrgan-slim-2x/v1 verified");

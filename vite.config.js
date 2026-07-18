@@ -37,6 +37,7 @@ const manifestForPlugIn = {
       "**/assets/*upscaler*",
       "**/assets/*esrgan*",
       "**/models/esrgan-slim/**",
+      "**/ai-models/**",
       "**/*.bin",
     ],
     maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
@@ -48,7 +49,7 @@ const manifestForPlugIn = {
           if (/ai-enhance-local|tensorflow|tfjs|upscaler|esrgan/i.test(u)) {
             return false;
           }
-          if (/models\/esrgan-slim/i.test(u)) return false;
+          if (/models\/esrgan-slim|ai-models\//i.test(u)) return false;
           if (/\.bin$/i.test(u)) return false;
           return true;
         });

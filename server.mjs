@@ -83,6 +83,8 @@ const MIME = {
   ".map": "application/json",
   ".txt": "text/plain; charset=utf-8",
   ".xml": "application/xml",
+  // TF.js weight shards (on-device AI Làm nét)
+  ".bin": "application/octet-stream",
 };
 
 function send(res, status, body, headers = {}) {
@@ -102,10 +104,21 @@ function serveStatic(req, res) {
   let urlPath = req.url.split("?")[0] || "/";
   if (urlPath === "/") urlPath = "/index.html";
 
+  // On-device AI model weights — real static files, NEVER SPA → index.html
+  const isAiModel =
+    urlPath === "/ai-models" || urlPath.startsWith("/ai-models/");
+
   let filePath = safeJoin(PUBLIC_DIR, urlPath);
   if (!filePath) return send(res, 403, "Forbidden");
 
   if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
+    if (isAiModel) {
+      // Missing model must be 404 JSON/plain — not index.html (breaks TF.js)
+      return send(res, 404, "AI model not found", {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Cache-Control": "no-store",
+      });
+    }
     filePath = path.join(PUBLIC_DIR, "index.html");
   }
 
@@ -117,6 +130,7 @@ function serveStatic(req, res) {
   const type = MIME[ext] || "application/octet-stream";
   const data = fs.readFileSync(filePath);
   const base = path.basename(filePath);
+  const isAiModelFile = filePath.replace(/\\/g, "/").includes("/ai-models/");
   const cache =
     ext === ".html" ||
     ext === ".webmanifest" ||
@@ -125,7 +139,9 @@ function serveStatic(req, res) {
       ? base === "version.json"
         ? "no-store, no-cache, must-revalidate"
         : "no-cache"
-      : "public, max-age=31536000, immutable";
+      : isAiModelFile || ext === ".bin" || (isAiModel && ext === ".json")
+        ? "public, max-age=31536000, immutable"
+        : "public, max-age=31536000, immutable";
 
   send(res, 200, data, {
     "Content-Type": type,

@@ -334,7 +334,8 @@ registerRoute(
 // ======================
 // ON-DEVICE AI — runtime cache only (after user taps AI Làm nét)
 // Does NOT join app-shell precache; safe across shell updates.
-// Model: same-origin /models/esrgan-slim/x2/* (static of this web).
+// Model: same-origin /ai-models/esrgan-slim-2x/v1/* (versioned; immutable).
+// Separate cache name from shell — app updates do not wipe model if version unchanged.
 // ======================
 registerRoute(
   ({ url, request }) => {
@@ -344,9 +345,9 @@ registerRoute(
     if (/ai-enhance-local|tensorflow|tfjs|upscaler|esrgan/i.test(url.pathname)) {
       return true;
     }
-    // Same-origin model weights (not CDN)
+    // Same-origin model weights (not external CDN)
     if (
-      url.pathname.startsWith("/models/esrgan-slim/") &&
+      url.pathname.startsWith("/ai-models/") &&
       /\.(json|bin)$/i.test(url.pathname)
     ) {
       return true;
@@ -354,12 +355,13 @@ registerRoute(
     return false;
   },
   new CacheFirst({
+    // Versioned path in URL → long TTL; bump cache name only if strategy changes
     cacheName: "hl-ai-models-v1",
     plugins: [
       new CacheableResponsePlugin({ statuses: [0, 200] }),
       new ExpirationPlugin({
-        maxEntries: 30,
-        maxAgeSeconds: 30 * 24 * 60 * 60,
+        maxEntries: 40,
+        maxAgeSeconds: 365 * 24 * 60 * 60,
       }),
     ],
   }),

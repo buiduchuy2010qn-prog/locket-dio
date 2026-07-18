@@ -1,13 +1,13 @@
 /**
  * On-device ESRGAN Slim 2x via UpscalerJS — runs inside existing AI Làm nét modal.
  * Dynamic-import only — never loaded at app boot or camera open.
- * Model weights served from same-origin static: /models/esrgan-slim/x2/
- * Free path never calls Railway/Replicate and never uploads the image.
+ * Model weights: same-origin /ai-models/esrgan-slim-2x/v1/ (Vercel + Railway).
+ * Free path never calls Railway API / Replicate and never uploads the image.
  * Does not touch camera/music modules.
  */
 import {
   LOCAL_MODEL_ID,
-  LOCAL_MODEL_STATIC_PATH,
+  LOCAL_MODEL_JSON_PATH,
   LOCAL_MAX_OUTPUT_EDGE,
   LOCAL_PATCH_SIZE,
   LOCAL_PATCH_PADDING,
@@ -25,15 +25,16 @@ export function isLocalModelReady() {
   return modelReady;
 }
 
-/** Absolute same-origin URL for model.json (static asset of this web). */
+/**
+ * Absolute same-origin URL for model.json.
+ * Uses window.location.origin — never hard-codes Vercel/Railway domain.
+ */
 export function getLocalModelJsonUrl() {
-  const base = (import.meta.env.BASE_URL || "/").replace(/\/?$/, "/");
-  // LOCAL_MODEL_STATIC_PATH starts without leading slash preference
-  const rel = String(LOCAL_MODEL_STATIC_PATH || "models/esrgan-slim/x2/model.json").replace(
-    /^\//,
-    "",
-  );
-  return `${base}${rel}`;
+  const path = LOCAL_MODEL_JSON_PATH || "/ai-models/esrgan-slim-2x/v1/model.json";
+  if (typeof window !== "undefined" && window.location?.origin) {
+    return new URL(path, window.location.origin).href;
+  }
+  return path;
 }
 
 /**
@@ -42,7 +43,7 @@ export function getLocalModelJsonUrl() {
 export async function isLocalModelLikelyCached() {
   if (modelReady) return true;
   if (typeof caches === "undefined") return false;
-  const marker = "/models/esrgan-slim/";
+  const marker = "/ai-models/esrgan-slim-2x/";
   try {
     const keys = await caches.keys();
     for (const name of keys) {

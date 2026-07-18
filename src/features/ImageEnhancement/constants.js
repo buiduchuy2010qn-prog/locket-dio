@@ -34,8 +34,13 @@ export const ALLOWED_MIME = ["image/jpeg", "image/png", "image/webp"];
 
 /** Local ESRGAN — Slim 2x for weak phones (same-origin static weights) */
 export const LOCAL_MODEL_ID = "@upscalerjs/esrgan-slim/2x";
-/** Served from this web: public/models/esrgan-slim/x2/ → /models/esrgan-slim/x2/ */
-export const LOCAL_MODEL_STATIC_PATH = "models/esrgan-slim/x2/model.json";
+/**
+ * Versioned same-origin path (works on Vercel + Railway without hard-coded host).
+ * public/ai-models/esrgan-slim-2x/v1/ → /ai-models/esrgan-slim-2x/v1/
+ */
+export const LOCAL_MODEL_JSON_PATH = "/ai-models/esrgan-slim-2x/v1/model.json";
+/** @deprecated use LOCAL_MODEL_JSON_PATH */
+export const LOCAL_MODEL_STATIC_PATH = "ai-models/esrgan-slim-2x/v1/model.json";
 export const LOCAL_SCALE = 2;
 /** Max long edge of *output* after 2x (input capped to half). */
 export const LOCAL_MAX_OUTPUT_EDGE = 2048;
@@ -45,7 +50,7 @@ export const LOCAL_PATCH_PADDING = 5;
 export const PROVIDER_DISCLOSURE = {
   local: {
     provider: "Miễn phí trên thiết bị",
-    model: `${LOCAL_MODEL_ID} · /${LOCAL_MODEL_STATIC_PATH}`,
+    model: `${LOCAL_MODEL_ID} · ${LOCAL_MODEL_JSON_PATH}`,
     costHint: "Miễn phí — 0 credit, không gửi ảnh ra khỏi máy",
     latencyHint: "phụ thuộc máy (thường 5–60 giây)",
     thirdParty: "Chạy trong trình duyệt (UpscalerJS + ESRGAN Slim 2x)",
