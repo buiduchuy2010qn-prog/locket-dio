@@ -45,6 +45,7 @@ function App() {
             <GlobalThemeEffects />
             <OfflineBanner />
             <AppContent />
+            {/* RestoreDraftModal disabled — library only via draft badge */}
             <RestoreDraftModal />
             <ReplaceDraftPrompt />
             <DraftLibrary />

@@ -429,7 +429,7 @@ export async function updateDraftMeta(draftId, partial = {}) {
   }
 }
 
-/** List metadata only (no mediaBlob). Newest first. */
+/** List metadata only (no mediaBlob). Newest by createdAt first. */
 export async function listDraftsMeta(ownerUid) {
   if (!ownerUid) return [];
   try {
@@ -437,7 +437,10 @@ export async function listDraftsMeta(ownerUid) {
       .where("ownerUid")
       .equals(String(ownerUid))
       .toArray();
-    rows.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+    rows.sort(
+      (a, b) =>
+        (b.createdAt || b.updatedAt || 0) - (a.createdAt || a.updatedAt || 0),
+    );
     return rows;
   } catch (e) {
     console.error("[draft-lib] list failed", e);
@@ -486,6 +489,18 @@ export async function getDraftThumbnailBlob(draftId) {
   try {
     const blobs = await momentDraftDB.draftBlobs.get(draftId);
     return blobs?.thumbnailBlob || null;
+  } catch {
+    return null;
+  }
+}
+
+/** Full media blob only (lazy near-viewport / edit) — never base64 */
+export async function getDraftMediaBlob(draftId) {
+  if (!draftId) return null;
+  try {
+    const blobs = await momentDraftDB.draftBlobs.get(draftId);
+    if (blobs?.mediaBlob instanceof Blob) return blobs.mediaBlob;
+    return null;
   } catch {
     return null;
   }
@@ -547,6 +562,7 @@ export function draftMediaToFile(media, meta = {}) {
   }
 }
 
+/** Absolute clock for older drafts (legacy helper). */
 export function formatDraftSavedAt(ts) {
   try {
     const d = new Date(ts || Date.now());
@@ -555,6 +571,55 @@ export function formatDraftSavedAt(ts) {
   } catch {
     return "";
   }
+}
+
+/**
+ * Relative time from createdAt (not last edit).
+ * <1m Vừa xong · <60m x phút · <24h x giờ · else day + time
+ */
+export function formatDraftCreatedAt(ts) {
+  try {
+    const created = Number(ts);
+    if (!Number.isFinite(created) || created <= 0) return "";
+    const now = Date.now();
+    const diff = Math.max(0, now - created);
+    const min = Math.floor(diff / 60000);
+    const hour = Math.floor(diff / 3600000);
+
+    if (min < 1) return "Vừa xong";
+    if (min < 60) return `${min} phút trước`;
+    if (hour < 24) return `${hour} giờ trước`;
+
+    const d = new Date(created);
+    const today = new Date();
+    const yesterday = new Date();
+    yesterday.setDate(today.getDate() - 1);
+    const pad = (n) => String(n).padStart(2, "0");
+    const time = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    const sameDay = (a, b) =>
+      a.getFullYear() === b.getFullYear() &&
+      a.getMonth() === b.getMonth() &&
+      a.getDate() === b.getDate();
+
+    if (sameDay(d, yesterday)) return `Hôm qua, ${time}`;
+    if (sameDay(d, today)) return time;
+    return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}, ${time}`;
+  } catch {
+    return "";
+  }
+}
+
+/** Status line under draft preview cards */
+export function formatDraftStatusLine(draft) {
+  if (!draft) return "Chưa đăng";
+  if (draft.status === DRAFT_STATUS.FAILED) {
+    return "Đăng thất bại · Nhấn để thử lại";
+  }
+  if (draft.status === DRAFT_STATUS.POSTING) {
+    return "Đang đăng…";
+  }
+  const when = formatDraftCreatedAt(draft.createdAt || draft.updatedAt);
+  return when ? `Chưa đăng · ${when}` : "Chưa đăng";
 }
 
 export function statusLabel(status) {

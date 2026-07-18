@@ -138,7 +138,8 @@ export const useMomentDraftStore = create((set, get) => ({
   },
 
   /**
-   * After login: reset stuck posting, load list, offer restore if any drafts.
+   * After login: reset stuck posting + load list only.
+   * Never auto-open restore modal or library (user opens via Draft badge).
    */
   checkAndOfferRestore: async (user) => {
     const uid = resolveDraftUid(user);
@@ -148,44 +149,25 @@ export const useMomentDraftStore = create((set, get) => ({
       await requestDraftPersist();
       await resetStuckPostingDrafts(uid);
       const rows = await get().refreshList(uid);
-      if (!rows.length) {
-        set({
-          showRestoreModal: false,
-          loading: false,
-          hasDraft: false,
-          draftMeta: null,
-        });
-        get().clearThumbnail();
-        return;
-      }
-      // Multi-draft: open library prompt once (not force modal every time if dismissed)
       set({
-        hasDraft: true,
-        draftMeta: rows[0],
-        showRestoreModal: !get().dismissedRestore && rows.length === 1,
+        showRestoreModal: false,
+        libraryOpen: false,
         loading: false,
+        hasDraft: rows.length > 0,
+        draftMeta: rows[0] || null,
       });
-      if (rows.length > 1 && !get().dismissedRestore) {
-        // Prefer library for multiple drafts
-        set({ showRestoreModal: false, libraryOpen: true });
-      }
+      if (!rows.length) get().clearThumbnail();
     } catch (e) {
       console.error("[moment-draft] check restore", e);
-      set({ loading: false });
+      set({ loading: false, showRestoreModal: false });
     }
   },
 
+  /** Always open library (no blocking restore modal). */
   openRestoreModal: async () => {
-    set({ dismissedRestore: false });
+    set({ dismissedRestore: true, showRestoreModal: false });
     await get().refreshList();
-    const n = get().draftCount;
-    if (n > 1) {
-      set({ libraryOpen: true, showRestoreModal: false });
-    } else if (n === 1) {
-      set({ showRestoreModal: true, libraryOpen: false });
-    } else {
-      set({ libraryOpen: true });
-    }
+    set({ libraryOpen: true, showRestoreModal: false });
   },
 
   closeRestoreModal: () => set({ showRestoreModal: false }),
@@ -543,6 +525,57 @@ export const useMomentDraftStore = create((set, get) => ({
   },
 
   softDeleteDraft: async (draftId) => get().confirmDeleteDraft(draftId),
+
+  /** Clone media + meta into a new UUID draft (no overwrite). */
+  duplicateDraft: async (draftId) => {
+    const uid = resolveDraftUid();
+    if (!uid || !draftId) {
+      SonnerError("Không nhân bản được bản nháp.");
+      return null;
+    }
+    try {
+      const loaded = await getDraftFull(draftId);
+      if (!loaded?.meta || loaded.corrupt || !loaded.media) {
+        SonnerError("Bản nháp bị hỏng — không nhân bản được.");
+        return null;
+      }
+      const file = draftMediaToFile(loaded.media, loaded.meta);
+      if (!file) {
+        SonnerError("Không đọc được media để nhân bản.");
+        return null;
+      }
+      const src = loaded.meta;
+      const result = await createDraft({
+        ownerUid: uid,
+        file,
+        meta: {
+          caption: src.caption || "",
+          captionStyle: src.captionStyle || {},
+          music: src.music || null,
+          overlays: src.overlays || src.optionsData || {},
+          audience: src.audience || "all",
+          selectedFriendIds: Array.isArray(src.selectedFriendIds)
+            ? src.selectedFriendIds.slice()
+            : [],
+          optionsData: src.optionsData || {},
+          status: DRAFT_STATUS.READY,
+        },
+      });
+      if (result.error) {
+        SonnerError(
+          result.message || "Không đủ dung lượng để nhân bản bản nháp.",
+        );
+        return null;
+      }
+      await get().refreshList(uid);
+      SonnerSuccess("Đã nhân bản bản nháp");
+      return result.id || null;
+    } catch (e) {
+      console.error("[moment-draft] duplicate", e);
+      SonnerError("Nhân bản thất bại", e?.message || "");
+      return null;
+    }
+  },
 
   // Replace-prompt: new capture while studio empty but drafts exist → open library
   requestReplaceOrContinue: async () => true,

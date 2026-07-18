@@ -6,7 +6,8 @@ function BaseOverlay({ overlayData }) {
   const textColor = overlayData?.textColor || overlayData?.text_color || "#ffffff";
   const background = overlayData?.background || {};
   const Icon = IconRenderer({ icon: overlayData?.icon });
-  const text = overlayData?.text || "";
+  // caption fallback — drafts / feed may store text in either field
+  const text = overlayData?.text || overlayData?.caption || "";
 
   if (!text) return null;
 

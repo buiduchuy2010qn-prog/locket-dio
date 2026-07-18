@@ -20,11 +20,10 @@ const ActionControls = () => {
   const preview = usePostStore((s) => s.preview);
   const hasDraft = useMomentDraftStore((s) => s.hasDraft);
   const draftCount = useMomentDraftStore((s) => s.draftCount);
-  const showRestoreModal = useMomentDraftStore((s) => s.showRestoreModal);
 
   const hasFile = !!(selectedFile || preview);
-  const showDraftChip =
-    !hasFile && (hasDraft || draftCount > 0) && !showRestoreModal;
+  // Badge only — never blocked by restore modal (modal removed)
+  const showDraftChip = !hasFile && (hasDraft || draftCount > 0);
 
   return (
     <div className="w-full flex flex-col items-center" data-action-controls="true">

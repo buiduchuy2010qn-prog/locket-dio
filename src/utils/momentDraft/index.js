@@ -21,10 +21,13 @@ export {
   getDraftMeta,
   getDraftFull,
   getDraftThumbnailBlob,
+  getDraftMediaBlob,
   deleteDraft,
   resetStuckPostingDrafts,
   draftMediaToFile,
   formatDraftSavedAt,
+  formatDraftCreatedAt,
+  formatDraftStatusLine,
   statusLabel,
 } from "./draftLibrary";
 
