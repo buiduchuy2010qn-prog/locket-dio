@@ -90,15 +90,31 @@ async function enhanceWithReplicate({ inputPath, mode, signal }) {
   return finalizePrediction(createRes, token, signal);
 }
 
+function isCreditError(status, msg) {
+  const text = String(msg || "").toLowerCase();
+  return (
+    status === 402 ||
+    /insufficient credit|payment required|billing|out of credit|not enough credit|spend limit/i.test(
+      text,
+    )
+  );
+}
+
 async function finalizePrediction(createRes, token, signal) {
   if (createRes.status >= 400) {
     const msg =
       createRes.data?.detail ||
       createRes.data?.error ||
       `Replicate HTTP ${createRes.status}`;
-    const err = new Error(
-      typeof msg === "string" ? msg : "Provider từ chối yêu cầu.",
-    );
+    const text = typeof msg === "string" ? msg : "Provider từ chối yêu cầu.";
+    if (isCreditError(createRes.status, text)) {
+      const err = new Error(
+        "AI Cloud hiện không đủ credit. Bạn có thể dùng chế độ miễn phí trên thiết bị.",
+      );
+      err.code = "INSUFFICIENT_CREDIT";
+      throw err;
+    }
+    const err = new Error(text);
     err.code = "PROVIDER_ERROR";
     throw err;
   }
@@ -122,7 +138,15 @@ async function finalizePrediction(createRes, token, signal) {
   }
 
   if (pred.status !== "succeeded") {
-    const err = new Error(pred.error || "AI không hoàn tất.");
+    const failMsg = pred.error || "AI không hoàn tất.";
+    if (isCreditError(0, failMsg)) {
+      const err = new Error(
+        "AI Cloud hiện không đủ credit. Bạn có thể dùng chế độ miễn phí trên thiết bị.",
+      );
+      err.code = "INSUFFICIENT_CREDIT";
+      throw err;
+    }
+    const err = new Error(failMsg);
     err.code = "PROVIDER_FAILED";
     throw err;
   }

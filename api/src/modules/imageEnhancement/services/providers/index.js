@@ -2,9 +2,10 @@ const { enhanceWithReplicate } = require("./replicate");
 const { enhanceWithFreeLocal } = require("./freeLocal");
 
 /**
- * Resolve provider from env.
- * Default: free (sharp on Railway — no credit, no third-party AI).
- * Optional: replicate (needs REPLICATE_API_TOKEN).
+ * Dual-path backend:
+ * - client "local" = on-device (never hits this module)
+ * - client "cloud"/provider=replicate → Replicate (needs token)
+ * - optional server "free"/sharp for legacy env
  */
 function getProviderName() {
   return String(process.env.IMAGE_ENHANCEMENT_PROVIDER || "free")
@@ -13,26 +14,45 @@ function getProviderName() {
 }
 
 function isFreeProvider(name) {
-  return name === "free" || name === "local" || name === "sharp" || name === "free-local";
+  return (
+    name === "free" ||
+    name === "local" ||
+    name === "sharp" ||
+    name === "free-local"
+  );
 }
 
-async function runEnhancementProvider(opts) {
-  const name = getProviderName();
+function isReplicateConfigured() {
+  return Boolean(process.env.REPLICATE_API_TOKEN);
+}
 
-  if (name === "none" || name === "off" || name === "disabled") {
-    const err = new Error("Làm nét chưa được bật trên máy chủ.");
+/**
+ * @param {{ inputPath: string, mode?: string, provider?: string, signal?: AbortSignal }} opts
+ */
+async function runEnhancementProvider(opts) {
+  const requested = String(opts.provider || getProviderName())
+    .trim()
+    .toLowerCase();
+
+  if (
+    requested === "none" ||
+    requested === "off" ||
+    requested === "disabled"
+  ) {
+    const err = new Error("Làm nét cloud chưa được bật trên máy chủ.");
     err.code = "PROVIDER_NOT_CONFIGURED";
     throw err;
   }
 
-  if (isFreeProvider(name)) {
-    return enhanceWithFreeLocal(opts);
-  }
-
-  if (name === "replicate") {
-    if (!process.env.REPLICATE_API_TOKEN) {
+  // Cloud path (client sends provider=replicate)
+  if (
+    requested === "replicate" ||
+    requested === "cloud" ||
+    requested === "ai"
+  ) {
+    if (!isReplicateConfigured()) {
       const err = new Error(
-        "Máy chủ chưa cấu hình REPLICATE_API_TOKEN cho AI Làm nét.",
+        "Máy chủ chưa cấu hình REPLICATE_API_TOKEN cho AI Cloud.",
       );
       err.code = "PROVIDER_NOT_CONFIGURED";
       throw err;
@@ -40,57 +60,51 @@ async function runEnhancementProvider(opts) {
     return enhanceWithReplicate(opts);
   }
 
-  const err = new Error(`Provider không hỗ trợ: ${name}`);
+  if (isFreeProvider(requested)) {
+    return enhanceWithFreeLocal(opts);
+  }
+
+  const err = new Error(`Provider không hỗ trợ: ${requested}`);
   err.code = "PROVIDER_UNKNOWN";
   throw err;
 }
 
-function isProviderConfigured() {
-  const name = getProviderName();
+function isProviderConfigured(requested) {
+  const name = String(requested || getProviderName())
+    .trim()
+    .toLowerCase();
   if (name === "none" || name === "off" || name === "disabled") return false;
+  if (name === "replicate" || name === "cloud" || name === "ai") {
+    return isReplicateConfigured();
+  }
   if (isFreeProvider(name)) return true;
-  if (name === "replicate") return Boolean(process.env.REPLICATE_API_TOKEN);
   return false;
 }
 
+/** Cloud available when Replicate token present (independent of default free). */
+function isCloudConfigured() {
+  return isReplicateConfigured();
+}
+
 function getProviderPublicInfo() {
-  const name = getProviderName();
-  if (isFreeProvider(name)) {
-    return {
-      provider: "free",
-      label: "Free (server)",
-      isAi: false,
-      costHint: "Miễn phí — xử lý trên server Huy Locket",
-      latencyHint: "thường 1–5 giây",
-      thirdParty: "Không gửi ảnh ra bên thứ ba",
-      model: "sharp (làm nét cổ điển, không AI)",
-    };
-  }
-  if (name === "replicate") {
-    return {
-      provider: "replicate",
-      label: "Replicate AI",
-      isAi: true,
-      costHint: "Tốn credit Replicate",
-      latencyHint: "thường 5–30 giây",
-      thirdParty: "Ảnh được gửi tạm tới Replicate",
-      model: process.env.REPLICATE_MODEL || "nightmareai/real-esrgan",
-    };
-  }
   return {
-    provider: name,
-    label: name,
-    isAi: false,
-    costHint: "—",
-    latencyHint: "—",
-    thirdParty: "—",
-    model: "—",
+    provider: getProviderName(),
+    localAvailable: true,
+    cloudAvailable: isCloudConfigured(),
+    replicateConfigured: isCloudConfigured(),
+    label: isCloudConfigured() ? "local+cloud" : "local-only",
+    isAi: true,
+    costHint: "Local free; Cloud tốn credit Replicate",
+    latencyHint: "local 5–60s · cloud 5–30s",
+    thirdParty: "Local: không gửi ảnh · Cloud: Replicate",
+    model: "@upscalerjs/esrgan-slim/2x | nightmareai/real-esrgan",
   };
 }
 
 module.exports = {
   runEnhancementProvider,
   isProviderConfigured,
+  isCloudConfigured,
   getProviderPublicInfo,
   getProviderName,
 };

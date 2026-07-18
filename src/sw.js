@@ -305,6 +305,10 @@ registerRoute(
   ({ url, request }) => {
     if (request.method !== "GET") return false;
     if (isSensitiveApi(url)) return false;
+    // AI enhance chunks use dedicated runtime cache (not shell precache)
+    if (/ai-enhance-local|tensorflow|tfjs|upscaler|esrgan/i.test(url.pathname)) {
+      return false;
+    }
     return (
       isHashedAsset(url) ||
       (url.origin === self.location.origin &&
@@ -322,6 +326,40 @@ registerRoute(
       new ExpirationPlugin({
         maxEntries: 120,
         maxAgeSeconds: 365 * 24 * 60 * 60,
+      }),
+    ],
+  }),
+);
+
+// ======================
+// ON-DEVICE AI — runtime cache only (after user taps AI Làm nét)
+// Does NOT join app-shell precache; safe across shell updates.
+// Model: same-origin /models/esrgan-slim/x2/* (static of this web).
+// ======================
+registerRoute(
+  ({ url, request }) => {
+    if (request.method !== "GET") return false;
+    if (url.origin !== self.location.origin) return false;
+    // Lazy JS chunks (Upscaler / TF.js)
+    if (/ai-enhance-local|tensorflow|tfjs|upscaler|esrgan/i.test(url.pathname)) {
+      return true;
+    }
+    // Same-origin model weights (not CDN)
+    if (
+      url.pathname.startsWith("/models/esrgan-slim/") &&
+      /\.(json|bin)$/i.test(url.pathname)
+    ) {
+      return true;
+    }
+    return false;
+  },
+  new CacheFirst({
+    cacheName: "hl-ai-models-v1",
+    plugins: [
+      new CacheableResponsePlugin({ statuses: [0, 200] }),
+      new ExpirationPlugin({
+        maxEntries: 30,
+        maxAgeSeconds: 30 * 24 * 60 * 60,
       }),
     ],
   }),

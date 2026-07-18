@@ -6,9 +6,32 @@ const {
   runEnhancementProvider,
   isProviderConfigured,
   getProviderPublicInfo,
+  isCloudConfigured,
 } = require("../services/providers");
 
 const ALLOWED_MODES = new Set(["natural", "portrait", "lowlight"]);
+
+const CREDIT_MSG_VI =
+  "AI Cloud hiện không đủ credit. Bạn có thể dùng chế độ miễn phí trên thiết bị.";
+
+function mapProviderError(e) {
+  const raw = String(e?.message || "");
+  if (
+    e?.code === "INSUFFICIENT_CREDIT" ||
+    /insufficient credit|payment required|billing|out of credit|not enough credit/i.test(
+      raw,
+    )
+  ) {
+    return { code: "INSUFFICIENT_CREDIT", message: CREDIT_MSG_VI };
+  }
+  return {
+    code: e?.code || "PROVIDER_ERROR",
+    // Never leak billing URLs to clients
+    message: /https?:\/\//i.test(raw)
+      ? "AI Cloud thất bại — ảnh gốc được giữ nguyên."
+      : raw || "Làm nét thất bại",
+  };
+}
 
 async function createJob(req, res) {
   try {
@@ -17,12 +40,19 @@ async function createJob(req, res) {
     }
     const uid = String(req.user.uid || req.user.localId);
 
-    if (!isProviderConfigured()) {
+    // Client Cloud sends provider=replicate; default env free/sharp still ok
+    const requested = String(req.body?.provider || "replicate")
+      .trim()
+      .toLowerCase();
+
+    if (!isProviderConfigured(requested)) {
       return res.status(503).json({
         success: false,
         code: "PROVIDER_NOT_CONFIGURED",
         message:
-          "Làm nét chưa được bật trên máy chủ. Ảnh gốc được giữ nguyên.",
+          requested === "replicate" || requested === "cloud"
+            ? "AI Cloud chưa cấu hình (REPLICATE_API_TOKEN). Dùng chế độ miễn phí trên thiết bị."
+            : "Làm nét cloud chưa được bật trên máy chủ.",
       });
     }
 
@@ -71,6 +101,7 @@ async function createJob(req, res) {
       mode,
       inputPath,
       mime: check.mime,
+      provider: requested,
     });
 
     // Async process — do not block request longer than create
@@ -81,6 +112,7 @@ async function createJob(req, res) {
       jobId: job.id,
       status: job.status,
       mode: job.mode,
+      provider: requested,
     });
   } catch (e) {
     console.error("[image-enhancement] createJob", e?.code || e?.message);
@@ -101,6 +133,7 @@ async function processJob(jobId) {
     const result = await runEnhancementProvider({
       inputPath: job.inputPath,
       mode: job.mode,
+      provider: job.provider || "replicate",
     });
 
     if (jobStore.getJob(jobId)?.status === "cancelled") {
@@ -134,11 +167,11 @@ async function processJob(jobId) {
     }
     jobStore.updateJob(jobId, { inputPath: null });
   } catch (e) {
-    const code = e?.code || "PROVIDER_ERROR";
+    const mapped = mapProviderError(e);
     jobStore.updateJob(jobId, {
       status: "failed",
-      error: e?.message || "Làm nét thất bại",
-      code,
+      error: mapped.message,
+      code: mapped.code,
     });
     jobStore.releaseUserSlot(job.uid);
     try {
@@ -207,9 +240,13 @@ function cancelJob(req, res) {
 
 function providerStatus(req, res) {
   const info = getProviderPublicInfo();
+  const cloud = isCloudConfigured();
   return res.json({
     success: true,
-    configured: isProviderConfigured(),
+    configured: cloud || isProviderConfigured("free"),
+    cloudAvailable: cloud,
+    replicateConfigured: cloud,
+    localAvailable: true,
     provider: info.provider,
     isAi: info.isAi,
     label: info.label,

@@ -3,52 +3,71 @@ import { X } from "lucide-react";
 import {
   DEFAULT_ENHANCE_MODE,
   ENHANCE_MODES,
+  ENHANCE_PROVIDER,
   ENHANCE_UI,
   PROVIDER_DISCLOSURE,
 } from "./constants";
 
 /**
- * Before/After + progress UI for free (or optional AI) enhance.
+ * Before/After + progress UI for AI enhance.
  * Pure presentation — no camera/music imports.
  */
 export default function ImageEnhancementModal({
   open,
   busy,
   progressText,
+  progressPercent,
   error,
+  errorCode,
   mode,
   onModeChange,
+  provider,
+  onProviderChange,
+  cloudAvailable,
   originalUrl,
   enhancedUrl,
   offline,
-  providerMissing,
   onStart,
   onCancel,
-  onUseAi,
+  onUseResult,
   onKeepOriginal,
   onRetry,
+  onUseFreeFallback,
   onClose,
 }) {
   if (!open) return null;
 
   const modes = useMemo(() => Object.values(ENHANCE_MODES), []);
   const showCompare = Boolean(enhancedUrl) && !busy;
+  const disclosure =
+    provider === ENHANCE_PROVIDER.CLOUD
+      ? PROVIDER_DISCLOSURE.cloud
+      : PROVIDER_DISCLOSURE.local;
+  const isCreditError = errorCode === "INSUFFICIENT_CREDIT";
+  const isOom = errorCode === "OOM";
+  const needsNetOnce = errorCode === "MODEL_NEEDS_NETWORK";
+
+  // Local can work offline after model cached; only block start for cloud when offline
+  const startDisabled =
+    busy ||
+    (provider === ENHANCE_PROVIDER.CLOUD && offline) ||
+    (provider === ENHANCE_PROVIDER.CLOUD && !cloudAvailable);
 
   return (
     <div
       className="fixed inset-0 z-[210] flex items-end sm:items-center justify-center p-3 bg-black/60"
       role="dialog"
       aria-modal="true"
-      aria-labelledby="enhance-title"
+      aria-labelledby="ai-enhance-title"
     >
       <div className="w-full max-w-md rounded-2xl bg-base-100 border border-base-300 shadow-2xl overflow-hidden max-h-[92vh] flex flex-col">
         <header className="flex items-center justify-between px-4 py-3 border-b border-base-300 shrink-0">
           <div>
-            <h2 id="enhance-title" className="font-semibold text-base">
+            <h2 id="ai-enhance-title" className="font-semibold text-base">
               ✨ {ENHANCE_UI.title}
             </h2>
             <p className="text-[11px] opacity-60">
-              {PROVIDER_DISCLOSURE.provider} · {PROVIDER_DISCLOSURE.latencyHint}
+              {disclosure.provider} · {disclosure.latencyHint}
             </p>
           </div>
           <button
@@ -63,6 +82,48 @@ export default function ImageEnhancementModal({
         </header>
 
         <div className="p-3 overflow-y-auto flex-1 space-y-3">
+          {/* Provider picker */}
+          {!showCompare && (
+            <div className="grid grid-cols-1 gap-1.5">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => onProviderChange(ENHANCE_PROVIDER.LOCAL)}
+                className={`btn btn-sm justify-start h-auto py-2 rounded-xl ${
+                  provider === ENHANCE_PROVIDER.LOCAL
+                    ? "btn-primary"
+                    : "btn-ghost bg-base-200"
+                }`}
+              >
+                <span className="flex flex-col items-start text-left gap-0.5">
+                  <span className="font-medium">{ENHANCE_UI.providerLocal}</span>
+                  <span className="text-[10px] opacity-70 font-normal">
+                    {ENHANCE_UI.providerLocalHint}
+                  </span>
+                </span>
+              </button>
+              {cloudAvailable && (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => onProviderChange(ENHANCE_PROVIDER.CLOUD)}
+                  className={`btn btn-sm justify-start h-auto py-2 rounded-xl ${
+                    provider === ENHANCE_PROVIDER.CLOUD
+                      ? "btn-primary"
+                      : "btn-ghost bg-base-200"
+                  }`}
+                >
+                  <span className="flex flex-col items-start text-left gap-0.5">
+                    <span className="font-medium">{ENHANCE_UI.providerCloud}</span>
+                    <span className="text-[10px] opacity-70 font-normal">
+                      {ENHANCE_UI.providerCloudHint}
+                    </span>
+                  </span>
+                </button>
+              )}
+            </div>
+          )}
+
           {/* Mode picker */}
           {!showCompare && (
             <div className="flex flex-wrap gap-1.5">
@@ -127,7 +188,21 @@ export default function ImageEnhancementModal({
           {busy && (
             <div className="flex flex-col items-center gap-2 py-2">
               <span className="loading loading-spinner loading-md text-primary" />
-              <p className="text-sm">{progressText || ENHANCE_UI.progress}</p>
+              <p className="text-sm text-center">
+                {progressText || ENHANCE_UI.progress}
+              </p>
+              {typeof progressPercent === "number" && progressPercent > 0 && (
+                <div className="w-full max-w-xs">
+                  <progress
+                    className="progress progress-primary w-full"
+                    value={progressPercent}
+                    max={100}
+                  />
+                  <p className="text-[10px] text-center opacity-60 mt-0.5">
+                    {progressPercent}%
+                  </p>
+                </div>
+              )}
             </div>
           )}
 
@@ -137,37 +212,32 @@ export default function ImageEnhancementModal({
             </p>
           )}
 
-          {offline && (
+          {provider === ENHANCE_PROVIDER.CLOUD && offline && (
             <p className="text-sm opacity-70">{ENHANCE_UI.needNetwork}</p>
           )}
 
-          {providerMissing && (
-            <div className="text-[11px] opacity-70 bg-base-200 rounded-lg p-2 space-y-0.5">
-              <p className="font-medium opacity-90">Provider chưa cấu hình</p>
-              <p>Model: {PROVIDER_DISCLOSURE.model}</p>
-              <p>Chi phí: {PROVIDER_DISCLOSURE.costHint}</p>
-              <p>Thời gian: {PROVIDER_DISCLOSURE.latencyHint}</p>
-              <p>Bên thứ ba: {PROVIDER_DISCLOSURE.thirdParty}</p>
-              <p>Lưu trữ: {PROVIDER_DISCLOSURE.retention}</p>
-            </div>
+          {needsNetOnce && (
+            <p className="text-xs opacity-70">{ENHANCE_UI.needNetworkOnce}</p>
           )}
 
-          {!providerMissing && !showCompare && !busy && (
+          {!showCompare && !busy && (
             <p className="text-[10px] opacity-50">
-              {PROVIDER_DISCLOSURE.costHint} · {PROVIDER_DISCLOSURE.thirdParty}
+              {disclosure.costHint} · {disclosure.thirdParty}
             </p>
           )}
         </div>
 
         <footer className="p-3 border-t border-base-300 flex flex-col gap-2 shrink-0">
-          {!showCompare && !busy && (
+          {!showCompare && !busy && !isCreditError && (
             <button
               type="button"
               className="btn btn-primary btn-sm w-full rounded-full"
-              disabled={offline || busy}
+              disabled={startDisabled}
               onClick={onStart}
             >
-              {offline ? "Cần kết nối mạng" : "Bắt đầu làm nét"}
+              {provider === ENHANCE_PROVIDER.CLOUD && offline
+                ? "Cần kết nối mạng"
+                : "Bắt đầu làm nét"}
             </button>
           )}
           {busy && (
@@ -184,7 +254,7 @@ export default function ImageEnhancementModal({
               <button
                 type="button"
                 className="btn btn-primary btn-sm w-full rounded-full"
-                onClick={onUseAi}
+                onClick={onUseResult}
               >
                 {ENHANCE_UI.useResult}
               </button>
@@ -204,7 +274,16 @@ export default function ImageEnhancementModal({
               </button>
             </>
           )}
-          {!busy && error && (
+          {!busy && isCreditError && (
+            <button
+              type="button"
+              className="btn btn-primary btn-sm w-full rounded-full"
+              onClick={onUseFreeFallback}
+            >
+              {ENHANCE_UI.useFreeButton}
+            </button>
+          )}
+          {!busy && error && !isCreditError && !isOom && (
             <button
               type="button"
               className="btn btn-outline btn-sm w-full rounded-full"

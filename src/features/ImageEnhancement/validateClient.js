@@ -15,7 +15,7 @@ export function assertEnhanceableFile(file) {
   if ((file.size || 0) > MAX_CLIENT_BYTES) {
     return {
       ok: false,
-      message: "Ảnh quá lớn để gửi AI (tối đa ~12MB).",
+      message: "Ảnh quá lớn để làm nét (tối đa ~12MB).",
     };
   }
   return { ok: true };

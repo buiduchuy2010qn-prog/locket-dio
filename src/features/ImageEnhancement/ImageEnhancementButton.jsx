@@ -2,15 +2,20 @@ import React, { lazy, Suspense, useCallback, useEffect, useRef, useState } from 
 import { usePostStore } from "@/stores";
 import { useConnectivityStore } from "@/stores/useConnectivityStore";
 import { SonnerError, SonnerInfo, SonnerSuccess } from "@/components/uikit/SonnerToast";
-import { DEFAULT_ENHANCE_MODE, ENHANCE_UI } from "./constants";
+import {
+  DEFAULT_ENHANCE_MODE,
+  DEFAULT_ENHANCE_PROVIDER,
+  ENHANCE_PROVIDER,
+  ENHANCE_UI,
+} from "./constants";
 import { assertEnhanceableFile } from "./validateClient";
 
 const ImageEnhancementModal = lazy(() => import("./ImageEnhancementModal"));
 
 /**
  * Post-capture only. Does not import camera hooks or music modules.
- * Lazy-loads enhancement service + modal on first open.
- * Default path is free server-side sharp (not third-party AI).
+ * Default: on-device ESRGAN Slim 2x. Cloud (Replicate) optional.
+ * Upscaler/TF.js loaded only after user starts enhance (dynamic import).
  */
 export default function ImageEnhancementButton() {
   const selectedFile = usePostStore((s) => s.selectedFile);
@@ -26,13 +31,17 @@ export default function ImageEnhancementButton() {
 
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState(DEFAULT_ENHANCE_MODE);
+  const [provider, setProvider] = useState(DEFAULT_ENHANCE_PROVIDER);
+  const [cloudAvailable, setCloudAvailable] = useState(false);
   const [busy, setBusy] = useState(false);
   const [progressText, setProgressText] = useState("");
+  const [progressPercent, setProgressPercent] = useState(null);
   const [error, setError] = useState("");
-  const [providerMissing, setProviderMissing] = useState(false);
+  const [errorCode, setErrorCode] = useState("");
   const [enhancedUrl, setEnhancedUrl] = useState(null);
   const [enhancedFile, setEnhancedFile] = useState(null);
   const [jobId, setJobId] = useState(null);
+  const [resultMeta, setResultMeta] = useState(null);
 
   const abortRef = useRef(null);
   const jobLockRef = useRef(false);
@@ -56,44 +65,73 @@ export default function ImageEnhancementButton() {
     }
     setEnhancedUrl(null);
     setEnhancedFile(null);
+    setResultMeta(null);
   };
 
   useEffect(() => {
     return () => {
       abortRef.current?.abort();
       revokeEnhancedUrl();
+      // Dispose on-device model when leaving capture UI entirely
+      import("./localEnhance")
+        .then((m) => m.disposeLocalEnhancer?.())
+        .catch(() => {});
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // New capture session → clear compare state
+  // New capture session → clear compare state + abort background AI
   useEffect(() => {
     if (!selectedFile) {
+      abortRef.current?.abort();
       setOpen(false);
       setError("");
+      setErrorCode("");
       revokeEnhancedUrl();
       jobLockRef.current = false;
       setBusy(false);
+      setProgressPercent(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedFile]);
 
-  const openModal = () => {
+  const openModal = async () => {
     ensureOriginalFile?.();
     setError("");
-    setProviderMissing(false);
+    setErrorCode("");
     revokeEnhancedUrl();
+    setProvider(DEFAULT_ENHANCE_PROVIDER);
     setOpen(true);
+
+    // Probe cloud availability only when opening modal (auth required)
+    if (online) {
+      try {
+        const { fetchEnhancementStatus } = await import("./ImageEnhancementService");
+        const st = await fetchEnhancementStatus();
+        setCloudAvailable(Boolean(st.cloudAvailable));
+      } catch {
+        setCloudAvailable(false);
+      }
+    } else {
+      setCloudAvailable(false);
+    }
   };
 
   const closeModal = () => {
     if (busy) return;
     setOpen(false);
     setError("");
+    setErrorCode("");
   };
 
   const cancelJob = async () => {
     abortRef.current?.abort();
+    try {
+      const local = await import("./localEnhance");
+      local.abortLocalEnhancer?.();
+    } catch {
+      /* ignore */
+    }
     if (jobId) {
       try {
         const { cancelEnhancementJob } = await import("./ImageEnhancementService");
@@ -105,87 +143,156 @@ export default function ImageEnhancementButton() {
     setBusy(false);
     jobLockRef.current = false;
     setProgressText("");
+    setProgressPercent(null);
     setJobId(null);
     SonnerInfo(ENHANCE_UI.cancel);
   };
 
-  const runEnhance = useCallback(async () => {
-    if (jobLockRef.current || busy) return;
-    const file = originalFile || selectedFile;
-    const check = assertEnhanceableFile(file);
-    if (!check.ok) {
-      setError(check.message);
-      return;
-    }
-    if (!online) {
-      setError(ENHANCE_UI.needNetwork);
-      return;
-    }
-
-    jobLockRef.current = true;
-    setBusy(true);
-    setError("");
-    setProviderMissing(false);
-    revokeEnhancedUrl();
-    setProgressText(ENHANCE_UI.progress);
-
-    const ac = new AbortController();
-    abortRef.current = ac;
-
-    try {
-      const { enhanceImageFile } = await import("./ImageEnhancementService");
-      const result = await enhanceImageFile(file, mode, {
-        signal: ac.signal,
-        onProgress: (p) => {
-          if (p.jobId) setJobId(p.jobId);
-          if (p.phase === "queued") setProgressText("Đang xếp hàng…");
-          else if (p.phase === "running")
-            setProgressText(p.message || ENHANCE_UI.progress);
-          else if (p.phase === "done") setProgressText("Hoàn tất");
-        },
-      });
-
-      const url = URL.createObjectURL(result.file);
-      enhancedUrlRef.current = url;
-      setEnhancedUrl(url);
-      setEnhancedFile(result.file);
-      setJobId(result.jobId);
-      setProgressText("");
-    } catch (e) {
-      if (e?.code === "ABORTED" || e?.name === "CanceledError" || e?.name === "AbortError") {
-        setError("");
-      } else if (
-        e?.code === "PROVIDER_NOT_CONFIGURED" ||
-        e?.response?.data?.code === "PROVIDER_NOT_CONFIGURED" ||
-        e?.details?.code === "PROVIDER_NOT_CONFIGURED"
-      ) {
-        setProviderMissing(true);
-        setError(
-          e?.response?.data?.message ||
-            e?.message ||
-            "Máy chủ chưa bật làm nét.",
-        );
-      } else {
-        setError(
-          e?.response?.data?.message ||
-            e?.message ||
-            "Làm nét thất bại — ảnh gốc được giữ nguyên.",
-        );
-        SonnerError(ENHANCE_UI.failTitle, ENHANCE_UI.failBody);
+  const runEnhance = useCallback(
+    async (overrideProvider) => {
+      if (jobLockRef.current || busy) return;
+      const file = originalFile || selectedFile;
+      const check = assertEnhanceableFile(file);
+      if (!check.ok) {
+        setError(check.message);
+        setErrorCode("CLIENT_VALIDATION");
+        return;
       }
-    } finally {
-      setBusy(false);
-      jobLockRef.current = false;
-      abortRef.current = null;
-    }
-  }, [busy, mode, online, originalFile, selectedFile]);
 
-  const onUseAi = () => {
+      const useProvider = overrideProvider || provider;
+
+      if (useProvider === ENHANCE_PROVIDER.CLOUD && !online) {
+        setError(ENHANCE_UI.needNetwork);
+        setErrorCode("OFFLINE");
+        return;
+      }
+
+      jobLockRef.current = true;
+      setBusy(true);
+      setError("");
+      setErrorCode("");
+      revokeEnhancedUrl();
+      setProgressText(
+        useProvider === ENHANCE_PROVIDER.LOCAL
+          ? ENHANCE_UI.loadingModel
+          : ENHANCE_UI.progress,
+      );
+      setProgressPercent(0);
+
+      const ac = new AbortController();
+      abortRef.current = ac;
+
+      try {
+        let result;
+        if (useProvider === ENHANCE_PROVIDER.LOCAL) {
+          // Dynamic import — TF/Upscaler not in boot path
+          const { enhanceImageLocal } = await import("./localEnhance");
+          result = await enhanceImageLocal(file, {
+            signal: ac.signal,
+            onProgress: (p) => {
+              if (typeof p.percent === "number") setProgressPercent(p.percent);
+              if (p.message) setProgressText(p.message);
+              else if (p.phase === "loading_model")
+                setProgressText(ENHANCE_UI.loadingModel);
+              else if (p.phase === "done") setProgressText("Hoàn tất");
+            },
+          });
+        } else {
+          const { enhanceImageCloud, normalizeEnhanceError } = await import(
+            "./ImageEnhancementService"
+          );
+          try {
+            result = await enhanceImageCloud(file, mode, {
+              signal: ac.signal,
+              onProgress: (p) => {
+                if (p.jobId) setJobId(p.jobId);
+                if (p.phase === "queued") {
+                  setProgressText("Đang xếp hàng…");
+                  setProgressPercent(10);
+                } else if (p.phase === "running") {
+                  setProgressText(p.message || ENHANCE_UI.progress);
+                  setProgressPercent((prev) =>
+                    typeof prev === "number" ? Math.min(90, prev + 5) : 40,
+                  );
+                } else if (p.phase === "done") {
+                  setProgressText("Hoàn tất");
+                  setProgressPercent(100);
+                }
+              },
+            });
+          } catch (cloudErr) {
+            throw normalizeEnhanceError(cloudErr);
+          }
+        }
+
+        const url = URL.createObjectURL(result.file);
+        enhancedUrlRef.current = url;
+        setEnhancedUrl(url);
+        setEnhancedFile(result.file);
+        setResultMeta({
+          provider: result.provider || useProvider,
+          model: result.model,
+        });
+        if (result.jobId) setJobId(result.jobId);
+        setProgressText("");
+        setProgressPercent(null);
+      } catch (e) {
+        if (
+          e?.code === "ABORTED" ||
+          e?.name === "CanceledError" ||
+          e?.name === "AbortError"
+        ) {
+          setError("");
+          setErrorCode("");
+        } else if (e?.code === "INSUFFICIENT_CREDIT") {
+          setErrorCode("INSUFFICIENT_CREDIT");
+          setError(ENHANCE_UI.creditMessage);
+          // Hide Cloud for this session — free on-device still available
+          setCloudAvailable(false);
+          setProvider(ENHANCE_PROVIDER.LOCAL);
+          // Do NOT auto-run local — user taps "Dùng bản miễn phí"
+        } else if (e?.code === "PROVIDER_NOT_CONFIGURED") {
+          setCloudAvailable(false);
+          setProvider(ENHANCE_PROVIDER.LOCAL);
+          setErrorCode("PROVIDER_NOT_CONFIGURED");
+          setError(
+            e?.message ||
+              "Cloud chưa sẵn sàng. Dùng chế độ miễn phí trên thiết bị.",
+          );
+        } else if (e?.code === "OOM") {
+          setErrorCode("OOM");
+          setError(ENHANCE_UI.oom);
+        } else if (e?.code === "MODEL_NEEDS_NETWORK") {
+          setErrorCode("MODEL_NEEDS_NETWORK");
+          setError(ENHANCE_UI.needNetworkOnce);
+        } else {
+          setErrorCode(e?.code || "FAILED");
+          setError(
+            e?.userMessage ||
+              e?.message ||
+              "AI làm nét thất bại — ảnh gốc được giữ nguyên.",
+          );
+          if (e?.code !== "INSUFFICIENT_CREDIT") {
+            SonnerError(ENHANCE_UI.failTitle, ENHANCE_UI.failBody);
+          }
+        }
+      } finally {
+        setBusy(false);
+        jobLockRef.current = false;
+        abortRef.current = null;
+        setProgressPercent(null);
+      }
+    },
+    [busy, mode, online, originalFile, provider, selectedFile],
+  );
+
+  const onUseResult = () => {
     if (!enhancedFile) return;
     setActiveMediaFile(enhancedFile, {
       enabled: true,
       mode,
-      model: "free-sharp",
+      model: resultMeta?.model || "local-esrgan-slim-2x",
+      provider: resultMeta?.provider || provider,
       createdAt: Date.now(),
     });
     SonnerSuccess(ENHANCE_UI.success);
@@ -203,8 +310,17 @@ export default function ImageEnhancementButton() {
   const onRetry = () => {
     revokeEnhancedUrl();
     setError("");
-    setProviderMissing(false);
+    setErrorCode("");
     void runEnhance();
+  };
+
+  /** After cloud credit error — switch to local only when user confirms */
+  const onUseFreeFallback = () => {
+    setProvider(ENHANCE_PROVIDER.LOCAL);
+    setError("");
+    setErrorCode("");
+    revokeEnhancedUrl();
+    void runEnhance(ENHANCE_PROVIDER.LOCAL);
   };
 
   if (!isImage || !selectedFile) return null;
@@ -215,32 +331,23 @@ export default function ImageEnhancementButton() {
         <button
           type="button"
           className="btn btn-xs rounded-full bg-base-200 gap-1 disabled:opacity-50"
-          disabled={!online && !open}
           title={
-            !online
-              ? "Cần kết nối mạng"
-              : enhancement?.enabled
-                ? "Đã làm nét — bấm để xem lại / hoàn tác"
-                : "Làm nét ảnh (miễn phí)"
+            enhancement?.enabled
+              ? "Đã dùng AI — bấm để xem lại / hoàn tác"
+              : "AI Làm nét (miễn phí trên thiết bị)"
           }
           onClick={() => {
-            if (!online) {
-              SonnerInfo("Cần kết nối mạng", "Bản nháp ảnh gốc vẫn lưu được.");
-              return;
-            }
             openModal();
           }}
         >
           {ENHANCE_UI.button}
-          {!online ? (
-            <span className="text-[9px] opacity-70">· Cần mạng</span>
-          ) : enhancement?.enabled ? (
+          {enhancement?.enabled ? (
             <span className="text-[9px] opacity-70">{ENHANCE_UI.buttonActive}</span>
           ) : (
             <span className="text-[9px] opacity-70">· Free</span>
           )}
         </button>
-        {enhancement?.enabled && online && (
+        {enhancement?.enabled && (
           <button
             type="button"
             className="btn btn-xs btn-ghost rounded-full ml-1"
@@ -260,18 +367,23 @@ export default function ImageEnhancementButton() {
             open={open}
             busy={busy}
             progressText={progressText}
+            progressPercent={progressPercent}
             error={error}
+            errorCode={errorCode}
             mode={mode}
             onModeChange={setMode}
+            provider={provider}
+            onProviderChange={setProvider}
+            cloudAvailable={cloudAvailable}
             originalUrl={originalUrl}
             enhancedUrl={enhancedUrl}
             offline={!online}
-            providerMissing={providerMissing}
-            onStart={runEnhance}
+            onStart={() => runEnhance()}
             onCancel={cancelJob}
-            onUseAi={onUseAi}
+            onUseResult={onUseResult}
             onKeepOriginal={onKeepOriginal}
             onRetry={onRetry}
+            onUseFreeFallback={onUseFreeFallback}
             onClose={closeModal}
           />
         </Suspense>

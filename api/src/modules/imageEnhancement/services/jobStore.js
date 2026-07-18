@@ -31,13 +31,14 @@ function canStart(uid) {
   return (userActive.get(uid) || 0) < MAX_CONCURRENT_PER_USER;
 }
 
-function createJob({ uid, mode, inputPath, mime }) {
+function createJob({ uid, mode, inputPath, mime, provider }) {
   ensureTmp();
   const id = randomUUID();
   const job = {
     id,
     uid,
     mode: mode || "natural",
+    provider: provider || null,
     status: "queued", // queued | running | succeeded | failed | cancelled
     mime,
     inputPath,
