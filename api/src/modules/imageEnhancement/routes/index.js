@@ -22,7 +22,7 @@ const enhanceLimiter = rateLimit({
   message: {
     success: false,
     code: "RATE_LIMIT",
-    message: "Quá nhiều yêu cầu AI — thử lại sau.",
+    message: "Quá nhiều yêu cầu làm nét — thử lại sau.",
   },
 });
 
