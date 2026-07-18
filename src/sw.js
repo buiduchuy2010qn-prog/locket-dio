@@ -341,8 +341,12 @@ registerRoute(
   ({ url, request }) => {
     if (request.method !== "GET") return false;
     if (url.origin !== self.location.origin) return false;
-    // Lazy JS chunks (Upscaler / TF.js)
-    if (/ai-enhance-local|tensorflow|tfjs|upscaler|esrgan/i.test(url.pathname)) {
+    // Lazy JS chunks (Upscaler / TF.js / enhance worker)
+    if (
+      /ai-enhance-local|enhance\.worker|tensorflow|tfjs|upscaler|esrgan/i.test(
+        url.pathname,
+      )
+    ) {
       return true;
     }
     // Same-origin model weights (not external CDN)

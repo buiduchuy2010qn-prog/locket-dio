@@ -6,7 +6,7 @@
 import { instanceMain } from "@/libs";
 import { getToken } from "@/utils";
 import { assertEnhanceableFile } from "./validateClient";
-import { ENHANCE_UI } from "./constants";
+import { ENHANCE_DEADLINE_MS, ENHANCE_UI } from "./constants";
 
 const BASE = "/api/image-enhancement";
 
@@ -63,7 +63,17 @@ export function normalizeEnhanceError(e) {
     return err;
   }
 
-  if (code === "OOM" || code === "MODEL_NEEDS_NETWORK") {
+  if (
+    code === "OOM" ||
+    code === "MODEL_NEEDS_NETWORK" ||
+    code === "TIMED_OUT" ||
+    code === "TIMEOUT"
+  ) {
+    if (code === "TIMEOUT" || code === "TIMED_OUT") {
+      const err = new Error(ENHANCE_UI.timedOut);
+      err.code = "TIMED_OUT";
+      return err;
+    }
     return e;
   }
 
@@ -134,7 +144,7 @@ export async function createEnhancementJob(file, mode, { signal, provider } = {}
       "Content-Type": undefined,
     },
     signal,
-    timeout: 120000,
+    timeout: ENHANCE_DEADLINE_MS,
     transformRequest: [
       (data, headers) => {
         if (typeof FormData !== "undefined" && data instanceof FormData) {
@@ -197,18 +207,21 @@ export async function fetchEnhancementResultBlob(jobId, { signal } = {}) {
 
 export async function waitForEnhancementJob(
   jobId,
-  { signal, onProgress, maxMs = 90000 } = {},
+  { signal, onProgress, maxMs = ENHANCE_DEADLINE_MS, deadlineAt } = {},
 ) {
   const start = Date.now();
-  let delay = 1200;
-  while (Date.now() - start < maxMs) {
+  const hardDeadline = deadlineAt || start + maxMs;
+  let delay = 1000;
+  while (Date.now() < hardDeadline) {
     if (signal?.aborted) {
       const err = new Error("Đã hủy");
       err.code = "ABORTED";
       throw err;
     }
     const job = await getEnhancementJob(jobId, { signal });
+    const remainingMs = Math.max(0, hardDeadline - Date.now());
     onProgress?.(job);
+    onProgress?.({ ...job, phase: "running", remainingMs });
     if (job.status === "succeeded") return job;
     if (job.status === "failed" || job.status === "cancelled") {
       throw normalizeEnhanceError({
@@ -217,33 +230,92 @@ export async function waitForEnhancementJob(
         job,
       });
     }
-    await new Promise((r) => setTimeout(r, delay));
-    delay = Math.min(4000, Math.round(delay * 1.35));
+    const wait = Math.min(delay, Math.max(0, hardDeadline - Date.now()));
+    if (wait <= 0) break;
+    await new Promise((r) => setTimeout(r, wait));
+    delay = Math.min(2500, Math.round(delay * 1.25));
   }
-  const err = new Error("AI Cloud quá lâu — thử lại sau.");
-  err.code = "TIMEOUT";
+  // Deadline — cancel server job; do not keep polling/billing
+  try {
+    await cancelEnhancementJob(jobId);
+  } catch {
+    /* best effort */
+  }
+  const err = new Error(ENHANCE_UI.timedOut);
+  err.code = "TIMED_OUT";
   throw err;
 }
 
-/** Full cloud pipeline: create → wait → download File. Never stores base64. */
+/** Full cloud pipeline: create → wait → download File. Hard 60s client deadline. */
 export async function enhanceImageCloud(file, mode, { signal, onProgress } = {}) {
-  const created = await createEnhancementJob(file, mode, {
-    signal,
-    provider: "replicate",
-  });
-  onProgress?.({ phase: "queued", jobId: created.jobId, ...created });
+  const deadlineAt = Date.now() + ENHANCE_DEADLINE_MS;
+  let jobId = null;
 
-  const job = await waitForEnhancementJob(created.jobId, {
-    signal,
-    onProgress: (j) => onProgress?.({ phase: "running", ...j }),
-  });
+  try {
+    const created = await createEnhancementJob(file, mode, {
+      signal,
+      provider: "replicate",
+    });
+    jobId = created.jobId;
+    onProgress?.({
+      phase: "queued",
+      jobId: created.jobId,
+      remainingMs: Math.max(0, deadlineAt - Date.now()),
+      ...created,
+    });
 
-  const blob = await fetchEnhancementResultBlob(created.jobId, { signal });
-  const mime = blob.type || "image/jpeg";
-  const ext = mime.includes("png") ? "png" : mime.includes("webp") ? "webp" : "jpg";
-  const out = new File([blob], `enhance_cloud_${Date.now()}.${ext}`, { type: mime });
-  onProgress?.({ phase: "done", jobId: created.jobId, file: out });
-  return { file: out, job, jobId: created.jobId, provider: "cloud", model: job?.model || "replicate" };
+    if (Date.now() >= deadlineAt) {
+      await cancelEnhancementJob(jobId);
+      const err = new Error(ENHANCE_UI.timedOut);
+      err.code = "TIMED_OUT";
+      throw err;
+    }
+
+    const job = await waitForEnhancementJob(created.jobId, {
+      signal,
+      deadlineAt,
+      onProgress: (j) =>
+        onProgress?.({
+          phase: "running",
+          remainingMs: Math.max(0, deadlineAt - Date.now()),
+          ...j,
+        }),
+    });
+
+    if (Date.now() >= deadlineAt) {
+      const err = new Error(ENHANCE_UI.timedOut);
+      err.code = "TIMED_OUT";
+      throw err;
+    }
+
+    const blob = await fetchEnhancementResultBlob(created.jobId, { signal });
+    const mime = blob.type || "image/jpeg";
+    const ext = mime.includes("png")
+      ? "png"
+      : mime.includes("webp")
+        ? "webp"
+        : "jpg";
+    const out = new File([blob], `enhance_cloud_${Date.now()}.${ext}`, {
+      type: mime,
+    });
+    onProgress?.({ phase: "done", jobId: created.jobId, file: out, remainingMs: 0 });
+    return {
+      file: out,
+      job,
+      jobId: created.jobId,
+      provider: "cloud",
+      model: job?.model || "replicate",
+    };
+  } catch (e) {
+    if (e?.code === "TIMED_OUT" && jobId) {
+      try {
+        await cancelEnhancementJob(jobId);
+      } catch {
+        /* ignore */
+      }
+    }
+    throw e;
+  }
 }
 
 /** @deprecated use enhanceImageCloud — kept name for any old imports */

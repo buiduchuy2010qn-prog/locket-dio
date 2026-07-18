@@ -28,31 +28,62 @@ export const ENHANCE_PROVIDER = {
 
 export const DEFAULT_ENHANCE_PROVIDER = ENHANCE_PROVIDER.LOCAL;
 
+/** Hard job deadline from user tap "Bắt đầu" (local + cloud). */
+export const ENHANCE_DEADLINE_MS = 60_000;
+/** Worker must heartbeat at least this often or we terminate as hung. */
+export const ENHANCE_HEARTBEAT_STALE_MS = 10_000;
+/** Throttle progress UI updates. */
+export const ENHANCE_PROGRESS_THROTTLE_MS = 200;
+/** After this many ms, if progress still low → show slow hint (no auto-restart). */
+export const ENHANCE_SLOW_HINT_MS = 20_000;
+export const ENHANCE_SLOW_HINT_MAX_PERCENT = 18;
+
 /** Client limits */
 export const MAX_CLIENT_BYTES = 12 * 1024 * 1024; // 12MB
 export const ALLOWED_MIME = ["image/jpeg", "image/png", "image/webp"];
 
-/** Local ESRGAN — Slim 2x for weak phones (same-origin static weights) */
+/** Local ESRGAN — Slim 2x (same-origin static weights) */
 export const LOCAL_MODEL_ID = "@upscalerjs/esrgan-slim/2x";
-/**
- * Versioned same-origin path (works on Vercel + Railway without hard-coded host).
- * public/ai-models/esrgan-slim-2x/v1/ → /ai-models/esrgan-slim-2x/v1/
- */
 export const LOCAL_MODEL_JSON_PATH = "/ai-models/esrgan-slim-2x/v1/model.json";
-/** @deprecated use LOCAL_MODEL_JSON_PATH */
 export const LOCAL_MODEL_STATIC_PATH = "ai-models/esrgan-slim-2x/v1/model.json";
 export const LOCAL_SCALE = 2;
-/** Max long edge of *output* after 2x (input capped to half). */
-export const LOCAL_MAX_OUTPUT_EDGE = 2048;
-export const LOCAL_PATCH_SIZE = 64;
-export const LOCAL_PATCH_PADDING = 5;
+
+/**
+ * Quality profiles — keep Slim 2x only; smaller inputs so weak phones finish ≤60s.
+ * maxInputEdge: long edge before 2x; maxOutputEdge = maxInputEdge * 2.
+ */
+export const LOCAL_QUALITY = {
+  default: {
+    id: "default",
+    label: "Chuẩn",
+    maxInputEdge: 576, // ~512–640
+    maxOutputEdge: 1152, // ~1024–1280
+    patchSize: 48,
+    padding: 4,
+  },
+  superfast: {
+    id: "superfast",
+    label: "Siêu nhanh",
+    maxInputEdge: 448, // ~384–512
+    maxOutputEdge: 896, // ~768–1024
+    patchSize: 32,
+    padding: 4,
+  },
+};
+
+export const DEFAULT_LOCAL_QUALITY = "default";
+
+/** @deprecated use LOCAL_QUALITY */
+export const LOCAL_MAX_OUTPUT_EDGE = LOCAL_QUALITY.default.maxOutputEdge;
+export const LOCAL_PATCH_SIZE = LOCAL_QUALITY.default.patchSize;
+export const LOCAL_PATCH_PADDING = LOCAL_QUALITY.default.padding;
 
 export const PROVIDER_DISCLOSURE = {
   local: {
     provider: "Miễn phí trên thiết bị",
     model: `${LOCAL_MODEL_ID} · ${LOCAL_MODEL_JSON_PATH}`,
     costHint: "Miễn phí — 0 credit, không gửi ảnh ra khỏi máy",
-    latencyHint: "phụ thuộc máy (thường 5–60 giây)",
+    latencyHint: "tối đa 60 giây · worker riêng",
     thirdParty: "Chạy trong trình duyệt (UpscalerJS + ESRGAN Slim 2x)",
     retention: "Model static của web; runtime-cache sau lần tải đầu",
     isAi: true,
@@ -61,7 +92,7 @@ export const PROVIDER_DISCLOSURE = {
     provider: "Cloud nhanh (Replicate)",
     model: "nightmareai/real-esrgan (hoặc REPLICATE_MODEL)",
     costHint: "Tốn credit Replicate",
-    latencyHint: "thường 5–30 giây",
+    latencyHint: "tối đa 60 giây",
     thirdParty: "Ảnh gửi tạm tới Replicate để suy luận",
     retention: "Xóa file tạm server sau job; Replicate theo chính sách riêng",
     isAi: true,
@@ -72,7 +103,7 @@ export const ENHANCE_UI = {
   title: "AI Làm nét",
   button: "✨ AI Làm nét",
   buttonActive: "· Đang dùng",
-  progress: "Đang cải thiện ảnh…",
+  progress: "Đang làm nét",
   loadingModel: "Đang tải AI miễn phí…",
   needNetwork: "Cần kết nối mạng để dùng Cloud.",
   needNetworkOnce: "Cần mạng một lần để tải AI miễn phí (model trên web)",
@@ -85,11 +116,19 @@ export const ENHANCE_UI = {
   revert: "Đã hoàn tác — về ảnh gốc",
   afterLabel: "Sau",
   oom: "Thiết bị không đủ tài nguyên để làm nét ảnh này",
+  timedOut:
+    "Thiết bị xử lý quá chậm nên AI đã được dừng. Ảnh gốc vẫn an toàn.",
+  slowHint: "Thiết bị xử lý chậm. Bạn có thể hủy và thử mức Nhanh hơn.",
+  trySuperfast: "Thử chế độ Siêu nhanh",
+  close: "Đóng",
+  remaining: (sec) => `Đang làm nét · còn tối đa ${sec} giây`,
   creditMessage:
     "AI Cloud hiện không đủ credit. Bạn có thể dùng chế độ miễn phí trên thiết bị.",
   useFreeButton: "Dùng bản miễn phí",
   providerLocal: "Miễn phí trên thiết bị",
   providerCloud: "Cloud nhanh",
-  providerLocalHint: "ESRGAN Slim 2x · không gửi ảnh đi",
-  providerCloudHint: "Replicate · cần mạng & credit",
+  providerLocalHint: "ESRGAN Slim 2x · worker · tối đa 60s",
+  providerCloudHint: "Replicate · cần mạng & credit · tối đa 60s",
+  qualityDefault: "Chuẩn",
+  qualitySuperfast: "Siêu nhanh",
 };

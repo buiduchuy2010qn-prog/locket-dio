@@ -5,6 +5,8 @@ import { SonnerError, SonnerInfo, SonnerSuccess } from "@/components/uikit/Sonne
 import {
   DEFAULT_ENHANCE_MODE,
   DEFAULT_ENHANCE_PROVIDER,
+  DEFAULT_LOCAL_QUALITY,
+  ENHANCE_DEADLINE_MS,
   ENHANCE_PROVIDER,
   ENHANCE_UI,
 } from "./constants";
@@ -14,8 +16,7 @@ const ImageEnhancementModal = lazy(() => import("./ImageEnhancementModal"));
 
 /**
  * Post-capture only. Does not import camera hooks or music modules.
- * Default: on-device ESRGAN Slim 2x. Cloud (Replicate) optional.
- * Upscaler/TF.js loaded only after user starts enhance (dynamic import).
+ * Local: Dedicated Worker + 60s hard terminate. Cloud: 60s poll + cancel.
  */
 export default function ImageEnhancementButton() {
   const selectedFile = usePostStore((s) => s.selectedFile);
@@ -32,20 +33,26 @@ export default function ImageEnhancementButton() {
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState(DEFAULT_ENHANCE_MODE);
   const [provider, setProvider] = useState(DEFAULT_ENHANCE_PROVIDER);
+  const [localQuality, setLocalQuality] = useState(DEFAULT_LOCAL_QUALITY);
   const [cloudAvailable, setCloudAvailable] = useState(false);
   const [busy, setBusy] = useState(false);
   const [progressText, setProgressText] = useState("");
   const [progressPercent, setProgressPercent] = useState(null);
+  const [remainingSec, setRemainingSec] = useState(null);
+  const [slowHint, setSlowHint] = useState(false);
   const [error, setError] = useState("");
   const [errorCode, setErrorCode] = useState("");
   const [enhancedUrl, setEnhancedUrl] = useState(null);
   const [enhancedFile, setEnhancedFile] = useState(null);
-  const [jobId, setJobId] = useState(null);
+  const [cloudJobId, setCloudJobId] = useState(null);
   const [resultMeta, setResultMeta] = useState(null);
 
   const abortRef = useRef(null);
   const jobLockRef = useRef(false);
   const enhancedUrlRef = useRef(null);
+  const activeJobIdRef = useRef(null);
+  /** Generation counter — ignore late resolve after timeout/cancel */
+  const genRef = useRef(0);
 
   const isImage =
     preview?.type === "image" ||
@@ -68,11 +75,21 @@ export default function ImageEnhancementButton() {
     setResultMeta(null);
   };
 
+  const hardStopLocal = async () => {
+    try {
+      const local = await import("./localEnhance");
+      local.abortLocalEnhancer?.();
+    } catch {
+      /* ignore */
+    }
+  };
+
   useEffect(() => {
     return () => {
+      genRef.current += 1;
       abortRef.current?.abort();
+      void hardStopLocal();
       revokeEnhancedUrl();
-      // Dispose on-device model when leaving capture UI entirely
       import("./localEnhance")
         .then((m) => m.disposeLocalEnhancer?.())
         .catch(() => {});
@@ -80,10 +97,11 @@ export default function ImageEnhancementButton() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // New capture session → clear compare state + abort background AI
   useEffect(() => {
     if (!selectedFile) {
+      genRef.current += 1;
       abortRef.current?.abort();
+      void hardStopLocal();
       setOpen(false);
       setError("");
       setErrorCode("");
@@ -91,6 +109,8 @@ export default function ImageEnhancementButton() {
       jobLockRef.current = false;
       setBusy(false);
       setProgressPercent(null);
+      setRemainingSec(null);
+      setSlowHint(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedFile]);
@@ -99,11 +119,13 @@ export default function ImageEnhancementButton() {
     ensureOriginalFile?.();
     setError("");
     setErrorCode("");
+    setSlowHint(false);
+    setRemainingSec(null);
     revokeEnhancedUrl();
     setProvider(DEFAULT_ENHANCE_PROVIDER);
+    setLocalQuality(DEFAULT_LOCAL_QUALITY);
     setOpen(true);
 
-    // Probe cloud availability only when opening modal (auth required)
     if (online) {
       try {
         const { fetchEnhancementStatus } = await import("./ImageEnhancementService");
@@ -118,24 +140,25 @@ export default function ImageEnhancementButton() {
   };
 
   const closeModal = () => {
-    if (busy) return;
+    if (busy) {
+      // Closing while busy = cancel (do not leave AI running)
+      void cancelJob({ silent: true });
+    }
     setOpen(false);
     setError("");
     setErrorCode("");
+    setSlowHint(false);
+    setRemainingSec(null);
   };
 
-  const cancelJob = async () => {
+  const cancelJob = async ({ silent } = {}) => {
+    genRef.current += 1;
     abortRef.current?.abort();
-    try {
-      const local = await import("./localEnhance");
-      local.abortLocalEnhancer?.();
-    } catch {
-      /* ignore */
-    }
-    if (jobId) {
+    await hardStopLocal();
+    if (cloudJobId) {
       try {
         const { cancelEnhancementJob } = await import("./ImageEnhancementService");
-        await cancelEnhancementJob(jobId);
+        await cancelEnhancementJob(cloudJobId);
       } catch {
         /* ignore */
       }
@@ -144,13 +167,18 @@ export default function ImageEnhancementButton() {
     jobLockRef.current = false;
     setProgressText("");
     setProgressPercent(null);
-    setJobId(null);
-    SonnerInfo(ENHANCE_UI.cancel);
+    setRemainingSec(null);
+    setSlowHint(false);
+    setCloudJobId(null);
+    activeJobIdRef.current = null;
+    setError("");
+    setErrorCode("");
+    if (!silent) SonnerInfo(ENHANCE_UI.cancel);
   };
 
   const runEnhance = useCallback(
-    async (overrideProvider) => {
-      if (jobLockRef.current || busy) return;
+    async (overrides = {}) => {
+      if (jobLockRef.current) return;
       const file = originalFile || selectedFile;
       const check = assertEnhanceableFile(file);
       if (!check.ok) {
@@ -159,7 +187,8 @@ export default function ImageEnhancementButton() {
         return;
       }
 
-      const useProvider = overrideProvider || provider;
+      const useProvider = overrides.provider || provider;
+      const useQuality = overrides.quality || localQuality;
 
       if (useProvider === ENHANCE_PROVIDER.CLOUD && !online) {
         setError(ENHANCE_UI.needNetwork);
@@ -167,29 +196,52 @@ export default function ImageEnhancementButton() {
         return;
       }
 
+      // Kill any prior job before starting
+      genRef.current += 1;
+      const myGen = genRef.current;
+      abortRef.current?.abort();
+      await hardStopLocal();
+
       jobLockRef.current = true;
       setBusy(true);
       setError("");
       setErrorCode("");
+      setSlowHint(false);
       revokeEnhancedUrl();
+      setProgressPercent(0);
+      setRemainingSec(Math.ceil(ENHANCE_DEADLINE_MS / 1000));
       setProgressText(
         useProvider === ENHANCE_PROVIDER.LOCAL
           ? ENHANCE_UI.loadingModel
           : ENHANCE_UI.progress,
       );
-      setProgressPercent(0);
 
       const ac = new AbortController();
       abortRef.current = ac;
+      const jobId =
+        typeof crypto !== "undefined" && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `j_${Date.now()}`;
+      activeJobIdRef.current = jobId;
 
       try {
         let result;
         if (useProvider === ENHANCE_PROVIDER.LOCAL) {
-          // Dynamic import — TF/Upscaler not in boot path
           const { enhanceImageLocal } = await import("./localEnhance");
           result = await enhanceImageLocal(file, {
             signal: ac.signal,
+            quality: useQuality,
+            jobId,
             onProgress: (p) => {
+              if (myGen !== genRef.current) return;
+              if (typeof p.remainingMs === "number") {
+                setRemainingSec(Math.ceil(p.remainingMs / 1000));
+              }
+              if (p.phase === "slow_hint") {
+                setSlowHint(true);
+                if (p.message) setProgressText(p.message);
+                return;
+              }
               if (typeof p.percent === "number") setProgressPercent(p.percent);
               if (p.message) setProgressText(p.message);
               else if (p.phase === "loading_model")
@@ -205,14 +257,18 @@ export default function ImageEnhancementButton() {
             result = await enhanceImageCloud(file, mode, {
               signal: ac.signal,
               onProgress: (p) => {
-                if (p.jobId) setJobId(p.jobId);
+                if (myGen !== genRef.current) return;
+                if (p.jobId) setCloudJobId(p.jobId);
+                if (typeof p.remainingMs === "number") {
+                  setRemainingSec(Math.ceil(p.remainingMs / 1000));
+                }
                 if (p.phase === "queued") {
                   setProgressText("Đang xếp hàng…");
                   setProgressPercent(10);
                 } else if (p.phase === "running") {
                   setProgressText(p.message || ENHANCE_UI.progress);
                   setProgressPercent((prev) =>
-                    typeof prev === "number" ? Math.min(90, prev + 5) : 40,
+                    typeof prev === "number" ? Math.min(90, prev + 3) : 40,
                   );
                 } else if (p.phase === "done") {
                   setProgressText("Hoàn tất");
@@ -225,6 +281,11 @@ export default function ImageEnhancementButton() {
           }
         }
 
+        // Drop late success if generation changed (timeout/cancel/new job)
+        if (myGen !== genRef.current || ac.signal.aborted) {
+          return;
+        }
+
         const url = URL.createObjectURL(result.file);
         enhancedUrlRef.current = url;
         setEnhancedUrl(url);
@@ -232,11 +293,16 @@ export default function ImageEnhancementButton() {
         setResultMeta({
           provider: result.provider || useProvider,
           model: result.model,
+          quality: result.quality || useQuality,
         });
-        if (result.jobId) setJobId(result.jobId);
+        if (result.jobId) setCloudJobId(result.jobId);
         setProgressText("");
         setProgressPercent(null);
+        setRemainingSec(null);
+        setSlowHint(false);
       } catch (e) {
+        if (myGen !== genRef.current) return;
+
         if (
           e?.code === "ABORTED" ||
           e?.name === "CanceledError" ||
@@ -244,13 +310,15 @@ export default function ImageEnhancementButton() {
         ) {
           setError("");
           setErrorCode("");
+        } else if (e?.code === "TIMED_OUT" || e?.code === "TIMEOUT") {
+          setErrorCode("TIMED_OUT");
+          setError(ENHANCE_UI.timedOut);
+          setSlowHint(false);
         } else if (e?.code === "INSUFFICIENT_CREDIT") {
           setErrorCode("INSUFFICIENT_CREDIT");
           setError(ENHANCE_UI.creditMessage);
-          // Hide Cloud for this session — free on-device still available
           setCloudAvailable(false);
           setProvider(ENHANCE_PROVIDER.LOCAL);
-          // Do NOT auto-run local — user taps "Dùng bản miễn phí"
         } else if (e?.code === "PROVIDER_NOT_CONFIGURED") {
           setCloudAvailable(false);
           setProvider(ENHANCE_PROVIDER.LOCAL);
@@ -272,18 +340,20 @@ export default function ImageEnhancementButton() {
               e?.message ||
               "AI làm nét thất bại — ảnh gốc được giữ nguyên.",
           );
-          if (e?.code !== "INSUFFICIENT_CREDIT") {
-            SonnerError(ENHANCE_UI.failTitle, ENHANCE_UI.failBody);
-          }
+          SonnerError(ENHANCE_UI.failTitle, ENHANCE_UI.failBody);
         }
       } finally {
-        setBusy(false);
-        jobLockRef.current = false;
-        abortRef.current = null;
-        setProgressPercent(null);
+        if (myGen === genRef.current) {
+          setBusy(false);
+          jobLockRef.current = false;
+          abortRef.current = null;
+          setProgressPercent(null);
+          setRemainingSec(null);
+          activeJobIdRef.current = null;
+        }
       }
     },
-    [busy, mode, online, originalFile, provider, selectedFile],
+    [localQuality, mode, online, originalFile, provider, selectedFile],
   );
 
   const onUseResult = () => {
@@ -293,6 +363,7 @@ export default function ImageEnhancementButton() {
       mode,
       model: resultMeta?.model || "local-esrgan-slim-2x",
       provider: resultMeta?.provider || provider,
+      quality: resultMeta?.quality,
       createdAt: Date.now(),
     });
     SonnerSuccess(ENHANCE_UI.success);
@@ -304,6 +375,8 @@ export default function ImageEnhancementButton() {
     revertEnhancement?.();
     revokeEnhancedUrl();
     setOpen(false);
+    setError("");
+    setErrorCode("");
     SonnerInfo(ENHANCE_UI.keepOriginal);
   };
 
@@ -311,16 +384,26 @@ export default function ImageEnhancementButton() {
     revokeEnhancedUrl();
     setError("");
     setErrorCode("");
+    setSlowHint(false);
     void runEnhance();
   };
 
-  /** After cloud credit error — switch to local only when user confirms */
   const onUseFreeFallback = () => {
     setProvider(ENHANCE_PROVIDER.LOCAL);
     setError("");
     setErrorCode("");
     revokeEnhancedUrl();
-    void runEnhance(ENHANCE_PROVIDER.LOCAL);
+    void runEnhance({ provider: ENHANCE_PROVIDER.LOCAL });
+  };
+
+  const onTrySuperfast = () => {
+    setProvider(ENHANCE_PROVIDER.LOCAL);
+    setLocalQuality("superfast");
+    setError("");
+    setErrorCode("");
+    setSlowHint(false);
+    revokeEnhancedUrl();
+    void runEnhance({ provider: ENHANCE_PROVIDER.LOCAL, quality: "superfast" });
   };
 
   if (!isImage || !selectedFile) return null;
@@ -334,7 +417,7 @@ export default function ImageEnhancementButton() {
           title={
             enhancement?.enabled
               ? "Đã dùng AI — bấm để xem lại / hoàn tác"
-              : "AI Làm nét (miễn phí trên thiết bị)"
+              : "AI Làm nét (miễn phí trên thiết bị · tối đa 60s)"
           }
           onClick={() => {
             openModal();
@@ -368,22 +451,27 @@ export default function ImageEnhancementButton() {
             busy={busy}
             progressText={progressText}
             progressPercent={progressPercent}
+            remainingSec={remainingSec}
+            slowHint={slowHint}
             error={error}
             errorCode={errorCode}
             mode={mode}
             onModeChange={setMode}
             provider={provider}
             onProviderChange={setProvider}
+            localQuality={localQuality}
+            onLocalQualityChange={setLocalQuality}
             cloudAvailable={cloudAvailable}
             originalUrl={originalUrl}
             enhancedUrl={enhancedUrl}
             offline={!online}
             onStart={() => runEnhance()}
-            onCancel={cancelJob}
+            onCancel={() => cancelJob()}
             onUseResult={onUseResult}
             onKeepOriginal={onKeepOriginal}
             onRetry={onRetry}
             onUseFreeFallback={onUseFreeFallback}
+            onTrySuperfast={onTrySuperfast}
             onClose={closeModal}
           />
         </Suspense>

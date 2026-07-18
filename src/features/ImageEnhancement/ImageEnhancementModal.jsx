@@ -5,6 +5,7 @@ import {
   ENHANCE_MODES,
   ENHANCE_PROVIDER,
   ENHANCE_UI,
+  LOCAL_QUALITY,
   PROVIDER_DISCLOSURE,
 } from "./constants";
 
@@ -17,12 +18,16 @@ export default function ImageEnhancementModal({
   busy,
   progressText,
   progressPercent,
+  remainingSec,
+  slowHint,
   error,
   errorCode,
   mode,
   onModeChange,
   provider,
   onProviderChange,
+  localQuality,
+  onLocalQualityChange,
   cloudAvailable,
   originalUrl,
   enhancedUrl,
@@ -33,6 +38,7 @@ export default function ImageEnhancementModal({
   onKeepOriginal,
   onRetry,
   onUseFreeFallback,
+  onTrySuperfast,
   onClose,
 }) {
   if (!open) return null;
@@ -45,13 +51,25 @@ export default function ImageEnhancementModal({
       : PROVIDER_DISCLOSURE.local;
   const isCreditError = errorCode === "INSUFFICIENT_CREDIT";
   const isOom = errorCode === "OOM";
+  const isTimedOut = errorCode === "TIMED_OUT";
   const needsNetOnce = errorCode === "MODEL_NEEDS_NETWORK";
 
-  // Local can work offline after model cached; only block start for cloud when offline
   const startDisabled =
     busy ||
     (provider === ENHANCE_PROVIDER.CLOUD && offline) ||
     (provider === ENHANCE_PROVIDER.CLOUD && !cloudAvailable);
+
+  // Single control surface: no start+retry+busy at once
+  const showStart = !showCompare && !busy && !isCreditError && !isTimedOut;
+  const showCancel = busy;
+  const showTimeoutActions = !busy && isTimedOut;
+  const showGenericRetry =
+    !busy && error && !isCreditError && !isOom && !isTimedOut && !showCompare;
+
+  const statusLine =
+    busy && typeof remainingSec === "number"
+      ? ENHANCE_UI.remaining(Math.max(0, remainingSec))
+      : progressText || ENHANCE_UI.progress;
 
   return (
     <div
@@ -74,7 +92,6 @@ export default function ImageEnhancementModal({
             type="button"
             className="btn btn-ghost btn-sm btn-circle"
             onClick={onClose}
-            disabled={busy}
             aria-label="Đóng"
           >
             <X size={18} />
@@ -83,7 +100,7 @@ export default function ImageEnhancementModal({
 
         <div className="p-3 overflow-y-auto flex-1 space-y-3">
           {/* Provider picker */}
-          {!showCompare && (
+          {!showCompare && !busy && (
             <div className="grid grid-cols-1 gap-1.5">
               <button
                 type="button"
@@ -124,14 +141,35 @@ export default function ImageEnhancementModal({
             </div>
           )}
 
+          {/* Local quality */}
+          {!showCompare && !busy && provider === ENHANCE_PROVIDER.LOCAL && (
+            <div className="flex flex-wrap gap-1.5">
+              {Object.values(LOCAL_QUALITY).map((q) => (
+                <button
+                  key={q.id}
+                  type="button"
+                  onClick={() => onLocalQualityChange?.(q.id)}
+                  className={`btn btn-xs rounded-full ${
+                    localQuality === q.id
+                      ? "btn-secondary"
+                      : "btn-ghost bg-base-200"
+                  }`}
+                >
+                  {q.id === "superfast"
+                    ? ENHANCE_UI.qualitySuperfast
+                    : ENHANCE_UI.qualityDefault}
+                </button>
+              ))}
+            </div>
+          )}
+
           {/* Mode picker */}
-          {!showCompare && (
+          {!showCompare && !busy && (
             <div className="flex flex-wrap gap-1.5">
               {modes.map((m) => (
                 <button
                   key={m.id}
                   type="button"
-                  disabled={busy}
                   onClick={() => onModeChange(m.id)}
                   className={`btn btn-xs rounded-full ${
                     mode === m.id ? "btn-primary" : "btn-ghost bg-base-200"
@@ -142,7 +180,7 @@ export default function ImageEnhancementModal({
               ))}
             </div>
           )}
-          {!showCompare && (
+          {!showCompare && !busy && (
             <p className="text-xs opacity-70">
               {ENHANCE_MODES[mode]?.description ||
                 ENHANCE_MODES[DEFAULT_ENHANCE_MODE].description}
@@ -188,9 +226,7 @@ export default function ImageEnhancementModal({
           {busy && (
             <div className="flex flex-col items-center gap-2 py-2">
               <span className="loading loading-spinner loading-md text-primary" />
-              <p className="text-sm text-center">
-                {progressText || ENHANCE_UI.progress}
-              </p>
+              <p className="text-sm text-center font-medium">{statusLine}</p>
               {typeof progressPercent === "number" && progressPercent > 0 && (
                 <div className="w-full max-w-xs">
                   <progress
@@ -203,11 +239,22 @@ export default function ImageEnhancementModal({
                   </p>
                 </div>
               )}
+              {slowHint && (
+                <p className="text-xs text-warning text-center px-2">
+                  {ENHANCE_UI.slowHint}
+                </p>
+              )}
             </div>
           )}
 
           {error && (
-            <p className="text-sm text-error bg-error/10 rounded-lg px-3 py-2">
+            <p
+              className={`text-sm rounded-lg px-3 py-2 ${
+                isTimedOut
+                  ? "bg-warning/15 text-warning-content"
+                  : "text-error bg-error/10"
+              }`}
+            >
               {error}
             </p>
           )}
@@ -228,7 +275,7 @@ export default function ImageEnhancementModal({
         </div>
 
         <footer className="p-3 border-t border-base-300 flex flex-col gap-2 shrink-0">
-          {!showCompare && !busy && !isCreditError && (
+          {showStart && (
             <button
               type="button"
               className="btn btn-primary btn-sm w-full rounded-full"
@@ -240,7 +287,7 @@ export default function ImageEnhancementModal({
                 : "Bắt đầu làm nét"}
             </button>
           )}
-          {busy && (
+          {showCancel && (
             <button
               type="button"
               className="btn btn-ghost btn-sm w-full rounded-full"
@@ -274,6 +321,31 @@ export default function ImageEnhancementModal({
               </button>
             </>
           )}
+          {showTimeoutActions && (
+            <>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm w-full rounded-full"
+                onClick={onTrySuperfast}
+              >
+                {ENHANCE_UI.trySuperfast}
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm w-full rounded-full bg-base-200"
+                onClick={onKeepOriginal}
+              >
+                {ENHANCE_UI.keepOriginal}
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost btn-xs w-full"
+                onClick={onClose}
+              >
+                {ENHANCE_UI.close}
+              </button>
+            </>
+          )}
           {!busy && isCreditError && (
             <button
               type="button"
@@ -283,7 +355,7 @@ export default function ImageEnhancementModal({
               {ENHANCE_UI.useFreeButton}
             </button>
           )}
-          {!busy && error && !isCreditError && !isOom && (
+          {showGenericRetry && (
             <button
               type="button"
               className="btn btn-outline btn-sm w-full rounded-full"

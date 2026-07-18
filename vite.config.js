@@ -30,8 +30,10 @@ const manifestForPlugIn = {
       "**/images/**",
       "**/stats.html",
       "**/prvlocket.png",
-      // AI local (Upscaler/TF.js + model weights) — runtime-cache only
+      // AI local (Upscaler/TF.js + worker + model) — runtime-cache only
       "**/assets/ai-enhance-local*",
+      "**/assets/enhance.worker*",
+      "**/assets/*worker*",
       "**/assets/*tensorflow*",
       "**/assets/*tfjs*",
       "**/assets/*upscaler*",
@@ -46,11 +48,23 @@ const manifestForPlugIn = {
       async (entries) => {
         const manifest = entries.filter((e) => {
           const u = String(e.url || "");
-          if (/ai-enhance-local|tensorflow|tfjs|upscaler|esrgan/i.test(u)) {
+          if (
+            /ai-enhance-local|enhance\.worker|tensorflow|tfjs|upscaler|esrgan/i.test(
+              u,
+            )
+          ) {
             return false;
           }
           if (/models\/esrgan-slim|ai-models\//i.test(u)) return false;
           if (/\.bin$/i.test(u)) return false;
+          // Worker TF.js chunk may be named assets/index-*.js (~1.8MB) — never shell-precache
+          if (
+            typeof e.size === "number" &&
+            e.size > 1_200_000 &&
+            /assets\/.+\.js$/i.test(u)
+          ) {
+            return false;
+          }
           return true;
         });
         return { manifest, warnings: [] };
@@ -134,6 +148,10 @@ export default defineConfig({
     alias: {
       "@": path.resolve(__dirname, "src"), // alias @ trỏ vào thư mục src
     },
+  },
+  // Module worker for on-device AI (code-splitting needs es format, not iife)
+  worker: {
+    format: "es",
   },
   build: {
     rollupOptions: {
