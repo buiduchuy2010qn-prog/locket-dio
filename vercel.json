@@ -95,50 +95,11 @@
       "destination": "https://huy-locket-production.up.railway.app/api/media-download"
     },
     {
-      "source": "/((?!assets/|ai-models/|sw\\.js$|workbox-[^/]+\\.js$|manifest\\.webmanifest$|offline\\.html$|version\\.json$|robots\\.txt$|sitemap\\.xml$|favicon[^/]*|android-chrome-[^/]+|apple-touch-icon\\.png$|maskable-icon-[^/]+|icons/|pwa-icons/|fonts/|images/|svg/|.*\\.[a-zA-Z0-9]+$).*)",
+      "source": "/((?!assets/|sw\\.js$|workbox-[^/]+\\.js$|manifest\\.webmanifest$|offline\\.html$|version\\.json$|robots\\.txt$|sitemap\\.xml$|favicon[^/]*|android-chrome-[^/]+|apple-touch-icon\\.png$|maskable-icon-[^/]+|icons/|pwa-icons/|fonts/|images/|svg/|.*\\.[a-zA-Z0-9]+$).*)",
       "destination": "/index.html"
     }
   ],
   "headers": [
-    {
-      "source": "/ai-models/(.*)",
-      "headers": [
-        {
-          "key": "Cache-Control",
-          "value": "public, max-age=31536000, immutable"
-        },
-        {
-          "key": "X-Content-Type-Options",
-          "value": "nosniff"
-        }
-      ]
-    },
-    {
-      "source": "/ai-models/(.*)\\.json",
-      "headers": [
-        {
-          "key": "Content-Type",
-          "value": "application/json; charset=utf-8"
-        },
-        {
-          "key": "Cache-Control",
-          "value": "public, max-age=31536000, immutable"
-        }
-      ]
-    },
-    {
-      "source": "/ai-models/(.*)\\.bin",
-      "headers": [
-        {
-          "key": "Content-Type",
-          "value": "application/octet-stream"
-        },
-        {
-          "key": "Cache-Control",
-          "value": "public, max-age=31536000, immutable"
-        }
-      ]
-    },
     {
       "source": "/assets/(.*)",
       "headers": [

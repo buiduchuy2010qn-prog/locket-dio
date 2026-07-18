@@ -27,16 +27,7 @@ if (!fs.existsSync("dist/index.html")) {
 }
 
 // Giữ static gốc (icons/images/...) — chỉ thay artifact build
-// ai-models = ESRGAN Slim 2x (versioned) for on-device AI Làm nét
-const STATIC_KEEP = [
-  "fonts",
-  "icons",
-  "images",
-  "pwa-icons",
-  "svg",
-  "ai-models",
-  "models", // legacy cleanup only; sync script prefers ai-models
-];
+const STATIC_KEEP = ["fonts", "icons", "images", "pwa-icons", "svg"];
 const backup = path.join(".tmp-static-keep");
 rimraf(backup);
 fs.mkdirSync(backup, { recursive: true });

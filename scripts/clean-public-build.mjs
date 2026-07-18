@@ -13,8 +13,6 @@ const KEEP_DIRS = new Set([
   "images",
   "pwa-icons",
   "svg",
-  "models", // legacy
-  "ai-models", // ESRGAN Slim 2x v1 for on-device AI Làm nét
 ]);
 
 const REMOVE_ROOT_FILES = new Set([

@@ -8,7 +8,6 @@ const { musicRoutes } = require("../modules/music");
 const { momentRoutes } = require("../modules/moment");
 const { planRoutes } = require("../modules/locketdio");
 const { storageRoutes } = require("../modules/storage/routes");
-const { imageEnhancementRoutes } = require("../modules/imageEnhancement");
 const { healthController } = require("../controllers");
 
 module.exports = (app) => {
@@ -36,6 +35,4 @@ module.exports = (app) => {
   app.use("/api", musicRoutes);
   // Self-host temp media (presignedV3 + media-temp GET). PUT raw mounted in app.js
   app.use("/api", storageRoutes);
-  // AI image enhancement (post-capture only; no camera/music coupling)
-  app.use("/api", imageEnhancementRoutes);
 };

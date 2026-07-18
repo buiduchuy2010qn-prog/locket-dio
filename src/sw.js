@@ -305,10 +305,6 @@ registerRoute(
   ({ url, request }) => {
     if (request.method !== "GET") return false;
     if (isSensitiveApi(url)) return false;
-    // AI enhance chunks use dedicated runtime cache (not shell precache)
-    if (/ai-enhance-local|tensorflow|tfjs|upscaler|esrgan/i.test(url.pathname)) {
-      return false;
-    }
     return (
       isHashedAsset(url) ||
       (url.origin === self.location.origin &&
@@ -325,46 +321,6 @@ registerRoute(
       new CacheableResponsePlugin({ statuses: [0, 200] }),
       new ExpirationPlugin({
         maxEntries: 120,
-        maxAgeSeconds: 365 * 24 * 60 * 60,
-      }),
-    ],
-  }),
-);
-
-// ======================
-// ON-DEVICE AI — runtime cache only (after user taps AI Làm nét)
-// Does NOT join app-shell precache; safe across shell updates.
-// Model: same-origin /ai-models/esrgan-slim-2x/v1/* (versioned; immutable).
-// Separate cache name from shell — app updates do not wipe model if version unchanged.
-// ======================
-registerRoute(
-  ({ url, request }) => {
-    if (request.method !== "GET") return false;
-    if (url.origin !== self.location.origin) return false;
-    // Lazy JS chunks (Upscaler / TF.js / enhance worker)
-    if (
-      /ai-enhance-local|enhance\.worker|tensorflow|tfjs|upscaler|esrgan/i.test(
-        url.pathname,
-      )
-    ) {
-      return true;
-    }
-    // Same-origin model weights (not external CDN)
-    if (
-      url.pathname.startsWith("/ai-models/") &&
-      /\.(json|bin)$/i.test(url.pathname)
-    ) {
-      return true;
-    }
-    return false;
-  },
-  new CacheFirst({
-    // Versioned path in URL → long TTL; bump cache name only if strategy changes
-    cacheName: "hl-ai-models-v1",
-    plugins: [
-      new CacheableResponsePlugin({ statuses: [0, 200] }),
-      new ExpirationPlugin({
-        maxEntries: 40,
         maxAgeSeconds: 365 * 24 * 60 * 60,
       }),
     ],

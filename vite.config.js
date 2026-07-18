@@ -30,46 +30,8 @@ const manifestForPlugIn = {
       "**/images/**",
       "**/stats.html",
       "**/prvlocket.png",
-      // AI local (Upscaler/TF.js + worker + model) — runtime-cache only
-      "**/assets/ai-enhance-local*",
-      "**/assets/enhance.worker*",
-      "**/assets/*worker*",
-      "**/assets/*tensorflow*",
-      "**/assets/*tfjs*",
-      "**/assets/*upscaler*",
-      "**/assets/*esrgan*",
-      "**/models/esrgan-slim/**",
-      "**/ai-models/**",
-      "**/*.bin",
     ],
     maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
-    // Extra safety: drop AI chunks from WB manifest even if names drift
-    manifestTransforms: [
-      async (entries) => {
-        const manifest = entries.filter((e) => {
-          const u = String(e.url || "");
-          if (
-            /ai-enhance-local|enhance\.worker|tensorflow|tfjs|upscaler|esrgan/i.test(
-              u,
-            )
-          ) {
-            return false;
-          }
-          if (/models\/esrgan-slim|ai-models\//i.test(u)) return false;
-          if (/\.bin$/i.test(u)) return false;
-          // Worker TF.js chunk may be named assets/index-*.js (~1.8MB) — never shell-precache
-          if (
-            typeof e.size === "number" &&
-            e.size > 1_200_000 &&
-            /assets\/.+\.js$/i.test(u)
-          ) {
-            return false;
-          }
-          return true;
-        });
-        return { manifest, warnings: [] };
-      },
-    ],
   },
 
   // prompt: user confirms update — no auto skipWaiting mid-edit
@@ -149,69 +111,32 @@ export default defineConfig({
       "@": path.resolve(__dirname, "src"), // alias @ trỏ vào thư mục src
     },
   },
-  // Module worker for on-device AI (code-splitting needs es format, not iife)
-  worker: {
-    format: "es",
-  },
   build: {
     rollupOptions: {
       output: {
-        manualChunks(id) {
-          // Isolate on-device AI so it is never in the boot/vendor graph
-          if (
-            id.includes("node_modules/@tensorflow") ||
-            id.includes("node_modules/upscaler") ||
-            id.includes("node_modules/@upscalerjs")
-          ) {
-            return "ai-enhance-local";
-          }
-          if (
-            id.includes("node_modules/react-dom") ||
-            id.includes("node_modules/react-router") ||
-            id.includes("node_modules/react/") ||
-            id.includes("node_modules/scheduler")
-          ) {
-            return "react";
-          }
-          if (
-            id.includes("node_modules/i18next") ||
-            id.includes("node_modules/react-i18next")
-          ) {
-            return "i18n";
-          }
-          if (
-            id.includes("node_modules/lucide-react") ||
-            id.includes("node_modules/react-icons")
-          ) {
-            return "icons";
-          }
-          if (
-            id.includes("node_modules/swiper") ||
-            id.includes("node_modules/react-easy-crop")
-          ) {
-            return "media";
-          }
-          if (
-            id.includes("node_modules/axios") ||
-            id.includes("node_modules/zustand") ||
-            id.includes("node_modules/dexie") ||
-            id.includes("node_modules/uuid") ||
-            id.includes("node_modules/jwt-decode") ||
-            id.includes("node_modules/clsx") ||
-            id.includes("node_modules/prop-types") ||
-            id.includes("node_modules/sonner") ||
-            id.includes("node_modules/ldrs")
-          ) {
-            return "vendor";
-          }
-          return undefined;
+        manualChunks: {
+          vendor: [
+            "axios",
+            "zustand",
+            "dexie",
+            "uuid",
+            "jwt-decode",
+            "clsx",
+            "prop-types",
+            "sonner",
+            "ldrs",
+          ],
+          react: ["react", "react-dom", "react-router-dom"],
+          i18n: [
+            "i18next",
+            "react-i18next",
+            "i18next-browser-languagedetector",
+          ],
+          icons: ["lucide-react", "react-icons"],
+          media: ["swiper", "react-easy-crop"],
         },
       },
     },
-    chunkSizeWarningLimit: 1500, // tăng giới hạn warning, đỡ spam console
-  },
-  // Ensure model package exports resolve under Vite
-  optimizeDeps: {
-    exclude: ["upscaler", "@upscalerjs/esrgan-slim"],
+    chunkSizeWarningLimit: 1500,
   },
 });
