@@ -8,6 +8,7 @@ const { musicRoutes } = require("../modules/music");
 const { momentRoutes } = require("../modules/moment");
 const { planRoutes } = require("../modules/locketdio");
 const { storageRoutes } = require("../modules/storage/routes");
+const { draftRoutes } = require("../modules/drafts");
 const { healthController } = require("../controllers");
 
 module.exports = (app) => {
@@ -35,4 +36,6 @@ module.exports = (app) => {
   app.use("/api", musicRoutes);
   // Self-host temp media (presignedV3 + media-temp GET). PUT raw mounted in app.js
   app.use("/api", storageRoutes);
+  // Account-synced moment drafts (metadata + private media on API disk)
+  app.use("/api", draftRoutes);
 };

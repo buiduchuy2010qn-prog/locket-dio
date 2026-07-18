@@ -11,7 +11,7 @@ import {
   serializeMusicFromOverlay,
 } from "./serialize";
 
-export const DRAFT_SCHEMA_VERSION = 2;
+export const DRAFT_SCHEMA_VERSION = 4;
 
 /** UI / store statuses */
 export const DRAFT_STATUS = {
@@ -20,6 +20,39 @@ export const DRAFT_STATUS = {
   POSTING: "posting", // Đang đăng
   FAILED: "failed", // Đăng thất bại
 };
+
+/** Cloud sync status (IndexedDB queue) */
+export const SYNC_STATUS = {
+  LOCAL_ONLY: "local_only",
+  PENDING_SYNC: "pending_sync",
+  SYNCING: "syncing",
+  SYNCED: "synced",
+  SYNC_FAILED: "sync_failed",
+  CONFLICT: "conflict",
+  PENDING_DELETE: "pending_delete",
+  UPLOADING_POST: "uploading_post",
+};
+
+export function syncStatusLabel(syncStatus) {
+  switch (syncStatus) {
+    case SYNC_STATUS.SYNCED:
+      return "Đã lưu vào tài khoản";
+    case SYNC_STATUS.SYNCING:
+      return "Đang đồng bộ…";
+    case SYNC_STATUS.SYNC_FAILED:
+      return "Đồng bộ thất bại · Thử lại";
+    case SYNC_STATUS.CONFLICT:
+      return "Xung đột phiên bản";
+    case SYNC_STATUS.PENDING_DELETE:
+      return "Chờ xóa trên tài khoản";
+    case SYNC_STATUS.UPLOADING_POST:
+      return "Đang đăng…";
+    case SYNC_STATUS.PENDING_SYNC:
+    case SYNC_STATUS.LOCAL_ONLY:
+    default:
+      return "Chưa đồng bộ";
+  }
+}
 
 export function resolveDraftUid(user = null) {
   const id = getMyLocalId(user);
@@ -31,6 +64,20 @@ export function newDraftId() {
     return crypto.randomUUID();
   }
   return `draft-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+export function getDeviceId() {
+  try {
+    const k = "hl_draft_device_id";
+    let id = localStorage.getItem(k);
+    if (!id) {
+      id = newDraftId();
+      localStorage.setItem(k, id);
+    }
+    return id;
+  } catch {
+    return "unknown-device";
+  }
 }
 
 export async function requestDraftPersist() {
@@ -289,6 +336,8 @@ export async function createDraft({ ownerUid, file, meta = {} } = {}) {
     id,
     ownerUid: String(ownerUid),
     schemaVersion: DRAFT_SCHEMA_VERSION,
+    revision: 1,
+    baseRevision: 0,
     createdAt: now,
     updatedAt: now,
     mediaType: isVideo ? "video" : "image",
@@ -307,8 +356,11 @@ export async function createDraft({ ownerUid, file, meta = {} } = {}) {
     width: dims.width,
     height: dims.height,
     duration: dims.duration,
-    // AI enhance meta (optional, backwards compatible)
     enhancement: meta.enhancement || null,
+    syncStatus: SYNC_STATUS.PENDING_SYNC,
+    lastSyncError: null,
+    sourceDeviceId: getDeviceId(),
+    cloudRevision: null,
   };
 
   const originalBlob =
@@ -389,6 +441,13 @@ export async function updateDraftMedia(draftId, file, metaPatch = {}) {
             metaPatch.enhancement !== undefined
               ? metaPatch.enhancement
               : prev.enhancement || null,
+          syncStatus:
+            metaPatch.syncStatus ||
+            (prev.syncStatus === SYNC_STATUS.PENDING_DELETE
+              ? SYNC_STATUS.PENDING_DELETE
+              : SYNC_STATUS.PENDING_SYNC),
+          lastSyncError: null,
+          revision: (prev.revision || 1) + 1,
         });
         const prevBlobs = await momentDraftDB.draftBlobs.get(draftId);
         const keepOriginal =
@@ -417,17 +476,47 @@ export async function updateDraftMedia(draftId, file, metaPatch = {}) {
   }
 }
 
+/** Fields that only track cloud queue — do not bump content revision. */
+const SYNC_CONTROL_KEYS = new Set([
+  "syncStatus",
+  "lastSyncError",
+  "cloudRevision",
+  "baseRevision",
+  "mediaUrls",
+  "sourceDeviceId",
+]);
+
 export async function updateDraftMeta(draftId, partial = {}) {
   if (!draftId) return { error: "missing" };
   try {
     const prev = await momentDraftDB.drafts.get(draftId);
     if (!prev) return { error: "not-found" };
+    const keys = Object.keys(partial || {});
+    const contentChanged = keys.some((k) => !SYNC_CONTROL_KEYS.has(k));
     const next = {
       ...prev,
       ...partial,
       id: draftId,
       ownerUid: prev.ownerUid,
       updatedAt: Date.now(),
+      // Content edits bump revision; pure sync-status writes do not (avoids false conflicts).
+      revision: contentChanged
+        ? (prev.revision || 1) + 1
+        : prev.revision || 1,
+      syncStatus:
+        partial.syncStatus !== undefined && partial.syncStatus !== null
+          ? partial.syncStatus
+          : prev.syncStatus === SYNC_STATUS.PENDING_DELETE
+            ? SYNC_STATUS.PENDING_DELETE
+            : contentChanged
+              ? SYNC_STATUS.PENDING_SYNC
+              : prev.syncStatus || SYNC_STATUS.PENDING_SYNC,
+      lastSyncError:
+        partial.lastSyncError !== undefined
+          ? partial.lastSyncError
+          : contentChanged
+            ? null
+            : prev.lastSyncError ?? null,
     };
     if (partial.overlays) {
       next.overlays = sanitizeOverlayForDraft(partial.overlays);
@@ -641,8 +730,9 @@ export function formatDraftStatusLine(draft) {
   if (draft.status === DRAFT_STATUS.POSTING) {
     return "Đang đăng…";
   }
+  const sync = syncStatusLabel(draft.syncStatus);
   const when = formatDraftCreatedAt(draft.createdAt || draft.updatedAt);
-  return when ? `Chưa đăng · ${when}` : "Chưa đăng";
+  return when ? `${sync} · ${when}` : sync;
 }
 
 export function statusLabel(status) {

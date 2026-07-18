@@ -10,7 +10,6 @@ export default function DraftButton() {
   const draftCount = useMomentDraftStore((s) => s.draftCount);
   const hasDraft = useMomentDraftStore((s) => s.hasDraft);
   const openLibrary = useMomentDraftStore((s) => s.openLibrary);
-  const refreshList = useMomentDraftStore((s) => s.refreshList);
   const selectedFile = usePostStore((s) => s.selectedFile);
   const preview = usePostStore((s) => s.preview);
 
@@ -25,8 +24,8 @@ export default function DraftButton() {
       type="button"
       className="pillSideBtn"
       onClick={() => {
-        void refreshList();
-        openLibrary();
+        // openLibrary: local list first, then GET cloud + merge when online
+        void openLibrary();
       }}
       aria-label={label}
       title={label}

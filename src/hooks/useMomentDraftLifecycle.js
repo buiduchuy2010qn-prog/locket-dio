@@ -6,9 +6,11 @@ import {
   usePostStore,
 } from "@/stores";
 import { resolveDraftUid, requestDraftPersist } from "@/utils/momentDraft";
+import { useConnectivityStore } from "@/stores/useConnectivityStore";
 
 /**
  * Multi-draft autosave: meta → activeDraftId only; media after capture.
+ * Also: account draft sync when online.
  */
 export function useMomentDraftLifecycle() {
   const user = useAuthStore((s) => s.user);
@@ -19,6 +21,8 @@ export function useMomentDraftLifecycle() {
   const draftCount = useMomentDraftStore((s) => s.draftCount);
   const hasDraft = useMomentDraftStore((s) => s.hasDraft);
   const refreshDraftPresence = useMomentDraftStore((s) => s.refreshDraftPresence);
+  const isOffline = useConnectivityStore((s) => s.isOffline);
+  const serverReachable = useConnectivityStore((s) => s.serverReachable);
   const prevUid = useRef(null);
 
   useEffect(() => {
@@ -46,6 +50,15 @@ export function useMomentDraftLifecycle() {
     prevUid.current = uid;
     void checkAndOfferRestore(user);
   }, [isAuth, user, checkAndOfferRestore]);
+
+  // When network returns: sync pending drafts
+  useEffect(() => {
+    if (!isAuth || isOffline || serverReachable === false) return;
+    const t = setTimeout(() => {
+      void useMomentDraftStore.getState().syncDraftsNow?.();
+    }, 1500);
+    return () => clearTimeout(t);
+  }, [isAuth, isOffline, serverReachable]);
 
   useEffect(() => {
     const unsubOverlay = useOverlayEditorStore.subscribe(() => {

@@ -92,4 +92,16 @@ momentDraftDB.version(3).stores({
   draftBlobs: "id",
 });
 
+/**
+ * v4: account sync fields on drafts meta (IndexedDB remains offline queue).
+ * syncStatus: local_only|pending_sync|syncing|synced|sync_failed|conflict|pending_delete
+ */
+momentDraftDB.version(4).stores({
+  momentDraftMedia: "mediaKey, createdAt",
+  momentDraftMeta: "id, uid, updatedAt, status",
+  drafts:
+    "id, ownerUid, createdAt, updatedAt, status, mediaType, syncStatus, [ownerUid+updatedAt], [ownerUid+syncStatus]",
+  draftBlobs: "id",
+});
+
 export default momentDraftDB;

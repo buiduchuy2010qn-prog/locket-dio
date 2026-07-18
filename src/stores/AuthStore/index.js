@@ -214,6 +214,41 @@ export const useAuthStore = create(
       // LOGOUT
       // =========================
       clearAndlogout: async () => {
+        // Warn if drafts still pending account sync
+        try {
+          const { listDraftsMeta, resolveDraftUid, SYNC_STATUS, syncAll } =
+            await import("@/utils/momentDraft");
+          const uid = resolveDraftUid();
+          if (uid) {
+            const rows = await listDraftsMeta(uid);
+            const pending = rows.filter(
+              (d) =>
+                d.syncStatus === SYNC_STATUS.PENDING_SYNC ||
+                d.syncStatus === SYNC_STATUS.SYNC_FAILED ||
+                d.syncStatus === SYNC_STATUS.SYNCING ||
+                !d.syncStatus,
+            );
+            if (pending.length > 0) {
+              const syncFirst = window.confirm(
+                `Có ${pending.length} bản nháp chưa đồng bộ.\n\nOK = đồng bộ rồi đăng xuất\nCancel = giữ trên thiết bị và đăng xuất`,
+              );
+              if (syncFirst) {
+                try {
+                  await syncAll();
+                } catch (e) {
+                  console.warn("sync before logout", e);
+                  const still = window.confirm(
+                    "Đồng bộ chưa xong. Vẫn đăng xuất và giữ bản nháp trên thiết bị?",
+                  );
+                  if (!still) return;
+                }
+              }
+            }
+          }
+        } catch (e) {
+          console.warn("logout draft check", e);
+        }
+
         // 1) Xóa token / storage TRƯỚC — tránh hydrateAuth set lại isAuth
         removeLocalStorage();
         removeToken();
@@ -231,7 +266,25 @@ export const useAuthStore = create(
           lastFetchPlanAt: 0,
         });
 
-        // 3) Clear IndexedDB (không chặn UI)
+        // Clear in-memory draft UI so next account never sees old list
+        try {
+          const { useMomentDraftStore } = await import(
+            "@/stores/PostStores/useMomentDraftStore"
+          );
+          useMomentDraftStore.setState({
+            drafts: [],
+            draftCount: 0,
+            hasDraft: false,
+            draftMeta: null,
+            activeDraftId: null,
+            libraryOpen: false,
+          });
+          useMomentDraftStore.getState().clearThumbnail?.();
+        } catch {
+          /* ignore */
+        }
+
+        // 3) Clear HuyLocketDB caches only (momentDraftDB is separate; scoped by ownerUid)
         try {
           await clearAllDB();
         } catch (e) {

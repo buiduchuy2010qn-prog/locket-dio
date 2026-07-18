@@ -14,9 +14,13 @@ import {
   requestDraftPersist,
   formatDraftSavedAt,
   DRAFT_STATUS,
+  SYNC_STATUS,
   isRestoreInProgress,
   setRestoreInProgress,
   statusLabel,
+  syncAll,
+  ensureLocalMedia,
+  pushPendingDrafts,
 } from "@/utils/momentDraft";
 import { usePostStore } from "./usePostStore";
 import { useOverlayEditorStore } from "./useOverlayEditorStore";
@@ -33,6 +37,27 @@ import { resetAllPostData } from "@/utils";
 
 let metaSaveTimer = null;
 let mediaSaveChain = Promise.resolve();
+let cloudSyncChain = Promise.resolve();
+
+function isDraftCloudOnline() {
+  const c = useConnectivityStore.getState();
+  return !c.isOffline && c.serverReachable !== false;
+}
+
+/** After local IDB write: push pending (sequential, never auto-post). */
+function queueCloudSyncAfterLocalSave() {
+  if (!isDraftCloudOnline()) return Promise.resolve({ skipped: true, offline: true });
+  cloudSyncChain = cloudSyncChain
+    .then(async () => {
+      try {
+        await pushPendingDrafts();
+      } catch (e) {
+        console.warn("[moment-draft] push after save", e?.message || e);
+      }
+    })
+    .catch(() => {});
+  return cloudSyncChain;
+}
 
 function snapshotMetaFromStores() {
   const post = usePostStore.getState();
@@ -109,7 +134,22 @@ export const useMomentDraftStore = create((set, get) => ({
   /** global post lock — one draft at a time */
   postingDraftId: null,
 
-  openLibrary: () => set({ libraryOpen: true }),
+  /**
+   * Open library: show local cache immediately, then revalidate from cloud when online.
+   * IndexedDB is cache/outbox only — never treat local-only as full account truth.
+   */
+  openLibrary: async () => {
+    set({ libraryOpen: true });
+    const uid = resolveDraftUid();
+    await get().refreshList(uid);
+    if (!isDraftCloudOnline()) return;
+    try {
+      await syncAll();
+      await get().refreshList(uid);
+    } catch (e) {
+      console.warn("[moment-draft] openLibrary sync", e?.message || e);
+    }
+  },
   closeLibrary: () => set({ libraryOpen: false }),
   setLibraryFilter: (f) => set({ libraryFilter: f || "all" }),
 
@@ -157,6 +197,16 @@ export const useMomentDraftStore = create((set, get) => ({
     try {
       await requestDraftPersist();
       await resetStuckPostingDrafts(uid);
+      // Pull cloud shells + push pending when online
+      try {
+        const online = useConnectivityStore.getState().serverReachable !== false
+          && !useConnectivityStore.getState().isOffline;
+        if (online) {
+          await syncAll();
+        }
+      } catch (e) {
+        console.warn("[moment-draft] sync on login", e?.message || e);
+      }
       const rows = await get().refreshList(uid);
       set({
         showRestoreModal: false,
@@ -172,11 +222,34 @@ export const useMomentDraftStore = create((set, get) => ({
     }
   },
 
+  /** Manual / online trigger: push + pull then refresh list */
+  syncDraftsNow: async () => {
+    const uid = resolveDraftUid();
+    if (!uid) return { ok: false };
+    try {
+      const r = await syncAll();
+      await get().refreshList(uid);
+      return r;
+    } catch (e) {
+      return { ok: false, error: e?.message };
+    }
+  },
+
+  retrySyncDraft: async (draftId) => {
+    if (!draftId) return false;
+    await updateDraftMeta(draftId, {
+      syncStatus: SYNC_STATUS.PENDING_SYNC,
+      lastSyncError: null,
+    });
+    await pushPendingDrafts();
+    await get().refreshList();
+    return true;
+  },
+
   /** Always open library (no blocking restore modal). */
   openRestoreModal: async () => {
-    set({ dismissedRestore: true, showRestoreModal: false });
-    await get().refreshList();
-    set({ libraryOpen: true, showRestoreModal: false });
+    set({ dismissedRestore: true, showRestoreModal: false, libraryOpen: true });
+    await get().openLibrary();
   },
 
   closeRestoreModal: () => set({ showRestoreModal: false }),
@@ -250,10 +323,25 @@ export const useMomentDraftStore = create((set, get) => ({
       } else if (result.error) {
         SonnerError(result.message || "Không lưu được bản nháp.");
       } else {
-        SonnerSuccess("Đã lưu bản nháp");
         await get().refreshList(uid);
         if (clearAfter) {
           get().clearStudioAfterSave();
+        }
+        // Local first — cloud push only when online (never mark synced from IDB alone)
+        if (isDraftCloudOnline()) {
+          SonnerSuccess("Đã lưu bản nháp · đang đồng bộ tài khoản…");
+          await queueCloudSyncAfterLocalSave();
+          await get().refreshList(uid);
+          const row = result.id
+            ? (await getDraftMeta(result.id))
+            : null;
+          if (row?.syncStatus === SYNC_STATUS.SYNCED) {
+            SonnerSuccess("Đã lưu vào tài khoản");
+          } else if (row?.syncStatus === SYNC_STATUS.SYNC_FAILED) {
+            SonnerWarning("Đồng bộ thất bại · Thử lại");
+          }
+        } else {
+          SonnerSuccess("Đã lưu bản nháp · Chưa đồng bộ (ngoại tuyến)");
         }
       }
       return result;
@@ -301,6 +389,7 @@ export const useMomentDraftStore = create((set, get) => ({
         );
       } else if (result.id || result.ok) {
         await get().refreshList(uid);
+        void queueCloudSyncAfterLocalSave().then(() => get().refreshList(uid));
       }
       return result;
     });
@@ -333,6 +422,7 @@ export const useMomentDraftStore = create((set, get) => ({
       status: DRAFT_STATUS.READY,
     });
     await get().refreshList();
+    void queueCloudSyncAfterLocalSave().then(() => get().refreshList());
   },
 
   restoreDraftIntoStudio: async (draftId) => {
@@ -346,9 +436,19 @@ export const useMomentDraftStore = create((set, get) => ({
     set({ loading: true });
     setRestoreInProgress(true);
     try {
+      // Download full media if only cloud shell present
+      try {
+        await ensureLocalMedia(id);
+      } catch (e) {
+        console.warn("[moment-draft] ensureLocalMedia", e?.message || e);
+      }
       const loaded = await getDraftFull(id);
-      if (!loaded?.meta || loaded.corrupt || !loaded.media) {
-        SonnerError("Bản nháp bị hỏng hoặc không đọc được.");
+      if (!loaded?.meta || loaded.corrupt || !loaded.media?.blob) {
+        SonnerError(
+          loaded?.meta && !loaded.media?.blob
+            ? "Chưa tải được ảnh/video từ tài khoản. Kiểm tra mạng."
+            : "Bản nháp bị hỏng hoặc không đọc được.",
+        );
         set({ loading: false });
         setRestoreInProgress(false);
         return false;
@@ -538,8 +638,35 @@ export const useMomentDraftStore = create((set, get) => ({
   confirmDeleteDraft: async (draftId) => {
     const id = draftId || get().drafts[0]?.id;
     if (!id) return false;
+    const meta = await getDraftMeta(id);
+    const online =
+      !useConnectivityStore.getState().isOffline &&
+      useConnectivityStore.getState().serverReachable !== false;
+
+    if (online && meta?.syncStatus === SYNC_STATUS.SYNCED) {
+      // Delete cloud then local
+      try {
+        const { instanceMain } = await import("@/libs");
+        await instanceMain.delete(`/api/drafts/${encodeURIComponent(id)}`);
+      } catch (e) {
+        // Mark pending delete for later
+        await updateDraftMeta(id, {
+          syncStatus: SYNC_STATUS.PENDING_DELETE,
+          lastSyncError: e?.message || "pending delete",
+        });
+        SonnerWarning("Đã đánh dấu xóa — sẽ xóa trên tài khoản khi mạng ổn.");
+        await get().refreshList();
+        return true;
+      }
+    } else if (!online && meta?.syncStatus === SYNC_STATUS.SYNCED) {
+      await updateDraftMeta(id, { syncStatus: SYNC_STATUS.PENDING_DELETE });
+      SonnerInfo("Ngoại tuyến — sẽ xóa trên tài khoản khi có mạng.");
+      // Hide from list by soft-flag: still delete local UI view by marking
+      // Keep local until cloud delete succeeds — filter pending_delete from list?
+    }
+
     const ok = await deleteDraft(id);
-    if (!ok) {
+    if (!ok && meta?.syncStatus !== SYNC_STATUS.PENDING_DELETE) {
       SonnerError("Không thể xóa bản nháp.");
       return false;
     }

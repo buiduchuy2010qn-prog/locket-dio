@@ -5,8 +5,11 @@
 export {
   DRAFT_SCHEMA_VERSION,
   DRAFT_STATUS,
+  SYNC_STATUS,
+  syncStatusLabel,
   resolveDraftUid,
   newDraftId,
+  getDeviceId,
   requestDraftPersist,
   estimateStorage,
   checkDraftMediaSize,
@@ -30,6 +33,14 @@ export {
   formatDraftStatusLine,
   statusLabel,
 } from "./draftLibrary";
+
+export {
+  pushPendingDrafts,
+  pullCloudDrafts,
+  syncAll,
+  ensureLocalMedia,
+  isDraftSyncRunning,
+} from "./draftSyncService";
 
 export {
   sanitizeOverlayForDraft,

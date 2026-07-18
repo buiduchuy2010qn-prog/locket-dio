@@ -21,8 +21,10 @@ import {
   getDraftThumbnailBlob,
   getDraftMediaBlob,
   DRAFT_STATUS,
+  SYNC_STATUS,
   formatDraftStatusLine,
   formatDraftCreatedAt,
+  syncStatusLabel,
 } from "@/utils/momentDraft";
 
 /**
@@ -41,6 +43,8 @@ export default function DraftLibrary() {
   const confirmDeleteDraft = useMomentDraftStore((s) => s.confirmDeleteDraft);
   const duplicateDraft = useMomentDraftStore((s) => s.duplicateDraft);
   const postingDraftId = useMomentDraftStore((s) => s.postingDraftId);
+  const retrySyncDraft = useMomentDraftStore((s) => s.retrySyncDraft);
+  const syncDraftsNow = useMomentDraftStore((s) => s.syncDraftsNow);
   const isOffline = useConnectivityStore((s) => s.isOffline);
 
   const listRef = useRef(null);
@@ -166,17 +170,32 @@ export default function DraftLibrary() {
             {drafts.length
               ? `${drafts.length} bản chưa đăng`
               : "Chưa có bản nháp"}
-            {isOffline ? " · Ngoại tuyến" : ""}
+            {isOffline ? " · Ngoại tuyến" : " · Đồng bộ theo tài khoản"}
           </p>
         </div>
-        <button
-          type="button"
-          className="btn btn-ghost btn-sm btn-circle"
-          onClick={closeLibrary}
-          aria-label="Đóng"
-        >
-          <X size={20} />
-        </button>
+        <div className="flex items-center gap-1">
+          {!isOffline && (
+            <button
+              type="button"
+              className="btn btn-ghost btn-xs"
+              onClick={() => {
+                void syncDraftsNow?.().then(() =>
+                  SonnerInfo("Đã thử đồng bộ bản nháp"),
+                );
+              }}
+            >
+              Đồng bộ
+            </button>
+          )}
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm btn-circle"
+            onClick={closeLibrary}
+            aria-label="Đóng"
+          >
+            <X size={20} />
+          </button>
+        </div>
       </header>
 
       <div ref={listRef} className="flex-1 overflow-y-auto px-3 py-4 pb-10">
@@ -219,6 +238,10 @@ export default function DraftLibrary() {
                 onRetryFailed={() => {
                   if (isOffline) return;
                   void onPost(d.id);
+                }}
+                onRetrySync={() => {
+                  if (isOffline) return;
+                  void retrySyncDraft?.(d.id);
                 }}
               />
             ))}
@@ -301,6 +324,7 @@ function DraftPreviewCard({
   onDuplicate,
   onDeleteRequest,
   onRetryFailed,
+  onRetrySync,
 }) {
   const rootRef = useRef(null);
   const thumbUrlRef = useRef(null);
@@ -314,7 +338,11 @@ function DraftPreviewCard({
 
   const isVideo = draft.mediaType === "video";
   const failed = draft.status === DRAFT_STATUS.FAILED;
+  const syncFailed =
+    draft.syncStatus === SYNC_STATUS.SYNC_FAILED ||
+    draft.syncStatus === SYNC_STATUS.CONFLICT;
   const statusLine = formatDraftStatusLine(draft);
+  const syncLine = syncStatusLabel(draft.syncStatus);
   const overlayData = useMemo(() => buildOverlayData(draft), [draft]);
   const editedHint =
     draft.updatedAt &&
@@ -469,6 +497,18 @@ function DraftPreviewCard({
               >
                 Nhân bản
               </button>
+              {(syncFailed ||
+                draft.syncStatus === SYNC_STATUS.PENDING_SYNC ||
+                !draft.syncStatus) && (
+                <button
+                  type="button"
+                  className="w-full text-left px-3 py-2.5 text-sm hover:bg-base-200 disabled:opacity-40"
+                  disabled={busy || offline}
+                  onClick={onRetrySync}
+                >
+                  Thử đồng bộ lại
+                </button>
+              )}
               <button
                 type="button"
                 className="w-full text-left px-3 py-2.5 text-sm text-error hover:bg-base-200"

@@ -153,6 +153,20 @@ app.put(
 );
 app.get("/api/media-temp/:id", mediaTempGet);
 
+// Draft media PUT (auth + raw) — durable private objects
+const { verifyIdToken } = require("./src/middlewares/Auth");
+const {
+  draftsController,
+  draftUploadLimiter,
+} = require("./src/modules/drafts");
+app.put(
+  "/api/drafts/:id/media/:role",
+  express.raw({ type: "*/*", limit: "95mb" }),
+  verifyIdToken,
+  draftUploadLimiter,
+  draftsController.uploadMedia,
+);
+
 app.use(express.json({ limit: "20mb" }));
 app.use(express.urlencoded({ extended: true, limit: "20mb" }));
 
