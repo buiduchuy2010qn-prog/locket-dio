@@ -424,6 +424,245 @@ html[data-theme="pink-sakura-glass"] video.object-cover {
     -webkit-backdrop-filter: none !important;
   }
 }
+/* ═══════════════════════════════════════════
+   Theme: Hồng Lite — Máy yếu (pink-lite)
+   Tối ưu cho thiết bị yếu — không blur, không filter
+   ═══════════════════════════════════════════ */
+@plugin "daisyui/theme" {
+  name: "pink-lite";
+  default: false;
+  prefersdark: false;
+  color-scheme: light;
+
+  --color-base-100: #fff8fb;
+  --color-base-200: #ffe8f1;
+  --color-base-300: #f8eaff;
+  --color-base-content: #3f1728;
+
+  --color-primary: #ec407a;
+  --color-primary-content: #ffffff;
+
+  --color-secondary: #ff6fa5;
+  --color-secondary-content: #3f1728;
+
+  --color-accent: #a855f7;
+  --color-accent-content: #ffffff;
+
+  --color-neutral: #3f1728;
+  --color-neutral-content: #fff8fb;
+
+  --color-info: oklch(75% 0.1 230);
+  --color-info-content: oklch(25% 0.04 230);
+  --color-success: oklch(72% 0.14 155);
+  --color-success-content: oklch(20% 0.04 155);
+  --color-warning: oklch(85% 0.12 85);
+  --color-warning-content: oklch(30% 0.05 85);
+  --color-error: oklch(65% 0.2 25);
+  --color-error-content: oklch(98% 0.01 25);
+
+  --radius-selector: 1rem;
+  --radius-field: 0.75rem;
+  --radius-box: 1.25rem;
+}
+
+/* Base definitions for pink-lite */
+html[data-theme="pink-lite"] {
+  color-scheme: light;
+
+  --lite-pink: #ec407a;
+  --lite-pink-soft: #ff6fa5;
+  --lite-purple: #a855f7;
+  --lite-text: #3f1728;
+  --lite-text-sec: #785367;
+
+  --lite-surface: rgba(255, 255, 255, 0.88);
+  --lite-border: rgba(236, 64, 122, 0.20);
+  --lite-shadow: 0 6px 18px rgba(138, 45, 84, 0.12);
+
+  --page-bg: #fff8fb;
+  --surface: var(--lite-surface);
+  --surface-strong: #ffffff;
+  --text-primary: var(--lite-text);
+  --text-secondary: var(--lite-text-sec);
+  --border-soft: var(--lite-border);
+  --accent: var(--lite-pink);
+  --accent-contrast: #ffffff;
+  --shadow-pink: var(--lite-shadow);
+
+  --color-base-content: var(--lite-text);
+  --color-primary: var(--lite-pink);
+  --color-primary-content: #ffffff;
+}
+
+/* Background — Simple static gradient */
+html[data-theme="pink-lite"],
+html[data-theme="pink-lite"] body {
+  min-height: 100%;
+  color: var(--lite-text);
+  background: linear-gradient(135deg, #fff8fb 0%, #ffe8f1 55%, #f8eaff 100%) !important;
+  /* NO fixed background attachment for performance */
+}
+
+/* Shared surface — NO backdrop-filter */
+html[data-theme="pink-lite"] .pinkSnowSurface,
+html[data-theme="pink-lite"] .cameraControlPill,
+html[data-theme="pink-lite"] .cameraBottomNav,
+html[data-theme="pink-lite"] .historyChip,
+html[data-theme="pink-lite"] header button.w-11,
+html[data-theme="pink-lite"] header .w-11.h-11.rounded-full,
+html[data-theme="pink-lite"] [data-header-profile="true"] > div.absolute,
+html[data-theme="pink-lite"] [data-header-chat="true"],
+html[data-theme="pink-lite"] [data-header-menu="true"],
+html[data-theme="pink-lite"] button.w-11.h-11,
+html[data-theme="pink-lite"] [data-friends-pill="true"],
+html[data-theme="pink-lite"] header button.absolute.rounded-3xl,
+html[data-theme="pink-lite"] header .bg-base-300\/70.rounded-full.absolute,
+html[data-theme="pink-lite"] .bg-base-300\/70.backdrop-blur-\[4px\],
+html[data-theme="pink-lite"] [data-zoom-badge="true"] > div {
+  background: var(--lite-surface) !important;
+  border: 1px solid var(--lite-border) !important;
+  box-shadow: var(--lite-shadow) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  color: var(--lite-text) !important;
+}
+
+/* Fast transitions */
+html[data-theme="pink-lite"] * {
+  transition-duration: 160ms !important;
+  will-change: auto !important; /* Remove permanent will-change */
+}
+
+/* Side icons */
+html[data-theme="pink-lite"] .pillSideBtn,
+html[data-theme="pink-lite"] .cameraSideBtn {
+  background: transparent !important;
+  border-color: transparent !important;
+  color: var(--lite-text) !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+html[data-theme="pink-lite"] .pillSideBtn svg,
+html[data-theme="pink-lite"] .cameraSideBtn svg {
+  color: var(--lite-text) !important;
+  stroke: var(--lite-text);
+}
+html[data-theme="pink-lite"] .pillSideBtn:active:not(:disabled),
+html[data-theme="pink-lite"] .cameraSideBtn:active:not(:disabled) {
+  color: var(--lite-pink) !important;
+}
+html[data-theme="pink-lite"] .pillSideBtn:active:not(:disabled) svg {
+  color: var(--lite-pink) !important;
+  stroke: var(--lite-pink);
+}
+html[data-theme="pink-lite"] .pillSideBtn:disabled {
+  opacity: 0.42;
+}
+
+/* Shutter ring */
+html[data-theme="pink-lite"] .border-camera-custome,
+html[data-theme="pink-lite"] .cameraShutterRing {
+  color: var(--lite-pink) !important;
+  box-shadow: 0 0 0 5px var(--lite-pink) !important;
+}
+html[data-theme="pink-lite"] .cameraShutterCore,
+html[data-theme="pink-lite"] button[aria-label="Chụp ảnh"] .bg-white {
+  background: #ffffff !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.95);
+}
+
+/* Zoom rail */
+html[data-theme="pink-lite"] [data-zoom-slider] .bg-white\/35 {
+  background-color: rgba(236, 64, 122, 0.25) !important;
+}
+html[data-theme="pink-lite"] [data-zoom-slider] .bg-white\/90 {
+  background-color: var(--lite-pink) !important;
+}
+html[data-theme="pink-lite"] [data-zoom-slider] .rounded-full.bg-white {
+  background: #ffffff !important;
+  border: 1px solid var(--lite-border) !important;
+  box-shadow: 0 4px 12px rgba(138, 45, 84, 0.10) !important;
+}
+
+/* Bottom nav */
+html[data-theme="pink-lite"] .cameraBottomNavBtn {
+  color: var(--lite-text-sec) !important;
+}
+html[data-theme="pink-lite"] .cameraBottomNavBtn.is-active,
+html[data-theme="pink-lite"] .glassButtonActive {
+  background: color-mix(in srgb, var(--lite-pink) 15%, transparent) !important;
+  border: 1px solid color-mix(in srgb, var(--lite-pink) 30%, transparent) !important;
+  color: var(--lite-pink) !important;
+  box-shadow: none !important;
+}
+
+/* Modals & menus */
+html[data-theme="pink-lite"] .menuDrawer,
+html[data-theme="pink-lite"] .fixed.z-60.top-0.right-0.bg-base-100,
+html[data-theme="pink-lite"] .bg-base-100.flex.flex-col,
+html[data-theme="pink-lite"] .modal-box,
+html[data-theme="pink-lite"] [role="dialog"]:not([data-draft-library]),
+html[data-theme="pink-lite"] .bg-base-100:not(.draft-library-root) {
+  background: rgba(255, 255, 255, 0.96) !important;
+  border: 1px solid var(--lite-border) !important;
+  box-shadow: var(--lite-shadow) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  color: var(--lite-text) !important;
+}
+
+html[data-theme="pink-lite"] .menuBackdrop,
+html[data-theme="pink-lite"] .fixed.inset-0.bg-base-100\/10 {
+  background: rgba(63, 23, 40, 0.15) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+html[data-theme="pink-lite"] .menu a.bg-base-300,
+html[data-theme="pink-lite"] .menu a[aria-current="page"] {
+  background: color-mix(in srgb, var(--lite-pink) 12%, transparent) !important;
+  color: var(--lite-pink) !important;
+}
+
+/* Draft library */
+html[data-theme="pink-lite"] .draft-library-root,
+html[data-theme="pink-lite"] .draft-library-root[role="dialog"] {
+  background: #fff8fb !important;
+  background-color: #fff8fb !important;
+  border: none !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  opacity: 1 !important;
+  isolation: isolate;
+  z-index: 320 !important;
+}
+
+html[data-theme="pink-lite"] .text-base-content {
+  color: var(--lite-text);
+}
+
+html[data-theme="pink-lite"] .btn-primary {
+  background: var(--lite-pink) !important;
+  border-color: var(--lite-pink) !important;
+  color: #ffffff !important;
+}
+
+/* Camera Preview */
+html[data-theme="pink-lite"] .cameraPreview,
+html[data-theme="pink-lite"] .cameraPreview video,
+html[data-theme="pink-lite"] [data-locket-camera] video,
+html[data-theme="pink-lite"] video.object-cover {
+  filter: none !important;
+  opacity: 1 !important;
+  mix-blend-mode: normal !important;
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none !important;
+  border: none !important;
+}
 
 /*
  * Pink Glassmorphism — pinksnow / pink-snow
