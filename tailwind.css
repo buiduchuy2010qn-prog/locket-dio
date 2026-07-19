@@ -86,6 +86,345 @@
   --radius-box: 1.25rem;
 }
 
+/* ═══════════════════════════════════════════
+   Theme: Hồng Sakura Glass (pink-sakura-glass)
+   Kính hồng sakura — palette + glass chrome
+   ═══════════════════════════════════════════ */
+@plugin "daisyui/theme" {
+  name: "pink-sakura-glass";
+  default: false;
+  prefersdark: false;
+  color-scheme: light;
+
+  --color-base-100: #fff7fb;
+  --color-base-200: #ffecf3;
+  --color-base-300: #ffd6e7;
+  --color-base-content: #40152b;
+
+  --color-primary: #ff4f9a;
+  --color-primary-content: #ffffff;
+
+  --color-secondary: #ff85bd;
+  --color-secondary-content: #40152b;
+
+  --color-accent: #c86bfa;
+  --color-accent-content: #ffffff;
+
+  --color-neutral: #40152b;
+  --color-neutral-content: #fff7fb;
+
+  --color-info: oklch(75% 0.1 230);
+  --color-info-content: oklch(25% 0.04 230);
+  --color-success: oklch(72% 0.14 155);
+  --color-success-content: oklch(20% 0.04 155);
+  --color-warning: oklch(85% 0.12 85);
+  --color-warning-content: oklch(30% 0.05 85);
+  --color-error: oklch(65% 0.2 25);
+  --color-error-content: oklch(98% 0.01 25);
+
+  --radius-selector: 1rem;
+  --radius-field: 0.75rem;
+  --radius-box: 1.25rem;
+}
+
+/*
+ * Hồng Sakura Glass — pink-sakura-glass
+ * Only color / background / border / shadow / opacity / backdrop-filter.
+ * Do not change layout geometry.
+ */
+html[data-theme="pink-sakura-glass"] {
+  color-scheme: light;
+
+  --sakura-bg-start: #fff7fb;
+  --sakura-bg-end: #ffe4f1;
+  --sakura-pink: #ff4f9a;
+  --sakura-pink-soft: #ff85bd;
+  --sakura-purple: #c86bfa;
+  --sakura-glass: rgba(255, 255, 255, 0.58);
+  --sakura-glass-border: rgba(255, 255, 255, 0.78);
+  --sakura-glass-shadow: 0 12px 32px rgba(255, 79, 154, 0.18);
+  --sakura-text: #40152b;
+  --sakura-text-secondary: #7f4a66;
+
+  --page-bg: var(--sakura-bg-start);
+  --surface: var(--sakura-glass);
+  --surface-strong: rgba(255, 255, 255, 0.72);
+  --text-primary: var(--sakura-text);
+  --text-secondary: var(--sakura-text-secondary);
+  --border-soft: var(--sakura-glass-border);
+  --accent: var(--sakura-pink);
+  --accent-contrast: #ffffff;
+  --shadow-pink: var(--sakura-glass-shadow);
+
+  --color-base-content: var(--sakura-text);
+  --color-primary: var(--sakura-pink);
+  --color-primary-content: #ffffff;
+}
+
+html[data-theme="pink-sakura-glass"],
+html[data-theme="pink-sakura-glass"] body {
+  min-height: 100%;
+  color: var(--sakura-text);
+  background:
+    radial-gradient(
+      50% 40% at 10% 15%,
+      color-mix(in srgb, var(--sakura-pink-soft) 22%, transparent),
+      transparent 65%
+    ),
+    radial-gradient(
+      45% 38% at 90% 80%,
+      color-mix(in srgb, var(--sakura-purple) 16%, transparent),
+      transparent 68%
+    ),
+    linear-gradient(
+      135deg,
+      var(--sakura-bg-start) 0%,
+      var(--sakura-bg-end) 100%
+    ) !important;
+  background-attachment: fixed;
+}
+
+html[data-theme="pink-sakura-glass"] body:has([data-locket-camera]) {
+  background:
+    radial-gradient(
+      48% 38% at 12% 14%,
+      color-mix(in srgb, var(--sakura-pink-soft) 18%, transparent),
+      transparent 62%
+    ),
+    radial-gradient(
+      42% 36% at 88% 82%,
+      color-mix(in srgb, var(--sakura-purple) 12%, transparent),
+      transparent 65%
+    ),
+    linear-gradient(
+      135deg,
+      var(--sakura-bg-start) 0%,
+      var(--sakura-bg-end) 100%
+    ) !important;
+  background-attachment: scroll !important;
+}
+
+html[data-theme="pink-sakura-glass"] .pinkSnowSurface,
+html[data-theme="pink-sakura-glass"] .cameraControlPill,
+html[data-theme="pink-sakura-glass"] .cameraBottomNav,
+html[data-theme="pink-sakura-glass"] .historyChip {
+  background: var(--sakura-glass) !important;
+  border: 1px solid var(--sakura-glass-border) !important;
+  box-shadow: var(--sakura-glass-shadow) !important;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  color: var(--sakura-text) !important;
+}
+
+html[data-theme="pink-sakura-glass"] .cameraControlPill::before {
+  background: linear-gradient(
+    110deg,
+    rgba(255, 255, 255, 0.4),
+    transparent 38%,
+    transparent 68%,
+    rgba(255, 133, 189, 0.15)
+  ) !important;
+}
+
+html[data-theme="pink-sakura-glass"] .pillSideBtn,
+html[data-theme="pink-sakura-glass"] .cameraSideBtn {
+  background: transparent !important;
+  border-color: transparent !important;
+  color: var(--sakura-text) !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+html[data-theme="pink-sakura-glass"] .pillSideBtn svg,
+html[data-theme="pink-sakura-glass"] .cameraSideBtn svg {
+  color: var(--sakura-text) !important;
+  stroke: var(--sakura-text);
+}
+
+html[data-theme="pink-sakura-glass"] .pillSideBtn:active:not(:disabled),
+html[data-theme="pink-sakura-glass"] .cameraSideBtn:active:not(:disabled) {
+  color: var(--sakura-pink) !important;
+}
+html[data-theme="pink-sakura-glass"] .pillSideBtn:active:not(:disabled) svg {
+  color: var(--sakura-pink) !important;
+  stroke: var(--sakura-pink);
+}
+
+html[data-theme="pink-sakura-glass"] .pillSideBtn:disabled {
+  opacity: 0.42;
+}
+
+html[data-theme="pink-sakura-glass"] header button.w-11,
+html[data-theme="pink-sakura-glass"] header .w-11.h-11.rounded-full,
+html[data-theme="pink-sakura-glass"] [data-header-profile="true"] > div.absolute,
+html[data-theme="pink-sakura-glass"] [data-header-chat="true"],
+html[data-theme="pink-sakura-glass"] [data-header-menu="true"],
+html[data-theme="pink-sakura-glass"] button.w-11.h-11 {
+  background: var(--sakura-glass) !important;
+  border: 1px solid var(--sakura-glass-border) !important;
+  box-shadow: var(--sakura-glass-shadow) !important;
+  backdrop-filter: blur(14px) !important;
+  -webkit-backdrop-filter: blur(14px) !important;
+  color: var(--sakura-text) !important;
+}
+
+html[data-theme="pink-sakura-glass"] [data-friends-pill="true"],
+html[data-theme="pink-sakura-glass"] header button.absolute.rounded-3xl {
+  background: var(--sakura-glass) !important;
+  border: 1px solid var(--sakura-glass-border) !important;
+  box-shadow: var(--sakura-glass-shadow) !important;
+  backdrop-filter: blur(14px) !important;
+  -webkit-backdrop-filter: blur(14px) !important;
+  color: var(--sakura-text) !important;
+}
+
+html[data-theme="pink-sakura-glass"] header .bg-base-300\/70.rounded-full.absolute,
+html[data-theme="pink-sakura-glass"] .bg-base-300\/70.backdrop-blur-\[4px\] {
+  background: var(--sakura-glass) !important;
+  border: 1px solid var(--sakura-glass-border) !important;
+  box-shadow: 0 8px 24px rgba(255, 79, 154, 0.14) !important;
+  backdrop-filter: blur(14px) !important;
+  -webkit-backdrop-filter: blur(14px) !important;
+}
+
+html[data-theme="pink-sakura-glass"] .border-camera-custome,
+html[data-theme="pink-sakura-glass"] .cameraShutterRing {
+  color: var(--sakura-pink) !important;
+  box-shadow: 0 0 0 5px var(--sakura-pink) !important;
+}
+
+html[data-theme="pink-sakura-glass"] .cameraShutterCore,
+html[data-theme="pink-sakura-glass"] button[aria-label="Chụp ảnh"] .bg-white {
+  background: #ffffff !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.95);
+}
+
+html[data-theme="pink-sakura-glass"] [data-zoom-slider] .bg-white\/35 {
+  background-color: rgba(255, 133, 189, 0.35) !important;
+}
+html[data-theme="pink-sakura-glass"] [data-zoom-slider] .bg-white\/90 {
+  background-color: var(--sakura-pink) !important;
+}
+html[data-theme="pink-sakura-glass"] [data-zoom-slider] .rounded-full.bg-white {
+  background: #ffffff !important;
+  border: 1px solid var(--sakura-glass-border) !important;
+  box-shadow: 0 4px 12px rgba(255, 79, 154, 0.14) !important;
+}
+
+html[data-theme="pink-sakura-glass"] [data-zoom-badge="true"] > div {
+  background: var(--sakura-glass) !important;
+  border: 1px solid var(--sakura-glass-border) !important;
+  color: var(--sakura-text) !important;
+  box-shadow: 0 4px 16px rgba(255, 79, 154, 0.14) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+}
+
+html[data-theme="pink-sakura-glass"] .cameraBottomNavBtn {
+  color: var(--sakura-text-secondary) !important;
+}
+html[data-theme="pink-sakura-glass"] .cameraBottomNavBtn.is-active,
+html[data-theme="pink-sakura-glass"] .glassButtonActive {
+  background: color-mix(in srgb, var(--sakura-pink) 18%, transparent) !important;
+  border: 1px solid color-mix(in srgb, var(--sakura-pink) 35%, transparent) !important;
+  color: var(--sakura-pink) !important;
+  box-shadow: none !important;
+}
+
+html[data-theme="pink-sakura-glass"] .menuDrawer,
+html[data-theme="pink-sakura-glass"] .fixed.z-60.top-0.right-0.bg-base-100,
+html[data-theme="pink-sakura-glass"] .bg-base-100.flex.flex-col {
+  background: rgba(255, 247, 251, 0.78) !important;
+  border-color: var(--sakura-glass-border) !important;
+  box-shadow: -8px 0 32px rgba(255, 79, 154, 0.14) !important;
+  backdrop-filter: blur(14px) !important;
+  -webkit-backdrop-filter: blur(14px) !important;
+  color: var(--sakura-text) !important;
+}
+
+html[data-theme="pink-sakura-glass"] .menuBackdrop,
+html[data-theme="pink-sakura-glass"] .fixed.inset-0.bg-base-100\/10 {
+  background: rgba(64, 21, 43, 0.12) !important;
+  backdrop-filter: blur(2px) !important;
+  -webkit-backdrop-filter: blur(2px) !important;
+}
+
+html[data-theme="pink-sakura-glass"] .menu a.bg-base-300,
+html[data-theme="pink-sakura-glass"] .menu a[aria-current="page"] {
+  background: color-mix(in srgb, var(--sakura-pink) 14%, transparent) !important;
+  color: var(--sakura-pink) !important;
+}
+
+html[data-theme="pink-sakura-glass"] .modal-box,
+html[data-theme="pink-sakura-glass"] [role="dialog"]:not([data-draft-library]),
+html[data-theme="pink-sakura-glass"] .bg-base-100:not(.draft-library-root) {
+  background: rgba(255, 247, 251, 0.82) !important;
+  border: 1px solid var(--sakura-glass-border) !important;
+  box-shadow: var(--sakura-glass-shadow) !important;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  color: var(--sakura-text);
+}
+
+html[data-theme="pink-sakura-glass"] .draft-library-root,
+html[data-theme="pink-sakura-glass"] .draft-library-root[role="dialog"] {
+  background: #fff7fb !important;
+  background-color: #fff7fb !important;
+  border: none !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  opacity: 1 !important;
+  isolation: isolate;
+  z-index: 320 !important;
+}
+
+html[data-theme="pink-sakura-glass"] .text-base-content {
+  color: var(--sakura-text);
+}
+
+html[data-theme="pink-sakura-glass"] .btn-primary {
+  background: var(--sakura-pink) !important;
+  border-color: var(--sakura-pink) !important;
+  color: #ffffff !important;
+}
+
+html[data-theme="pink-sakura-glass"] .cameraPreview,
+html[data-theme="pink-sakura-glass"] .cameraPreview video,
+html[data-theme="pink-sakura-glass"] [data-locket-camera] video,
+html[data-theme="pink-sakura-glass"] video.object-cover {
+  filter: none !important;
+  opacity: 1 !important;
+  mix-blend-mode: normal !important;
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none !important;
+  border: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-theme="pink-sakura-glass"] .pillSideBtn,
+  [data-theme="pink-sakura-glass"] .cameraSideBtn,
+  [data-theme="pink-sakura-glass"] .cameraBottomNavBtn {
+    transition: none !important;
+  }
+}
+
+@supports not (
+  (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))
+) {
+  [data-theme="pink-sakura-glass"] .cameraControlPill,
+  [data-theme="pink-sakura-glass"] .cameraBottomNav,
+  [data-theme="pink-sakura-glass"] .bg-base-100,
+  [data-theme="pink-sakura-glass"] .modal-box {
+    background: rgba(255, 247, 251, 0.94) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+}
+
 /*
  * Pink Glassmorphism — pinksnow / pink-snow
  * Only color / background / border / shadow / opacity / backdrop-filter.

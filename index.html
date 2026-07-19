@@ -89,15 +89,19 @@
               ? legacy : "light";
           } else if (huy === "pink-snow" || huy === "pinksnow") theme = "pinksnow";
           else if (huy === "glass") theme = "glass";
+          else if (huy === "pink-sakura-glass") theme = "pink-sakura-glass";
           else if (legacy) theme = legacy === "pink-snow" ? "pinksnow" : legacy;
           document.documentElement.setAttribute("data-theme", theme);
-          document.documentElement.classList.remove("theme-pink-snow", "theme-glass");
+          document.documentElement.classList.remove("theme-pink-snow", "theme-glass", "theme-pink-sakura-glass");
           if (theme === "pinksnow") {
             document.documentElement.dataset.huyTheme = "pink-snow";
             document.documentElement.classList.add("theme-pink-snow");
           } else if (theme === "glass") {
             document.documentElement.dataset.huyTheme = "glass";
             document.documentElement.classList.add("theme-glass");
+          } else if (theme === "pink-sakura-glass") {
+            document.documentElement.dataset.huyTheme = "pink-sakura-glass";
+            document.documentElement.classList.add("theme-pink-sakura-glass");
           } else {
             document.documentElement.dataset.huyTheme = "default";
           }
@@ -108,6 +112,7 @@
           if (meta) {
             if (theme === "pinksnow") meta.setAttribute("content", "#ff5fa8");
             else if (theme === "glass") meta.setAttribute("content", "#edf2f8");
+            else if (theme === "pink-sakura-glass") meta.setAttribute("content", "#ff4f9a");
           }
         } catch (e) {}
       })();
