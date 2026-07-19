@@ -66,12 +66,12 @@
       gtag('config', 'G-7596Z1M8BB');
     </script>
     
-    <script type="module" crossorigin src="/assets/index-7bp1XUph.js"></script>
+    <script type="module" crossorigin src="/assets/index-DGvNXktY.js"></script>
     <link rel="modulepreload" crossorigin href="/assets/vendor-B9JIdPzu.js">
     <link rel="modulepreload" crossorigin href="/assets/i18n-mAZFdGbT.js">
     <link rel="modulepreload" crossorigin href="/assets/react-Ka6xwUMR.js">
     <link rel="modulepreload" crossorigin href="/assets/icons-FJ7Z_HHS.js">
-    <link rel="stylesheet" crossorigin href="/assets/index-DNPRjPEf.css">
+    <link rel="stylesheet" crossorigin href="/assets/index-FhDb8P9n.css">
   <link rel="manifest" href="/manifest.webmanifest"></head>
   <body>
     <!-- Apply theme before React to avoid FOUC / color flash -->
@@ -88,15 +88,23 @@
               ? legacy : "light";
           } else if (huy === "pink-snow" || huy === "pinksnow") theme = "pinksnow";
           else if (huy === "glass") theme = "glass";
+          else if (huy === "pink-sakura-glass") theme = "pink-sakura-glass";
+          else if (huy === "pink-lite") theme = "pink-lite";
           else if (legacy) theme = legacy === "pink-snow" ? "pinksnow" : legacy;
           document.documentElement.setAttribute("data-theme", theme);
-          document.documentElement.classList.remove("theme-pink-snow", "theme-glass");
+          document.documentElement.classList.remove("theme-pink-snow", "theme-glass", "theme-pink-sakura-glass");
           if (theme === "pinksnow") {
             document.documentElement.dataset.huyTheme = "pink-snow";
             document.documentElement.classList.add("theme-pink-snow");
           } else if (theme === "glass") {
             document.documentElement.dataset.huyTheme = "glass";
             document.documentElement.classList.add("theme-glass");
+          } else if (theme === "pink-sakura-glass") {
+            document.documentElement.dataset.huyTheme = "pink-sakura-glass";
+            document.documentElement.classList.add("theme-pink-sakura-glass");
+          } else if (theme === "pink-lite") {
+            document.documentElement.dataset.huyTheme = "pink-lite";
+            document.documentElement.classList.add("theme-pink-lite");
           } else {
             document.documentElement.dataset.huyTheme = "default";
           }
@@ -107,6 +115,8 @@
           if (meta) {
             if (theme === "pinksnow") meta.setAttribute("content", "#ff5fa8");
             else if (theme === "glass") meta.setAttribute("content", "#edf2f8");
+            else if (theme === "pink-sakura-glass") meta.setAttribute("content", "#ff4f9a");
+            else if (theme === "pink-lite") meta.setAttribute("content", "#ec407a");
           }
         } catch (e) {}
       })();
