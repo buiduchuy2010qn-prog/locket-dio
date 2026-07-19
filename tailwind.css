@@ -1330,3 +1330,240 @@ html[data-theme="glass"] video.object-cover {
     -webkit-backdrop-filter: none !important;
   }
 }
+
+/* ═══════════════════════════════════════════
+   Theme: Hồng Tuyết Rơi AI ✨ (pink-snow-ai)
+   Dark Mode Premium - Hardware Accelerated Snow
+   ═══════════════════════════════════════════ */
+@plugin "daisyui/theme" {
+  name: "pink-snow-ai";
+  default: false;
+  prefersdark: true;
+  color-scheme: dark;
+
+  --color-base-100: #1f0b2e;
+}
+
+/* Base definitions for pink-snow-ai */
+html[data-theme="pink-snow-ai"] {
+  color-scheme: dark;
+
+  --pink-ai-accent: #ff3385;
+  --pink-ai-glow: rgba(255, 51, 133, 0.6);
+  --pink-ai-surface: rgba(255, 255, 255, 0.08);
+  --pink-ai-border: rgba(255, 105, 180, 0.2);
+  --pink-ai-shadow: 0 8px 32px rgba(31, 11, 46, 0.8);
+  --pink-ai-text: #ffe6f0;
+  --pink-ai-text-sec: rgba(255, 230, 240, 0.7);
+}
+
+html[data-theme="pink-snow-ai"],
+html[data-theme="pink-snow-ai"] body {
+  min-height: 100%;
+  color: var(--pink-ai-text);
+  background: linear-gradient(135deg, #1f0b2e 0%, #3a1c4a 50%, #1f0b2e 100%) !important;
+  background-attachment: fixed;
+}
+
+/* HARDWARE ACCELERATED SNOWFALL (Pure CSS, 0 JS) 
+   Sử dụng translate3d trên 2 layer rơi chéo nhau */
+html[data-theme="pink-snow-ai"] body::before,
+html[data-theme="pink-snow-ai"] body::after {
+  content: "";
+  position: fixed;
+  top: -400px;
+  left: -400px;
+  right: -400px;
+  bottom: -400px;
+  z-index: 0;
+  pointer-events: none;
+  background-repeat: repeat;
+  will-change: transform;
+}
+
+/* Layer tuyết 1 (nhanh, bão tuyết hồng rực rỡ) */
+html[data-theme="pink-snow-ai"] body::before {
+  background-image: 
+    radial-gradient(4px 4px at 50px 100px, rgba(255, 255, 255, 0.9) 50%, transparent),
+    radial-gradient(3px 3px at 200px 50px, rgba(255, 105, 180, 0.9) 50%, transparent),
+    radial-gradient(5px 5px at 300px 250px, rgba(255, 255, 255, 0.7) 50%, transparent),
+    radial-gradient(6px 6px at 120px 320px, rgba(255, 51, 133, 0.8) 50%, transparent),
+    radial-gradient(2px 2px at 380px 150px, rgba(255, 230, 240, 0.6) 50%, transparent);
+  background-size: 400px 400px;
+  animation: snowfall-ai-layer1 16s linear infinite;
+}
+
+/* Layer tuyết 2 (chậm, nền sáng lấp lánh) */
+html[data-theme="pink-snow-ai"] body::after {
+  background-image: 
+    radial-gradient(3px 3px at 80px 120px, rgba(255, 255, 255, 0.6) 50%, transparent),
+    radial-gradient(5px 5px at 250px 300px, rgba(255, 182, 193, 0.7) 50%, transparent),
+    radial-gradient(2px 2px at 100px 50px, rgba(255, 255, 255, 0.4) 50%, transparent),
+    radial-gradient(4px 4px at 350px 180px, rgba(255, 105, 180, 0.5) 50%, transparent);
+  background-size: 350px 350px;
+  animation: snowfall-ai-layer2 22s linear infinite;
+  opacity: 0.8;
+}
+
+@keyframes snowfall-ai-layer1 {
+  0% { transform: translate3d(0, 0, 0); }
+  50% { transform: translate3d(100px, 200px, 0); }
+  100% { transform: translate3d(200px, 400px, 0); }
+}
+
+@keyframes snowfall-ai-layer2 {
+  0% { transform: translate3d(0, 0, 0); }
+  50% { transform: translate3d(-80px, 175px, 0); }
+  100% { transform: translate3d(-160px, 350px, 0); }
+}
+
+/* ═════ GLASSMORPHISM BỀ MẶT TỐI (CHỈ CHE PHẦN UI) ═════ */
+html[data-theme="pink-snow-ai"] .pinkSnowSurface,
+html[data-theme="pink-snow-ai"] .cameraControlPill,
+html[data-theme="pink-snow-ai"] .cameraBottomNav,
+html[data-theme="pink-snow-ai"] .historyChip,
+html[data-theme="pink-snow-ai"] header button.w-11,
+html[data-theme="pink-snow-ai"] header .w-11.h-11.rounded-full,
+html[data-theme="pink-snow-ai"] [data-header-profile="true"] > div.absolute,
+html[data-theme="pink-snow-ai"] [data-header-chat="true"],
+html[data-theme="pink-snow-ai"] [data-header-menu="true"],
+html[data-theme="pink-snow-ai"] button.w-11.h-11,
+html[data-theme="pink-snow-ai"] [data-friends-pill="true"],
+html[data-theme="pink-snow-ai"] header button.absolute.rounded-3xl,
+html[data-theme="pink-snow-ai"] header .bg-base-300\/70.rounded-full.absolute,
+html[data-theme="pink-snow-ai"] .bg-base-300\/70.backdrop-blur-\[4px\],
+html[data-theme="pink-snow-ai"] [data-zoom-badge="true"] > div {
+  background: var(--pink-ai-surface) !important;
+  border: 1px solid var(--pink-ai-border) !important;
+  box-shadow: var(--pink-ai-shadow) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+  color: var(--pink-ai-text) !important;
+}
+
+/* Tăng cường bóng mờ của menu sidebar / popup */
+html[data-theme="pink-snow-ai"] .menuDrawer,
+html[data-theme="pink-snow-ai"] .fixed.z-60.top-0.right-0.bg-base-100,
+html[data-theme="pink-snow-ai"] .bg-base-100.flex.flex-col,
+html[data-theme="pink-snow-ai"] .modal-box,
+html[data-theme="pink-snow-ai"] [role="dialog"]:not([data-draft-library]),
+html[data-theme="pink-snow-ai"] .bg-base-100:not(.draft-library-root) {
+  background: rgba(31, 11, 46, 0.6) !important;
+  border: 1px solid var(--pink-ai-border) !important;
+  box-shadow: var(--pink-ai-shadow), 0 0 40px rgba(255, 51, 133, 0.15) !important;
+  backdrop-filter: blur(20px) !important;
+  -webkit-backdrop-filter: blur(20px) !important;
+  color: var(--pink-ai-text) !important;
+}
+
+html[data-theme="pink-snow-ai"] .menuBackdrop,
+html[data-theme="pink-snow-ai"] .fixed.inset-0.bg-base-100\/10 {
+  background: rgba(10, 2, 18, 0.4) !important;
+  backdrop-filter: blur(6px) !important;
+  -webkit-backdrop-filter: blur(6px) !important;
+}
+
+/* Side icons (Flash/Lens/Timer) */
+html[data-theme="pink-snow-ai"] .pillSideBtn,
+html[data-theme="pink-snow-ai"] .cameraSideBtn {
+  background: transparent !important;
+  border-color: transparent !important;
+  color: var(--pink-ai-text) !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+}
+html[data-theme="pink-snow-ai"] .pillSideBtn svg,
+html[data-theme="pink-snow-ai"] .cameraSideBtn svg {
+  color: var(--pink-ai-text) !important;
+  stroke: var(--pink-ai-text);
+  filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));
+}
+html[data-theme="pink-snow-ai"] .pillSideBtn:active:not(:disabled),
+html[data-theme="pink-snow-ai"] .cameraSideBtn:active:not(:disabled) {
+  color: var(--pink-ai-accent) !important;
+}
+html[data-theme="pink-snow-ai"] .pillSideBtn:active:not(:disabled) svg {
+  color: var(--pink-ai-accent) !important;
+  stroke: var(--pink-ai-accent);
+}
+html[data-theme="pink-snow-ai"] .pillSideBtn:disabled { opacity: 0.4; }
+
+/* Shutter ring (Nút chụp ảnh rực rỡ) */
+html[data-theme="pink-snow-ai"] .border-camera-custome,
+html[data-theme="pink-snow-ai"] .cameraShutterRing {
+  color: var(--pink-ai-accent) !important;
+  box-shadow: 0 0 0 4px var(--pink-ai-accent), 0 0 20px var(--pink-ai-glow) !important;
+}
+html[data-theme="pink-snow-ai"] .cameraShutterCore,
+html[data-theme="pink-snow-ai"] button[aria-label="Chụp ảnh"] .bg-white {
+  background: #ffffff !important;
+  box-shadow: inset 0 2px 8px rgba(255, 51, 133, 0.4);
+}
+
+/* Zoom rail */
+html[data-theme="pink-snow-ai"] [data-zoom-slider] .bg-white\/35 {
+  background-color: rgba(255, 51, 133, 0.2) !important;
+}
+html[data-theme="pink-snow-ai"] [data-zoom-slider] .bg-white\/90 {
+  background-color: var(--pink-ai-accent) !important;
+  box-shadow: 0 0 10px var(--pink-ai-glow) !important;
+}
+html[data-theme="pink-snow-ai"] [data-zoom-slider] .rounded-full.bg-white {
+  background: #ffffff !important;
+  border: 1px solid var(--pink-ai-accent) !important;
+  box-shadow: 0 0 12px var(--pink-ai-glow) !important;
+}
+
+/* Bottom nav */
+html[data-theme="pink-snow-ai"] .cameraBottomNavBtn {
+  color: var(--pink-ai-text-sec) !important;
+}
+html[data-theme="pink-snow-ai"] .cameraBottomNavBtn.is-active,
+html[data-theme="pink-snow-ai"] .glassButtonActive {
+  background: color-mix(in srgb, var(--pink-ai-accent) 20%, transparent) !important;
+  border: 1px solid color-mix(in srgb, var(--pink-ai-accent) 40%, transparent) !important;
+  color: var(--pink-ai-text) !important;
+  box-shadow: 0 0 15px rgba(255, 51, 133, 0.3) !important;
+}
+
+/* Menu active state */
+html[data-theme="pink-snow-ai"] .menu a.bg-base-300,
+html[data-theme="pink-snow-ai"] .menu a[aria-current="page"] {
+  background: color-mix(in srgb, var(--pink-ai-accent) 25%, transparent) !important;
+  color: #ffffff !important;
+  border-left: 3px solid var(--pink-ai-accent);
+}
+
+/* Draft library - Nền cứng vì thư viện ảnh không cần tuyết đè lên */
+html[data-theme="pink-snow-ai"] .draft-library-root,
+html[data-theme="pink-snow-ai"] .draft-library-root[role="dialog"] {
+  background: #1f0b2e !important;
+  background-color: #1f0b2e !important;
+  border: none !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  z-index: 320 !important;
+}
+
+html[data-theme="pink-snow-ai"] .text-base-content {
+  color: var(--pink-ai-text);
+}
+
+html[data-theme="pink-snow-ai"] .btn-primary {
+  background: var(--pink-ai-accent) !important;
+  border-color: var(--pink-ai-accent) !important;
+  color: #ffffff !important;
+  box-shadow: 0 4px 15px var(--pink-ai-glow) !important;
+}
+
+/* Live Camera luôn sắc nét, không bị tint */
+html[data-theme="pink-snow-ai"] .cameraPreview,
+html[data-theme="pink-snow-ai"] .cameraPreview video,
+html[data-theme="pink-snow-ai"] [data-locket-camera] video,
+html[data-theme="pink-snow-ai"] video.object-cover {
+  filter: none !important;
+  opacity: 1 !important;
+  mix-blend-mode: normal !important;
+  background: transparent !important;
+  backdrop-filter: none !important;
+}

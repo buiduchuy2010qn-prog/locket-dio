@@ -84,16 +84,26 @@
           var huy = localStorage.getItem(KEY);
           var legacy = localStorage.getItem("theme");
           var theme = "pinksnow";
+          
           if (huy === "default") {
-            theme = legacy && legacy !== "pinksnow" && legacy !== "pink-snow" && legacy !== "glass"
-              ? legacy : "light";
-          } else if (huy === "pink-snow" || huy === "pinksnow") theme = "pinksnow";
-          else if (huy === "glass") theme = "glass";
-          else if (huy === "pink-sakura-glass") theme = "pink-sakura-glass";
-          else if (huy === "pink-lite") theme = "pink-lite";
-          else if (legacy) theme = legacy === "pink-snow" ? "pinksnow" : legacy;
+            theme = legacy && legacy !== "pinksnow" && legacy !== "pink-snow" && legacy !== "glass" ? legacy : "light";
+          } else if (huy === "pink-snow" || huy === "pinksnow") {
+            theme = "pinksnow";
+          } else if (huy === "glass") {
+            theme = "glass";
+          } else if (huy === "pink-sakura-glass") {
+            theme = "pink-sakura-glass";
+          } else if (huy === "pink-lite") {
+            theme = "pink-lite";
+          } else if (huy === "pink-snow-ai") {
+            theme = "pink-snow-ai";
+          } else if (legacy) {
+            theme = legacy === "pink-snow" ? "pinksnow" : legacy;
+          }
+          
           document.documentElement.setAttribute("data-theme", theme);
-          document.documentElement.classList.remove("theme-pink-snow", "theme-glass", "theme-pink-sakura-glass");
+          document.documentElement.classList.remove("theme-pink-snow", "theme-glass", "theme-pink-sakura-glass", "theme-pink-lite", "theme-pink-snow-ai");
+          
           if (theme === "pinksnow") {
             document.documentElement.dataset.huyTheme = "pink-snow";
             document.documentElement.classList.add("theme-pink-snow");
@@ -106,18 +116,24 @@
           } else if (theme === "pink-lite") {
             document.documentElement.dataset.huyTheme = "pink-lite";
             document.documentElement.classList.add("theme-pink-lite");
+          } else if (theme === "pink-snow-ai") {
+            document.documentElement.dataset.huyTheme = "pink-snow-ai";
+            document.documentElement.classList.add("theme-pink-snow-ai");
           } else {
             document.documentElement.dataset.huyTheme = "default";
           }
+          
           var snow = localStorage.getItem(SNOW) || "light";
           if (snow !== "off" && snow !== "light" && snow !== "normal") snow = "light";
           document.documentElement.dataset.snowIntensity = snow;
+          
           var meta = document.querySelector('meta[name="theme-color"]');
           if (meta) {
             if (theme === "pinksnow") meta.setAttribute("content", "#ff5fa8");
             else if (theme === "glass") meta.setAttribute("content", "#edf2f8");
             else if (theme === "pink-sakura-glass") meta.setAttribute("content", "#ff4f9a");
             else if (theme === "pink-lite") meta.setAttribute("content", "#ec407a");
+            else if (theme === "pink-snow-ai") meta.setAttribute("content", "#ff3385");
           }
         } catch (e) {}
       })();
