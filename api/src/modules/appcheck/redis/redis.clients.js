@@ -4,44 +4,18 @@ const {
   logError,
   logWarning,
 } = require("../../../utils/logEventUtils");
+const { createMemoryRedisFallback } = require("./memoryRedisFallback");
 
 const appCheckConfig = require("../config");
 
 const redisUrl = appCheckConfig.redisUrl;
 
-// fallback redis client
-const createFallbackRedis = () => ({
-  isFallback: true,
-
-  connect: async () => {},
-
-  publish: async () => 0,
-
-  subscribe: async () => {},
-
-  unsubscribe: async () => {},
-
-  set: async () => "OK",
-
-  get: async () => null,
-
-  del: async () => 0,
-
-  exists: async () => 0,
-
-  expire: async () => 0,
-
-  quit: async () => {},
-
-  on: () => {},
-});
-
 let redisAppCheck;
 
 if (!redisUrl) {
-  logWarning("⚠️ [Redis AppCheck]", "Redis URL missing, using fallback client");
+  logWarning("⚠️ [Redis AppCheck]", "Redis URL missing, using in-memory fallback client");
 
-  redisAppCheck = createFallbackRedis();
+  redisAppCheck = createMemoryRedisFallback();
 } else {
   redisAppCheck = createClient({
     url: redisUrl,
@@ -59,7 +33,7 @@ if (!redisUrl) {
     } catch (err) {
       logError("[Redis AppCheck Connect Error]", err);
 
-      redisAppCheck = createFallbackRedis();
+      redisAppCheck = createMemoryRedisFallback();
     }
   })();
 }
