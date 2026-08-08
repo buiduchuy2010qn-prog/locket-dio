@@ -66,13 +66,27 @@ const generateAppCheckToken = async (deviceToken) => {
 // ======================
 
 const getOrCreateAppCheckToken = async () => {
-  // 1️⃣ lấy device token từ redis
+  // Legacy-compatible path: older Locket requests could use a directly supplied
+  // App Check token. Keep supporting it without committing any live token.
+  const configuredToken = String(process.env.LOCKET_APP_CHECK_TOKEN || "").trim();
+  if (configuredToken) {
+    logInfo("appCheckService", "⚡ Using configured AppCheck token");
+    return configuredToken;
+  }
+
+  // 1️⃣ lấy device token từ cache/persistent fallback
   const deviceToken = await redisStore.getDeviceToken();
 
+  // The Celeb background worker can still try sendFollowRequest without an
+  // App Check header. Let Locket decide whether the endpoint currently requires
+  // App Check instead of failing locally before the real request is attempted.
+  // HTTP 401/403 from Locket is then captured by the auto-request diagnostics.
   if (!deviceToken) {
-    const error = new Error("Device token not found");
-    error.code = "APPCHECK_DEVICE_TOKEN_MISSING";
-    throw error;
+    logInfo(
+      "appCheckService",
+      "ℹ️ Device token unavailable; continuing without AppCheck token",
+    );
+    return null;
   }
 
   // 2️⃣ check cached token
