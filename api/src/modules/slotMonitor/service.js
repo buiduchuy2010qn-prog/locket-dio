@@ -12,6 +12,11 @@ const {
   decodeFirebaseUid,
   extractCelebritySnapshot,
 } = require("./core");
+const {
+  MAX_AUTO_REQUEST_ATTEMPTS,
+  getAutoRequestRetryDelayMs,
+  normalizeAutoRequestFailure,
+} = require("./autoRequestPolicy");
 
 function readIntervalMs(value, fallback) {
   const parsed = Number(value);
@@ -267,72 +272,100 @@ async function sendRealCelebrityRequest(userUid, idToken, watch) {
     };
   }
 
-  try {
-    // Dùng chính App Check + API sendFollowRequest của Locket giống nút kết bạn Celeb thật.
-    // Không tạo dữ liệu local giả và không đánh dấu thành công nếu upstream không xác nhận.
-    const appCheckToken = await appCheckServices.getOrCreateAppCheckToken();
-    const result = await requestServices.SendAddCelebrity(
-      idToken,
-      watch.celeb_uid,
-      appCheckToken,
-    );
+  let lastFailure = null;
 
-    if (result?.success) {
-      await store.markAutoRequestResult(userUid, watch.celeb_uid, {
-        status: "SENT",
+  for (let attempt = 1; attempt <= MAX_AUTO_REQUEST_ATTEMPTS; attempt += 1) {
+    try {
+      // Dùng chính App Check + API sendFollowRequest của Locket giống nút kết bạn Celeb thật.
+      // Chỉ retry lỗi tạm thời; lỗi auth/logic không được spam upstream.
+      const appCheckToken = await appCheckServices.getOrCreateAppCheckToken();
+      const result = await requestServices.SendAddCelebrity(
+        idToken,
+        watch.celeb_uid,
+        appCheckToken,
+      );
+
+      if (result?.success) {
+        await store.markAutoRequestResult(userUid, watch.celeb_uid, {
+          status: "SENT",
+        });
+        console.log("[slot-monitor] real celebrity request sent", {
+          userUid,
+          username: watch.username,
+          attempt,
+        });
+        return {
+          enabled: true,
+          attempted: true,
+          success: true,
+          code: null,
+          message: "Locket đã xác nhận yêu cầu Celeb.",
+          attempts: attempt,
+        };
+      }
+
+      lastFailure = normalizeAutoRequestFailure(result, {
+        defaultCode: "UPSTREAM_REJECTED",
+        defaultMessage: "Locket không chấp nhận yêu cầu Celeb.",
       });
-      console.log("[slot-monitor] real celebrity request sent", {
-        userUid,
-        username: watch.username,
-      });
-      return {
-        enabled: true,
-        attempted: true,
-        success: true,
-        code: null,
-        message: "Locket đã xác nhận yêu cầu Celeb.",
-      };
+    } catch (error) {
+      lastFailure = normalizeAutoRequestFailure(error);
     }
 
-    const code = result?.code || "UPSTREAM_REJECTED";
-    const message = result?.message || "Locket không chấp nhận yêu cầu Celeb.";
-    await store.markAutoRequestResult(userUid, watch.celeb_uid, {
-      status: "FAILED",
-      error: `${code}: ${message}`,
-    });
-    console.warn("[slot-monitor] real celebrity request rejected", {
-      userUid,
-      username: watch.username,
-      code,
-      status: result?.status || null,
-    });
-    return {
-      enabled: true,
-      attempted: true,
-      success: false,
-      code,
-      message,
-    };
-  } catch (error) {
-    const code = error?.code || "AUTO_CELEB_REQUEST_FAILED";
-    const message = error?.message || "Không thể gửi yêu cầu Celeb thật.";
-    await store.markAutoRequestResult(userUid, watch.celeb_uid, {
-      status: "FAILED",
-      error: `${code}: ${message}`,
-    }).catch(() => {});
-    console.warn("[slot-monitor] real celebrity request failed", {
+    console.warn("[slot-monitor] real celebrity request attempt failed", {
       userUid,
       username: watch?.username,
-      code,
+      attempt,
+      maxAttempts: MAX_AUTO_REQUEST_ATTEMPTS,
+      source: lastFailure.source,
+      status: lastFailure.status,
+      code: lastFailure.code,
+      message: lastFailure.message,
+      retryable: lastFailure.retryable,
     });
-    return {
-      enabled: true,
-      attempted: true,
-      success: false,
-      code,
-      message,
-    };
+
+    if (!lastFailure.retryable || attempt >= MAX_AUTO_REQUEST_ATTEMPTS) {
+      break;
+    }
+
+    const retryDelayMs = getAutoRequestRetryDelayMs(attempt, lastFailure.status);
+    console.log("[slot-monitor] retrying real celebrity request", {
+      userUid,
+      username: watch?.username,
+      nextAttempt: attempt + 1,
+      retryDelayMs,
+    });
+    await sleep(retryDelayMs);
   }
+
+  const finalFailure = lastFailure || normalizeAutoRequestFailure(null);
+  const statusSuffix = finalFailure.status ? ` [HTTP ${finalFailure.status}]` : "";
+  await store.markAutoRequestResult(userUid, watch.celeb_uid, {
+    status: "FAILED",
+    error: `${finalFailure.code}${statusSuffix}: ${finalFailure.message}`,
+  }).catch(() => {});
+
+  console.warn("[slot-monitor] real celebrity request failed", {
+    userUid,
+    username: watch?.username,
+    source: finalFailure.source,
+    status: finalFailure.status,
+    code: finalFailure.code,
+    message: finalFailure.message,
+    retryable: finalFailure.retryable,
+    attempts: MAX_AUTO_REQUEST_ATTEMPTS,
+  });
+
+  return {
+    enabled: true,
+    attempted: true,
+    success: false,
+    code: finalFailure.code,
+    message: finalFailure.message,
+    status: finalFailure.status,
+    retryable: finalFailure.retryable,
+    attempts: MAX_AUTO_REQUEST_ATTEMPTS,
+  };
 }
 
 async function checkOneWatch(userUid, idToken, watch, { notify = true } = {}) {

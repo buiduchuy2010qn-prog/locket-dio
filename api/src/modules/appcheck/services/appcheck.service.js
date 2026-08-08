@@ -12,17 +12,33 @@ const registerDeviceToken = async (deviceToken) => {
   await redisStore.saveDeviceToken(deviceToken);
 };
 
+function createAppCheckError(error) {
+  const apiError = error?.response?.data?.error;
+  const statusValue = Number(error?.response?.status);
+  const status = Number.isFinite(statusValue) && statusValue > 0 ? statusValue : null;
+  const message = apiError?.message || error?.message || "Generate AppCheck token failed";
+  const wrapped = new Error(message);
+
+  if (status === 429) wrapped.code = "APPCHECK_RATE_LIMITED";
+  else if (status && status >= 500) wrapped.code = "APPCHECK_UPSTREAM_ERROR";
+  else if (status === 401 || status === 403) wrapped.code = "APPCHECK_AUTH_FAILED";
+  else wrapped.code = error?.code || "APPCHECK_GENERATION_FAILED";
+
+  if (status) wrapped.status = status;
+  return wrapped;
+}
+
 // ======================
 // GENERATE TOKEN
 // ======================
 
 const generateAppCheckToken = async (deviceToken) => {
   try {
-    const url = `v1/projects/locket-4252a/apps/${deviceId}:exchangeDeviceCheckToken`;    
+    const url = `v1/projects/locket-4252a/apps/${deviceId}:exchangeDeviceCheckToken`;
     const body = {
       device_token: deviceToken.device_token,
       limited_use: deviceToken.limited_use || false,
-    };    
+    };
     const result = await instanceAppcheck.post(url, body);
 
     const { token, ttl } = result.data;
@@ -33,15 +49,15 @@ const generateAppCheckToken = async (deviceToken) => {
     };
   } catch (error) {
     const apiError = error.response?.data?.error;
+    const wrapped = createAppCheckError(error);
 
-    const message = apiError?.message || error.message;    
     logError(
       "appCheckService",
       "❌ Generate AppCheck token failed",
-      apiError || error.message,
+      apiError || wrapped.message,
     );
 
-    throw new Error(message);
+    throw wrapped;
   }
 };
 
@@ -54,7 +70,9 @@ const getOrCreateAppCheckToken = async () => {
   const deviceToken = await redisStore.getDeviceToken();
 
   if (!deviceToken) {
-    throw new Error("Device token not found");
+    const error = new Error("Device token not found");
+    error.code = "APPCHECK_DEVICE_TOKEN_MISSING";
+    throw error;
   }
 
   // 2️⃣ check cached token
